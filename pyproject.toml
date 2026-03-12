@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oasyce-claw-plugin-engine"
+version = "0.2.0"
+description = "Oasyce Claw Plugin Engine"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Proprietary"}
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[tool.setuptools]
+packages = [
+  "oasyce_plugin",
+  "oasyce_plugin.engines",
+  "oasyce_plugin.skills",
+  "oasyce_plugin.gui",
+  "oasyce_plugin.scripts",
+]
