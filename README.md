@@ -371,3 +371,21 @@ Proprietary - 保留所有权利
 [GitHub](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine) • [文档](#-api-参考) • [问题反馈](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues)
 
 </div>
+
+---
+
+## 🎁 Bonus: 交互式安装向导
+
+如果你不想手动配置，可以用**傻瓜式安装向导**：
+
+```bash
+python scripts/install_wizard.py
+```
+
+跟着提示回答几个问题，2 分钟自动完成所有配置！
+
+**适合**：
+- 不想看文档的人
+- 第一次接触命令行的人
+- 想要一键搞定的人
+
