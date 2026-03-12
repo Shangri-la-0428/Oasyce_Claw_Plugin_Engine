@@ -4,13 +4,14 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from .result import Result, err, ok
 from .schema import validate_metadata
 
-ENGINE_VERSION = "0.2.0"
+ENGINE_VERSION = "0.3.0"
 SCHEMA_VERSION = 1
 HASH_ALGO = "sha256"
 CHUNK_SIZE = 1024 * 1024
@@ -26,6 +27,97 @@ def _sha256_file(path: str) -> str:
         for chunk in iter(lambda: f.read(CHUNK_SIZE), b""):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+class PrivacyFilter:
+    """隐私过滤器：扫描后自动识别并过滤敏感文件，防止意外泄露"""
+    
+    # 默认敏感文件名模式（正则）
+    DEFAULT_SENSITIVE_PATTERNS = [
+        r".*身份证.*",
+        r".*银行卡.*",
+        r".*passport.*",
+        r".*credit.?card.*",
+        r".*social.?security.*",
+        r".*\.key$",
+        r".*\.pem$",
+        r".*private.*",
+        r".*secret.*",
+        r".*password.*",
+        r".*\.env$",
+    ]
+    
+    # 默认敏感路径前缀
+    DEFAULT_SENSITIVE_PATHS = [
+        "/etc/",
+        "/private/",
+        ".ssh/",
+        ".gnupg/",
+        "keychain/",
+        "credentials/",
+    ]
+    
+    @classmethod
+    def is_sensitive_file(cls, file_path: str, custom_patterns: Optional[List[str]] = None, custom_paths: Optional[List[str]] = None) -> Result[Dict[str, Any]]:
+        """检查文件是否敏感，返回是否阻止及原因"""
+        patterns = custom_patterns or cls.DEFAULT_SENSITIVE_PATTERNS
+        paths = custom_paths or cls.DEFAULT_SENSITIVE_PATHS
+        
+        # 检查路径前缀
+        for prefix in paths:
+            if prefix in file_path:
+                return ok({
+                    "is_sensitive": True,
+                    "reason": f"Path matches sensitive prefix: {prefix}",
+                    "sensitivity_type": "PATH_PREFIX",
+                    "matched_pattern": prefix,
+                })
+        
+        # 检查文件名模式
+        filename = os.path.basename(file_path)
+        for pattern in patterns:
+            if re.match(pattern, filename, re.IGNORECASE):
+                return ok({
+                    "is_sensitive": True,
+                    "reason": f"Filename matches sensitive pattern: {pattern}",
+                    "sensitivity_type": "FILENAME_PATTERN",
+                    "matched_pattern": pattern,
+                })
+        
+        return ok({
+            "is_sensitive": False,
+            "reason": "No sensitive patterns matched",
+            "sensitivity_type": None,
+            "matched_pattern": None,
+        })
+    
+    @classmethod
+    def filter_batch(cls, file_paths: List[str], custom_patterns: Optional[List[str]] = None, custom_paths: Optional[List[str]] = None) -> Result[Dict[str, List[str]]]:
+        """批量过滤文件列表，返回允许和阻止的文件列表"""
+        allowed: List[str] = []
+        blocked: List[str] = []
+        blocked_reasons: Dict[str, str] = {}
+        
+        for path in file_paths:
+            result = cls.is_sensitive_file(path, custom_patterns, custom_paths)
+            if not result.ok:
+                return err(result.error, code=result.code)
+            
+            info = result.data
+            if info["is_sensitive"]:
+                blocked.append(path)
+                blocked_reasons[path] = info["reason"]
+            else:
+                allowed.append(path)
+        
+        return ok({
+            "allowed": allowed,
+            "blocked": blocked,
+            "blocked_reasons": blocked_reasons,
+            "total_scanned": len(file_paths),
+            "total_allowed": len(allowed),
+            "total_blocked": len(blocked),
+        })
 
 
 class DataEngine:
@@ -70,6 +162,24 @@ class DataEngine:
                 "ai_training_value": "HIGH" if sensitivity == "HIGH" else "NORMAL",
             }
         )
+
+    @staticmethod
+    def scan_data_with_privacy_check(path: str, privacy_filter: Optional[PrivacyFilter] = None) -> Result[Dict[str, Any]]:
+        """扫描文件并自动进行隐私检查，如果文件敏感则阻止"""
+        # 先进行隐私检查
+        privacy_result = PrivacyFilter.is_sensitive_file(path)
+        if not privacy_result.ok:
+            return err(privacy_result.error, code=privacy_result.code)
+        
+        if privacy_result.data["is_sensitive"]:
+            privacy_info = privacy_result.data
+            return err(
+                f"File blocked by privacy filter: {privacy_info['reason']}",
+                code="PRIVACY_BLOCKED"
+            )
+        
+        # 隐私检查通过，继续扫描
+        return DataEngine.scan_data(path)
 
 
 class MetadataEngine:
@@ -178,6 +288,65 @@ class UploadEngine:
             return ok({"status": "success", "vault_path": dest, "asset_id": asset_id})
         except Exception as e:
             return err(f"Failed to register asset: {str(e)}", code="REGISTER_FAILED")
+
+    @staticmethod
+    def register_asset_with_storage(
+        metadata: Dict[str, Any],
+        vault_path: str,
+        file_path: Optional[str] = None,
+        storage_backend: Optional[str] = None,
+        storage_dir: Optional[str] = None,
+    ) -> Result[Dict[str, Any]]:
+        """
+        注册资产并存储到可插拔后端
+        
+        Args:
+            metadata: 资产元数据
+            vault_path: 账本目录
+            file_path: 原文件路径（如果需要上传到存储后端）
+            storage_backend: 存储后端类型 ("local" | "ipfs")
+            storage_dir: 存储目录（storage_backend="local" 时使用）
+        
+        Returns:
+            注册结果，包含 CID 和存储后端信息
+        """
+        from oasyce_plugin.storage.ipfs_client import IPFSClient
+        
+        asset_id = metadata.get("asset_id")
+        if not asset_id:
+            return err("Missing asset_id", code="MISSING_ASSET_ID")
+        
+        try:
+            # 初始化存储客户端
+            if storage_backend is None:
+                storage_backend = "local"
+            
+            client = IPFSClient(storage_type=storage_backend, storage_dir=storage_dir)
+            
+            # 如果有文件路径，上传文件
+            cid = None
+            if file_path and os.path.exists(file_path):
+                upload_result = client.upload(file_path, metadata)
+                if upload_result.get("success"):
+                    cid = upload_result["cid"]
+                    metadata["storage_cid"] = cid
+                    metadata["storage_backend"] = storage_backend
+            
+            # 保存到 vault
+            os.makedirs(vault_path, exist_ok=True)
+            dest = os.path.join(vault_path, f"{asset_id}.json")
+            with open(dest, "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=4, ensure_ascii=False)
+            
+            return ok({
+                "status": "success",
+                "vault_path": dest,
+                "asset_id": asset_id,
+                "storage_cid": cid,
+                "storage_backend": storage_backend,
+            })
+        except Exception as e:
+            return err(f"Failed to register asset with storage: {str(e)}", code="REGISTER_FAILED")
 
 
 class SearchEngine:

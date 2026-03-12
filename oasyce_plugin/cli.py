@@ -23,21 +23,33 @@ def cmd_register(args):
         signing_key_id=args.signing_key_id,
     )
     skills = OasyceSkills(config)
-    
+
     try:
         file_info = skills.scan_data_skill(args.file)
         metadata = skills.generate_metadata_skill(file_info, config.tags, config.owner)
         signed = skills.create_certificate_skill(metadata)
         result = skills.register_data_asset_skill(signed)
-        
+
+        # If --use-core, also submit to oasyce_core
+        core_result = None
+        if getattr(args, "use_core", False):
+            from oasyce_plugin.bridge.core_bridge import bridge_register
+            core_result = bridge_register(signed, creator=config.owner)
+
         if args.json:
-            print(json.dumps(signed, indent=2))
+            out = dict(signed)
+            if core_result:
+                out["core"] = core_result
+            print(json.dumps(out, indent=2))
         else:
             print(f"✅ Asset registered: {signed['asset_id']}")
             print(f"   Owner: {signed['owner']}")
             print(f"   File: {signed['filename']}")
             print(f"   Tags: {', '.join(signed['tags'])}")
             print(f"   Vault: {result['vault_path']}")
+            if core_result:
+                print(f"   Core Valid: {core_result['valid']}")
+                print(f"   Core Asset ID: {core_result['core_asset_id']}")
     except RuntimeError as e:
         print(f"❌ Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -66,9 +78,23 @@ def cmd_search(args):
 
 def cmd_quote(args):
     """Get L2 pricing quote for an asset."""
+    if getattr(args, "use_core", False):
+        from oasyce_plugin.bridge.core_bridge import bridge_quote
+        result = bridge_quote(args.asset_id)
+        if "error" in result:
+            print(f"❌ {result['error']}", file=sys.stderr)
+            sys.exit(1)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"📈 Quote for {args.asset_id} (core):")
+            print(f"   Price: {result['price_oas']} OAS")
+            print(f"   Supply: {result['supply']}")
+        return
+
     config = Config.from_env()
     skills = OasyceSkills(config)
-    
+
     try:
         quote = skills.trade_data_skill(args.asset_id)
         if args.json:
@@ -80,6 +106,28 @@ def cmd_quote(args):
     except RuntimeError as e:
         print(f"❌ Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def cmd_buy(args):
+    """Buy an asset via oasyce_core (requires --use-core)."""
+    from oasyce_plugin.bridge.core_bridge import bridge_buy
+
+    result = bridge_buy(args.asset_id, buyer=args.buyer)
+    if "error" in result:
+        print(f"❌ {result['error']}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"🛒 Buy {args.asset_id}:")
+        print(f"   Buyer: {result['buyer']}")
+        print(f"   Price: {result['price_oas']} OAS")
+        print(f"   Settled: {result['settled']}")
+        print(f"   TX: {result['tx_id']}")
+        if "split" in result:
+            s = result["split"]
+            print(f"   Split → creator={s['creator']:.4f} router={s['router']:.4f}")
 
 
 def cmd_verify(args):
@@ -124,7 +172,9 @@ def main():
         description="Oasyce Claw Plugin Engine - Data Asset Management CLI"
     )
     parser.add_argument("--json", action="store_true", help="Output in JSON format")
-    
+    parser.add_argument("--use-core", action="store_true",
+                        help="Route through oasyce_core engine")
+
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
     # Register command
@@ -146,6 +196,12 @@ def main():
     quote_parser.add_argument("asset_id", help="Asset ID (e.g., OAS_6596A36F)")
     quote_parser.set_defaults(func=cmd_quote)
     
+    # Buy command (requires oasyce_core)
+    buy_parser = subparsers.add_parser("buy", help="Buy asset via oasyce_core")
+    buy_parser.add_argument("asset_id", help="Core asset ID")
+    buy_parser.add_argument("--buyer", default="anonymous", help="Buyer identity")
+    buy_parser.set_defaults(func=cmd_buy)
+
     # Verify command
     verify_parser = subparsers.add_parser("verify", help="Verify PoPC certificate")
     verify_parser.add_argument("asset", help="Asset ID or path to JSON file")

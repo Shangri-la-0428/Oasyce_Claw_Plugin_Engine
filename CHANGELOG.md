@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-03-13
+
+### ✨ Added
+- **PrivacyFilter (隐私过滤器)**: 自动识别并过滤敏感文件
+  - 默认敏感文件名模式：`*身份证*`, `*银行卡*`, `*passport*`, `*.key`, `*.pem`, `*password*`, `*.env`
+  - 默认敏感路径前缀：`/etc/`, `/private/`, `~/.ssh/`, `~/.gnupg/`, `*/credentials/`
+  - 支持自定义敏感模式和路径
+  - 批量过滤 API: `PrivacyFilter.filter_batch()`
+  - 集成到 `DataEngine.scan_data_with_privacy_check()`
+- **IPFS 可插拔存储系统**: 支持多种存储后端无缝切换
+  - `LocalStorage`: 本地文件系统存储（默认）
+  - `IPFSBackend`: IPFS 分布式存储（需运行 IPFS 节点）
+  - 统一接口：`upload()`, `download()`, `pin()`, `unpin()`
+  - `IPFSClient.register_asset_with_storage()`: 一键注册并存储
+  - 配置项：`OASYCE_STORAGE_TYPE`, `OASYCE_STORAGE_DIR`
+- **新增 Agent Skills**:
+  - `check_privacy_skill()`: 检查文件是否敏感
+  - `filter_batch_skill()`: 批量过滤文件列表
+  - `enable_privacy_filter()`: 启用/禁用隐私检查
+  - `scan_data_skill()`: 新增 `skip_privacy_check` 参数
+  - `register_data_asset_skill()`: 新增 `storage_backend` 参数
+- **12 个新测试用例**: 覆盖 PrivacyFilter 和 IPFS 存储功能
+
+### 🔧 Changed
+- 更新 `core_engines.py`: 添加 `PrivacyFilter` 类和 `scan_data_with_privacy_check()` 方法
+- 更新 `UploadEngine`: 新增 `register_asset_with_storage()` 方法支持可插拔存储
+- 更新 `agent_skills.py`: 集成 PrivacyFilter 和存储后端配置
+- 新增 `storage/` 模块：包含 `ipfs_client.py` 和 `__init__.py`
+- 版本号更新：`ENGINE_VERSION = "0.3.0"` → `"0.6.0"`
+
+### 📖 Documentation
+- 更新 README.md: 添加 PrivacyFilter 和 IPFS 存储详细说明
+- 添加使用示例和 API 文档
+- 更新测试覆盖率徽章：9 → 71 个测试
+
+### 🧪 Testing
+- 新增 `tests/test_privacy_and_storage.py`: 12 个测试用例
+- 总测试覆盖：71/71 通过
+
+---
+
 ## [0.5.0] - 2026-03-13
 
 ### Added

@@ -1,0 +1,143 @@
+"""Tests for oasyce_plugin.bridge.core_bridge integration with oasyce_core."""
+
+import time
+import pytest
+
+from oasyce_plugin.bridge.core_bridge import (
+    bridge_buy,
+    bridge_quote,
+    bridge_register,
+    metadata_to_capture_pack,
+    reset_engine,
+)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_engine():
+    """Reset the cached engine before each test."""
+    reset_engine()
+    yield
+    reset_engine()
+
+
+def _signed_metadata() -> dict:
+    """Return a minimal signed metadata dict resembling plugin output."""
+    return {
+        "asset_id": "OAS_AABBCCDD",
+        "filename": "test.jpg",
+        "owner": "alice",
+        "tags": ["Core"],
+        "timestamp": int(time.time()),
+        "file_hash": "b" * 64,
+        "popc_signature": "deadbeef",
+    }
+
+
+# -- metadata_to_capture_pack ------------------------------------------------
+
+class TestMetadataToCapturePack:
+    def test_converts_with_unix_timestamp(self):
+        md = _signed_metadata()
+        pack = metadata_to_capture_pack(md)
+        assert pack.media_hash == "b" * 64
+        assert pack.device_signature == "deadbeef"
+        assert pack.source == "camera"
+        # ISO timestamp should be parseable
+        pack.parsed_timestamp()
+
+    def test_converts_without_timestamp(self):
+        md = _signed_metadata()
+        del md["timestamp"]
+        pack = metadata_to_capture_pack(md)
+        # Should fall back to now()
+        pack.parsed_timestamp()
+
+    def test_defaults_for_missing_fields(self):
+        pack = metadata_to_capture_pack({})
+        assert pack.media_hash == "0" * 64
+        assert pack.device_signature == "deadbeef"
+
+
+# -- bridge_register ---------------------------------------------------------
+
+class TestBridgeRegister:
+    def test_successful_register(self):
+        result = bridge_register(_signed_metadata())
+        assert result["valid"] is True
+        assert result["core_asset_id"] is not None
+
+    def test_register_uses_owner_as_creator(self):
+        result = bridge_register(_signed_metadata(), creator="bob")
+        assert result["valid"] is True
+
+    def test_register_returns_reason_for_camera(self):
+        result = bridge_register(_signed_metadata())
+        # camera source → reason is None (full public)
+        assert result["reason"] is None
+
+
+# -- bridge_quote -------------------------------------------------------------
+
+class TestBridgeQuote:
+    def test_quote_for_registered_asset(self):
+        reg = bridge_register(_signed_metadata())
+        asset_id = reg["core_asset_id"]
+
+        quote = bridge_quote(asset_id)
+        assert "error" not in quote
+        assert quote["price_oas"] > 0
+        assert quote["supply"] == 0  # first quote, supply is 0
+
+    def test_quote_not_found(self):
+        result = bridge_quote("nonexistent_id")
+        assert "error" in result
+
+
+# -- bridge_buy ---------------------------------------------------------------
+
+class TestBridgeBuy:
+    def test_buy_success(self):
+        reg = bridge_register(_signed_metadata())
+        asset_id = reg["core_asset_id"]
+
+        result = bridge_buy(asset_id, buyer="bob")
+        assert result["settled"] is True
+        assert result["price_oas"] > 0
+        assert result["tx_id"] is not None
+        assert "split" in result
+        assert result["split"]["creator"] > 0
+
+    def test_buy_increases_price(self):
+        reg = bridge_register(_signed_metadata())
+        asset_id = reg["core_asset_id"]
+
+        r1 = bridge_buy(asset_id, buyer="bob")
+        r2 = bridge_buy(asset_id, buyer="carol")
+        assert r2["price_oas"] > r1["price_oas"]
+
+    def test_buy_not_found(self):
+        result = bridge_buy("nonexistent_id", buyer="bob")
+        assert "error" in result
+
+
+# -- end-to-end: register → quote → buy → quote again ------------------------
+
+class TestEndToEnd:
+    def test_full_pipeline(self):
+        # 1. Register
+        reg = bridge_register(_signed_metadata())
+        assert reg["valid"]
+        aid = reg["core_asset_id"]
+
+        # 2. Quote (supply=0)
+        q1 = bridge_quote(aid)
+        assert q1["supply"] == 0
+
+        # 3. Buy
+        buy = bridge_buy(aid, buyer="dave")
+        assert buy["settled"]
+
+        # 4. Quote again (supply=1, price higher)
+        q2 = bridge_quote(aid)
+        assert q2["supply"] == 1
+        assert q2["price_oas"] > q1["price_oas"]

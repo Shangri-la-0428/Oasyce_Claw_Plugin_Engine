@@ -7,9 +7,9 @@
 [![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Proprietary-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-9%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-71%20passed-brightgreen.svg)](tests/)
 
-📜 本地数据 Backpack | 🔐 PoPC 物理证书 | 💰 L2 动态定价 | 🧠 Agent Skills 集成
+📦 本地数据 Backpack | 🔐 PoPC 物理证书 | 🛡️ 隐私过滤器 | 💰 L2 动态定价 | 🧠 Agent Skills | 🌐 IPFS 可插拔存储
 
 [安装](#-快速安装) • [使用](#-使用方法) • [示例](#-示例代码) • [API 文档](#-api-参考) • [FAQ](#-常见问题)
 
@@ -23,8 +23,10 @@
 
 1. **📦 数据确权** - 扫描本地文件，生成 SHA-256 哈希，创建 PoPC 物理证书
 2. **🛡️ 访问控制** - 拦截未授权的 AI 读取，需要密码学验证
-3. **💰 动态定价** - 基于 Bonding Curve 的 L2 访问定价
-4. **🤖 Agent 集成** - 作为 OpenClaw Skill，用自然语言调用
+3. **🔒 隐私保护** - 自动识别并过滤敏感文件（身份证、银行卡、私钥等）
+4. **💰 动态定价** - 基于 Bonding Curve 的 L2 访问定价
+5. **🤖 Agent 集成** - 作为 OpenClaw Skill，用自然语言调用
+6. **🌐 IPFS 存储** - 可插拔存储后端，支持本地/IPFS 无缝切换
 
 ### 适用场景
 
@@ -34,6 +36,93 @@
 | 知识付费 | 内容被免费爬取 | L2 定价，按访问付费 |
 | 企业数据网关 | 敏感数据泄露风险 | 本地确权 + 加密签名 |
 | 创作者经济 | 作品版权归属难证明 | 时间戳 + 哈希存证 |
+
+---
+
+## 🛡️ 核心特性详解
+
+### 隐私过滤器 (PrivacyFilter)
+
+自动识别并过滤敏感文件，防止意外泄露给 AI Agent。
+
+**默认敏感模式**：
+- 文件名：`*身份证*`, `*银行卡*`, `*passport*`, `*credit_card*`, `*.key`, `*.pem`, `*password*`, `*.env`
+- 路径前缀：`/etc/`, `/private/`, `~/.ssh/`, `~/.gnupg/`, `*/credentials/`
+
+**使用示例**：
+```python
+from oasyce_plugin.engines.core_engines import PrivacyFilter
+
+# 检查单个文件
+result = PrivacyFilter.is_sensitive_file("/path/to/身份证.jpg")
+if result.data["is_sensitive"]:
+    print(f"⚠️  敏感文件：{result.data['reason']}")
+
+# 批量过滤
+files = ["/photos/vacation.jpg", "/docs/银行卡.png", "/notes/meeting.md"]
+result = PrivacyFilter.filter_batch(files)
+print(f"允许：{result.data['allowed']}")
+print(f"阻止：{result.data['blocked']}")
+```
+
+**在 Agent Skills 中自动启用**：
+```python
+from oasyce_plugin.skills.agent_skills import OasyceSkills
+
+skills = OasyceSkills(config)
+
+# 默认启用隐私检查
+skills.scan_data_skill("/path/to/file.pdf")  # 自动检查隐私
+
+# 手动检查（不扫描）
+privacy_result = skills.check_privacy_skill("/path/to/file.pdf")
+
+# 批量过滤
+batch_result = skills.filter_batch_skill(file_list)
+```
+
+---
+
+### 🌐 IPFS 可插拔存储
+
+支持多种存储后端，无缝切换。
+
+**支持的存储类型**：
+- `local`: 本地文件系统（默认）
+- `ipfs`: IPFS 分布式存储（需运行 IPFS 节点）
+- `custom`: 自定义存储后端（实现 `StorageBackend` 接口）
+
+**使用示例**：
+```python
+from oasyce_plugin.storage.ipfs_client import IPFSClient
+
+# 使用本地存储（默认）
+client = IPFSClient(storage_type="local", storage_dir="~/oasyce/storage")
+
+# 使用 IPFS（需运行 IPFS 节点）
+client = IPFSClient(storage_type="ipfs", ipfs_host="127.0.0.1", ipfs_port=5001)
+
+# 上传文件
+result = client.upload("/path/to/file.pdf")
+print(f"CID: {result['cid']}")
+
+# 下载文件
+client.download("QmXyZ...", "/tmp/downloaded.pdf")
+
+# 注册资产并存储
+metadata = {"asset_id": "OAS_123", "owner": "Alice"}
+result = client.register_asset_with_storage(
+    file_path="/path/to/file.pdf",
+    metadata=metadata,
+    vault_path="~/oasyce/genesis_vault",
+)
+print(f"存储后端：{result['storage_backend']}, CID: {result['cid']}")
+```
+
+**安装 IPFS 依赖**（可选）：
+```bash
+pip install ipfshttpclient
+```
 
 ---
 
