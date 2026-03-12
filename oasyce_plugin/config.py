@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional
+
+from dotenv import load_dotenv
+
+# 自动加载 .env 文件（从项目根目录）
+load_dotenv()
 
 
 def _default_vault_dir() -> str:
