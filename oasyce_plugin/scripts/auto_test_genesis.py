@@ -37,7 +37,7 @@ def main() -> None:
         signing_key_id=args.signing_key_id,
     )
 
-    skills = OasyceSkills(config.vault_dir, config.signing_key, config.signing_key_id)
+    skills = OasyceSkills(config)
     files_to_register = _parse_files(args.files)
 
     if not files_to_register:
@@ -54,53 +54,47 @@ def main() -> None:
             continue
 
         print(f"\n[*] Processing: {os.path.basename(path)}")
-        file_res = skills.scan_data_skill(path)
-        if not file_res.ok:
-            print(f"[!] Scan Error: {file_res.error}")
-            continue
+        try:
+            file_info = skills.scan_data_skill(path)
+            print(f"    Scan: {file_info['file_hash'][:16]}...")
 
-        meta_res = skills.generate_metadata_skill(file_res.data, config.tags, config.owner)
-        if not meta_res.ok:
-            print(f"[!] Metadata Error: {meta_res.error}")
-            continue
+            metadata = skills.generate_metadata_skill(file_info, config.tags, config.owner)
+            print(f"    Metadata: {metadata['asset_id']}")
 
-        cert_res = skills.create_certificate_skill(meta_res.data)
-        if not cert_res.ok:
-            print(f"[!] Certificate Error: {cert_res.error}")
-            continue
+            signed = skills.create_certificate_skill(metadata)
+            print(f"    Certificate: {signed['popc_signature'][:32]}...")
 
-        reg_res = skills.register_data_asset_skill(cert_res.data)
-        if not reg_res.ok:
-            print(f"[!] Register Error: {reg_res.error}")
-            continue
-
-        print(f"✅ ASSET MINED: {cert_res.data['asset_id']}")
-        print(json.dumps(cert_res.data, indent=2, ensure_ascii=False))
+            res = skills.register_data_asset_skill(signed)
+            print(f"✅ ASSET MINED: {signed['asset_id']}")
+            print(json.dumps(signed, indent=2, ensure_ascii=False))
+        except RuntimeError as e:
+            print(f"[!] Error: {e}")
 
     print("\n" + "=" * 60)
     print("  DATA BACKPACK DEFENSE & L2 PRICING TEST")
     print("=" * 60)
 
-    assets_res = skills.search_data_skill("Genesis")
-    if assets_res.ok and assets_res.data:
-        target_asset = assets_res.data[0]
-        print(f"[*] Simulating Unauthorized AI scraping on {target_asset['asset_id']}...")
-        time.sleep(0.5)
-        print(
-            f"🚨 [INTERCEPTED] Data Backpack blocked unauthorized AI read attempt on {target_asset['filename']}."
-        )
-        print("    Reason: Missing cryptographic Session Key & PoPC Verification.")
-
-        print("\n[*] Querying L2 Bonding Curve for pricing...")
-        time.sleep(0.5)
-        quote_res = skills.trade_data_skill(target_asset["asset_id"])
-        if quote_res.ok:
+    try:
+        assets = skills.search_data_skill("Genesis")
+        if assets:
+            target_asset = assets[0]
+            print(f"[*] Simulating Unauthorized AI scraping on {target_asset['asset_id']}...")
+            time.sleep(0.5)
             print(
-                f"📈 [QUOTE] {target_asset['filename']} current access price: {quote_res.data['current_price_oas']} OAS"
+                f"🚨 [INTERCEPTED] Data Backpack blocked unauthorized AI read attempt on {target_asset['filename']}."
             )
-            print(f"    Liquidity Depth: {quote_res.data['liquidity_depth']}")
+            print("    Reason: Missing cryptographic Session Key & PoPC Verification.")
 
-    print("\n[+] Autonomous testing completed successfully.")
+            print("\n[*] Querying L2 Bonding Curve for pricing...")
+            time.sleep(0.5)
+            quote = skills.trade_data_skill(target_asset["asset_id"])
+            print(
+                f"📈 [QUOTE] {target_asset['filename']} current access price: {quote['current_price_oas']} OAS"
+            )
+    except RuntimeError as e:
+        print(f"[!] Test Error: {e}")
+
+    print("\n✅ All tests completed.")
 
 
 if __name__ == "__main__":

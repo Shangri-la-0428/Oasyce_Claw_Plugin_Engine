@@ -1,0 +1,19 @@
+{
+    "schema_version": 1,
+    "engine_version": "0.2.0",
+    "asset_id": "OAS_14CE1981",
+    "filename": "live_skill_test.txt",
+    "owner": "Shangrila",
+    "tags": [
+        "Core",
+        "Genesis"
+    ],
+    "timestamp": 1773326120,
+    "file_size_bytes": 48,
+    "file_hash": "14ce198121382d3c1429da3056577676c4d3773d887efb3368d0ed15c31074ad",
+    "hash_algo": "sha256",
+    "popc_signature": "c9e6537cf069250d7e1194988554286b0b73c328e4c95b1bd4bf021fd9879e43",
+    "signature_alg": "HMAC-SHA256",
+    "signature_key_id": "dev_key_001",
+    "certificate_issuer": "Oasyce_Hardware_Node_001"
+}

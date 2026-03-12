@@ -8,7 +8,8 @@ from oasyce_plugin.config import Config
 
 class OasyceCLI:
     def __init__(self):
-        self.skills = OasyceSkills(Config.OASYCE_VAULT_DIR)
+        self.config = Config.from_env()
+        self.skills = OasyceSkills(self.config)
 
     def clear(self):
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -18,7 +19,7 @@ class OasyceCLI:
         print("=" * 60)
         print("    OASYCE DATA BACKPACK - GENESIS NODE (TERMINAL UI)    ")
         print("=" * 60)
-        print(f"[*] Node Vault: {Config.OASYCE_VAULT_DIR}")
+        print(f"[*] Node Vault: {self.config.vault_dir}")
         print("[-] Status: Online & Waiting for local assets...\n")
 
     def run(self):
@@ -70,7 +71,7 @@ class OasyceCLI:
 
             print(f"\n✅ [ASSET REGISTERED SUCCESS] Core Asset ID: {res['asset_id']}")
             print("-" * 30 + " ON-CHAIN RECEIPT " + "-" * 30)
-            print(json.dumps(final_meta.__dict__, indent=2, ensure_ascii=False))
+            print(json.dumps(final_meta, indent=2, ensure_ascii=False))
             print("-" * 76)
         except RuntimeError as e:
             print(f"[!] Oasyce Engine Error: {str(e)}")
