@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-03-13
+
+### Added
+- **PoPC Verification Service** — Complete 6-layer verification pipeline
+  - L1: Device TEE certificate chain validation
+  - L2: ECDSA cryptographic signature verification
+  - L3: Gyroscope micro-jitter entropy analysis (anti-emulator/anti-replay)
+  - L4: Temporal consistency checking
+  - L5: GPS geo-plausibility validation
+  - L6: Capture source trust classification
+- **FastAPI REST API** — 4 endpoints: verify, lookup, health, stats
+- **21 new verification tests** — Full pipeline coverage
+- **GitHub Actions CI/CD** — Python 3.9–3.12 test matrix
+
+### Changed
+- Dependencies: added fastapi, uvicorn, pydantic v2, httpx
+- Bumped version to 0.5.0
+
+### Security
+- Album imports hard-coded `can_be_public=False`
+- Emulator detection via zero-entropy gyro analysis
+- Random noise injection detection via high-entropy threshold
+
 ## [0.3.0] - 2026-03-12
 
 ### ✨ Added
