@@ -1,6 +1,7 @@
 import os
 import pytest
 from oasyce_plugin.engines.core_engines import DataEngine, MetadataEngine, CertificateEngine, UploadEngine
+from oasyce_plugin.crypto import generate_keypair
 
 @pytest.fixture
 def dummy_file(tmp_path):
@@ -26,12 +27,13 @@ def test_generate_metadata(dummy_file):
     assert res_meta.data["asset_id"].startswith("OAS_")
 
 def test_create_certificate_and_upload(dummy_file, tmp_path):
+    priv_hex, pub_hex = generate_keypair()
     res_scan = DataEngine.scan_data(dummy_file)
     res_meta = MetadataEngine.generate_metadata(res_scan.data, ["Test"], "Alice")
-    
+
     res_cert = CertificateEngine.create_popc_certificate(
         res_meta.data,
-        signing_key="test_key",
+        signing_key=priv_hex,
         key_id="test_key_id"
     )
     assert res_cert.ok is True

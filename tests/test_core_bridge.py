@@ -5,16 +5,18 @@ import pytest
 
 from oasyce_plugin.bridge.core_bridge import (
     bridge_buy,
+    bridge_get_shares,
     bridge_quote,
     bridge_register,
+    bridge_stake,
     metadata_to_capture_pack,
     reset_engine,
 )
 
 
 @pytest.fixture(autouse=True)
-def _fresh_engine():
-    """Reset the cached engine before each test."""
+def _fresh_protocol():
+    """Reset the cached protocol before each test for isolation."""
     reset_engine()
     yield
     reset_engine()
@@ -86,7 +88,7 @@ class TestBridgeQuote:
         quote = bridge_quote(asset_id)
         assert "error" not in quote
         assert quote["price_oas"] > 0
-        assert quote["supply"] == 0  # first quote, supply is 0
+        assert quote["supply"] == 0  # first quote, asset supply is 0
 
     def test_quote_not_found(self):
         result = bridge_quote("nonexistent_id")
@@ -120,6 +122,31 @@ class TestBridgeBuy:
         assert "error" in result
 
 
+# -- bridge_stake / bridge_get_shares ----------------------------------------
+
+class TestBridgeStakeAndShares:
+    def test_stake_returns_total(self):
+        total = bridge_stake("validator_1", 150.0)
+        assert total == 150.0
+
+    def test_stake_accumulates(self):
+        bridge_stake("validator_1", 100.0)
+        total = bridge_stake("validator_1", 50.0)
+        assert total == 150.0
+
+    def test_get_shares_empty_for_unknown_owner(self):
+        holdings = bridge_get_shares("nobody")
+        assert holdings == []
+
+    def test_get_shares_after_buy(self):
+        reg = bridge_register(_signed_metadata())
+        asset_id = reg["core_asset_id"]
+        bridge_buy(asset_id, buyer="alice")
+
+        holdings = bridge_get_shares("alice")
+        assert len(holdings) > 0
+
+
 # -- end-to-end: register → quote → buy → quote again ------------------------
 
 class TestEndToEnd:
@@ -129,7 +156,7 @@ class TestEndToEnd:
         assert reg["valid"]
         aid = reg["core_asset_id"]
 
-        # 2. Quote (supply=0)
+        # 2. Quote (asset supply=0)
         q1 = bridge_quote(aid)
         assert q1["supply"] == 0
 
@@ -137,7 +164,7 @@ class TestEndToEnd:
         buy = bridge_buy(aid, buyer="dave")
         assert buy["settled"]
 
-        # 4. Quote again (supply=1, price higher)
+        # 4. Quote again (asset supply=1, Bancor price higher)
         q2 = bridge_quote(aid)
         assert q2["supply"] == 1
         assert q2["price_oas"] > q1["price_oas"]

@@ -12,6 +12,7 @@ from oasyce_plugin.engines.core_engines import (
     UploadEngine,
 )
 from oasyce_plugin.engines.schema import validate_metadata
+from oasyce_plugin.crypto import generate_keypair
 
 
 def test_end_to_end_registration(tmp_path: Path) -> None:
@@ -31,7 +32,8 @@ def test_end_to_end_registration(tmp_path: Path) -> None:
     pre_val = validate_metadata(metadata, require_signature=False)
     assert pre_val.ok
 
-    cert_res = CertificateEngine.create_popc_certificate(metadata, "test-key", "test-key-id")
+    priv_hex, pub_hex = generate_keypair()
+    cert_res = CertificateEngine.create_popc_certificate(metadata, priv_hex, "test-key-id")
     assert cert_res.ok
     signed = cert_res.data
     assert "popc_signature" in signed
@@ -39,7 +41,7 @@ def test_end_to_end_registration(tmp_path: Path) -> None:
     post_val = validate_metadata(signed, require_signature=True)
     assert post_val.ok
 
-    verify_res = CertificateEngine.verify_popc_certificate(signed, "test-key")
+    verify_res = CertificateEngine.verify_popc_certificate(signed, pub_hex)
     assert verify_res.ok
     assert verify_res.data is True
 

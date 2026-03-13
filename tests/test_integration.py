@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from oasyce_plugin.config import Config
 from oasyce_plugin.skills.agent_skills import OasyceSkills
+from oasyce_plugin.crypto import generate_keypair
 
 
 class TestUserWorkflows:
@@ -59,10 +60,12 @@ class TestUserWorkflows:
     @pytest.fixture
     def skills(self, temp_vault):
         """初始化 OasyceSkills。"""
+        priv_hex, pub_hex = generate_keypair()
         config = Config.from_env(
             vault_dir=temp_vault,
             owner="TestUser",
-            signing_key="test_key_integration_001",
+            signing_key=priv_hex,
+            public_key=pub_hex,
             signing_key_id="test_001"
         )
         return OasyceSkills(config)
@@ -160,10 +163,12 @@ class TestEdgeCases:
     @pytest.fixture
     def skills(self):
         """初始化 OasyceSkills。"""
+        priv_hex, pub_hex = generate_keypair()
         config = Config.from_env(
             vault_dir=tempfile.mkdtemp(),
             owner="TestUser",
-            signing_key="test_key_001",
+            signing_key=priv_hex,
+            public_key=pub_hex,
             signing_key_id="test_001"
         )
         return OasyceSkills(config)

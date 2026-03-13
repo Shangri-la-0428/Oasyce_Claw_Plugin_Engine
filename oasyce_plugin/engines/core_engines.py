@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import os
 import re
@@ -228,6 +227,8 @@ class CertificateEngine:
             return err(validation.error or "Invalid metadata", code=validation.code)
 
         try:
+            from oasyce_plugin.crypto import sign as ed25519_sign
+
             payload = dict(metadata)
             payload.pop("popc_signature", None)
             payload.pop("certificate_issuer", None)
@@ -235,11 +236,11 @@ class CertificateEngine:
             payload.pop("signature_key_id", None)
 
             canonical = _canonical_json(payload)
-            signature = hmac.new(signing_key.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+            signature = ed25519_sign(canonical.encode("utf-8"), signing_key)
 
             metadata = dict(metadata)
             metadata["popc_signature"] = signature
-            metadata["signature_alg"] = "HMAC-SHA256"
+            metadata["signature_alg"] = "Ed25519"
             metadata["signature_key_id"] = key_id
             metadata["certificate_issuer"] = "Oasyce_Hardware_Node_001"
             return ok(metadata)
@@ -256,6 +257,8 @@ class CertificateEngine:
             return err(validation.error or "Invalid metadata", code=validation.code)
 
         try:
+            from oasyce_plugin.crypto import verify as ed25519_verify
+
             signature = metadata.get("popc_signature")
             if not signature:
                 return err("Missing signature", code="MISSING_SIGNATURE")
@@ -267,20 +270,32 @@ class CertificateEngine:
             payload.pop("signature_key_id", None)
 
             canonical = _canonical_json(payload)
-            expected = hmac.new(signing_key.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
-            return ok(hmac.compare_digest(signature, expected))
+            valid = ed25519_verify(canonical.encode("utf-8"), signature, signing_key)
+            return ok(valid)
         except Exception as e:
             return err(str(e), code="VERIFY_FAILED")
 
 
 class UploadEngine:
     @staticmethod
-    def register_asset(metadata: Dict[str, Any], vault_path: str) -> Result[Dict[str, Any]]:
+    def register_asset(metadata: Dict[str, Any], vault_path: str, ledger: Any = None) -> Result[Dict[str, Any]]:
         asset_id = metadata.get("asset_id")
         if not asset_id:
             return err("Missing asset_id", code="MISSING_ASSET_ID")
 
         try:
+            # Persist to SQLite ledger when available
+            if ledger is not None:
+                ledger.save_asset(metadata)
+                ledger.record_tx(
+                    tx_type="register",
+                    asset_id=asset_id,
+                    from_addr=metadata.get("owner"),
+                    metadata=metadata,
+                    signature=metadata.get("popc_signature"),
+                )
+
+            # Always write JSON file for backward compatibility
             os.makedirs(vault_path, exist_ok=True)
             dest = os.path.join(vault_path, f"{asset_id}.json")
             with open(dest, "w", encoding="utf-8") as f:
@@ -296,33 +311,35 @@ class UploadEngine:
         file_path: Optional[str] = None,
         storage_backend: Optional[str] = None,
         storage_dir: Optional[str] = None,
+        ledger: Any = None,
     ) -> Result[Dict[str, Any]]:
         """
         注册资产并存储到可插拔后端
-        
+
         Args:
             metadata: 资产元数据
             vault_path: 账本目录
             file_path: 原文件路径（如果需要上传到存储后端）
             storage_backend: 存储后端类型 ("local" | "ipfs")
             storage_dir: 存储目录（storage_backend="local" 时使用）
-        
+            ledger: Optional Ledger instance for SQLite persistence
+
         Returns:
             注册结果，包含 CID 和存储后端信息
         """
         from oasyce_plugin.storage.ipfs_client import IPFSClient
-        
+
         asset_id = metadata.get("asset_id")
         if not asset_id:
             return err("Missing asset_id", code="MISSING_ASSET_ID")
-        
+
         try:
             # 初始化存储客户端
             if storage_backend is None:
                 storage_backend = "local"
-            
+
             client = IPFSClient(storage_type=storage_backend, storage_dir=storage_dir)
-            
+
             # 如果有文件路径，上传文件
             cid = None
             if file_path and os.path.exists(file_path):
@@ -331,13 +348,24 @@ class UploadEngine:
                     cid = upload_result["cid"]
                     metadata["storage_cid"] = cid
                     metadata["storage_backend"] = storage_backend
-            
-            # 保存到 vault
+
+            # Persist to SQLite ledger when available
+            if ledger is not None:
+                ledger.save_asset(metadata)
+                ledger.record_tx(
+                    tx_type="register",
+                    asset_id=asset_id,
+                    from_addr=metadata.get("owner"),
+                    metadata=metadata,
+                    signature=metadata.get("popc_signature"),
+                )
+
+            # 保存到 vault (backward compatibility)
             os.makedirs(vault_path, exist_ok=True)
             dest = os.path.join(vault_path, f"{asset_id}.json")
             with open(dest, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=4, ensure_ascii=False)
-            
+
             return ok({
                 "status": "success",
                 "vault_path": dest,
@@ -351,7 +379,12 @@ class UploadEngine:
 
 class SearchEngine:
     @staticmethod
-    def search_assets(vault_path: str, query_tag: str) -> Result[List[Dict[str, Any]]]:
+    def search_assets(vault_path: str, query_tag: str, ledger: Any = None) -> Result[List[Dict[str, Any]]]:
+        # Prefer SQLite ledger when available
+        if ledger is not None:
+            return ok(ledger.search_assets(query_tag))
+
+        # Fallback: scan JSON files in vault directory
         results: List[Dict[str, Any]] = []
         if not os.path.exists(vault_path):
             return ok(results)

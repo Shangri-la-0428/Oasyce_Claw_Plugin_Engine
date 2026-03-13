@@ -1,13 +1,15 @@
 """
-Bridge between oasyce_plugin CLI and oasyce_core engine.
+Bridge between oasyce_plugin CLI and oasyce_core protocol.
 
 Converts plugin-side signed metadata into CapturePack for oasyce_core,
-and exposes quote/buy via OasyceEngine.
+and exposes quote/buy/stake via OasyceProtocol.
 """
 
 from __future__ import annotations
 
+import asyncio
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -17,21 +19,25 @@ _CORE_PATH = str(Path.home() / "Desktop" / "Oasyce_Project" / "oasyce_core")
 if _CORE_PATH not in sys.path:
     sys.path.insert(0, str(Path(_CORE_PATH).parent))
 
-from oasyce_core.engine import OasyceEngine
+from oasyce_core.protocol import OasyceProtocol
 from oasyce_core.models.capture_pack import CapturePack
 
 
-def _get_engine() -> OasyceEngine:
-    """Return a singleton-like OasyceEngine (mock mode)."""
-    if not hasattr(_get_engine, "_instance"):
-        _get_engine._instance = OasyceEngine()
-    return _get_engine._instance
+def _get_protocol() -> OasyceProtocol:
+    """Return a singleton-like OasyceProtocol (local/mock mode, no P2P node)."""
+    if not hasattr(_get_protocol, "_instance"):
+        _get_protocol._instance = OasyceProtocol()
+    return _get_protocol._instance
 
 
-def reset_engine() -> None:
-    """Reset the cached engine (useful for tests)."""
-    if hasattr(_get_engine, "_instance"):
-        del _get_engine._instance
+def reset_protocol() -> None:
+    """Reset the cached protocol instance (useful for tests)."""
+    if hasattr(_get_protocol, "_instance"):
+        del _get_protocol._instance
+
+
+# Backwards-compatible alias used by existing tests and CLI code.
+reset_engine = reset_protocol
 
 
 def metadata_to_capture_pack(signed_metadata: dict) -> CapturePack:
@@ -55,59 +61,149 @@ def metadata_to_capture_pack(signed_metadata: dict) -> CapturePack:
     )
 
 
-def bridge_register(signed_metadata: dict, creator: Optional[str] = None) -> dict:
-    """Submit signed metadata through oasyce_core verify+register pipeline.
+# ---------------------------------------------------------------------------
+# Async helpers (bridge runs locally; P2P node not required)
+# ---------------------------------------------------------------------------
 
-    Returns dict with verify_result and asset_id from oasyce_core.
+async def _async_register(pack: CapturePack, creator: str) -> dict:
+    """Verify and register a CapturePack through the protocol (local path).
+
+    Uses the protocol's verifier and registry directly so the bridge works
+    without a live P2P network.  This is the correct mode for a single-node
+    plugin engine that submits to the protocol layer.
     """
-    engine = _get_engine()
+    protocol = _get_protocol()
+
+    # Run local verification (same check submit_data does before P2P)
+    result = protocol._verifier.verify(pack)
+    if not result.valid:
+        return {"valid": False, "reason": result.reason, "core_asset_id": None}
+
+    # Register asset directly into the protocol registry
+    asset_id = protocol._register_asset(pack.media_hash, creator, uuid.uuid4().hex)
+    return {"valid": True, "reason": result.reason, "core_asset_id": asset_id}
+
+
+# ---------------------------------------------------------------------------
+# Public bridge API
+# ---------------------------------------------------------------------------
+
+def bridge_register(signed_metadata: dict, creator: Optional[str] = None) -> dict:
+    """Submit signed metadata through the oasyce_core verify+register pipeline.
+
+    Returns a dict with ``valid``, ``reason``, and ``core_asset_id``.
+    Async internally; safe to call from synchronous CLI or test code.
+    """
     pack = metadata_to_capture_pack(signed_metadata)
     creator = creator or signed_metadata.get("owner", "anonymous")
-
-    verify_result, asset_id = engine.submit(pack, creator=creator)
-    return {
-        "valid": verify_result.valid,
-        "reason": verify_result.reason,
-        "core_asset_id": asset_id,
-    }
+    return asyncio.run(_async_register(pack, creator))
 
 
 def bridge_quote(asset_id: str) -> dict:
-    """Get price quote from oasyce_core pricing engine."""
-    engine = _get_engine()
-    asset = engine.cfg.registry.get(asset_id)
+    """Get Bancor-based price quote from the oasyce_core protocol."""
+    protocol = _get_protocol()
+    asset = protocol.get_asset(asset_id)
     if asset is None:
         return {"error": f"Asset {asset_id} not found in core registry"}
 
-    quote = engine.cfg.pricing.quote(asset_id, asset.supply)
+    quote = protocol._pricing.quote(asset_id, asset.supply)
+    reserve, _cur_supply = protocol._pricing._get_state(asset_id)
     return {
         "asset_id": quote.asset_id,
         "price_oas": quote.price_oas,
         "supply": quote.supply,
+        "reserve": reserve,
+        "cw": protocol._pricing._reserve_ratio,
     }
 
 
-def bridge_buy(asset_id: str, buyer: str) -> dict:
-    """Execute buy via oasyce_core engine."""
-    engine = _get_engine()
-    quote, settle = engine.buy(asset_id, buyer=buyer)
+def bridge_buy(asset_id: str, buyer: str, amount: float = 10.0, ledger: "Any" = None) -> dict:
+    """Execute a buy via the oasyce_core protocol (Bancor curve + deflationary settlement).
 
-    if quote is None:
-        return {"error": f"Asset {asset_id} not found in core registry"}
+    Args:
+        asset_id: Asset to purchase.
+        buyer: Buyer address.
+        amount: OAS to spend (default 10.0).
+        ledger: Optional Ledger instance for persisting transaction + shares.
 
-    result = {
+    Returns:
+        Dict with trade details, or ``{"error": ...}`` if the asset is not found.
+    """
+    protocol = _get_protocol()
+    buy_result = protocol.buy_asset(asset_id, buyer=buyer, amount=amount)
+
+    if buy_result is None:
+        return {"error": f"Asset {asset_id} not found or not tradeable in core registry"}
+
+    tokens = buy_result.tokens_received
+    price_oas = amount / tokens if tokens > 0 else amount
+
+    asset = protocol.get_asset(asset_id)
+    tx_id = uuid.uuid4().hex
+    result: dict = {
         "asset_id": asset_id,
         "buyer": buyer,
-        "price_oas": quote.price_oas,
-        "supply": quote.supply,
-        "settled": settle.success if settle else False,
-        "tx_id": settle.tx_id if settle else None,
+        "price_oas": price_oas,
+        "tokens_received": tokens,
+        "supply": asset.supply if asset else None,
+        "settled": True,
+        "tx_id": tx_id,
     }
-    if settle and settle.split:
+
+    if buy_result.split:
         result["split"] = {
-            "creator": settle.split.creator,
-            "protocol_burn": settle.split.protocol_burn,
-            "protocol_validator": settle.split.protocol_validator,
-            "router": settle.split.router,
+            "creator": buy_result.split.creator,
+            "protocol_burn": buy_result.split.protocol_burn,
+            "protocol_validator": buy_result.split.protocol_validator,
+            "router": buy_result.split.router,
         }
+
+    # Persist to SQLite ledger
+    if ledger is not None:
+        ledger.record_tx(
+            tx_type="buy",
+            asset_id=asset_id,
+            from_addr=buyer,
+            amount=amount,
+            metadata=result,
+        )
+        ledger.update_shares(buyer, asset_id, tokens)
+
     return result
+
+
+def bridge_stake(validator_id: str, amount: float, ledger: "Any" = None, staker: str = "default") -> float:
+    """Stake OAS for a validator via the protocol.
+
+    Args:
+        validator_id: Validator to stake for.
+        amount: OAS amount to stake.
+        ledger: Optional Ledger instance for persisting stake.
+        staker: Staker address (default "default").
+
+    Returns:
+        New total staked amount for the validator.
+    """
+    protocol = _get_protocol()
+    total = protocol.stake(validator_id, amount)
+
+    if ledger is not None:
+        ledger.record_tx(
+            tx_type="stake",
+            from_addr=staker,
+            to_addr=validator_id,
+            amount=amount,
+        )
+        ledger.update_stake(validator_id, staker, amount)
+
+    return total
+
+
+def bridge_get_shares(owner: str, ledger: "Any" = None) -> list:
+    """Return all share holdings for *owner* via the protocol.
+
+    When a ledger is provided, the protocol result is authoritative but
+    ledger records are available for audit.
+    """
+    protocol = _get_protocol()
+    return protocol.get_shares(owner)

@@ -36,8 +36,14 @@ env/
 .DS_Store
 Thumbs.db
 
+# Secrets — NEVER commit
+.env
+
 # Test artifacts
 test_dummy.txt
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Data (user-specific)
+genesis_vault/

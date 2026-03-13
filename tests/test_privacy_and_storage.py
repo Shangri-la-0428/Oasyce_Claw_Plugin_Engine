@@ -228,9 +228,10 @@ class TestIntegration:
                 assert meta_result.ok
                 
                 # 4. 创建证书
+                priv_hex, pub_hex = generate_keypair()
                 cert_result = CertificateEngine.create_popc_certificate(
                     meta_result.data,
-                    signing_key="test_secret_key",
+                    signing_key=priv_hex,
                     key_id="test_key_001"
                 )
                 assert cert_result.ok
@@ -254,3 +255,4 @@ class TestIntegration:
 
 # Import for integration test
 from oasyce_plugin.engines.core_engines import MetadataEngine, CertificateEngine
+from oasyce_plugin.crypto import generate_keypair

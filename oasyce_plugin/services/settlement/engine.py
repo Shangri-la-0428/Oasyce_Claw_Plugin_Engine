@@ -52,6 +52,7 @@ class AssetPool:
     owner: str
     supply: float = 1000.0         # Initial supply tokens
     reserve_balance: float = 100.0  # Initial reserve in OAS
+    reserve_ratio: float = 0.20    # Bancor F parameter (connector weight)
     total_trades: int = 0
     total_burned: float = 0.0
     total_verifier_rewards: float = 0.0
@@ -62,7 +63,7 @@ class AssetPool:
         """P = R / (S × F) where F = reserve_ratio."""
         if self.supply <= 0 or self.reserve_balance <= 0:
             return 0.0
-        return self.reserve_balance / (self.supply * 0.20)  # F=0.20
+        return self.reserve_balance / (self.supply * self.reserve_ratio)
 
 
 @dataclass
@@ -129,6 +130,7 @@ class SettlementEngine:
             owner=owner,
             supply=initial_supply,
             reserve_balance=initial_reserve,
+            reserve_ratio=self.config.reserve_ratio,
         )
         self.pools[asset_id] = pool
         self.balances[asset_id] = {owner: initial_supply}

@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from .result import Result, err, ok
 
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+SIG_RE = re.compile(r"^[0-9a-f]{128}$")
 ASSET_RE = re.compile(r"^OAS_[0-9A-F]{8}$")
 
 
@@ -58,7 +59,7 @@ def validate_metadata(metadata: Dict[str, Any], require_signature: bool = False)
     if require_signature:
         if "popc_signature" not in metadata:
             return err("Missing popc_signature", code="MISSING_SIGNATURE")
-        if not isinstance(metadata.get("popc_signature"), str) or not HASH_RE.match(metadata["popc_signature"]):
+        if not isinstance(metadata.get("popc_signature"), str) or not SIG_RE.match(metadata["popc_signature"]):
             return err("popc_signature format invalid", code="INVALID_FIELD")
 
     return ok(True)
