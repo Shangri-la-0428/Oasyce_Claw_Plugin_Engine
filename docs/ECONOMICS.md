@@ -24,7 +24,7 @@ OAS is not merely a payment token. It represents ownership in the network:
 | Liquidity | Bonding curve backing — guaranteed liquidity |
 | Collateral | Data asset ownership proof |
 
-**Core thesis:** More data-rights clearingd → more OAS demand → more burns → less supply → higher value → more participants. OAS captures value from every transaction in the network.
+**Core thesis:** More data-rights settled → more OAS demand → more burns → less supply → higher value → more participants. OAS captures value from every transaction in the network.
 
 ### Supply
 
@@ -228,11 +228,45 @@ As more validators join and stake increases, APR naturally decreases — creatin
 
 ## 6. Slashing Rules
 
+### Validator Slashing
+
 | Violation | Slash Rate | Consequence |
 |-----------|-----------|-------------|
 | Malicious block | **100%** | Entire stake seized + permanent ban |
 | Double block | **50%** | Half stake seized |
 | Prolonged offline | **5%/day** | Daily bleed until back online or forced exit |
+
+### Buyer Slashing
+
+Buyers who hold shares must maintain a collateral deposit proportional to their holdings. This creates economic alignment — leaking or misusing data destroys the buyer's own capital.
+
+| Violation | Slash Rate | Consequence |
+|-----------|-----------|-------------|
+| Watermark-traced data leak | **100%** | Entire collateral destroyed + all shares frozen |
+| License violation (commercial use of non-commercial asset) | **50%** | Half collateral destroyed |
+| Repeated violations | **100% + ban** | All collateral across all assets destroyed, network ban |
+
+#### Buyer Collateral Requirements
+
+| Parameter | Value |
+|-----------|-------|
+| Minimum collateral | 10% of shares purchase price |
+| Collateral lock period | Duration of share holding |
+| Release on sell | Collateral returned when shares are sold back to curve |
+
+#### Why This Works (Game Theory)
+
+```
+Buyer holds 1,000 OAS of shares → collateral: 100 OAS minimum
+Buyer leaks data → watermark forensics identify buyer
+→ 100 OAS collateral burned
+→ All shares frozen (1,000 OAS illiquid)
+→ Future revenue stream: 0
+
+EV(leak) = value of leaked data − 1,100 OAS − all future dividends
+```
+
+For any rational agent, the cost of leaking permanently exceeds the one-time value of the leaked data, because shares generate **recurring** revenue. Destroying a perpetual income stream for a one-time gain is economically irrational.
 
 **All slashed tokens are burned** — not redistributed. Slashing is punitive destruction, not a transfer mechanism.
 
@@ -322,12 +356,119 @@ To control >50% of stake when total staked is 10M OAS:
 
 - Steganographic watermark embedded per-buyer
 - Watermark → extract → identify leaker → on-chain proof
+- **Buyer slashing:** 100% collateral burned + all shares frozen (see §6 Buyer Slashing)
 - **Limitation:** Current whitespace steganography is vulnerable to automated reformatting (e.g., code formatters, LLM preprocessing). This is a known limitation — see Roadmap for planned improvements.
 - Economic deterrent: leaked data reduces demand → creator's bonding curve price drops → leaker's own holdings lose value
 
+**With buyer collateral (new):**
+
+```
+Buyer holds 1,000 OAS shares + 100 OAS collateral
+Buyer leaks data → watermark traced → slash triggered
+Loss: 100 OAS collateral (burned) + 1,000 OAS shares (frozen) + all future dividends
+EV(leak) = one-time data value − 1,100 OAS − PV(perpetual dividends)
+```
+
+For any asset generating recurring revenue, this is always negative.
+
+### Attack Scenario 5: Malicious Registration (Squatting)
+
+```
+Attacker registers data they didn't create
+Legitimate creator files Dispute with git/PoPC evidence
+Validator committee verifies → dispute upheld
+Loss: Attacker's registration revoked + collateral burned + network ban
+Attacker's dispute defense cost: 0 (they have no valid evidence)
+
+EV(squat) = 0 (no revenue while disputed) − collateral − ban
+```
+
+**Verdict: No rational actor squats.** The dispute mechanism makes it a pure loss.
+
 ---
 
-## 9. Watermark Limitations & Roadmap
+## 9. Shares Model
+
+### What You Buy
+
+When an agent purchases a data asset, it acquires **shares** — ownership stakes in that asset's revenue stream.
+
+```
+buy(asset_id, amount) → receive shares → auto-receive dividends from all future purchases
+```
+
+Shares are not one-time access tokens. They are **perpetual equity** in a data asset.
+
+### Shares Lifecycle
+
+```
+Register asset → Bonding Curve created (supply=0)
+  ↓
+Buyer deposits OAS → receives shares (price set by curve)
+  ↓
+Buyer holds shares → earns dividends from subsequent purchases
+  ↓
+Buyer sells shares → shares returned to curve → OAS returned (minus collateral release delay)
+```
+
+### Free Assets (price = 0)
+
+Not all assets need a Bonding Curve. Creators can register assets with `price_model = "free"`:
+
+- Attribution rights recorded on-chain (permanent, irrevocable)
+- No Bonding Curve, no shares, no collateral required
+- Access is open to all agents
+- Useful for: open source code, public datasets, Creative Commons content
+- Free assets still generate network activity → OAS burns still occur on related transactions
+
+Free assets serve as **user acquisition** — agents discover value on the network, then encounter paid assets.
+
+### Shares Secondary Market
+
+Shares can be sold back to the Bonding Curve at the current spot price (continuous liquidity). Peer-to-peer share transfers are **not** supported in v1 — this prevents wash trading and simplifies enforcement.
+
+---
+
+## 10. Dispute Resolution
+
+### The Problem
+
+First-to-register gets priority, but malicious actors can register data they didn't create.
+
+### Dispute Flow
+
+```
+Challenger stakes 1,000 OAS → submits Dispute(asset_id, evidence)
+  ↓
+Evidence types accepted:
+  - Git commit history with GPG signatures (code assets)
+  - PoPC certificate from earlier timestamp (physical capture assets)
+  - Prior on-chain registration on another network
+  - Timestamped publication proof (academic papers, blog posts)
+  ↓
+Validator committee reviews (random selection, 5 validators minimum)
+  ↓
+Outcome A: Dispute upheld
+  → Original registration revoked
+  → Challenger becomes new registrant
+  → Malicious registrant's collateral burned + network ban
+  → Challenger's dispute stake returned
+  ↓
+Outcome B: Dispute rejected
+  → Challenger's 1,000 OAS stake burned (anti-spam)
+  → Original registration unchanged
+```
+
+### Why This Works
+
+- **Cost to challenge:** 1,000 OAS (prevents frivolous disputes)
+- **Cost of losing a challenge (registrant):** All collateral + shares + permanent ban
+- **Honest registrants:** Low risk — legitimate evidence is hard to fabricate
+- **Malicious registrants:** High risk — git/PoPC evidence is cryptographically verifiable
+
+---
+
+## 11. Watermark Limitations & Roadmap
 
 ### Current Implementation
 
@@ -351,7 +492,7 @@ To control >50% of stake when total staked is 10M OAS:
 
 ---
 
-## 10. Governance
+## 12. Governance
 
 All economic parameters are **governance-configurable** by OAS token holders:
 
@@ -368,7 +509,7 @@ All economic parameters are **governance-configurable** by OAS token holders:
 
 ---
 
-## 11. Token Utility — Why OAS Must Exist
+## 13. Token Utility — Why OAS Must Exist
 
 A protocol token is justified when, and only when, a native unit of account creates value that a stablecoin or existing token cannot.
 
@@ -382,7 +523,7 @@ A protocol token is justified when, and only when, a native unit of account crea
 
 ---
 
-## 12. Competitive Landscape
+## 14. Competitive Landscape
 
 | Project | Focus | Difference from Oasyce |
 |---------|-------|----------------------|
@@ -396,7 +537,7 @@ A protocol token is justified when, and only when, a native unit of account crea
 
 ---
 
-## 13. Bootstrapping — The Cold Start Problem
+## 15. Bootstrapping — The Cold Start Problem
 
 ### Why Do the First 100 Agents Join?
 
@@ -427,7 +568,7 @@ Agents auto-register outputs → data supply grows → other agents discover use
 
 ---
 
-## 14. Implementation Notes
+## 16. Implementation Notes
 
 ### Reference Implementation
 
@@ -460,3 +601,8 @@ Core protocol requires only: `cryptography` (Ed25519), `python-dotenv` (config),
 | Slash: double block | 50% | `StakingConfig.slash_rate_double_block` |
 | Slash: offline/day | 5% | `StakingConfig.slash_rate_offline_per_day` |
 | P2P port | 9527 | Network default |
+| Buyer collateral ratio | 10% of purchase | `SettlementConfig.buyer_collateral_ratio` |
+| Buyer slash (leak) | 100% collateral + freeze shares | `SlashConfig.buyer_leak` |
+| Buyer slash (license violation) | 50% collateral | `SlashConfig.buyer_license` |
+| Dispute stake | 1,000 OAS | `DisputeConfig.challenge_stake` |
+| Dispute committee size | 5 validators | `DisputeConfig.committee_size` |
