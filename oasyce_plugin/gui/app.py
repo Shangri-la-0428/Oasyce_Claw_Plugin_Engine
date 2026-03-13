@@ -21,6 +21,33 @@ from oasyce_plugin.fingerprint import FingerprintRegistry
 # ── Shared state (set by OasyceGUI before server starts) ─────────────
 _ledger: Optional[Ledger] = None
 _config: Optional[Config] = None
+_settlement: Any = None
+_staking: Any = None
+_skills: Any = None
+
+
+def _get_settlement():
+    global _settlement
+    if _settlement is None:
+        from oasyce_plugin.services.settlement.engine import SettlementEngine
+        _settlement = SettlementEngine()
+    return _settlement
+
+
+def _get_staking():
+    global _staking
+    if _staking is None:
+        from oasyce_plugin.services.staking import StakingEngine
+        _staking = StakingEngine()
+    return _staking
+
+
+def _get_skills():
+    global _skills
+    if _skills is None:
+        from oasyce_plugin.skills.agent_skills import OasyceSkills
+        _skills = OasyceSkills(_config)
+    return _skills
 
 
 def _json_response(handler: BaseHTTPRequestHandler, data: Any, status: int = 200) -> None:
@@ -172,8 +199,134 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/stakes":
             return _json_response(self, _api_stakes())
 
+        # Asset detail
+        m = re.match(r"^/api/asset/(.+)$", path)
+        if m:
+            aid = m.group(1)
+            assert _ledger
+            row = _ledger._conn.execute(
+                "SELECT * FROM assets WHERE asset_id = ?", (aid,)
+            ).fetchone()
+            if not row:
+                return _json_response(self, {"error": "not found"}, 404)
+            meta = json.loads(row["metadata"]) if row["metadata"] else {}
+            return _json_response(self, {
+                "asset_id": row["asset_id"], "owner": row["owner"],
+                "metadata": meta, "created_at": row["created_at"],
+            })
+
+        # Bancor quote
+        if path == "/api/quote":
+            asset_id = qs.get("asset_id", [""])[0]
+            amount = float(qs.get("amount", ["10"])[0])
+            if not asset_id:
+                return _json_response(self, {"error": "asset_id required"}, 400)
+            try:
+                se = _get_settlement()
+                if asset_id not in se.pools:
+                    se.register_asset(asset_id, "protocol")
+                q = se.quote(asset_id, amount)
+                return _json_response(self, {
+                    "asset_id": q.asset_id, "payment": q.payment_oas,
+                    "tokens": round(q.equity_minted, 4),
+                    "price_before": round(q.spot_price_before, 6),
+                    "price_after": round(q.spot_price_after, 6),
+                    "impact_pct": round(q.price_impact_pct, 2),
+                    "fee": round(q.protocol_fee, 4),
+                    "burn": round(q.burn_amount, 4),
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
         # ── SPA ──────────────────────────────────────────────────
         return _html_response(self, _INDEX_HTML)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        length = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(length)) if length else {}
+
+        if path == "/api/register":
+            try:
+                skills = _get_skills()
+                fp = body.get("file_path", "")
+                owner = body.get("owner", _config.owner if _config else "unknown")
+                tags = body.get("tags", [])
+                if not fp:
+                    return _json_response(self, {"error": "file_path required"}, 400)
+                file_info = skills.scan_data_skill(fp)
+                metadata = skills.generate_metadata_skill(file_info, tags, owner)
+                signed = skills.create_certificate_skill(metadata)
+                result = skills.register_data_asset_skill(signed)
+                return _json_response(self, {
+                    "ok": True, "asset_id": signed.get("asset_id", ""),
+                    "file_hash": file_info.get("file_hash", ""),
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path == "/api/buy":
+            try:
+                se = _get_settlement()
+                aid = body.get("asset_id", "")
+                buyer = body.get("buyer", "anonymous")
+                amount = float(body.get("amount", 10))
+                if not aid:
+                    return _json_response(self, {"error": "asset_id required"}, 400)
+                if aid not in se.pools:
+                    se.register_asset(aid, "protocol")
+                receipt = se.execute(aid, buyer, amount)
+                return _json_response(self, {
+                    "ok": receipt.status.value == "SETTLED",
+                    "receipt_id": receipt.receipt_id,
+                    "tokens": round(receipt.quote.equity_minted, 4),
+                    "price_after": round(receipt.quote.spot_price_after, 6),
+                    "equity_balance": round(receipt.equity_balance, 4),
+                    "error": receipt.error,
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path == "/api/stake":
+            try:
+                sk = _get_staking()
+                node_id = body.get("node_id", "")
+                pub_key = body.get("public_key", node_id)
+                amount = float(body.get("amount", 0))
+                if not node_id or amount <= 0:
+                    return _json_response(self, {"error": "node_id and amount required"}, 400)
+                v = sk.stake(node_id, pub_key, amount)
+                return _json_response(self, {
+                    "ok": True, "node_id": v.node_id,
+                    "total_stake": v.stake, "status": v.status.value,
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path == "/api/fingerprint/embed":
+            try:
+                from oasyce_plugin.fingerprint.engine import FingerprintEngine
+                engine = FingerprintEngine(_config.signing_key if _config else "key")
+                aid = body.get("asset_id", "")
+                caller = body.get("caller_id", "")
+                content = body.get("content", "")
+                if not all([aid, caller, content]):
+                    return _json_response(self, {"error": "asset_id, caller_id, content required"}, 400)
+                import time
+                fp = engine.generate_fingerprint(aid, caller, int(time.time()))
+                watermarked = engine.embed_text(content, fp)
+                if _ledger:
+                    registry = FingerprintRegistry(_ledger)
+                    registry.record_distribution(aid, caller, fp, int(time.time()))
+                return _json_response(self, {
+                    "ok": True, "fingerprint": fp,
+                    "watermarked_content": watermarked,
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        return _json_response(self, {"error": "not found"}, 404)
 
 
 # ── HTML / CSS / JS (single-page app) ───────────────────────────────
@@ -520,14 +673,60 @@ input[type="text"]::placeholder { color: #555; }
     </div>
   </div>
 
-  <!-- Section 2: Your Assets -->
+  <!-- Section 2: Quick Actions -->
+  <div class="card fade" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
+    <button class="btn" onclick="document.getElementById('register-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:140px;">&#x1f4e6; Register</button>
+    <button class="btn" onclick="document.getElementById('buy-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:140px;background:#22c55e;">&#x1f4b0; Buy</button>
+    <button class="btn" onclick="document.getElementById('embed-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:140px;background:#f59e0b;color:#000;">&#x1f512; Watermark</button>
+    <button class="btn" onclick="document.getElementById('stake-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:140px;background:#8b5cf6;">&#x26d3; Stake</button>
+  </div>
+
+  <!-- Section 3: Your Assets -->
   <div class="card fade" id="assets-section">
     <h2>Your assets</h2>
     <input type="text" id="asset-search" placeholder="Search your assets...">
     <div id="assets-list" style="margin-top: 16px;"></div>
   </div>
 
-  <!-- Section 3: Watermark Tracker -->
+  <!-- Section 3b: Register Asset -->
+  <div class="card fade" id="register-section">
+    <h2>Register a file</h2>
+    <div class="input-row"><input type="text" id="reg-path" placeholder="File path (e.g. /Users/you/report.pdf)"></div>
+    <div class="input-row">
+      <input type="text" id="reg-owner" placeholder="Owner name" value="Shangrila" style="flex:1;">
+      <input type="text" id="reg-tags" placeholder="Tags (comma-separated)" style="flex:1;">
+    </div>
+    <button class="btn" id="reg-btn" style="width:100%;">Register</button>
+    <div id="reg-result"></div>
+  </div>
+
+  <!-- Section 3c: Buy Data -->
+  <div class="card fade" id="buy-section">
+    <h2>Buy data access</h2>
+    <div class="input-row">
+      <input type="text" id="buy-asset" placeholder="Asset ID">
+      <input type="text" id="buy-amount" placeholder="Amount (OAS)" value="10" style="max-width:120px;">
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn" id="quote-btn" style="flex:1;background:#333;">Get quote</button>
+      <button class="btn" id="buy-btn" style="flex:1;">Buy</button>
+    </div>
+    <div id="buy-result"></div>
+  </div>
+
+  <!-- Section 3d: Embed Watermark -->
+  <div class="card fade" id="embed-section">
+    <h2>Embed a watermark</h2>
+    <div class="input-row">
+      <input type="text" id="emb-asset" placeholder="Asset ID" style="flex:1;">
+      <input type="text" id="emb-caller" placeholder="Buyer ID" style="flex:1;">
+    </div>
+    <textarea id="emb-content" placeholder="Paste the content to watermark..." style="width:100%;min-height:120px;font-size:16px;background:#1a1a1a;border:1px solid #333;border-radius:10px;color:#e8e8e8;padding:16px;font-family:ui-monospace,monospace;resize:vertical;outline:none;"></textarea>
+    <button class="btn" id="emb-btn" style="width:100%;margin-top:10px;background:#f59e0b;color:#000;">Embed watermark</button>
+    <div id="emb-result"></div>
+  </div>
+
+  <!-- Section 4: Watermark Tracker -->
   <div class="card fade" id="trace-section">
     <h2>Trace a watermark</h2>
     <div class="input-row">
@@ -546,7 +745,19 @@ input[type="text"]::placeholder { color: #555; }
     </div>
   </div>
 
-  <!-- Section 4: Network -->
+  <!-- Section 6: Stake OAS -->
+  <div class="card fade" id="stake-section">
+    <h2>Stake OAS</h2>
+    <p style="color:#888;font-size:14px;margin-bottom:12px;">Stake OAS to become a node operator and earn block rewards + transaction fees.</p>
+    <div class="input-row">
+      <input type="text" id="stake-node" placeholder="Your node ID" style="flex:1;">
+      <input type="text" id="stake-amount" placeholder="Amount (OAS)" value="10000" style="max-width:140px;">
+    </div>
+    <button class="btn" id="stake-btn" style="width:100%;background:#8b5cf6;">Stake</button>
+    <div id="stake-result"></div>
+  </div>
+
+  <!-- Section 7: Network -->
   <div class="card fade" id="network-section">
     <h2>Network</h2>
     <div class="net-grid" id="net-info"></div>
@@ -714,6 +925,111 @@ input[type="text"]::placeholder { color: #555; }
     });
     document.getElementById('stakes-list').innerHTML = html;
   }
+
+  // ── Register ─────────────────────────────────────────────
+  document.getElementById('reg-btn').addEventListener('click', async function() {
+    var btn = this; btn.textContent = 'Working...'; btn.disabled = true;
+    var fp = document.getElementById('reg-path').value.trim();
+    var owner = document.getElementById('reg-owner').value.trim() || 'Shangrila';
+    var tags = document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);
+    var div = document.getElementById('reg-result');
+    try {
+      var r = await fetch('/api/register', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_path:fp,owner:owner,tags:tags})});
+      var d = await r.json();
+      if (d.ok) {
+        div.innerHTML = '<div class="trace-result" style="border-color:#22c55e;margin-top:12px;"><div class="trace-row"><span class="trace-key">Asset ID</span><span class="trace-val">' + esc(d.asset_id) + '</span></div><div class="trace-row"><span class="trace-key">File hash</span><span class="trace-val">' + esc(trunc(d.file_hash,24)) + '</span></div></div>';
+        loadAssets(); loadStatus();
+      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; }
+    } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+    btn.textContent = 'Register'; btn.disabled = false;
+  });
+
+  // ── Quote & Buy ─────────────────────────────────────────────
+  document.getElementById('quote-btn').addEventListener('click', async function() {
+    var aid = document.getElementById('buy-asset').value.trim();
+    var amount = document.getElementById('buy-amount').value.trim() || '10';
+    var div = document.getElementById('buy-result');
+    if (!aid) { div.innerHTML = '<p class="err">Enter an asset ID</p>'; return; }
+    var r = await api('/api/quote?asset_id=' + encodeURIComponent(aid) + '&amount=' + amount);
+    if (!r || r.error) { div.innerHTML = '<p class="err">' + esc(r ? r.error : 'Failed') + '</p>'; return; }
+    div.innerHTML = '<div class="trace-result" style="margin-top:12px;">' +
+      '<div class="trace-row"><span class="trace-key">You pay</span><span class="trace-val">' + r.payment + ' OAS</span></div>' +
+      '<div class="trace-row"><span class="trace-key">You get</span><span class="trace-val">' + r.tokens + ' tokens</span></div>' +
+      '<div class="trace-row"><span class="trace-key">Price before</span><span class="trace-val">' + r.price_before + ' OAS</span></div>' +
+      '<div class="trace-row"><span class="trace-key">Price after</span><span class="trace-val">' + r.price_after + ' OAS</span></div>' +
+      '<div class="trace-row"><span class="trace-key">Price impact</span><span class="trace-val">' + r.impact_pct + '%</span></div>' +
+      '<div class="trace-row"><span class="trace-key">Protocol fee</span><span class="trace-val">' + r.fee + ' OAS</span></div>' +
+      '<div class="trace-row"><span class="trace-key">Burned</span><span class="trace-val" style="color:#ef4444;">' + r.burn + ' OAS</span></div>' +
+      '</div>';
+  });
+
+  document.getElementById('buy-btn').addEventListener('click', async function() {
+    var btn = this; btn.textContent = 'Working...'; btn.disabled = true;
+    var aid = document.getElementById('buy-asset').value.trim();
+    var amount = document.getElementById('buy-amount').value.trim() || '10';
+    var div = document.getElementById('buy-result');
+    if (!aid) { div.innerHTML = '<p class="err">Enter an asset ID</p>'; btn.textContent='Buy';btn.disabled=false; return; }
+    try {
+      var r = await fetch('/api/buy', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:aid,buyer:'gui_user',amount:parseFloat(amount)})});
+      var d = await r.json();
+      if (d.ok) {
+        div.innerHTML = '<div class="trace-result" style="border-color:#22c55e;margin-top:12px;">' +
+          '<div class="trace-row"><span class="trace-key">Receipt</span><span class="trace-val">' + esc(d.receipt_id) + '</span></div>' +
+          '<div class="trace-row"><span class="trace-key">Tokens received</span><span class="trace-val" style="color:#22c55e;">' + d.tokens + '</span></div>' +
+          '<div class="trace-row"><span class="trace-key">New price</span><span class="trace-val">' + d.price_after + ' OAS</span></div>' +
+          '<div class="trace-row"><span class="trace-key">Your equity</span><span class="trace-val">' + d.equity_balance + '</span></div>' +
+          '</div>';
+      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; }
+    } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+    btn.textContent = 'Buy'; btn.disabled = false;
+  });
+
+  // ── Embed watermark ─────────────────────────────────────────
+  document.getElementById('emb-btn').addEventListener('click', async function() {
+    var btn = this; btn.textContent = 'Working...'; btn.disabled = true;
+    var aid = document.getElementById('emb-asset').value.trim();
+    var caller = document.getElementById('emb-caller').value.trim();
+    var content = document.getElementById('emb-content').value;
+    var div = document.getElementById('emb-result');
+    if (!aid || !caller || !content) { div.innerHTML = '<p class="err">Fill in all fields</p>'; btn.textContent='Embed watermark';btn.disabled=false; return; }
+    try {
+      var r = await fetch('/api/fingerprint/embed', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:aid,caller_id:caller,content:content})});
+      var d = await r.json();
+      if (d.ok) {
+        div.innerHTML = '<div class="trace-result" style="border-color:#f59e0b;margin-top:12px;">' +
+          '<div class="trace-row"><span class="trace-key">Fingerprint</span><span class="trace-val">' + esc(trunc(d.fingerprint,32)) + '</span></div>' +
+          '</div>' +
+          '<textarea readonly style="width:100%;min-height:100px;font-size:14px;background:#1a1a1a;border:1px solid #333;border-radius:10px;color:#22c55e;padding:16px;font-family:ui-monospace,monospace;margin-top:10px;">' + esc(d.watermarked_content) + '</textarea>';
+        loadStatus();
+      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; }
+    } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+    btn.textContent = 'Embed watermark'; btn.disabled = false;
+  });
+
+  // ── Stake ───────────────────────────────────────────────────
+  document.getElementById('stake-btn').addEventListener('click', async function() {
+    var btn = this; btn.textContent = 'Working...'; btn.disabled = true;
+    var nodeId = document.getElementById('stake-node').value.trim();
+    var amount = document.getElementById('stake-amount').value.trim() || '10000';
+    var div = document.getElementById('stake-result');
+    if (!nodeId) { div.innerHTML = '<p class="err">Enter your node ID</p>'; btn.textContent='Stake';btn.disabled=false; return; }
+    try {
+      var r = await fetch('/api/stake', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node_id:nodeId,amount:parseFloat(amount)})});
+      var d = await r.json();
+      if (d.ok) {
+        div.innerHTML = '<div class="trace-result" style="border-color:#8b5cf6;margin-top:12px;">' +
+          '<div class="trace-row"><span class="trace-key">Node</span><span class="trace-val">' + esc(d.node_id) + '</span></div>' +
+          '<div class="trace-row"><span class="trace-key">Total staked</span><span class="trace-val" style="color:#22c55e;">' + d.total_stake + ' OAS</span></div>' +
+          '<div class="trace-row"><span class="trace-key">Status</span><span class="trace-val">' + esc(d.status) + '</span></div>' +
+          '</div>';
+        loadStakes();
+      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; }
+    } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+    btn.textContent = 'Stake'; btn.disabled = false;
+  });
+
+  // ── Auto refresh ────────────────────────────────────────────
+  setInterval(loadStatus, 30000);
 
   // ── Init ─────────────────────────────────────────────────────
   loadStatus();
