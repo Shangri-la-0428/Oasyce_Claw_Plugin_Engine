@@ -202,8 +202,8 @@ class TestAssetRegistration:
         engine = SettlementEngine()
         pool = engine.register_asset("OAS_NEW001", owner="Alice")
         assert pool.asset_id == "OAS_NEW001"
-        assert pool.supply == 1000.0
-        assert pool.reserve_balance == 100.0
+        assert pool.supply == 10000.0
+        assert pool.reserve_balance == 1000.0
 
     def test_duplicate_registration_raises(self):
         engine = SettlementEngine()
@@ -213,6 +213,6 @@ class TestAssetRegistration:
 
     def test_initial_spot_price(self):
         engine = SettlementEngine()
-        pool = engine.register_asset("OAS_PRICE01", owner="Alice", initial_supply=1000, initial_reserve=100)
-        # P = R / (S × F) = 100 / (1000 × 0.20) = 0.5
-        assert abs(pool.spot_price - 0.5) < 0.001
+        pool = engine.register_asset("OAS_PRICE01", owner="Alice", initial_supply=10000, initial_reserve=1000)
+        # P = R / (S × F) = 1000 / (10000 × 0.35) ≈ 0.285714
+        assert abs(pool.spot_price - 0.285714) < 0.001

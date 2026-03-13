@@ -13,15 +13,16 @@ Design principles:
 
 Economic Model:
   ┌─ Data access fee (100 OAS example)
-  │   ├─ Creator reward  70% → 70 OAS (data creator gets the lion's share)
+  │   ├─ Creator reward  60% → 60 OAS (data creator gets the lion's share)
   │   ├─ Validator pool  20% → 20 OAS (split among validators by stake weight)
-  │   └─ Burn           10% → 10 OAS (permanent deflation)
+  │   ├─ Burn           15% → 15 OAS (permanent deflation)
+  │   └─ Treasury        5% →  5 OAS (protocol development & grants)
   │
   └─ Block reward (decreasing schedule)
-      ├─ Year 1: 50 OAS/block
-      ├─ Year 2: 25 OAS/block
-      ├─ Year 3: 12.5 OAS/block
-      └─ ... halving every year until fee revenue sustains the network
+      ├─ Year 1-2: 4 OAS/block
+      ├─ Year 3-4: 2 OAS/block
+      ├─ Year 5-6: 1 OAS/block
+      └─ ... halving every 2 years until fee revenue sustains the network
 """
 
 from __future__ import annotations
@@ -37,16 +38,17 @@ from typing import Any, Dict, List, Optional
 @dataclass(frozen=True)
 class StakingConfig:
     """Staking parameters — change these to tune the economy."""
-    min_stake: float = 1000.0              # Minimum OAS to become validator
+    min_stake: float = 10000.0             # Minimum OAS to become validator
     slash_rate_malicious: float = 1.0      # 100% — forge a block, lose everything
     slash_rate_double_block: float = 0.5   # 50% — produce two blocks at same height
     slash_rate_offline_per_day: float = 0.05  # 5%/day — go offline, slow bleed
     unbonding_period_seconds: int = 86400 * 7  # 7 days to withdraw (prevents hit-and-run)
-    initial_block_reward: float = 50.0     # OAS per block in epoch 0
-    halving_interval_blocks: int = 525_600  # ~1 year at 1 block/min
-    creator_share: float = 0.70            # 70% of tx fees → data creator
+    initial_block_reward: float = 4.0      # OAS per block in epoch 0
+    halving_interval_blocks: int = 1_051_200  # ~2 years at 1 block/min
+    creator_share: float = 0.60            # 60% of tx fees → data creator
     validator_share: float = 0.20          # 20% of tx fees → validator pool
-    burn_share: float = 0.10              # 10% of tx fees → burned forever
+    burn_share: float = 0.15              # 15% of tx fees → burned forever
+    treasury_share: float = 0.05          # 5% of tx fees → protocol treasury
 
 
 # ─── Data Models ──────────────────────────────────────────
@@ -180,7 +182,7 @@ class StakingEngine:
     def block_reward_amount(self, block_number: int) -> float:
         """Calculate block reward with halving schedule.
 
-        Year 1: 50 OAS/block, Year 2: 25, Year 3: 12.5, ...
+        Year 1-2: 4 OAS/block, Year 3-4: 2, Year 5-6: 1, ...
         Like Bitcoin: early believers get more, late joiners still earn.
         """
         halvings = block_number // self.config.halving_interval_blocks
@@ -216,22 +218,25 @@ class StakingEngine:
         return event
 
     def distribute_fees(self, creator: str, tx_fees: float) -> Dict[str, float]:
-        """Split transaction fees: creator 70%, validators 20%, burn 10%.
+        """Split transaction fees: creator 60%, validators 20%, burn 15%, treasury 5%.
 
         Returns the split amounts. Creator reward is direct.
         Validator share goes to the pool (distributed by stake weight on block).
         Burn is permanent — OAS destroyed forever.
+        Treasury funds protocol development and grants.
         """
         creator_amount = round(tx_fees * self.config.creator_share, 6)
         validator_amount = round(tx_fees * self.config.validator_share, 6)
         burn_amount = round(tx_fees * self.config.burn_share, 6)
+        treasury_amount = round(tx_fees * self.config.treasury_share, 6)
 
         return {
             "creator": creator_amount,
             "creator_addr": creator,
             "validators": validator_amount,
             "burn": burn_amount,
-            "total": round(creator_amount + validator_amount + burn_amount, 6),
+            "treasury": treasury_amount,
+            "total": round(creator_amount + validator_amount + burn_amount + treasury_amount, 6),
         }
 
     # ─── Slashing ─────────────────────────────────────────

@@ -30,7 +30,7 @@ class SettlementConfig:
     """Settlement engine parameters."""
     protocol_fee_rate: float = 0.05      # 5% protocol tax
     burn_rate: float = 0.50              # 50% of fee burned
-    reserve_ratio: float = 0.20          # Bancor F parameter (20%)
+    reserve_ratio: float = 0.35          # Bancor F parameter (35%)
     min_payment: float = 0.001           # Minimum payment in OAS
     max_slippage: float = 0.50           # 50% max slippage tolerance (wide for early-stage pools)
     burn_address: str = "0x000000000000000000000000000000000000dEaD"
@@ -50,9 +50,9 @@ class AssetPool:
     """Per-asset bonding curve state."""
     asset_id: str
     owner: str
-    supply: float = 1000.0         # Initial supply tokens
-    reserve_balance: float = 100.0  # Initial reserve in OAS
-    reserve_ratio: float = 0.20    # Bancor F parameter (connector weight)
+    supply: float = 10000.0        # Initial supply tokens
+    reserve_balance: float = 1000.0 # Initial reserve in OAS
+    reserve_ratio: float = 0.35    # Bancor F parameter (connector weight)
     total_trades: int = 0
     total_burned: float = 0.0
     total_verifier_rewards: float = 0.0
@@ -119,8 +119,8 @@ class SettlementEngine:
         self,
         asset_id: str,
         owner: str,
-        initial_supply: float = 1000.0,
-        initial_reserve: float = 100.0,
+        initial_supply: float = 10000.0,
+        initial_reserve: float = 1000.0,
     ) -> AssetPool:
         """Register a newly verified asset into the settlement network."""
         if asset_id in self.pools:
@@ -145,7 +145,7 @@ class SettlementEngine:
         """Calculate a price quote for buying data access equity.
         
         Formula: ΔTokens = S × ((1 + ΔR/R)^F − 1)
-        where ΔR = payment after fee deduction
+        where ΔR = payment after fee deduction, F = 0.35
         """
         pool = self.pools.get(asset_id)
         if not pool:

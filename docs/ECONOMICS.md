@@ -4,355 +4,457 @@
 
 Human-to-human data commerce failed because coordination costs exceeded data value. Machine-to-machine data commerce removes that friction entirely: cryptographic verification replaces lawyers, bonding curves replace negotiation, and protocol-level watermarking replaces legal enforcement.
 
-Oasyce implements the economic layer for this transition. A dual-layer model — Bancor bonding curve settlement combined with Proof-of-Stake validator economics — creates a self-sustaining data marketplace where prices emerge algorithmically, validators are incentivized to behave honestly, and persistent deflation via token burning aligns every participant's interest with the network's growth.
+Oasyce implements the economic layer for this transition — a settlement protocol where AI agents autonomously own, price, trade, and protect data. This document specifies the complete token economics: supply, emission, fee structure, staking, slashing, deflation mechanics, and game-theoretic security analysis.
 
 ---
 
-## 1. Bonding Curve (Bancor Formula)
+## 1. Token Overview
+
+### OAS — Network Equity, Not a Payment Tool
+
+OAS is not merely a payment token. It represents ownership in the network:
+
+| Role | Description |
+|------|-------------|
+| Settlement | Required currency for all data purchases |
+| Staking | Validator collateral — skin in the game |
+| Governance | Token-weighted voting on protocol parameters |
+| Liquidity | Bonding curve backing — guaranteed liquidity |
+| Collateral | Data asset ownership proof |
+
+**Core thesis:** More data traded → more OAS demand → more burns → less supply → higher value → more participants. OAS captures value from every transaction in the network.
+
+### Supply
+
+| Parameter | Value |
+|-----------|-------|
+| Maximum supply | 100,000,000 OAS |
+| Initial circulating | ~30M (ecosystem + early contributors) |
+| Emission source | Block rewards only |
+| Deflationary mechanism | 15% burn on every transaction |
+
+### Genesis Distribution
+
+| Category | Share | Amount | Vesting |
+|----------|-------|--------|---------|
+| Validator Rewards | 35% | 35M | Emitted via block rewards |
+| Ecosystem Incentives | 25% | 25M | Programmatic release |
+| Treasury | 15% | 15M | Governance-controlled |
+| Team | 15% | 15M | 4-year vest, 1-year cliff |
+| Early Contributors | 10% | 10M | 3-year linear vest |
+
+---
+
+## 2. Bonding Curve (Bancor Formula)
+
+The bonding curve provides **guaranteed liquidity** for OAS. It is the primary market for acquiring tokens — not a settlement mechanism.
 
 ### Formula
-
-The Bancor continuous liquidity model determines how many tokens a buyer receives for a given payment:
 
 ```
 ΔTokens = S × ((1 + ΔR / R)^F − 1)
 ```
 
 Where:
-- **S** = current token supply
-- **R** = current reserve balance (in OAS)
-- **ΔR** = net deposit (payment after protocol fee deduction)
-- **F** = connector weight / reserve ratio (0.20 = 20%)
+- **S** = current token supply in the pool
+- **R** = current reserve balance (in OAS or stablecoin)
+- **ΔR** = amount deposited
+- **F** = connector weight (reserve ratio) = **0.35**
 
 ### Spot Price
-
-The instantaneous price at any point:
 
 ```
 P = R / (S × F)
 ```
 
-Where F = 0.20 (configurable via `SettlementConfig.reserve_ratio`).
+### Why F = 0.35?
 
-### Properties
+| F Value | Behavior | Risk |
+|---------|----------|------|
+| 0.20 | Very steep — price rises ~70% per purchase | Speculative, early dumping |
+| **0.35** | **Moderate — smooth growth, sustainable** | **Balanced** |
+| 0.50 | Flat — minimal price appreciation | Weak incentive |
 
-- **Monotonically increasing**: Each purchase increases R and S, pushing P higher
-- **Continuous liquidity**: No order book needed; price is always available
-- **Deterministic**: Same inputs always produce same outputs
-- **Sub-linear connector weight (F=0.20)**: Price rises steeply with demand — early buyers are rewarded
+F = 0.35 provides meaningful early-adopter reward without creating unsustainable speculation.
+
+**This parameter is governance-configurable.** Token holders can vote to adjust F as the network matures.
 
 ### Worked Example
 
-**Initial state:** S=1000 tokens, R=100 OAS, F=0.20
+**Initial state:** S = 10,000 tokens, R = 1,000 OAS, F = 0.35
 
-**Spot price:** P = 100 / (1000 × 0.20) = **0.50 OAS/token**
+**Spot price:** P = 1,000 / (10,000 × 0.35) = **0.2857 OAS/token**
 
-**Buyer pays 100 OAS:**
+**First buyer deposits 100 OAS:**
 
-1. Protocol fee: 100 × 0.05 = 5.0 OAS
-2. Net deposit (ΔR): 100 − 5.0 = 95.0 OAS
-3. Tokens minted: ΔTokens = 1000 × ((1 + 95/100)^0.20 − 1)
-   - = 1000 × ((1.95)^0.20 − 1)
-   - = 1000 × (1.1432 − 1)
-   - = 1000 × 0.1432
-   - = **143.2 tokens**
-4. New state: S=1143.2, R=195.0
-5. New spot price: P = 195 / (1143.2 × 0.20) = **0.853 OAS/token** (+70.6%)
+1. ΔTokens = 10,000 × ((1 + 100/1,000)^0.35 − 1)
+2. = 10,000 × ((1.10)^0.35 − 1)
+3. = 10,000 × (1.03478 − 1)
+4. = 10,000 × 0.03478
+5. = **347.8 tokens**
+6. New state: S = 10,347.8, R = 1,100
+7. New spot price: P = 1,100 / (10,347.8 × 0.35) = **0.3037 OAS/token** (+6.3%)
 
-**Second buyer pays 100 OAS:**
+**Second buyer deposits 100 OAS:**
 
-1. Protocol fee: 5.0 OAS
-2. Net deposit: 95.0 OAS
-3. Tokens minted: 1143.2 × ((1 + 95/195)^0.20 − 1)
-   - = 1143.2 × ((1.4872)^0.20 − 1)
-   - = 1143.2 × (1.0826 − 1)
-   - = 1143.2 × 0.0826
-   - = **94.4 tokens** (fewer tokens than first buyer — price went up)
-4. New state: S=1237.6, R=290.0
-5. New spot price: P = 290 / (1237.6 × 0.20) = **1.172 OAS/token** (+37.4%)
+1. ΔTokens = 10,347.8 × ((1 + 100/1,100)^0.35 − 1)
+2. = 10,347.8 × ((1.0909)^0.35 − 1)
+3. = 10,347.8 × (1.03163 − 1)
+4. = 10,347.8 × 0.03163
+5. = **327.2 tokens**
+6. New state: S = 10,675.0, R = 1,200
+7. New spot price: P = 1,200 / (10,675.0 × 0.35) = **0.3212 OAS/token** (+5.8%)
 
-**Key insight:** The first buyer paid ~0.70 OAS/token (effective), the second paid ~1.06 OAS/token. Early participation is rewarded.
+**Key insight:** Price grows ~6% per 100 OAS purchase — meaningful but sustainable. The first buyer pays ~0.287 OAS/token, the second pays ~0.306. Early participation is rewarded without creating a speculative bubble.
+
+### Curve ≠ Settlement
+
+**Critical design decision:** The bonding curve handles **OAS liquidity only**. Data purchases are a separate flow:
+
+```
+Agent needs data → acquires OAS (via curve or secondary market) → pays creator in OAS → fee split occurs
+```
+
+The reserve pool is **never drained by fee distributions**. This preserves curve integrity.
 
 ---
 
-## 2. Fee Structure
+## 3. Transaction Fee Structure
 
-Oasyce has two complementary fee layers operating at different protocol levels.
+Every data purchase triggers a single, unified fee split:
 
-### Layer 1: Settlement Fee (Per-Purchase)
+| Recipient | Share | Purpose |
+|-----------|-------|---------|
+| Data Creator | 60% | Incentivize data production — creators earn the majority |
+| Validators | 20% | Network security — split by stake weight |
+| Burn | 15% | Permanent deflation — OAS destroyed forever |
+| Treasury | 5% | Protocol development — governance-controlled |
 
-Applied by the Settlement Engine when a buyer purchases data access:
-
-| Component | Rate | Destination |
-|-----------|------|-------------|
-| Protocol fee | 5% of payment | Split below |
-| → Burn | 50% of fee (2.5% of total) | Dead address — permanent deflation |
-| → Verifier | 50% of fee (2.5% of total) | PoPC certificate verifier |
-| Net deposit | 95% of payment | Enters bonding curve reserve |
-
-**Example (100 OAS payment):**
+### Worked Example (100 OAS data purchase)
 
 ```
-100 OAS payment
-├── Protocol Fee: 5.0 OAS
-│   ├── Burn: 2.5 OAS → 0x000...dEaD (destroyed forever)
-│   └── Verifier Reward: 2.5 OAS → verifier who validated the PoPC certificate
-└── Net Deposit: 95.0 OAS → bonding curve reserve (pushes price up)
+100 OAS data access payment
+├── Creator:     60 OAS → data owner's wallet
+├── Validators:  20 OAS → split proportionally by stake weight
+├── Burn:        15 OAS → 0x000...dEaD (destroyed permanently)
+└── Treasury:     5 OAS → protocol treasury (governance-controlled)
 ```
 
-### Layer 2: Transaction Fee Distribution (Network Level)
+### Why This Split?
 
-Applied at the network consensus layer when data access fees are collected:
+- **Creator 60%:** Must be the largest share — without data, nothing else matters
+- **Validator 20%:** Enough to sustain security once block rewards decrease
+- **Burn 15%:** Aggressive deflation — network activity directly increases scarcity
+- **Treasury 5%:** Funds protocol development, grants, audits without taxing creators
 
-| Recipient | Share | Rationale |
+### Why a Single Layer (Not Two)?
+
+Earlier designs had separate "settlement fee" and "network fee" layers. This was confusing and created a logical conflict: bonding curve reserves were being distributed as fees, breaking curve stability.
+
+**New design:** Fees are completely decoupled from the bonding curve. OAS flows in one direction through the curve (liquidity), and in a separate direction through transactions (settlement). No reserve leakage.
+
+---
+
+## 4. Block Reward Schedule
+
+Block rewards follow a halving schedule, decreasing over time as transaction fees become the primary validator incentive.
+
+| Years | Block Reward | Blocks/Year | Annual Emission | Cumulative |
+|-------|-------------|-------------|-----------------|------------|
+| 1-2 | 4.0 OAS | 525,600 | 2,102,400 | 4,204,800 |
+| 3-4 | 2.0 OAS | 525,600 | 1,051,200 | 6,307,200 |
+| 5-6 | 1.0 OAS | 525,600 | 525,600 | 7,358,400 |
+| 7-8 | 0.5 OAS | 525,600 | 262,800 | 7,884,000 |
+| 9-10 | 0.25 OAS | 525,600 | 131,400 | 8,146,800 |
+
+**Block time:** 60 seconds
+**Halving interval:** 1,051,200 blocks (~2 years)
+**Total emission from rewards:** ~8.15M OAS over 10 years (8.15% of max supply)
+
+### Year 1 Inflation
+
+Assuming ~40M OAS circulating:
+
+```
+Inflation = 2.1M / 40M = 5.25%
+```
+
+Comparable to Ethereum post-merge (~0.5%) and Solana (~5.4%). Healthy range.
+
+---
+
+## 5. Staking Model
+
+### Requirements
+
+| Parameter | Value | Rationale |
 |-----------|-------|-----------|
-| Creator | 70% | Data creator receives the majority — incentivizes content creation |
-| Validators | 20% | Split proportionally by stake weight — incentivizes honest validation |
-| Burn | 10% | Permanent deflation — increases scarcity over time |
-
-**Example (100 OAS in data access fees):**
-
-```
-100 OAS data access fee
-├── Creator: 70 OAS → data owner
-├── Validator Pool: 20 OAS → split by stake weight among active validators
-└── Burn: 10 OAS → permanently destroyed
-```
-
-### How the Two Layers Interact
-
-1. Buyer pays 100 OAS for data access
-2. **Settlement layer** takes 5 OAS protocol fee (2.5 burn + 2.5 verifier), deposits 95 OAS into bonding curve
-3. The 95 OAS effectively becomes the "data access fee" that flows through the **network layer**
-4. Network distributes: Creator 66.5 OAS (70%), Validators 19.0 OAS (20%), Burn 9.5 OAS (10%)
-5. **Total burn per 100 OAS transaction: 2.5 + 9.5 = 12.0 OAS (12%)**
-
----
-
-## 3. Staking Model
-
-### Validator Requirements
-
-| Parameter | Value |
-|-----------|-------|
-| Minimum stake | 1,000 OAS |
-| Unbonding period | 7 days (604,800 seconds) |
-| Validator selection | Proportional to stake weight |
+| Minimum stake | 10,000 OAS | Prevents validator spam, ensures commitment |
+| Unbonding period | 7 days | Prevents hit-and-run attacks |
+| Selection | Stake-weighted | More stake = more block production probability |
 
 ### Validator Lifecycle
 
 ```
-ACTIVE → UNBONDING → EXITED
-   ↓
-SLASHED (cannot re-stake)
+Stake 10,000+ OAS → ACTIVE → produce blocks, earn rewards
+                       ↓
+              Request unstake → UNBONDING (7 days) → EXITED (stake returned)
+                       ↓
+              Caught cheating → SLASHED (stake seized, permanent ban)
 ```
 
-- **ACTIVE**: Staked and participating in block validation
-- **UNBONDING**: Withdrawal requested, 7-day cooldown (stake still at risk during this period)
-- **SLASHED**: Caught misbehaving, stake partially or fully seized, permanently banned
-- **EXITED**: Unbonding complete, stake returned
+### Validator Revenue
 
-### Stake-Weighted Selection
+Two income streams:
 
-Probability of being selected to produce a block:
+**1. Block rewards:** 4 OAS/block × probability of selection
+
+**2. Transaction fees:** 20% of all data access fees, split by stake weight
+
+Example at 100,000 OAS daily volume with 10M total staked:
 
 ```
-P(validator_i) = stake_i / Σ(all_stakes)
+Block rewards:  4 × 525,600 / year = 2.1M OAS
+Fee income:     100,000 × 0.20 × 365 = 7.3M OAS
+Total:          9.4M OAS
+APR:            9.4M / 10M = 94%
 ```
 
-A validator with 5,000 OAS staked in a pool of 100,000 total has a 5% chance of producing each block.
+As more validators join and stake increases, APR naturally decreases — creating equilibrium.
 
 ---
 
-## 4. Slashing Rules
+## 6. Slashing Rules
 
-| Violation | Slash Rate | Description |
+| Violation | Slash Rate | Consequence |
 |-----------|-----------|-------------|
-| Malicious block | **100%** | Forging an invalid block — entire stake seized, permanent ban |
-| Double block | **50%** | Producing two blocks at the same height — half stake seized |
-| Prolonged offline | **5%/day** | Offline for >1 day — continuous daily bleed until back online or forced exit |
+| Malicious block | **100%** | Entire stake seized + permanent ban |
+| Double block | **50%** | Half stake seized |
+| Prolonged offline | **5%/day** | Daily bleed until back online or forced exit |
 
-### Slashing Examples
+**All slashed tokens are burned** — not redistributed. Slashing is punitive destruction, not a transfer mechanism.
 
-**Validator with 5,000 OAS stake:**
+### Slashing Examples (10,000 OAS validator)
 
-- **Produces invalid block:** 5,000 OAS seized (100%). Status → SLASHED. Cannot re-stake.
-- **Produces two blocks at height 1000:** 2,500 OAS seized (50%). Remaining 2,500 OAS still staked.
-- **Offline for 3 days:** Day 1: −250 OAS, Day 2: −237.5 OAS, Day 3: −225.6 OAS. Total lost: 713.1 OAS. Remaining: 4,286.9 OAS.
-
-### Slashed Funds Destination
-
-Slashed tokens are **burned** — they go to the dead address. This is not a transfer to other validators, but permanent destruction. This ensures slashing is punitive, not redistributive.
+- **Forges invalid block:** 10,000 OAS destroyed. Status: permanently banned.
+- **Produces two blocks at same height:** 5,000 OAS destroyed. Can continue with 5,000 (below minimum → forced exit).
+- **Offline for 3 days:** Day 1: −500, Day 2: −475, Day 3: −451. Total lost: 1,426 OAS.
 
 ---
 
-## 5. Block Reward Schedule
+## 7. Deflation Mechanics
 
-Block rewards follow a Bitcoin-style halving schedule:
-
-| Year | Block Reward | Blocks/Year | Annual Emission | Cumulative Supply |
-|------|-------------|-------------|----------------|-------------------|
-| 1 | 50.0 OAS | 525,600 | 26,280,000 OAS | 26,280,000 |
-| 2 | 25.0 OAS | 525,600 | 13,140,000 OAS | 39,420,000 |
-| 3 | 12.5 OAS | 525,600 | 6,570,000 OAS | 45,990,000 |
-| 4 | 6.25 OAS | 525,600 | 3,285,000 OAS | 49,275,000 |
-| 5 | 3.125 OAS | 525,600 | 1,642,500 OAS | 50,917,500 |
-| 6 | 1.5625 OAS | 525,600 | 821,250 OAS | 51,738,750 |
-| 7 | 0.78125 OAS | 525,600 | 410,625 OAS | 52,149,375 |
-| 8 | 0.390625 OAS | 525,600 | 205,312 OAS | 52,354,687 |
-| 9 | 0.195313 OAS | 525,600 | 102,656 OAS | 52,457,343 |
-| 10 | 0.097656 OAS | 525,600 | 51,328 OAS | 52,508,671 |
-
-**Halving interval:** 525,600 blocks (~1 year at 1 block per minute)
-
-**Asymptotic max supply:** ~52.56 million OAS (before accounting for burns)
-
-**Long-term sustainability:** As block rewards decrease, transaction fee revenue (from data marketplace activity) becomes the primary validator incentive.
-
----
-
-## 6. Deflation Mechanics
-
-OAS is designed to be deflationary. Burns happen at multiple points:
-
-### Burn Sources
+OAS is structurally deflationary. Burns occur at multiple points:
 
 | Source | Rate | Trigger |
 |--------|------|---------|
-| Settlement protocol fee | 2.5% of each purchase | Every data access purchase |
-| Network transaction burn | 10% of access fees | Every data access fee distribution |
-| Slashing | Variable (5-100%) | Validator misbehavior |
+| Transaction fee burn | 15% of every purchase | Every data access |
+| Slashing | 5-100% of stake | Validator misbehavior |
 
 ### Deflation Model
 
-Total burn per 100 OAS data purchase: **~12 OAS** (12%)
+**At 50,000 OAS daily volume:**
 
-At scale, if the network processes 10,000 OAS in daily transactions:
-- Daily burn: ~1,200 OAS destroyed
-- Annual burn: ~438,000 OAS destroyed
+```
+Daily burn:   50,000 × 0.15 = 7,500 OAS
+Annual burn:  7,500 × 365 = 2,737,500 OAS
+```
 
-Compared to Year 2 emission of 13,140,000 OAS, this is ~3.3% offset. As adoption grows and emission decreases, the burn rate increasingly outpaces emission, creating net deflation.
+**Compared to Year 1 emission of 2,102,400 OAS:**
 
-**Crossover point:** When daily transaction volume exceeds ~36,000 OAS (Year 1) or ~18,000 OAS (Year 2), the daily burn exceeds the daily emission, and the total supply begins to shrink.
+```
+Net change: 2,102,400 − 2,737,500 = −635,100 OAS
+```
+
+**Supply is already shrinking in Year 1** at moderate transaction volume.
+
+### Crossover Point
+
+Daily volume needed for burn to exceed emission:
+
+```
+Year 1-2:  2,102,400 / (0.15 × 365) = 38,400 OAS/day
+Year 3-4:  1,051,200 / (0.15 × 365) = 19,200 OAS/day
+Year 5+:   Trivial — almost any activity causes net deflation
+```
 
 ---
 
-## 7. Game Theory
+## 8. Game Theory & Security
 
 ### Attack Scenario 1: Malicious Block Production
 
-**Attacker goal:** Produce invalid blocks to double-spend or rewrite history.
-
-**Attack requirements:**
-- Stake minimum 1,000 OAS to become a validator
-- Get selected to produce a block (probability = stake / total_stake)
-
-**Expected value analysis:**
-
 ```
-Cost:    1,000 OAS minimum stake (at risk)
-Reward:  Block reward × number of malicious blocks before detection
-         = 50 OAS × ~3 blocks ≈ 150 OAS (optimistic)
-Risk:    100% slash = lose 1,000+ OAS
-         Permanent ban = lose all future block rewards
+Stake required:    10,000 OAS (minimum)
+Potential reward:  ~3 blocks × 4 OAS = 12 OAS (optimistic)
+Risk:              100% slash = −10,000 OAS + permanent ban
+Detection:         Immediate (other validators verify every block)
 
-EV(attack) = 0.95 × (−1000) + 0.05 × (150) = −942.5 OAS
-EV(honest) = 50 × (stake/total) × 525600 = positive ongoing income
+EV(attack) = 0.95 × (−10,000) + 0.05 × (12) = −9,499 OAS
 ```
 
-**Conclusion:** Attack is economically irrational. Risk/reward ratio is ~6.7:1 against the attacker.
+**Verdict: Economically irrational.** Risk/reward ratio is 833:1 against the attacker.
 
-### Attack Scenario 2: Double Block Production
-
-**Attacker goal:** Produce competing blocks to create a fork.
+### Attack Scenario 2: Double Block
 
 ```
-Cost:    50% of stake = 500+ OAS
-Reward:  One extra block reward ≈ 50 OAS
-Risk/Reward: 10:1 against attacker
+Cost:    50% of stake = −5,000 OAS
+Reward:  One extra block = 4 OAS
+Ratio:   1,250:1 against attacker
 ```
 
-**Conclusion:** Massively unprofitable.
+**Verdict: Massively unprofitable.**
 
 ### Attack Scenario 3: 51% Stake Attack
 
-**Attacker goal:** Control block production by staking >50% of total OAS.
+To control >50% of stake when total staked is 10M OAS:
+- Must acquire >10M OAS at market price
+- Bonding curve makes large purchases progressively expensive
+- Secondary market purchases would move price significantly
+- **Even with 51%, cannot fabricate data** — PoPC certificates are cryptographically bound to real files
+- Detection leads to slashing of entire 10M+ OAS stake
 
-**If total staked is 1,000,000 OAS:**
-- Attacker must stake 1,000,001+ OAS
-- Cost: >1M OAS acquired at market price (price impact: bonding curve makes large purchases progressively more expensive)
-- Risk: Detection → mass slashing of 1M+ OAS
-- Reward: Ability to censor transactions (but not steal funds — cryptographic proofs prevent fabrication)
-
-**Conclusion:** Cost of attack scales with network value. The bonding curve makes acquiring large amounts of OAS progressively more expensive, creating a natural defense.
+**Verdict: Cost scales with network value. Prohibitively expensive.**
 
 ### Attack Scenario 4: Data Leak After Purchase
 
-**Attacker goal:** Buy data, remove watermark, redistribute.
-
-**Defense:**
-- Steganographic watermark embedded at bit-level — not visible, not easily removable
-- Fingerprint bound on-chain: `fingerprint_hash ↔ caller_id ↔ timestamp`
-- Leak detection: extract watermark → identify buyer → on-chain evidence
-- Economic deterrent: leaked data loses value (supply increases, price drops via curve)
-
-**Conclusion:** Cryptographic accountability makes leaking attributable and punishable.
+- Steganographic watermark embedded per-buyer
+- Watermark → extract → identify leaker → on-chain proof
+- **Limitation:** Current whitespace steganography is vulnerable to automated reformatting (e.g., code formatters, LLM preprocessing). This is a known limitation — see Roadmap for planned improvements.
+- Economic deterrent: leaked data reduces demand → creator's bonding curve price drops → leaker's own holdings lose value
 
 ---
 
-## 8. Fingerprint Economics
+## 9. Watermark Limitations & Roadmap
 
-### Watermark Distribution Model
+### Current Implementation
 
-Each data access purchase generates a **unique watermarked copy** of the data:
+| Strategy | Medium | Robustness |
+|----------|--------|------------|
+| Whitespace steganography | Text/code | Moderate — survives partial edits, vulnerable to automated formatters |
+| Binary trailer | Binary files | High — survives unless trailer is explicitly stripped |
 
-1. Buyer pays via bonding curve → receives access
-2. Fingerprint engine generates unique watermark from `caller_id + timestamp + asset_id`
-3. Watermark embedded steganographically into the data
-4. Distribution record stored on-chain: `{fingerprint_hash, caller_id, asset_id, timestamp}`
+### Known Vulnerabilities
 
-### Leak Tracing Flow
+- Code formatters (Black, Prettier) will strip whitespace watermarks
+- LLM context preprocessing may normalize whitespace
+- Binary trailer is detectable if attacker knows the magic bytes
+
+### Planned Improvements (Roadmap)
+
+- **Semantic-level watermarking:** Synonym substitution, variable renaming, comment paraphrasing — survives formatting
+- **Neural watermarking:** Embed watermarks in model weights or embedding spaces
+- **Multi-layer redundancy:** Combine multiple strategies so stripping one doesn't remove all
+- **Watermark-aware distribution:** Different strategies for different asset types
+
+---
+
+## 10. Governance
+
+All economic parameters are **governance-configurable** by OAS token holders:
+
+| Parameter | Current Default | Governance-Adjustable |
+|-----------|----------------|----------------------|
+| Connector weight (F) | 0.35 | Yes |
+| Fee split ratios | 60/20/15/5 | Yes |
+| Block reward | 4 OAS | Yes |
+| Halving interval | 2 years | Yes |
+| Minimum stake | 10,000 OAS | Yes |
+| Slashing rates | 100/50/5% | Yes |
+
+**Governance mechanism:** On-chain token-weighted voting. Implementation planned for post-mainnet launch. Until then, parameters are set by the core team with community input via governance proposals on GitHub.
+
+---
+
+## 11. Token Utility — Why OAS Must Exist
+
+A protocol token is justified when, and only when, a native unit of account creates value that a stablecoin or existing token cannot.
+
+**OAS justification:**
+
+1. **Staking requires network-native collateral.** Validators must risk something whose value is tied to network health. Staking ETH doesn't punish anti-Oasyce behavior.
+2. **Deflation requires a burnable token.** You cannot burn USDC.
+3. **Governance requires aligned incentives.** Voters must hold something that loses value if they vote badly.
+4. **Bonding curves require a continuous token.** AMM liquidity for data assets needs a native denomination.
+5. **Data pricing needs a unit that appreciates with network growth.** If data is priced in USD, early data providers don't benefit from network growth. In OAS, they do.
+
+---
+
+## 12. Competitive Landscape
+
+| Project | Focus | Difference from Oasyce |
+|---------|-------|----------------------|
+| Ocean Protocol | Data marketplace | Human-operated, centralized metadata, no agent-native integration |
+| Filecoin | Storage incentives | Stores data, doesn't price or settle data access |
+| Bittensor | AI compute network | Compute incentives, not data ownership/trading |
+| Fetch.ai | Agent framework | Agent infrastructure, no data settlement protocol |
+| **Oasyce** | **M2M data settlement** | **Agent-native: autonomous ownership, pricing, trading, watermarking in one protocol** |
+
+**Oasyce's unique position:** The only protocol where both data supply (registration) and demand (purchase) are fully automated by AI agents, with economic incentives aligned end-to-end.
+
+---
+
+## 13. Bootstrapping — The Cold Start Problem
+
+### Why Do the First 100 Agents Join?
+
+**Phase 1: Self-generated data (zero friction)**
+Every AI agent already produces valuable outputs — code, analysis, summaries. The Oasyce plugin registers these automatically. No behavior change required. The agent generates data → the plugin registers it → it's available on the network.
+
+**Phase 2: Curated seed datasets**
+The core team seeds the network with high-value, publicly-licensable datasets:
+- Code documentation and API references
+- Structured financial data feeds
+- Geospatial and sensor data
+- Multilingual parallel corpora
+
+**Phase 3: Creator incentive program**
+Early data providers receive boosted OAS rewards from the Ecosystem Incentives pool (25M OAS). First-mover advantage: early data gets priced low on the bonding curve, and appreciates as demand grows.
+
+**Phase 4: Agent marketplace integrations**
+Integrate with existing agent frameworks (OpenClaw, LangChain, AutoGPT) so that any agent can discover and purchase Oasyce-registered data with a single API call.
+
+### The Flywheel
 
 ```
-Leaked file found
-    → Extract watermark bits
-    → Compute fingerprint hash
-    → Query on-chain registry
-    → Identify: buyer_id, purchase_timestamp, asset_id
-    → Cryptographic proof of leak origin
+Agents auto-register outputs → data supply grows → other agents discover useful data
+→ they purchase → creators earn → more agents register → supply grows further
+→ each purchase burns 15% OAS → scarcity increases → OAS appreciates
+→ more validators join → network strengthens → more agents trust the network
 ```
 
-### Economic Impact of Leaks
+---
 
-If data is leaked and redistributed freely:
-- Demand for the bonding curve drops (why pay when it's free?)
-- Price decreases along the curve (fewer purchases = lower price)
-- Creator revenue drops
-- **But:** The leaker is identified, and penalties can be enforced (contractual, legal, or protocol-level slashing of future access rights)
+## 14. Implementation Notes
+
+### Reference Implementation
+
+The current codebase uses **SQLite** as the ledger backend. This is a reference implementation optimized for simplicity and local development. Production nodes may use distributed storage (e.g., RocksDB, or integration with existing L1 chains for settlement finality).
+
+### Minimal Dependencies
+
+Core protocol requires only: `cryptography` (Ed25519), `python-dotenv` (config), `aiohttp` (P2P networking). No heavy frameworks. Runs on a single laptop.
 
 ---
 
 ## Appendix: Parameter Summary
 
-| Parameter | Value | Source |
-|-----------|-------|--------|
-| Protocol fee rate | 5% | `SettlementConfig.protocol_fee_rate` |
-| Fee burn rate | 50% of fee | `SettlementConfig.burn_rate` |
-| Bancor connector weight (F) | 0.20 | `SettlementConfig.reserve_ratio` |
-| Minimum payment | 0.001 OAS | `SettlementConfig.min_payment` |
-| Max slippage | 50% | `SettlementConfig.max_slippage` |
-| Creator fee share | 70% | `StakingConfig` (network layer) |
-| Validator fee share | 20% | `StakingConfig` (network layer) |
-| Network burn share | 10% | `StakingConfig` (network layer) |
-| Minimum stake | 1,000 OAS | `StakingConfig.min_stake` |
+| Parameter | Value | Config Location |
+|-----------|-------|-----------------|
+| Max supply | 100,000,000 OAS | Genesis spec |
+| Connector weight (F) | 0.35 | `SettlementConfig.reserve_ratio` |
+| Initial pool supply | 10,000 tokens | `AssetPool.supply` default |
+| Initial pool reserve | 1,000 OAS | `AssetPool.reserve_balance` default |
+| Creator fee share | 60% | `StakingConfig.creator_share` |
+| Validator fee share | 20% | `StakingConfig.validator_share` |
+| Burn share | 15% | `StakingConfig.burn_share` |
+| Treasury share | 5% | `StakingConfig.treasury_share` |
+| Minimum stake | 10,000 OAS | `StakingConfig.min_stake` |
 | Unbonding period | 7 days | `StakingConfig.unbonding_period_seconds` |
-| Slash: malicious block | 100% | `StakingConfig.slash_rate_malicious` |
+| Block reward | 4 OAS | `StakingConfig.initial_block_reward` |
+| Block time | 60 seconds | Network default |
+| Halving interval | 1,051,200 blocks (~2 years) | `StakingConfig.halving_interval_blocks` |
+| Slash: malicious | 100% | `StakingConfig.slash_rate_malicious` |
 | Slash: double block | 50% | `StakingConfig.slash_rate_double_block` |
 | Slash: offline/day | 5% | `StakingConfig.slash_rate_offline_per_day` |
-| Initial block reward | 50 OAS | `StakingConfig.initial_block_reward` |
-| Halving interval | 525,600 blocks | `StakingConfig.halving_interval_blocks` |
-| Initial pool supply | 1,000 tokens | `AssetPool.supply` default |
-| Initial pool reserve | 100 OAS | `AssetPool.reserve_balance` default |
-| Burn address | `0x000...dEaD` | `SettlementConfig.burn_address` |
 | P2P port | 9527 | Network default |
-| Quote validity | 60 seconds | `Quote.__post_init__` |

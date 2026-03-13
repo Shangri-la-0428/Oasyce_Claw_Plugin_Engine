@@ -149,34 +149,54 @@ The watermark survives partial modification. The leaker is always identifiable.
 
 ## Economics at a Glance
 
-### Token Supply
+**Max supply:** 100,000,000 OAS
 
-| Year | Block Reward | Annual Emission | Cumulative |
-|------|-------------|-----------------|------------|
-| 1 | 50.0 OAS | 26,280,000 | 26.3M |
-| 2 | 25.0 OAS | 13,140,000 | 39.4M |
-| 3 | 12.5 OAS | 6,570,000 | 46.0M |
-| 5 | 3.125 OAS | 1,642,500 | 50.9M |
-| 10 | 0.098 OAS | 51,328 | 52.5M |
+### Block Rewards (Halving Every 2 Years)
 
-**Asymptotic max: ~52.56M OAS** (before burns).
+| Years | Block Reward | Annual Emission |
+|-------|-------------|-----------------|
+| 1-2 | 4.0 OAS | 2,102,400 |
+| 3-4 | 2.0 OAS | 1,051,200 |
+| 5-6 | 1.0 OAS | 525,600 |
+| 7-8 | 0.5 OAS | 262,800 |
+
+**Year 1 inflation:** ~5.25% (healthy range).
+
+### Transaction Fee Split
+
+Every data purchase:
+
+```
+Creator:    60%   ← data owners earn the most
+Validators: 20%   ← split by stake weight
+Burn:       15%   ← permanent deflation
+Treasury:    5%   ← protocol development
+```
 
 ### Deflation
 
-At 10,000 OAS daily transaction volume → ~1,200 OAS burned daily → 438,000 annually.
+At 50,000 OAS daily volume → 7,500 OAS burned daily → 2.74M annually.
+**Year 1 emission: 2.1M.** Net result: supply already shrinking.
 
-**Crossover point:** When daily volume exceeds ~36,000 OAS (Year 1) or ~18,000 OAS (Year 2), daily burn exceeds daily emission. Total supply begins shrinking.
+### Staking
+
+- **Minimum stake:** 10,000 OAS
+- **Slashing:** 100% for malicious blocks, 50% for double blocks, 5%/day offline
+- **All slashed tokens burned**
+
+### Bonding Curve (F = 0.35)
+
+Provides OAS liquidity. **Decoupled from fee settlement** — reserve is never drained by fee distributions.
 
 ### Game Theory
 
-| Attack | Cost | Reward | EV | Verdict |
-|--------|------|--------|----|---------|
-| Malicious block | 1,000+ OAS at risk | ~150 OAS | **−942 OAS** | Irrational |
-| Double block | 50% of stake | ~50 OAS | **−450 OAS** | Irrational |
-| 51% stake | >50% of all OAS | Censorship only | Scales with network | Prohibitive |
-| Leak after purchase | Reputation + legal | Redistribute data | Traceable via watermark | Deterred |
+| Attack | Cost | Reward | EV |
+|--------|------|--------|----|
+| Malicious block | 10,000+ OAS | ~12 OAS | **−9,499 OAS** |
+| Double block | 50% of stake | ~4 OAS | **−4,996 OAS** |
+| 51% stake | >50% of all staked OAS | Censorship only | Prohibitive |
 
-**Every attack is economically irrational.** The protocol makes honesty the optimal strategy.
+**Every attack is economically irrational.** Honesty is the optimal strategy.
 
 ---
 
@@ -184,24 +204,50 @@ At 10,000 OAS daily transaction volume → ~1,200 OAS burned daily → 438,000 a
 
 1. **No demand.** Before 2024, machines didn't autonomously buy data. No agents, no M2M economy, no need for a settlement network.
 2. **No substrate.** Ed25519, Bancor curves, PoS consensus, steganography — each existed, but no one had a reason to compose them for machine data commerce.
-3. **No entry point.** Oasyce nodes run as plugins inside AI agent frameworks (OpenClaw). The data entry point is the agent itself — it registers data as a side effect of working. No human upload required.
+3. **No entry point.** Oasyce nodes run as plugins inside AI agent frameworks. The data entry point is the agent itself — it registers data as a side effect of working. No human upload required.
 
-**The demand appeared. The building blocks existed. Someone had to wire them together. That's what Oasyce is.**
+**The demand appeared. The building blocks existed. Someone had to wire them together.**
+
+---
+
+## Bootstrapping: The First 100 Agents
+
+**Phase 1 — Self-generated data (zero friction):**
+Every AI agent already produces outputs. The plugin registers them automatically. No behavior change.
+
+**Phase 2 — Curated seed datasets:**
+Core team seeds high-value, licensable datasets (API docs, financial feeds, sensor data, multilingual corpora).
+
+**Phase 3 — Creator incentive program:**
+Early providers get boosted OAS from the Ecosystem Incentives pool (25M OAS). First-mover data appreciates on the curve.
+
+**Phase 4 — Framework integrations:**
+One-line integration with OpenClaw, LangChain, AutoGPT — any agent can discover and purchase data via API.
+
+---
+
+## Competitive Landscape
+
+| Project | Focus | Difference from Oasyce |
+|---------|-------|----------------------|
+| Ocean Protocol | Data marketplace | Human-operated, no agent-native pipeline |
+| Filecoin | Storage | Stores data, doesn't price or settle access |
+| Bittensor | AI compute | Compute incentives, not data ownership |
+| Fetch.ai | Agent framework | Infrastructure, no settlement protocol |
+| **Oasyce** | **M2M data settlement** | **End-to-end: autonomous ownership, pricing, trading, watermarking** |
 
 ---
 
 ## Alignment: Everyone Makes Money the Same Way
 
-There is no SaaS fee, no subscription, no platform cut.
+No SaaS fee. No subscription. No platform cut.
 
-Every participant — founder, validator, data creator, node operator — earns by holding OAS and contributing to the network. When the network grows, OAS becomes scarcer (burns) and more valuable (demand). Everyone's incentive is identical: **make the network better.**
+Every participant earns by holding OAS and contributing to the network. Growth → more transactions → more burns → less supply → higher value. Everyone's incentive is identical.
 
 ```
-More nodes → more data → more agents using it → more transactions
-→ more burns → less supply → higher OAS value → more nodes want to join
+More agents → more data → more transactions → more burns
+→ less supply → higher OAS value → more validators → more agents
 ```
-
-This is the flywheel. Once it spins, it's self-reinforcing.
 
 ---
 
@@ -210,30 +256,26 @@ This is the flywheel. Once it spins, it's self-reinforcing.
 | Metric | Value |
 |--------|-------|
 | Codebase | ~50 Python source files |
-| Tests | 220 passing (pytest) |
-| Dependencies | cryptography, python-dotenv, aiohttp (minimal) |
+| Tests | 220 passing |
+| Dependencies | cryptography, python-dotenv, aiohttp |
 | Runs on | Single laptop (macOS/Linux, Python 3.9+) |
-| Demo | `oasyce demo-network --nodes 3` — full multi-node consensus |
-| GUI | `oasyce gui` — web dashboard on localhost:8420 |
-
-### What Works Today
-
-- Register data assets with cryptographic certificates
-- P2P network with block sync and consensus
-- Bancor bonding curve pricing and settlement
-- Staking with slashing and halving rewards
-- Fingerprint watermarking with on-chain tracing
-- Web dashboard for node monitoring
-- Full CLI toolset
+| Demo | `oasyce demo-network --nodes 3` |
+| GUI | `oasyce gui` on localhost:8420 |
 
 ### What's Next
 
 | Phase | Description |
 |-------|-------------|
-| Open source release | MIT/Apache 2.0, GitHub Actions CI, PyPI package |
-| Token contract | On-chain OAS (ERC-20 or Solana SPL) |
-| Multi-machine deployment | NAT traversal, node discovery, real-world P2P |
-| Agent marketplace | Agents browse, purchase, and consume data autonomously |
+| Open source | MIT license, PyPI package, CI |
+| On-chain governance | Token-weighted parameter voting |
+| Token contract | OAS on ERC-20 or Solana SPL |
+| Multi-machine P2P | NAT traversal, node discovery |
+| Semantic watermarking | Robust against formatters and LLMs |
+| Agent marketplace | Discovery + purchase in one API call |
+
+### Implementation Note
+
+Current codebase uses SQLite as the ledger backend — a reference implementation optimized for simplicity. Production nodes may use distributed storage (RocksDB) or integrate with existing L1 chains for settlement finality.
 
 ---
 
