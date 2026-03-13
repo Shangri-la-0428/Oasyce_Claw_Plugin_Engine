@@ -71,19 +71,44 @@ Built across 9 development phases:
 
 Oasyce has two complementary economic layers. For full formulas, game theory analysis, and worked examples, see [docs/ECONOMICS.md](docs/ECONOMICS.md).
 
-### Data Access Fee Split (Settlement Layer)
+### Data Access Fee Split (Unified Single Layer)
 
-Each data purchase flows through the Bancor bonding curve:
+Every data purchase triggers a single fee split:
 
 ```
 Payment: 100 OAS
-  ├── Protocol Fee: 5% → 5 OAS
-  │     ├── Burn: 50% → 2.5 OAS (permanent deflation)
-  │     └── Verifier: 50% → 2.5 OAS
-  └── Net Deposit: 95% → 95 OAS → enters bonding curve → pushes price up
+  ├── Creator:     60 OAS (60%)
+  ├── Validators:  20 OAS (20%) — split by stake weight
+  ├── Burn:        15 OAS (15%) — permanent deflation
+  └── Treasury:     5 OAS (5%)  — governance-controlled
 ```
 
-**Bancor formula:** `ΔTokens = S × ((1 + ΔR/R)^F − 1)` where S=supply, R=reserve, F=0.20 (connector weight)
+The bonding curve is **completely decoupled** from fee settlement — reserve is never drained by distributions.
+
+**Bancor formula:** `ΔTokens = S × ((1 + ΔR/R)^F − 1)` where S=supply, R=reserve, F=0.35 (connector weight)
+
+### Data Access Control (L0–L3)
+
+Raw data exposure is minimized by default. Buyers purchase **rights to use**, not rights to possess:
+
+| Level | Access | Data Exposure | Bond Multiplier |
+|-------|--------|---------------|-----------------|
+| **L0** Query | Statistics, Q&A | Zero | 1× |
+| **L1** Sample | Redacted fragments | Minimal | 2× |
+| **L2** Compute | Model runs in TEE | Zero | 3× |
+| **L3** Deliver | Full + watermark | Full | 5× |
+
+Bond is dynamic: `Bond = TWAP(Value) × Multiplier × RiskFactor × (1 - Reputation/100) × ExposureFactor`
+
+### Security Stack
+
+| Layer | Mechanisms |
+|-------|-----------|
+| Technical | TEE enclaves, per-buyer watermarking |
+| Access | L0-L3 levels, creator-controlled caps |
+| Economic | Dynamic bond, bonding curve, 15% burn |
+| Behavioral | Agent reputation, sandbox, blacklist, exposure tracking |
+| Temporal | Liability windows (1–30 days by level) |
 
 ### Transaction Fee Distribution (Network Layer)
 
@@ -91,14 +116,15 @@ For each data access fee collected at the network level:
 
 | Recipient | Share | Purpose |
 |-----------|-------|---------|
-| Creator | 70% | Data creator gets the lion's share |
+| Creator | 60% | Data creator gets the lion's share |
 | Validators | 20% | Split by stake weight |
-| Burn | 10% | Permanent deflation |
+| Burn | 15% | Permanent deflation |
+| Treasury | 5% | Protocol development |
 
 ### Block Rewards & Staking
 
-- **Block reward:** 50 OAS/block, halving every 525,600 blocks (~1 year)
-- **Minimum stake:** 1,000 OAS
+- **Block reward:** 4 OAS/block, halving every 1,051,200 blocks (~2 years)
+- **Minimum stake:** 10,000 OAS
 - **Unbonding period:** 7 days
 - **Slashing:** 100% for malicious blocks, 50% for double blocks, 5%/day for offline
 

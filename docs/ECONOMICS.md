@@ -468,7 +468,362 @@ Outcome B: Dispute rejected
 
 ---
 
-## 11. Watermark Limitations & Roadmap
+## 11. Data Security & Access Control
+
+### The Core Problem
+
+Data, once accessed, can be copied and resold off-chain. No amount of on-chain slashing can recover leaked bits. Economic penalties are necessary but insufficient — the protocol must **minimize exposure of raw data** in the first place.
+
+### Design Principle: Data Doesn't Leave Home
+
+The default posture is that raw data **never leaves the creator's environment**. Buyers purchase rights to *use* data, not to *possess* it. Full data delivery (L3) is the exception, not the rule.
+
+### Access Levels (L0–L3)
+
+Every data asset supports four access tiers. The buyer's access level is determined by their share holdings and collateral:
+
+| Level | Name | What the Buyer Gets | Collateral Multiplier | Data Exposure |
+|-------|------|---------------------|-----------------------|---------------|
+| **L0** | Query | Statistical answers, aggregations, Q&A results | 1× (base 10%) | **Zero** — raw data never transmitted |
+| **L1** | Sample | Partial data, anonymized/redacted snippets | 2× (20% of holdings) | **Minimal** — fragments only |
+| **L2** | Compute | Buyer submits model/code → runs on creator's data → receives results only | 3× (30% of holdings) | **Zero** — data stays in TEE/enclave |
+| **L3** | Deliver | Full raw data with per-buyer watermark | 5× (50% of holdings) | **Full** — watermark is last defense |
+
+### Access Bond Formula (Final)
+
+The bond formula integrates five risk dimensions into a single calculation:
+
+```
+Bond = TWAP(ShareValue, 7d)
+     × CollateralMultiplier(Level)
+     × RiskFactor
+     × (1 - Reputation / 100)
+     × ExposureFactor
+```
+
+| Variable | Definition | Purpose |
+|----------|-----------|---------|
+| `TWAP(ShareValue, 7d)` | 7-day time-weighted average position value | Prevents flash collateral attacks |
+| `CollateralMultiplier` | L0=1×, L1=2×, L2=3×, L3=5× | Access depth risk |
+| `RiskFactor` | Creator-defined dataset sensitivity (0–2) | Data-specific risk scaling |
+| `Reputation` | Agent reputation score (0–100) | Behavioral history discount |
+| `ExposureFactor` | `max(current_access, cumulative_exposure)` | Prevents dataset reconstruction via fragmented queries |
+
+**Why TWAP:** Using 7-day average instead of spot price prevents an attacker from temporarily inflating their position to reduce bond requirements, then withdrawing immediately after data access.
+
+### Data Risk Levels (Creator-Defined)
+
+Data providers classify their assets by sensitivity:
+
+| Risk Level | RiskFactor | Example |
+|------------|-----------|---------|
+| Public | 0 | Open datasets, CC-licensed content |
+| Low | 0.2 | Aggregated statistics, public APIs |
+| Medium | 0.5 | User-generated content, photos |
+| High | 1.0 | Financial data, health records |
+| Critical | 2.0 | Trade secrets, PII, government data |
+
+### Bond Calculation Examples
+
+**Scenario A:** New agent (R=10), normal data (RF=0.5), L0 query, 1000 OAS position:
+
+```
+Bond = 1000 × 0.1 × 1 × 0.5 × (1 - 10/100) × 1.0
+     = 1000 × 0.1 × 1 × 0.5 × 0.9 × 1.0
+     = 45 OAS
+```
+
+**Scenario B:** Trusted agent (R=90), same data, same level:
+
+```
+Bond = 1000 × 0.1 × 1 × 0.5 × (1 - 90/100) × 1.0
+     = 1000 × 0.1 × 1 × 0.5 × 0.1 × 1.0
+     = 5 OAS
+```
+
+**Scenario C:** New agent (R=10), critical data (RF=2), L3 delivery:
+
+```
+Bond = 1000 × 0.1 × 5 × 2.0 × 0.9 × 1.0
+     = 900 OAS
+```
+
+**Key insight:** The same data costs a trusted agent 5 OAS and an untrusted agent 900 OAS at L3. This is by design — trust is earned, not bought.
+
+### Agent Reputation System
+
+Each agent maintains an on-chain reputation score:
+
+```
+R ∈ [0, 100]    Initial: R = 10    Cap: R_max = 95
+```
+
+**Reputation changes:**
+
+| Event | Impact |
+|-------|--------|
+| Successful transaction completed | +0.05 |
+| 7-day period with no disputes | +1 |
+| Data provider positive rating | +1 |
+| Dispute loss | −10 |
+| Confirmed data leak | −100 (instant ban if R ≤ 0) |
+
+**Reputation decay** (prevents oligopoly entrenchment):
+
+```
+Every 90 days: R -= 5    (floor: R_min = 50 for active agents)
+```
+
+Without decay, early agents accumulate permanent advantages and new entrants can never compete — the network becomes a closed oligopoly. Decay ensures that only **active, honest** agents retain their discount, not just **old** agents.
+
+**Why R_max = 95:** No agent ever gets zero bond. Even the most trusted participant maintains skin in the game.
+
+### Sandbox Mode (Cold Start)
+
+Agents with low reputation enter a zero-barrier restricted environment:
+
+```
+Condition: R < 20
+```
+
+| Restriction | Value |
+|-------------|-------|
+| Access level | L0 only |
+| Data types | Public only (RiskFactor = 0) |
+| Query rate | ≤ 10 queries/day |
+| Bond required | 0 |
+
+**Purpose:** Let new agents build reputation through genuine usage before requiring economic commitment. This solves the cold-start problem — agents can discover the network's value before investing.
+
+### Agent Identity & Anti-Sybil
+
+Creating a new agent identity requires a one-time stake:
+
+```
+CreateAgent() → lock 100 OAS
+```
+
+If the agent is blacklisted:
+
+```
+Agent stake → slashed (burned)
+```
+
+This makes identity reconstruction expensive. An attacker who is banned loses their agent stake, must acquire another 100 OAS, and starts at R=10 (Sandbox) — unable to access any valuable data.
+
+### Cryptographic Blacklist Registry
+
+The protocol maintains an on-chain blacklist:
+
+```
+BlacklistRegistry {
+  agent_pubkey: Ed25519PublicKey,
+  evidence_hash: SHA256,
+  timestamp: BlockHeight,
+  reason: DisputeVerdict | AutoSlash
+}
+```
+
+All nodes **must** reject requests from blacklisted agents. This is enforced at the consensus layer — a validator that processes a blacklisted agent's transaction is itself slashable.
+
+### Exposure Registry (Anti-Fragmentation)
+
+The protocol tracks cumulative data access per agent per dataset:
+
+```
+ExposureRegistry {
+  agent_pubkey: Ed25519PublicKey,
+  dataset_id: AssetID,
+  cumulative_exposure: OAS,  // total value of data accessed
+  last_updated: BlockHeight
+}
+```
+
+Bond calculation uses:
+
+```
+ExposureFactor = max(current_access_value, cumulative_exposure) / current_access_value
+```
+
+**Why this matters:** Without exposure tracking, an attacker can reconstruct a full dataset through 1000 small L0 queries, each with trivial bond. With exposure tracking, the 1000th query carries the same bond as a single L3 delivery — because cumulative exposure equals the full dataset value.
+
+### Liability Window (Bond Release Delay)
+
+Bonds are not released immediately after data access. Each access level has a mandatory holding period:
+
+| Access Level | Liability Window |
+|-------------|-----------------|
+| L0 Query | 1 day |
+| L1 Sample | 3 days |
+| L2 Compute | 7 days |
+| L3 Deliver | 30 days |
+
+**Why:** Prevents delayed leak attacks — an attacker who accesses data and waits for bond release before leaking is still covered during the liability window. For L3 (full delivery), the 30-day window provides substantial time for watermark-based detection.
+
+### Dynamic Collateral (Margin Call)
+
+Collateral is pegged to **TWAP market price**, not purchase price.
+
+```
+On every block:
+  For each buyer B holding shares in asset A:
+    required_C = TWAP(shares(B,A) × spot_price(A), 7d)
+                 × collateral_ratio(access_level)
+                 × RiskFactor(A)
+                 × (1 - Reputation(B) / 100)
+    if collateral(B,A) < required_C:
+      emit MarginCall(B, A, deficit)
+      if not topped up within grace_period (72 hours):
+        downgrade access level to what current collateral supports
+        if collateral < L0 requirement:
+          freeze shares until collateral restored
+```
+
+This eliminates the "buy cheap, abuse expensive" attack vector. As data appreciates, the buyer's skin in the game grows proportionally.
+
+### Enforcement by Level
+
+| Level | Enforcement Mechanism | If Violated |
+|-------|----------------------|-------------|
+| L0 | Query results are computed server-side; no raw data transmitted | N/A — nothing to leak |
+| L1 | Samples are redacted + watermarked fragments | Watermark trace → slash |
+| L2 | Code runs inside TEE (zk-PoE attestation); only outputs leave enclave | TEE attestation failure → reject |
+| L3 | Full watermark + collateral at 5× | Watermark trace → 100% collateral burn + shares frozen + network ban |
+
+### TEE Integration (L2 Compute)
+
+L2 is the sweet spot — buyers get full computational value without any data exposure:
+
+```
+Buyer submits: { model_code, parameters, asset_id }
+  ↓
+Creator's node loads data into TEE enclave
+  ↓
+Buyer's model executes inside enclave (data decrypted only in hardware memory)
+  ↓
+Output + zk-PoE proof returned to buyer
+  ↓
+Data shredded from enclave memory
+  ↓
+Settlement: fee split as normal (60/20/15/5)
+```
+
+**Current implementation:** `TEEComputeEngine` (mock/simulation). Production requires Intel SGX, AMD SEV, or ARM TrustZone hardware.
+
+### Why Most Buyers Never Need L3
+
+| Use Case | Sufficient Level | Why |
+|----------|-----------------|-----|
+| AI model training | L2 (Compute) | Send training loop to TEE, receive trained weights |
+| Data analysis | L0 (Query) | Ask questions, get statistics |
+| Research sampling | L1 (Sample) | Redacted snippets for feasibility studies |
+| Data integration/ETL | L2 (Compute) | Transform pipeline runs in enclave |
+| Full dataset purchase | L3 (Deliver) | Only when buyer truly needs raw possession |
+
+By making L0-L2 the default path, the protocol minimizes the attack surface. L3 exists for completeness but carries extreme collateral requirements as a natural deterrent.
+
+### Creator-Controlled Access Caps
+
+Creators can set a **maximum access level** per asset:
+
+```python
+register_asset(
+    file_path="sensitive_medical_data.csv",
+    max_access_level=AccessLevel.L2,  # Never allow raw delivery
+    ...
+)
+```
+
+Medical data, trade secrets, or any high-sensitivity asset can be permanently locked to L2 or below. No amount of collateral unlocks L3 if the creator forbids it.
+
+### Game Theory Update: Full Security Model
+
+The protocol enforces three invariants (Protocol Axioms):
+
+1. **Economic Liability:** Data access requires proportional financial responsibility
+2. **Persistent Identity:** Agents bear long-term consequences for malicious actions
+3. **Traceable Exposure:** All data access is cryptographically attributable
+
+**Revisiting Attack Scenario 4 (Data Leak) with full model:**
+
+```
+Buyer bought shares early at 1 OAS each (100 shares = 100 OAS)
+Data appreciates → spot price now 100 OAS each
+TWAP position value: 100 × 100 = 10,000 OAS
+Buyer reputation: R = 80 (established agent)
+Data risk: RF = 1.0 (High)
+Access: L3 Deliver
+
+Bond = 10,000 × 0.1 × 5 × 1.0 × (1 - 80/100) × 1.0
+     = 10,000 × 0.1 × 5 × 1.0 × 0.2
+     = 1,000 OAS locked for 30 days (Liability Window)
+
+If buyer leaks:
+  Bond slashed: 1,000 OAS burned
+  Shares frozen: 10,000 OAS illiquid
+  Agent stake slashed: 100 OAS burned
+  Reputation: → 0 (instant ban)
+  Blacklisted: permanent network exclusion
+  Total loss: 11,100 OAS + all future dividends + network identity
+
+EV(leak) = one-time resale − 11,100 OAS − PV(perpetual dividends) − identity value
+```
+
+**Attack Scenario 6: Fragmentation Attack (NEW)**
+
+```
+Attacker wants to reconstruct dataset worth 10,000 OAS via 1000 small L0 queries
+
+Query 1: exposure = 10, bond based on 10
+Query 2: exposure = 20, bond based on 20
+...
+Query 100: exposure = 1,000, bond based on 1,000
+...
+Query 1000: exposure = 10,000, bond based on 10,000
+
+By query 1000, bond is identical to a single L3 request.
+Fragmentation provides zero economic advantage.
+```
+
+**Attack Scenario 7: Collusion Attack (NEW)**
+
+```
+10 agents each access 1/10 of dataset, then merge offline
+
+Each agent's exposure: 1,000 OAS
+Each agent's bond: ~100 OAS (with reputation discount)
+Total collusion bond: ~1,000 OAS
+
+But: each agent receives uniquely watermarked data
+Leaked merged file → 10 distinct watermarks detected
+→ all 10 agents slashed, staked, blacklisted
+Total collusion loss: 10 × (bond + stake + reputation + identity)
+
+Plus: coordinating 10 agents is operationally complex
+and any single defector can report the conspiracy for reward.
+```
+
+**Attack Scenario 8: Delayed Leak (NEW)**
+
+```
+Attacker accesses L3 data, waits for bond release, then leaks
+
+L3 Liability Window = 30 days
+Bond remains locked for 30 days after access
+If leak detected within 30 days: full slash applies
+
+After 30 days: bond is released, but:
+  - Watermark still traceable (permanent)
+  - Reputation still slashable (permanent)
+  - Agent stake still slashable (permanent)
+  - Blacklist still applies (permanent)
+
+Only the bond escapes — everything else is lifetime liability.
+```
+
+---
+
+## 12. Watermark Limitations & Roadmap
 
 ### Current Implementation
 
@@ -492,7 +847,7 @@ Outcome B: Dispute rejected
 
 ---
 
-## 12. Governance
+## 13. Governance
 
 All economic parameters are **governance-configurable** by OAS token holders:
 
@@ -509,7 +864,7 @@ All economic parameters are **governance-configurable** by OAS token holders:
 
 ---
 
-## 13. Token Utility — Why OAS Must Exist
+## 14. Token Utility — Why OAS Must Exist
 
 A protocol token is justified when, and only when, a native unit of account creates value that a stablecoin or existing token cannot.
 
@@ -523,7 +878,7 @@ A protocol token is justified when, and only when, a native unit of account crea
 
 ---
 
-## 14. Competitive Landscape
+## 15. Competitive Landscape
 
 | Project | Focus | Difference from Oasyce |
 |---------|-------|----------------------|
@@ -537,7 +892,7 @@ A protocol token is justified when, and only when, a native unit of account crea
 
 ---
 
-## 15. Bootstrapping — The Cold Start Problem
+## 16. Bootstrapping — The Cold Start Problem
 
 ### Why Do the First 100 Agents Join?
 
@@ -568,7 +923,7 @@ Agents auto-register outputs → data supply grows → other agents discover use
 
 ---
 
-## 16. Implementation Notes
+## 17. Implementation Notes
 
 ### Reference Implementation
 
@@ -606,3 +961,26 @@ Core protocol requires only: `cryptography` (Ed25519), `python-dotenv` (config),
 | Buyer slash (license violation) | 50% collateral | `SlashConfig.buyer_license` |
 | Dispute stake | 1,000 OAS | `DisputeConfig.challenge_stake` |
 | Dispute committee size | 5 validators | `DisputeConfig.committee_size` |
+| L0 collateral multiplier | 1× | `AccessConfig.l0_collateral_multiplier` |
+| L1 collateral multiplier | 2× | `AccessConfig.l1_collateral_multiplier` |
+| L2 collateral multiplier | 3× | `AccessConfig.l2_collateral_multiplier` |
+| L3 collateral multiplier | 5× | `AccessConfig.l3_collateral_multiplier` |
+| Margin call grace period | 72 hours | `AccessConfig.margin_call_grace_hours` |
+| Collateral rebalance interval | Every block | `AccessConfig.rebalance_frequency` |
+| TWAP window | 7 days | `AccessConfig.twap_window_days` |
+| Reputation initial | 10 | `ReputationConfig.initial_score` |
+| Reputation max | 95 | `ReputationConfig.max_score` |
+| Reputation decay | −5 per 90 days | `ReputationConfig.decay_rate` |
+| Reputation floor (active) | 50 | `ReputationConfig.active_floor` |
+| Sandbox threshold | R < 20 | `ReputationConfig.sandbox_threshold` |
+| Sandbox query limit | 10/day | `ReputationConfig.sandbox_daily_limit` |
+| Agent creation stake | 100 OAS | `SybilConfig.agent_creation_stake` |
+| Liability window L0 | 1 day | `LiabilityConfig.l0_window` |
+| Liability window L1 | 3 days | `LiabilityConfig.l1_window` |
+| Liability window L2 | 7 days | `LiabilityConfig.l2_window` |
+| Liability window L3 | 30 days | `LiabilityConfig.l3_window` |
+| Data risk: Public | RF = 0 | `RiskConfig.public` |
+| Data risk: Low | RF = 0.2 | `RiskConfig.low` |
+| Data risk: Medium | RF = 0.5 | `RiskConfig.medium` |
+| Data risk: High | RF = 1.0 | `RiskConfig.high` |
+| Data risk: Critical | RF = 2.0 | `RiskConfig.critical` |

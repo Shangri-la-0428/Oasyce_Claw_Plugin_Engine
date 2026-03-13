@@ -45,6 +45,8 @@ A single dataset can have free access (open source) but restricted commercial us
 ┌─────────────────────────────────────────┐
 │  Agent Layer (AI / Human)               │  ← Skills API, CLI, Web GUI
 ├─────────────────────────────────────────┤
+│  Access Control Layer                   │  ← L0-L3 access levels, TEE gate
+├─────────────────────────────────────────┤
 │  Settlement Layer                       │  ← Bancor bonding curves, fee split
 ├─────────────────────────────────────────┤
 │  Consensus Layer                        │  ← PoS, slashing, block rewards
@@ -95,44 +97,55 @@ No human sets the price. The protocol does.
 
 **Formula:** `ΔTokens = S × ((1 + ΔR/R)^F − 1)`
 
-- **S** = current supply, **R** = reserve balance, **F** = 0.20 (connector weight)
+- **S** = current supply, **R** = reserve balance, **F** = 0.35 (connector weight)
 - More demand → price rises automatically
 - Continuous liquidity — always tradeable, no order book
 
 **Worked example:**
-- Initial: 1,000 tokens, 100 OAS reserve → spot price **0.50 OAS/token**
-- First buyer spends 100 OAS → receives 143.2 tokens → price rises to **0.85 OAS/token**
-- Second buyer spends 100 OAS → receives 94.4 tokens → price rises to **1.17 OAS/token**
-- Early participation is rewarded. Always.
+- Initial: 10,000 tokens, 1,000 OAS reserve → spot price **0.2857 OAS/token**
+- First buyer spends 100 OAS → receives 347.8 tokens → price rises to **0.3037 OAS/token** (+6.3%)
+- Second buyer spends 100 OAS → receives 327.2 tokens → price rises to **0.3212 OAS/token** (+5.8%)
+- Early participation is rewarded — sustainably, not speculatively.
 
-### 3. Revenue Split — Two Layers
+### 3. Revenue Split — Unified Single Layer
 
-**Settlement Layer (per purchase):**
-
-```
-100 OAS payment
-├── 5% protocol fee → 2.5 OAS burned + 2.5 OAS to verifier
-└── 95% net deposit → enters bonding curve (pushes price up)
-```
-
-**Network Layer (data access fees):**
+Every data purchase triggers a single, unified fee split:
 
 ```
-Creator:    70%   ← data owners earn the most
-Validators: 20%   ← split by stake weight
-Burn:       10%   ← permanent deflation
+100 OAS data access payment
+├── Creator:     60 OAS → data owner's wallet
+├── Validators:  20 OAS → split by stake weight
+├── Burn:        15 OAS → destroyed permanently
+└── Treasury:     5 OAS → protocol development (governance-controlled)
 ```
 
-**Total burn per 100 OAS: ~12 OAS (12%).** Every transaction makes OAS scarcer.
+The bonding curve is **completely decoupled** from fee settlement — reserve is never drained by distributions.
 
-### 4. Staking & Slashing
+### 4. Data Access Control (L0–L3)
+
+Raw data exposure is minimized by default. Buyers purchase **rights to use**, not rights to possess:
+
+| Level | Access | Data Exposure |
+|-------|--------|---------------|
+| **L0** Query | Ask questions, get statistics | Zero — data never leaves |
+| **L1** Sample | Redacted/anonymized fragments | Minimal |
+| **L2** Compute | Submit model → runs in TEE → get results | Zero — TEE enclave |
+| **L3** Deliver | Full data with per-buyer watermark | Full — last resort |
+
+Access level is gated by collateral: L0 requires 1× base collateral, L3 requires 5×. Collateral tracks **current market price** (not purchase price), eliminating the "buy cheap, abuse expensive" attack.
+
+Creators can cap maximum access level per asset — e.g., medical data can be locked to L2 permanently.
+
+### 5. Staking & Slashing
+
+### 5. Staking & Slashing
 
 Run a node → stake OAS → earn block rewards + tx fees. Misbehave → lose your stake.
 
 | | |
 |---|---|
-| Minimum stake | 1,000 OAS |
-| Block reward | 50 OAS/block, halving yearly |
+| Minimum stake | 10,000 OAS |
+| Block reward | 4 OAS/block, halving every 2 years |
 | Unbonding | 7 days (no hit-and-run) |
 | Malicious block | **100% stake slashed** |
 | Double block | 50% slashed |
@@ -140,7 +153,7 @@ Run a node → stake OAS → earn block rewards + tx fees. Misbehave → lose yo
 
 Slashed tokens are **burned, not redistributed**. Slashing is punitive, not a transfer.
 
-### 5. Fingerprint Watermarking
+### 6. Fingerprint Watermarking
 
 Every buyer receives a uniquely watermarked copy of the data.
 
@@ -179,7 +192,7 @@ The watermark survives partial modification. The leaker is always identifiable.
 
 ### Transaction Fee Split
 
-Every data purchase:
+Every data purchase (unified single layer):
 
 ```
 Creator:    60%   ← data owners earn the most
@@ -202,6 +215,10 @@ At 50,000 OAS daily volume → 7,500 OAS burned daily → 2.74M annually.
 ### Bonding Curve (F = 0.35)
 
 Provides OAS liquidity. **Decoupled from fee settlement** — reserve is never drained by fee distributions.
+
+### Data Access Control
+
+Four levels (L0 Query → L3 Deliver). Default: L0-L2 (data never leaves creator). Collateral scales with access depth and tracks market price dynamically.
 
 ### Game Theory
 
