@@ -8,6 +8,34 @@ Oasyce implements the economic layer for this transition — a settlement protoc
 
 **Key insight:** In the bit economy, you don't sell data (bits copy at zero cost). You settle **rights** — access, usage, revenue, attribution. OAS is the settlement currency for these rights.
 
+### Protocol Invariants (3 Core Formulas)
+
+The entire economic security model derives from three mathematical invariants:
+
+**1. Exposure Tracking**
+
+```
+E*(agent, dataset) = max(V_current, Σ V_i)
+```
+
+Cumulative data exposure is always tracked. Bond requirements scale with total historical access, not just the current request.
+
+**2. Access Bond**
+
+```
+Bond = E* × M(level) × RF × (1 − R/100)
+```
+
+Where: E\* = effective exposure, M = access level multiplier (L0=1×..L3=5×), RF = creator-defined risk factor (0–2), R = agent reputation (0–100).
+
+**3. Security Condition**
+
+```
+Bond + Stake ≥ DataValue
+```
+
+The protocol ensures that the economic cost of attacking always exceeds the extractable value. When this invariant holds, data theft is economically irrational.
+
 ---
 
 ## 1. Token Overview
@@ -558,15 +586,22 @@ Each agent maintains an on-chain reputation score:
 R ∈ [0, 100]    Initial: R = 10    Cap: R_max = 95
 ```
 
-**Reputation changes:**
+**Reputation changes (formal):**
 
-| Event | Impact |
-|-------|--------|
-| Successful transaction completed | +0.05 |
-| 7-day period with no disputes | +1 |
-| Data provider positive rating | +1 |
-| Dispute loss | −10 |
-| Confirmed data leak | −100 (instant ban if R ≤ 0) |
+```
+R(t+1) = R(t) + α·S − β·D − γ·L − δ·T
+```
+
+Where: S = successful transactions, D = dispute losses, L = confirmed leaks, T = time decay.
+
+| Event | Coefficient | Impact |
+|-------|-------------|--------|
+| Successful transaction completed | α = 0.05 | +0.05 per tx |
+| 7-day period with no disputes | α = 1.0 | +1 per period |
+| Data provider positive rating | α = 1.0 | +1 per rating |
+| Dispute loss | β = 10 | −10 per dispute |
+| Confirmed data leak | γ = 100 | −100 (instant ban if R ≤ 0) |
+| Time decay (every 90 days) | δ = 5 | −5 per period |
 
 **Reputation decay** (prevents oligopoly entrenchment):
 
