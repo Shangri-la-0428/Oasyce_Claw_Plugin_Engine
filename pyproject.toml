@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
-    {name = "Shangrila", email = "oasyce@example.com"}
+    {name = "Shangrila", email = "wutc@oasyce.com"}
 ]
 keywords = ["oasyce", "data-ownership", "settlement", "ai", "web3", "bonding-curve", "p2p", "staking"]
 classifiers = [
