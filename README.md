@@ -7,7 +7,7 @@
 
 [![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-220%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-237%20passed-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Economics](docs/ECONOMICS.md) · [Testing](#testing)
@@ -109,6 +109,16 @@ Each buyer receives a uniquely watermarked copy. Leak detection: extract waterma
 ---
 
 ## Quick Start
+
+```bash
+# Install from PyPI (recommended)
+pip install oasyce
+
+# Or install as an OpenClaw skill
+clawhub install oasyce-data-rights
+```
+
+### From source
 
 ```bash
 # Clone and install
