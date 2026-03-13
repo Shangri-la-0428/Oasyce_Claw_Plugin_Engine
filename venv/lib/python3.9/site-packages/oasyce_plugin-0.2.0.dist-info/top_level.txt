@@ -1,2 +1,0 @@
-oasyce_plugin
-tests

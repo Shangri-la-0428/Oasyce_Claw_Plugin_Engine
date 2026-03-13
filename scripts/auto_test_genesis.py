@@ -9,8 +9,8 @@ from oasyce_plugin.config import Config
 skills = OasyceSkills()
 
 files_to_register = [
-    "/Users/wutongcheng/Desktop/清算网络/Oasyce 系统架构图设计.pdf",
-    "/Users/wutongcheng/Desktop/清算网络/工程级 Claw 插件架构.pdf"
+    "./examples/architecture.pdf",
+    "./examples/plugin_architecture.pdf"
 ]
 
 print("="*60)
