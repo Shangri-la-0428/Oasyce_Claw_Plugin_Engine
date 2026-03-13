@@ -3,15 +3,21 @@
 import time
 import pytest
 
-from oasyce_plugin.bridge.core_bridge import (
-    bridge_buy,
-    bridge_get_shares,
-    bridge_quote,
-    bridge_register,
-    bridge_stake,
-    metadata_to_capture_pack,
-    reset_engine,
-)
+try:
+    from oasyce_plugin.bridge.core_bridge import (
+        bridge_buy,
+        bridge_get_shares,
+        bridge_quote,
+        bridge_register,
+        bridge_stake,
+        metadata_to_capture_pack,
+        reset_engine,
+    )
+    HAS_CORE = True
+except ImportError:
+    HAS_CORE = False
+
+pytestmark = pytest.mark.skipif(not HAS_CORE, reason="oasyce_core not installed")
 
 
 @pytest.fixture(autouse=True)

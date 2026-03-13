@@ -16,19 +16,25 @@ import random
 import time
 
 import pytest
-from fastapi.testclient import TestClient
 
-from oasyce_plugin.services.verification.api import create_app
-from oasyce_plugin.services.verification.engine import VerificationEngine
-from oasyce_plugin.services.verification.models import (
-    CaptureSource,
-    DeviceAttestation,
-    GeoProof,
-    OTPPayload,
-    SensorVector,
-    VerificationStatus,
-    VerifyRequest,
-)
+try:
+    from fastapi.testclient import TestClient
+    from oasyce_plugin.services.verification.api import create_app
+    from oasyce_plugin.services.verification.engine import VerificationEngine
+    from oasyce_plugin.services.verification.models import (
+        CaptureSource,
+        DeviceAttestation,
+        GeoProof,
+        OTPPayload,
+        SensorVector,
+        VerificationStatus,
+        VerifyRequest,
+    )
+    HAS_DEPS = True
+except ImportError:
+    HAS_DEPS = False
+
+pytestmark = pytest.mark.skipif(not HAS_DEPS, reason="fastapi or verification deps not installed")
 
 # ──────────────────────────────────────────────
 # Fixtures / helpers
