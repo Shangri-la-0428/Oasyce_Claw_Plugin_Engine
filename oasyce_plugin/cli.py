@@ -30,6 +30,9 @@ def cmd_register(args):
         signed = skills.create_certificate_skill(metadata)
         result = skills.register_data_asset_skill(signed)
 
+        # If --free, mark as free asset (attribution only)
+        price_model = "free" if getattr(args, "free", False) else "bonding_curve"
+
         # If --use-core, also submit to oasyce_core
         core_result = None
         if getattr(args, "use_core", False):
@@ -46,6 +49,7 @@ def cmd_register(args):
             print(f"   Owner: {signed['owner']}")
             print(f"   File: {signed['filename']}")
             print(f"   Tags: {', '.join(signed['tags'])}")
+            print(f"   Price: {'Free (attribution only)' if price_model == 'free' else 'Bonding Curve'}")
             print(f"   Vault: {result['vault_path']}")
             if core_result:
                 print(f"   Core Valid: {core_result['valid']}")
@@ -569,6 +573,8 @@ def main():
     reg_parser.add_argument("--tags", default="Core,Genesis", help="Comma-separated tags")
     reg_parser.add_argument("--signing-key", help="Signing key (or OASYCE_SIGNING_KEY env)")
     reg_parser.add_argument("--signing-key-id", help="Signing key ID")
+    reg_parser.add_argument("--free", action="store_true", help="Register as free asset (attribution only, no Bonding Curve)")
+    reg_parser.add_argument("--json", action="store_true", help="Output as JSON")
     reg_parser.set_defaults(func=cmd_register)
     
     # Search command
