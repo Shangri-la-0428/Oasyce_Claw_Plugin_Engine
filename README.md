@@ -8,7 +8,7 @@
 [![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Tests](https://img.shields.io/badge/tests-220%20passed-brightgreen.svg)](tests/)
-[![License](https://img.shields.io/badge/license-Proprietary-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Economics](docs/ECONOMICS.md) · [Testing](#testing)
 
@@ -400,8 +400,8 @@ Proprietary - All rights reserved.
 
 <div align="center">
 
-**Your data, your keys, your revenue.**
+*Your AI works for you every day. Oasyce makes sure it gets paid.*
 
-[GitHub](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine) · [Economics](docs/ECONOMICS.md) · [Issues](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues)
+[GitHub](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine) · [Protocol Overview](docs/OASYCE_PROTOCOL_OVERVIEW.md) · [Economics](docs/ECONOMICS.md) · [Contributing](CONTRIBUTING.md)
 
 </div>

@@ -3,47 +3,46 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "oasyce-claw-plugin-engine"
-version = "0.5.0"
-description = "Oasyce Claw Plugin Engine - 数据确权, PoPC 验证 & L2 定价网关"
+name = "oasyce"
+version = "0.9.0"
+description = "Decentralized data ownership and settlement protocol for the AI era"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "Proprietary"}
+license = {text = "MIT"}
 authors = [
     {name = "Shangrila", email = "oasyce@example.com"}
 ]
-keywords = ["oasyce", "blockchain", "data-ownership", "ai", "web3", "popc"]
+keywords = ["oasyce", "data-ownership", "settlement", "ai", "web3", "bonding-curve", "p2p", "staking"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Proprietary",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Security :: Cryptography",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 dependencies = [
+    "cryptography>=41.0",
     "python-dotenv>=1.0.0",
-    "fastapi>=0.100.0",
-    "uvicorn>=0.20.0",
-    "pydantic>=2.0.0",
-    "httpx>=0.24.0",
+    "aiohttp>=3.9.0",
 ]
 
 [project.optional-dependencies]
 test = ["pytest>=7.0", "pytest-cov>=4.0"]
 dev = ["black>=23.0", "flake8>=6.0", "mypy>=1.0"]
-docs = [
-    "sphinx>=7.0",
-    "sphinx-rtd-theme>=2.0",
-    "sphinx-autodoc-typehints>=2.0",
-]
 
 [project.scripts]
 oasyce = "oasyce_plugin.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine"
+Documentation = "https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/tree/main/docs"
+Issues = "https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

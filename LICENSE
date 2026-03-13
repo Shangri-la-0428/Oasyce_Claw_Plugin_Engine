@@ -1,32 +1,16 @@
-# Proprietary License
+MIT License
 
-Copyright (c) 2026 Shangrila / Oasyce Project. All rights reserved.
+Copyright (c) 2026 Shangrila / Oasyce Project
 
-This software and associated documentation files (the "Software") are proprietary
-and confidential. No part of this Software may be reproduced, distributed,
-transmitted, or otherwise used without prior written permission.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-## Permitted Use
-
-You may:
-- Download and install the Software for personal use
-- Use the Software to register and manage your own data assets
-- Modify the Software for your own internal use (not for distribution)
-
-## Prohibited Use
-
-You may NOT:
-- Redistribute the Software (modified or unmodified)
-- Sell, sublicense, or commercialize the Software
-- Reverse engineer, decompile, or disassemble the Software
-- Remove or alter any copyright notices or trademarks
-
-## Attribution
-
-If you build derivative works for personal use, you must retain attribution:
-"This project uses Oasyce Claw Plugin Engine (https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)"
-
-## Disclaimer
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -35,7 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-## Contact
-
-For licensing inquiries, please contact: oasyce@example.com
