@@ -858,7 +858,35 @@ Only the bond escapes — everything else is lifetime liability.
 
 ---
 
-## 12. Watermark Limitations & Roadmap
+## 12a. Fundamental Limitations (Honest Assessment)
+
+### The Irreducible Problem: Data Once Seen Cannot Be Unseen
+
+No protocol — including Oasyce — can perfectly prevent data leakage. This is a fundamental property of information, not a design flaw:
+
+- An agent that accesses data via L2 Compute can memorize patterns and reconstruct approximations
+- An agent with L3 Deliver access can copy data before watermark detection occurs
+- A sufficiently motivated attacker with enough resources can always find ways to exfiltrate information
+
+**What Oasyce does:** Make data theft economically irrational through layered deterrence (bond + stake + reputation + blacklist + watermark). The protocol doesn't claim to make leaking impossible — it makes leaking unprofitable.
+
+**What Oasyce cannot do:** Prevent a nation-state or sufficiently capitalized actor from extracting data if they're willing to absorb the full economic penalty. No data marketplace can.
+
+This is the same limitation faced by every data protocol (Ocean, SingularityNET, Fetch.ai) and every DRM system ever built. Oasyce's L0-L2 access model (data never leaves creator's environment) is the strongest practical mitigation — but it is a mitigation, not a solution.
+
+### The Market Dependency
+
+The protocol's success is contingent on one assumption: **AI agents will need real-time, continuous access to diverse data sources.**
+
+If AI development remains dominated by one-time training on static datasets, the demand for a data-rights settlement network is limited. The protocol is designed for a future where agents operate autonomously and need live data feeds — a market that is emerging but not yet proven at scale.
+
+### Design Differentiation
+
+Despite these limitations, Oasyce's **exposure-based liability model** (`Bond ∝ cumulative data exposure`) is a genuine architectural innovation. Most data protocols use simple token-gating (pay once, access forever). Oasyce tracks cumulative exposure and scales economic liability accordingly — preventing data reconstruction through fragmented queries. This design has no direct precedent in existing protocols.
+
+---
+
+## 12b. Watermark Limitations & Roadmap
 
 ### Current Implementation
 
