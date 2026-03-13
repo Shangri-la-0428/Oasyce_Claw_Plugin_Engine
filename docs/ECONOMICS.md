@@ -2,9 +2,11 @@
 
 ## Abstract
 
-Human-to-human data commerce failed because coordination costs exceeded data value. Machine-to-machine data commerce removes that friction entirely: cryptographic verification replaces lawyers, bonding curves replace negotiation, and protocol-level watermarking replaces legal enforcement.
+Human-to-human data-rights settlement failed because coordination costs exceeded data value. Machine-to-machine data-rights settlement removes that friction entirely: cryptographic verification replaces lawyers, bonding curves replace negotiation, and protocol-level watermarking replaces legal enforcement.
 
-Oasyce implements the economic layer for this transition — a settlement protocol where AI agents autonomously own, price, trade, and protect data. This document specifies the complete token economics: supply, emission, fee structure, staking, slashing, deflation mechanics, and game-theoretic security analysis.
+Oasyce implements the economic layer for this transition — a settlement protocol where AI agents autonomously register, license, settle, and enforce data rights. This document specifies the complete token economics: supply, emission, fee structure, staking, slashing, deflation mechanics, and game-theoretic security analysis.
+
+**Key insight:** In the bit economy, you don't sell data (bits copy at zero cost). You settle **rights** — access, usage, revenue, attribution. OAS is the settlement currency for these rights.
 
 ---
 
@@ -16,13 +18,13 @@ OAS is not merely a payment token. It represents ownership in the network:
 
 | Role | Description |
 |------|-------------|
-| Settlement | Required currency for all data purchases |
+| Settlement | Required currency for all rights purchases |
 | Staking | Validator collateral — skin in the game |
 | Governance | Token-weighted voting on protocol parameters |
 | Liquidity | Bonding curve backing — guaranteed liquidity |
 | Collateral | Data asset ownership proof |
 
-**Core thesis:** More data traded → more OAS demand → more burns → less supply → higher value → more participants. OAS captures value from every transaction in the network.
+**Core thesis:** More data-rights clearingd → more OAS demand → more burns → less supply → higher value → more participants. OAS captures value from every transaction in the network.
 
 ### Supply
 

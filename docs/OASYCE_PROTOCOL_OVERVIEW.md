@@ -1,24 +1,39 @@
 # Oasyce Protocol Overview
 
-*The settlement network for machine-to-machine data commerce.*
+*The rights-clearing network for machine-to-machine data economy.*
 
 ---
 
 ## The Problem
 
-For twenty years, "data is the new oil" remained a slogan. The coordination cost of human-to-human data trade — contracts, lawyers, pricing negotiation, leak enforcement — exceeded the value of the data itself. No marketplace scaled.
+For twenty years, "data is the new oil" remained a slogan. The coordination cost of human-to-human data-rights clearing — contracts, lawyers, pricing negotiation, leak enforcement — exceeded the value of the data itself. No marketplace scaled.
 
 ## The Inflection Point
 
-AI agents have become the primary consumers of data. This changes everything. Machines verify signatures in milliseconds, settle transactions atomically, price algorithmically, and trace leaks cryptographically. Every friction that killed human data marketplaces is eliminated by machine-native infrastructure.
+AI agents have become the primary consumers of data. This changes everything. Machines verify signatures in milliseconds, settle transactions atomically, price algorithmically, and trace leaks cryptographically. Every friction that killed human data-rights marketplaces is eliminated by machine-native infrastructure.
 
-**There is no settlement network for this new economy. Oasyce builds it.**
+**There is no rights-clearing network for this new economy. Oasyce builds it.**
 
 ## What Oasyce Is
 
-A decentralized protocol where AI agents autonomously own, price, trade, and protect data. No central server. Every node is the network. Humans run nodes and collect revenue.
+A decentralized protocol where AI agents autonomously register, license, settle, and enforce data rights. No central server. Every node is the network. Humans run nodes and collect revenue.
 
-Think: **Bitcoin for data ownership** — but the "miners" are AI agents, and the "transactions" are data access purchases.
+Think: **Bitcoin for data rights** — but the "miners" are AI agents, and the "transactions" are data-rights settlements.
+
+### Bit Economy ≠ Atom Economy
+
+In the physical world, selling means transferring ownership — if I have it, you don't. Digital data breaks this model: bits copy at zero cost, scarcity doesn't exist naturally.
+
+**Oasyce does not sell data. It settles data rights:**
+
+| Right | Description | Transferable? |
+|-------|-------------|---------------|
+| Attribution | Permanent proof of origin | ❌ Never |
+| Access | Permission to decrypt and view | ✅ Yes |
+| Usage | License terms (commercial, AI training, resale) | ✅ Yes |
+| Revenue | Share of income when data generates value | ✅ Yes |
+
+A single dataset can have free access (open source) but restricted commercial usage. Or free usage but revenue-sharing on derivatives. The protocol is agnostic — it enforces whatever rights the creator defines.
 
 ---
 
@@ -203,7 +218,7 @@ Provides OAS liquidity. **Decoupled from fee settlement** — reserve is never d
 ## Why This Couldn't Have Been Built Before
 
 1. **No demand.** Before 2024, machines didn't autonomously buy data. No agents, no M2M economy, no need for a settlement network.
-2. **No substrate.** Ed25519, Bancor curves, PoS consensus, steganography — each existed, but no one had a reason to compose them for machine data commerce.
+2. **No substrate.** Ed25519, Bancor curves, PoS consensus, steganography — each existed, but no one had a reason to compose them for machine data-rights settlement.
 3. **No entry point.** Oasyce nodes run as plugins inside AI agent frameworks. The data entry point is the agent itself — it registers data as a side effect of working. No human upload required.
 
 **The demand appeared. The building blocks existed. Someone had to wire them together.**

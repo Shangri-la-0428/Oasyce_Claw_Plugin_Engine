@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Decentralized data ownership and settlement protocol engine.**
+**Decentralized data-rights clearinghouse — settle access, usage, and revenue rights for the AI era.**
 **Local-first, zero-server, every node is the network.**
 
 [![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
@@ -18,11 +18,24 @@
 
 ## Why Oasyce? Why Now?
 
-For twenty years, "data is the new oil" remained a slogan. Humans couldn't coordinate data trade at scale — the cost of contracts, lawyers, reconciliation, and enforcement exceeded the value of the data itself.
+For twenty years, "data is the new oil" remained a slogan. Humans couldn't coordinate data-rights clearing at scale — the cost of contracts, lawyers, reconciliation, and enforcement exceeded the value of the data itself.
 
-Then AI agents arrived. For the first time in history, the primary consumers of data are machines, not people. Machines can verify signatures in milliseconds, settle atomically, price algorithmically, and trace leaks cryptographically. Everything that made human-to-human data commerce impractical is exactly what machine-to-machine commerce does natively.
+Then AI agents arrived. For the first time in history, the primary consumers of data are machines, not people. Machines can verify signatures in milliseconds, settle atomically, price algorithmically, and trace leaks cryptographically. Everything that made human-to-human data-rights settlement impractical is exactly what machine-to-machine commerce does natively.
 
-**Oasyce is the settlement network for this new economy.** A protocol where AI agents autonomously own, price, trade, and protect data — and humans simply run nodes and collect revenue.
+**Oasyce is the rights-clearing network for this new economy.** A protocol where AI agents autonomously register, license, settle, and enforce data rights — and humans simply run nodes and collect revenue.
+
+### What We Settle: Rights, Not Data
+
+In the atomic economy, you sell ownership — if I have the chair, you don't. In the bit economy, data can be copied infinitely at zero cost. **You cannot sell bits the way you sell atoms.** What you *can* sell are the **rights** attached to those bits:
+
+- **Access rights** — who can decrypt and view this data
+- **Usage rights** — can you train AI on it? resell it? use it commercially?
+- **Revenue rights** — when this data generates value, who gets paid?
+- **Attribution rights** — who created this, permanently and irrevocably
+
+Oasyce registers and settles these rights. The data itself can be free (open source, Creative Commons) or gated — the protocol doesn't care. It cares about **who has what rights, and enforcing them automatically.**
+
+---
 
 - **PoPC (Proof of Physical Capture)** — Cryptographic certificates proving data provenance at the physical layer
 - **Bancor Bonding Curves** — Algorithmic pricing: no negotiation, no middlemen, price emerges from demand
