@@ -57,3 +57,90 @@ def test_end_to_end_registration(tmp_path: Path) -> None:
     search_res = SearchEngine.search_assets(str(vault_dir), "Core")
     assert search_res.ok
     assert len(search_res.data) == 1
+
+
+def test_discover_and_buy_skill():
+    """Test the one-shot discover → quote → buy → watermark flow."""
+    import os, tempfile
+    from oasyce_plugin.config import Config
+    from oasyce_plugin.skills.agent_skills import OasyceSkills
+
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+
+    # Register a test asset first
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write("This is valuable financial data for AI training.\n" * 10)
+        test_path = f.name
+
+    try:
+        file_info = skills.scan_data_skill(test_path, skip_privacy_check=True)
+        metadata = skills.generate_metadata_skill(file_info, ["financial", "test"], "Alice")
+        signed = skills.create_certificate_skill(metadata)
+        skills.register_data_asset_skill(signed)
+
+        # Now discover and buy
+        result = skills.discover_and_buy_skill(
+            query="financial",
+            buyer="agent_007",
+            max_price=100.0,
+            amount=10.0,
+            with_watermark=True,
+        )
+
+        assert "error" not in result, f"Unexpected error: {result}"
+        assert result["tokens_received"] > 0
+        assert result["receipt_id"]
+        assert result["price_paid"] == 10.0
+        assert result["effective_price"] > 0
+        assert result["fee_burned"] > 0
+
+    finally:
+        os.unlink(test_path)
+
+
+def test_discover_and_buy_too_expensive():
+    """Test that discover_and_buy respects max_price."""
+    import os, tempfile
+    from oasyce_plugin.config import Config
+    from oasyce_plugin.skills.agent_skills import OasyceSkills
+
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write("Expensive data\n")
+        test_path = f.name
+
+    try:
+        file_info = skills.scan_data_skill(test_path, skip_privacy_check=True)
+        metadata = skills.generate_metadata_skill(file_info, ["expensive"], "Bob")
+        signed = skills.create_certificate_skill(metadata)
+        skills.register_data_asset_skill(signed)
+
+        result = skills.discover_and_buy_skill(
+            query="expensive",
+            buyer="agent_008",
+            max_price=0.001,  # impossibly low
+            amount=10.0,
+        )
+        assert "error" in result
+        assert "expensive" in result["error"].lower() or "Too" in result["error"]
+    finally:
+        os.unlink(test_path)
+
+
+def test_discover_and_buy_no_results():
+    """Test discover_and_buy with no matching data."""
+    from oasyce_plugin.config import Config
+    from oasyce_plugin.skills.agent_skills import OasyceSkills
+
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+
+    result = skills.discover_and_buy_skill(
+        query="nonexistent_data_category_xyz_999",
+        buyer="agent_009",
+    )
+    assert "error" in result
+    assert "No data found" in result["error"]

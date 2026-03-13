@@ -126,6 +126,105 @@ class OasyceSkills:
         from oasyce_plugin.bridge.core_bridge import bridge_buy
         return bridge_buy(asset_id, buyer, amount, ledger=self.ledger)
 
+    def discover_and_buy_skill(
+        self,
+        query: str,
+        buyer: str,
+        max_price: float = 100.0,
+        amount: float = 10.0,
+        with_watermark: bool = True,
+    ) -> Dict[str, Any]:
+        """One-shot: search → evaluate → quote → buy → watermark → return data.
+
+        This is the primary skill for AI agents to autonomously acquire data.
+        The agent describes what it needs, and gets back the data (watermarked).
+
+        Args:
+            query: What data the agent needs (matched against tags/metadata).
+            buyer: Agent identity (used for watermark and purchase record).
+            max_price: Maximum OAS willing to spend per token. Aborts if too expensive.
+            amount: OAS to spend on purchase (default 10.0).
+            with_watermark: If True, return a watermarked copy of the data.
+
+        Returns:
+            dict with: asset_id, tokens_received, price_paid, watermarked_content (if text),
+                       fingerprint, receipt. Or {error} if nothing found / too expensive.
+        """
+        from oasyce_plugin.services.settlement.engine import SettlementEngine
+
+        # 1. Search
+        results = self._unwrap(
+            SearchEngine.search_assets(self.vault_path, query, ledger=self.ledger)
+        )
+        if not results:
+            return {"error": f"No data found matching '{query}'"}
+
+        # 2. Pick best match (first result — search already ranks by relevance)
+        asset = results[0]
+        asset_id = asset.get("asset_id", "")
+
+        # 3. Quote via settlement engine
+        se = SettlementEngine()
+        if asset_id not in se.pools:
+            se.register_asset(asset_id, asset.get("owner", "unknown"))
+        quote = se.quote(asset_id, amount)
+
+        # 4. Price check — effective price per token
+        effective_price = amount / quote.equity_minted if quote.equity_minted > 0 else float("inf")
+        if effective_price > max_price:
+            return {
+                "error": f"Too expensive: {effective_price:.4f} OAS/token exceeds max {max_price}",
+                "asset_id": asset_id,
+                "price": effective_price,
+                "max_price": max_price,
+            }
+
+        # 5. Execute purchase
+        receipt = se.execute(asset_id, buyer, amount)
+        if receipt.status.value != "SETTLED":
+            return {"error": receipt.error or "Purchase failed", "asset_id": asset_id}
+
+        result = {
+            "asset_id": asset_id,
+            "asset_info": asset,
+            "tokens_received": round(receipt.quote.equity_minted, 4),
+            "price_paid": amount,
+            "effective_price": round(effective_price, 6),
+            "price_after": round(receipt.quote.spot_price_after, 6),
+            "receipt_id": receipt.receipt_id,
+            "equity_balance": round(receipt.equity_balance, 4),
+            "fee_burned": round(receipt.quote.burn_amount, 4),
+        }
+
+        # 6. Watermark (if text asset and content available)
+        if with_watermark:
+            try:
+                # Try to read the asset content from vault
+                import os
+                asset_path = asset.get("path") or asset.get("file_path", "")
+                if asset_path and os.path.isfile(asset_path):
+                    with open(asset_path, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                    embed_result = self.fingerprint_embed_skill(asset_id, buyer, content)
+                    result["watermarked_content"] = embed_result["watermarked_content_or_path"]
+                    result["fingerprint"] = embed_result["fingerprint"]
+                else:
+                    result["watermark_note"] = "Asset file not accessible locally; watermark skipped"
+            except Exception:
+                result["watermark_note"] = "Could not watermark (binary or inaccessible file)"
+
+        # 7. Record transaction in ledger
+        if self.ledger is not None:
+            self.ledger.record_tx(
+                tx_type="buy",
+                asset_id=asset_id,
+                from_addr=buyer,
+                amount=amount,
+                metadata=result,
+            )
+
+        return result
+
     def stake_skill(self, validator_id: str, amount: float) -> Dict[str, Any]:
         """质押到验证节点
 
