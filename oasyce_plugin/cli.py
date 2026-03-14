@@ -1186,6 +1186,139 @@ def cmd_verify(args):
         sys.exit(1)
 
 
+def cmd_doctor(args):
+    """Run security and readiness checks for the Oasyce node."""
+    import platform
+    import socket
+    import subprocess
+
+    home = Path.home()
+    oasyce_dir = home / ".oasyce"
+    keys_dir = oasyce_dir / "keys"
+
+    errors = 0
+    warnings = 0
+
+    print("\n\U0001f50d Oasyce Security Doctor")
+    print("\u2550" * 39)
+
+    # 1. Ed25519 Keys
+    priv = keys_dir / "private.key"
+    pub = keys_dir / "public.key"
+    if priv.exists() and pub.exists():
+        print("\u2705 Ed25519 keys          Found in ~/.oasyce/keys/")
+    else:
+        warnings += 1
+        print("\u26a0\ufe0f  Ed25519 keys          Missing (will auto-generate on first run)")
+
+    # 2. Protocol Port 9527
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 9527))
+        s.close()
+        print("\u2705 Protocol port 9527    Available")
+    except OSError:
+        errors += 1
+        print("\u274c Protocol port 9527    Already in use")
+
+    # 3. Core Node
+    try:
+        import oasyce_core  # noqa: F401
+        ver = getattr(oasyce_core, "__version__", "unknown")
+        print(f"\u2705 oasyce-core           Installed (v{ver})")
+    except ImportError:
+        errors += 1
+        print("\u274c oasyce-core           Not installed (pip install oasyce-core)")
+
+    # 4. Seed Node Connectivity
+    try:
+        s = socket.create_connection(("seed1.oasyce.com", 9527), timeout=5)
+        s.close()
+        print("\u2705 Seed node             seed1.oasyce.com reachable")
+    except (OSError, socket.timeout):
+        warnings += 1
+        print("\u26a0\ufe0f  Seed node             seed1.oasyce.com unreachable (offline mode OK)")
+
+    # 5. Local Firewall
+    system = platform.system()
+    firewall_detected = False
+    if system == "Darwin":
+        try:
+            result = subprocess.run(
+                ["pfctl", "-s", "info"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0 and "Status: Enabled" in result.stdout:
+                firewall_detected = True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+    elif system == "Linux":
+        for cmd in [["ufw", "status"], ["iptables", "-L", "-n"]]:
+            try:
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode == 0:
+                    if cmd[0] == "ufw" and "active" in result.stdout.lower():
+                        firewall_detected = True
+                    elif cmd[0] == "iptables":
+                        firewall_detected = True
+                    break
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+
+    if firewall_detected:
+        print("\u2705 Firewall              Detected")
+    else:
+        warnings += 1
+        print("\u26a0\ufe0f  Firewall              Not detected \u2014 consider enabling")
+
+    # 6. SSH Exposure
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1)
+        s.connect(("127.0.0.1", 22))
+        s.close()
+        warnings += 1
+        print("\u26a0\ufe0f  SSH port 22           Listening (consider restricting to specific IPs)")
+    except (OSError, socket.timeout):
+        print("\u2705 SSH port 22           Not exposed")
+
+    # 7. Data Directory
+    if oasyce_dir.exists():
+        if os.access(str(oasyce_dir), os.W_OK):
+            print("\u2705 Data directory         ~/.oasyce/ writable")
+        else:
+            errors += 1
+            print("\u274c Data directory         ~/.oasyce/ not writable")
+    else:
+        try:
+            oasyce_dir.mkdir(parents=True, exist_ok=True)
+            print("\u2705 Data directory         ~/.oasyce/ created")
+        except OSError:
+            errors += 1
+            print("\u274c Data directory         Could not create ~/.oasyce/")
+
+    # 8. Python Version
+    ver = sys.version_info
+    ver_str = f"{ver.major}.{ver.minor}.{ver.micro}"
+    if ver >= (3, 9):
+        print(f"\u2705 Python {ver_str:<14s} OK")
+    else:
+        errors += 1
+        print(f"\u274c Python {ver_str:<14s} Too old (need >= 3.9)")
+
+    print("\u2550" * 39)
+
+    if errors > 0:
+        print(f"\u274c {errors} error(s) must be fixed before running.")
+    elif warnings > 0:
+        print(f"\u26a0\ufe0f  {warnings} warning(s). Review above for recommendations.")
+    else:
+        print("\u2705 All checks passed. Your node is ready.")
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="oasyce",
@@ -1455,6 +1588,10 @@ def main():
     )
     demo_net_parser.add_argument("--nodes", type=int, default=3, help="Number of nodes (default: 3)")
     demo_net_parser.set_defaults(func=cmd_demo_network)
+
+    # ── doctor ──────────────────────────────────────────────────────
+    doctor_parser = subparsers.add_parser("doctor", help="Security and readiness check")
+    doctor_parser.set_defaults(func=cmd_doctor)
 
     args = parser.parse_args()
     

@@ -36,13 +36,14 @@ class TestSettlementQuote:
         assert q.protocol_fee == 5.0
         assert q.burn_amount == 2.5
         assert q.verifier_reward == 2.5
-        assert q.net_deposit == 95.0
+        # net_deposit + creator_payout = 95.0 (original net before creator extraction)
+        assert abs((q.net_deposit + q.creator_payout) - 95.0) < 0.01
 
     def test_conservation_of_value(self):
-        """fee + net_deposit must equal the total payment."""
+        """fee + net_deposit + creator_payout must equal the total payment."""
         for amount in [1.0, 10.0, 100.0, 1000.0, 99999.0]:
             q = self.engine.quote("OAS_TEST0001", amount)
-            reconstructed = q.protocol_fee + q.net_deposit
+            reconstructed = q.protocol_fee + q.net_deposit + q.creator_payout
             assert abs(reconstructed - amount) < 0.01, f"Value leak at payment={amount}"
 
     def test_burn_plus_verifier_equals_fee(self):
