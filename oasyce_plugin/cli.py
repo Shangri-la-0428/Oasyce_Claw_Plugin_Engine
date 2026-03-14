@@ -1108,6 +1108,48 @@ def cmd_testnet_reset(args):
     print(f"Testnet data reset. Removed {data_dir}")
 
 
+def cmd_start(args):
+    """Start Core node + Dashboard in one command."""
+    import threading
+    import time
+
+    core_port = args.core_port
+    gui_port = args.port
+
+    print(f"""
+╔══════════════════════════════════════════════╗
+║            Oasyce — Starting Up              ║
+╠══════════════════════════════════════════════╣
+║  Core Node:   http://localhost:{core_port:<14}║
+║  Dashboard:   http://localhost:{gui_port:<14}║
+╠══════════════════════════════════════════════╣
+║  Open Dashboard in your browser to begin.    ║
+║  Press Ctrl+C to stop.                       ║
+╚══════════════════════════════════════════════╝
+""")
+
+    # Start Core node in background thread
+    def run_core():
+        try:
+            from oasyce_core.server import create_app
+            import uvicorn
+            app = create_app(node_id="oasyce-node-0", testnet=True)
+            uvicorn.run(app, host="0.0.0.0", port=core_port, log_level="warning")
+        except ImportError:
+            print("⚠️  oasyce-core not installed. AHRP features disabled.")
+            print("   Install with: pip install oasyce-core")
+        except Exception as e:
+            print(f"⚠️  Core node failed: {e}")
+
+    core_thread = threading.Thread(target=run_core, daemon=True)
+    core_thread.start()
+    time.sleep(1)  # let core start first
+
+    # Start Dashboard in main thread
+    from oasyce_plugin.gui.app import OasyceGUI
+    OasyceGUI(port=gui_port).run()
+
+
 def cmd_verify(args):
     """Verify a PoPC certificate."""
     from oasyce_plugin.engines.core_engines import CertificateEngine
@@ -1351,6 +1393,12 @@ def main():
     gui_parser = subparsers.add_parser("gui", help="Launch web dashboard (port 8420)")
     gui_parser.add_argument("--port", type=int, default=8420, help="Port (default: 8420)")
     gui_parser.set_defaults(func=lambda args: __import__('oasyce_plugin.gui.app', fromlist=['OasyceGUI']).OasyceGUI(port=args.port).run())
+
+    # Start command — one command to rule them all
+    start_parser = subparsers.add_parser("start", help="Start everything: Core node + Dashboard (recommended)")
+    start_parser.add_argument("--port", type=int, default=8420, help="Dashboard port (default: 8420)")
+    start_parser.add_argument("--core-port", type=int, default=8000, help="Core node port (default: 8000)")
+    start_parser.set_defaults(func=cmd_start)
 
     # Explorer command
     explorer_parser = subparsers.add_parser("explorer", help="Launch block explorer (port 8421)")

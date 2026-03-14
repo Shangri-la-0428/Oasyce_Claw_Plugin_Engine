@@ -46,20 +46,13 @@ pip install oasyce
 # Linux: export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### 启动仪表盘
+### 启动
 
 ```bash
-oasyce gui
+oasyce start
 ```
 
-如果需要 AHRP Agent 交易功能，另开终端安装并启动核心节点：
-
-```bash
-pip install oasyce-core
-oasyce serve
-```
-
-浏览器打开 `http://localhost:8420`，你会看到：
+一条命令，Core 节点 + Dashboard 全部启动。浏览器打开 `http://localhost:8420`，你会看到：
 
 - **Overview** — 网络状态、注册资产数、交易量
 - **Register** — 注册文件为数据资产
@@ -87,7 +80,8 @@ oasyce status            # 查看节点状态
 oasyce register <file>   # 注册数据资产
 oasyce buy <asset_id>    # 购买数据访问权
 oasyce stake <node_id>   # 质押成为验证者
-oasyce gui               # 启动可视化仪表盘
+oasyce start             # 一键启动 Core + Dashboard
+oasyce gui               # 仅启动仪表盘
 ```
 
 ---
