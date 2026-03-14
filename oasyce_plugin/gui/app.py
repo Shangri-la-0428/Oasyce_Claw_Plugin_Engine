@@ -132,6 +132,16 @@ def _api_assets() -> list:
             "tags": meta.get("tags", []),
             "created_at": r["created_at"],
         })
+    # Attach spot price from settlement engine where available
+    se = _get_settlement()
+    for r in results:
+        aid = r['asset_id']
+        if aid in se.pools:
+            pool = se.pools[aid]
+            if pool.supply > 0:
+                r['spot_price'] = round(pool.reserve_balance / (pool.supply * pool.config.reserve_ratio), 6)
+        if 'spot_price' not in r:
+            r['spot_price'] = None
     return results
 
 
@@ -267,6 +277,40 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
+        # Portfolio (holdings)
+        if path == "/api/portfolio":
+            buyer = qs.get("buyer", ["gui_user"])[0]
+            se = _get_settlement()
+            holdings = []
+            for asset_id, pool in se.pools.items():
+                balance = pool.equity.get(buyer, 0)
+                if balance > 0:
+                    spot = round(pool.reserve_balance / (pool.supply * pool.config.reserve_ratio), 6) if pool.supply > 0 else 0
+                    holdings.append({
+                        "asset_id": asset_id,
+                        "shares": round(balance, 4),
+                        "spot_price": spot,
+                        "value_oas": round(balance * spot, 4),
+                    })
+            return _json_response(self, holdings)
+
+        # Transaction history
+        if path == "/api/transactions":
+            se = _get_settlement()
+            txs = []
+            if hasattr(se, "receipts"):
+                for r in se.receipts[-50:]:
+                    txs.append({
+                        "receipt_id": r.receipt_id,
+                        "asset_id": r.asset_id,
+                        "buyer": r.buyer_id,
+                        "amount": r.quote.payment_oas,
+                        "tokens": round(r.quote.equity_minted, 4),
+                        "status": r.status.value,
+                        "timestamp": r.timestamp,
+                    })
+            return _json_response(self, list(reversed(txs)))
+
         # ── AHRP proxy (GET) ─────────────────────────────────────
         if path.startswith("/ahrp/"):
             return _proxy_ahrp(self, "GET", self.path)
@@ -359,11 +403,49 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
+        if path == "/api/asset/update":
+            aid = body.get("asset_id", "")
+            new_tags = body.get("tags", [])
+            assert _ledger
+            row = _ledger._conn.execute(
+                "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
+            ).fetchone()
+            if not row:
+                return _json_response(self, {"error": "not found"}, 404)
+            meta = json.loads(row["metadata"]) if row["metadata"] else {}
+            meta["tags"] = new_tags
+            _ledger._conn.execute(
+                "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+                (json.dumps(meta), aid),
+            )
+            _ledger._conn.commit()
+            return _json_response(self, {"ok": True, "asset_id": aid, "tags": new_tags})
+
         # ── AHRP proxy (POST) ────────────────────────────────────
         if path.startswith("/ahrp/"):
             raw = json.dumps(body).encode("utf-8") if body else b""
             return _proxy_ahrp(self, "POST", self.path, raw)
 
+        return _json_response(self, {"error": "not found"}, 404)
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        m = re.match(r"^/api/asset/(.+)$", path)
+        if m:
+            aid = m.group(1)
+            assert _ledger
+            row = _ledger._conn.execute(
+                "SELECT * FROM assets WHERE asset_id = ?", (aid,)
+            ).fetchone()
+            if not row:
+                return _json_response(self, {"error": "Asset not found"}, 404)
+            _ledger._conn.execute("DELETE FROM assets WHERE asset_id = ?", (aid,))
+            _ledger._conn.execute(
+                "DELETE FROM fingerprint_records WHERE asset_id = ?", (aid,)
+            )
+            _ledger._conn.commit()
+            return _json_response(self, {"ok": True, "deleted": aid})
         return _json_response(self, {"error": "not found"}, 404)
 
 
@@ -928,6 +1010,96 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   .tx-step-circle { width: 40px; height: 40px; font-size: 16px; }
   .top-nav { gap: 12px; }
 }
+
+/* ── Modal ────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; top:0; left:0; right:0; bottom:0;
+  background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+  z-index: 200; display:flex; align-items:center; justify-content:center;
+}
+.modal {
+  background: #141414; border: 1px solid #333; border-radius: 16px;
+  max-width: 560px; width: 90%; max-height: 80vh; overflow-y: auto;
+  padding: 32px; position: relative;
+}
+.modal-close {
+  position: absolute; top: 16px; right: 16px; background: none;
+  border: none; color: #888; font-size: 24px; cursor: pointer;
+}
+.modal-close:hover { color: #fff; }
+.modal h3 { font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; }
+.modal-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #222; font-size:14px; }
+.modal-row:last-child { border-bottom:none; }
+.modal-key { color:#888; }
+.modal-val { font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:#e8e8e8; text-align:right; word-break:break-all; max-width:60%; cursor:pointer; }
+.modal-val:hover { color:#3b82f6; }
+
+/* ── Toast ────────────────────────────────────────────────── */
+.toast-container {
+  position: fixed; top: 64px; right: 20px; z-index: 300;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.toast {
+  background: #1a1a1a; border: 1px solid #333; border-radius: 10px;
+  padding: 14px 20px; font-size: 14px; color: #e8e8e8;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
+  max-width: 340px;
+}
+.toast.success { border-color: #22c55e; }
+.toast.error { border-color: #ef4444; }
+@keyframes toastIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
+@keyframes toastOut { from { opacity:1; } to { opacity:0; } }
+
+/* ── Delete button on asset cards ─────────────────────────── */
+.asset-item { position: relative; cursor: pointer; transition: border-color 0.2s; }
+.asset-item:hover { border-color: #3b82f6; }
+.asset-delete-btn {
+  position: absolute; top: 12px; right: 12px;
+  background: none; border: 1px solid #ef444444; border-radius: 6px;
+  color: #ef4444; font-size: 14px; cursor: pointer;
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.2s;
+}
+.asset-item:hover .asset-delete-btn { opacity: 1; }
+.asset-delete-btn:hover { background: #ef444422; }
+
+/* ── Price badge ──────────────────────────────────────────── */
+.price-badge {
+  display: inline-block; height: 24px; line-height: 24px;
+  padding: 0 10px; font-size: 12px; font-weight: 600;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  background: #22c55e18; border: 1px solid #22c55e44;
+  border-radius: 20px; color: #22c55e;
+}
+.price-badge.none { background: #33333344; border-color: #444; color: #666; }
+
+/* ── Portfolio table ──────────────────────────────────────── */
+.portfolio-table { width:100%; border-collapse:collapse; font-size:14px; }
+.portfolio-table th { text-align:left; color:#888; font-weight:500; padding:8px 4px; border-bottom:1px solid #333; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; }
+.portfolio-table td { padding:10px 4px; border-bottom:1px solid #1f1f1f; }
+.portfolio-table td.mono { font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:#3b82f6; }
+.portfolio-table td.num { font-family:ui-monospace,'SF Mono',monospace; text-align:right; }
+.portfolio-table td.green { color:#22c55e; }
+
+/* ── Transaction list ─────────────────────────────────────── */
+.tx-item {
+  background:#1a1a1a; border:1px solid #252525; border-radius:10px;
+  padding:12px 16px; margin-bottom:8px; font-size:14px;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.tx-item-left { display:flex; flex-direction:column; gap:2px; }
+.tx-item-id { font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:#3b82f6; }
+.tx-item-detail { font-size:13px; color:#888; }
+.tx-item-right { text-align:right; }
+.tx-item-tokens { font-family:ui-monospace,'SF Mono',monospace; font-weight:600; color:#22c55e; }
+.tx-item-status { font-size:12px; color:#888; }
+
+/* Edit tags inline */
+.tag-edit-row { display:flex; gap:8px; margin-top:12px; }
+.tag-edit-row input { flex:1; height:36px; font-size:14px; background:#1a1a1a; border:1px solid #333; border-radius:8px; color:#e8e8e8; padding:0 12px; outline:none; }
+.tag-edit-row input:focus { border-color:#3b82f6; }
+.tag-edit-row button { height:36px; font-size:13px; padding:0 16px; border:none; border-radius:8px; cursor:pointer; font-weight:500; }
 </style>
 </head>
 <body>
@@ -978,6 +1150,12 @@ select option { background: #1a1a1a; color: #e8e8e8; }
     <button class="btn" onclick="document.getElementById('ahrp-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;background:linear-gradient(135deg,#3b82f6,#6366f1);">&#x1f91d; AHRP</button>
   </div>
 
+  <!-- Section 2b: My Portfolio -->
+  <div class="card fade" id="portfolio-section">
+    <h2>My portfolio</h2>
+    <div id="portfolio-list"></div>
+  </div>
+
   <!-- Section 3: Your Assets -->
   <div class="card fade" id="assets-section">
     <h2>Your assets</h2>
@@ -995,6 +1173,12 @@ select option { background: #1a1a1a; color: #e8e8e8; }
     </div>
     <button class="btn" id="reg-btn" style="width:100%;">Register</button>
     <div id="reg-result"></div>
+  </div>
+
+  <!-- Section 3b2: Recent Transactions -->
+  <div class="card fade" id="tx-history-section">
+    <h2>Recent transactions</h2>
+    <div id="tx-history-list"></div>
   </div>
 
   <!-- Section 3c: Buy Data -->
@@ -1290,6 +1474,121 @@ select option { background: #1a1a1a; color: #e8e8e8; }
     }
   }
 
+  // ── Toast notifications ────────────────────────────────────
+  function toast(msg, type) {
+    type = type || 'success';
+    var container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
+    var el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.textContent = msg;
+    container.appendChild(el);
+    setTimeout(function() { el.remove(); }, 3000);
+  }
+
+  // ── Confirm dialog ─────────────────────────────────────────
+  function confirmAction(msg) {
+    return new Promise(function(resolve) {
+      resolve(window.confirm(msg));
+    });
+  }
+
+  // ── Delete asset ───────────────────────────────────────────
+  async function deleteAsset(aid) {
+    var ok = await confirmAction('Delete asset ' + aid.slice(0,16) + '...? This cannot be undone.');
+    if (!ok) return;
+    try {
+      var r = await fetch('/api/asset/' + encodeURIComponent(aid), {method:'DELETE'});
+      var d = await r.json();
+      if (d.ok) {
+        toast('Asset deleted');
+        closeModal();
+        loadAssets(); loadStatus(); loadPortfolio();
+      } else { toast(d.error || 'Failed to delete', 'error'); }
+    } catch(e) { toast(e.message, 'error'); }
+  }
+
+  // ── Asset detail modal ─────────────────────────────────────
+  function closeModal() {
+    var overlay = document.getElementById('modal-overlay');
+    if (overlay) overlay.remove();
+  }
+
+  async function showAssetModal(aid) {
+    var d = await api('/api/asset/' + encodeURIComponent(aid));
+    if (!d || d.error) { toast('Asset not found', 'error'); return; }
+    var q = await api('/api/quote?asset_id=' + encodeURIComponent(aid) + '&amount=1');
+    var priceStr = (q && !q.error) ? q.price_before + ' OAS' : 'N/A';
+    var meta = d.metadata || {};
+    var tags = meta.tags || [];
+
+    var overlay = document.createElement('div');
+    overlay.id = 'modal-overlay';
+    overlay.className = 'modal-overlay';
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal(); });
+
+    var tagsHtml = tags.map(function(t){ return '<span class="pill">' + esc(t) + '</span>'; }).join(' ') || '<span style="color:#666;">None</span>';
+    var metaRows = '';
+    Object.keys(meta).forEach(function(k) {
+      if (k === 'tags') return;
+      metaRows += '<div class="modal-row"><span class="modal-key">' + esc(k) + '</span><span class="modal-val">' + esc(typeof meta[k] === 'object' ? JSON.stringify(meta[k]) : meta[k]) + '</span></div>';
+    });
+
+    overlay.innerHTML = '<div class="modal">' +
+      '<button class="modal-close" onclick="closeModal()">&times;</button>' +
+      '<h3>Asset details</h3>' +
+      '<div class="modal-row"><span class="modal-key">Asset ID</span><span class="modal-val" title="Click to copy" onclick="navigator.clipboard.writeText(\'' + esc(d.asset_id) + '\');toast(\'Copied!\')">' + esc(d.asset_id) + '</span></div>' +
+      '<div class="modal-row"><span class="modal-key">Owner</span><span class="modal-val">' + esc(d.owner) + '</span></div>' +
+      '<div class="modal-row"><span class="modal-key">Created</span><span class="modal-val">' + esc(d.created_at) + '</span></div>' +
+      '<div class="modal-row"><span class="modal-key">Spot price</span><span class="modal-val" style="color:#22c55e;">' + esc(priceStr) + '</span></div>' +
+      '<div class="modal-row"><span class="modal-key">Tags</span><span class="modal-val" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">' + tagsHtml + '</span></div>' +
+      metaRows +
+      '<div id="modal-tag-edit"></div>' +
+      '<div style="display:flex;gap:10px;margin-top:20px;">' +
+        '<button class="btn" style="flex:1;background:#333;font-size:14px;height:40px;" onclick="showEditTags(\'' + esc(d.asset_id) + '\',\'' + esc(tags.join(',')) + '\')">Edit tags</button>' +
+        '<button class="btn" style="flex:1;background:#ef4444;font-size:14px;height:40px;" onclick="deleteAsset(\'' + esc(d.asset_id) + '\')">Delete</button>' +
+      '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+  }
+
+  // ── Edit tags in modal ─────────────────────────────────────
+  function showEditTags(aid, currentTags) {
+    var container = document.getElementById('modal-tag-edit');
+    if (!container) return;
+    container.innerHTML = '<div class="tag-edit-row">' +
+      '<input type="text" id="modal-tag-input" value="' + esc(currentTags) + '" placeholder="tag1, tag2, ...">' +
+      '<button style="background:#3b82f6;color:#fff;" onclick="saveEditTags(\'' + esc(aid) + '\')">Save</button>' +
+      '<button style="background:#333;color:#888;" onclick="document.getElementById(\'modal-tag-edit\').innerHTML=\'\'">Cancel</button>' +
+      '</div>';
+    document.getElementById('modal-tag-input').focus();
+  }
+
+  async function saveEditTags(aid) {
+    var input = document.getElementById('modal-tag-input');
+    if (!input) return;
+    var tags = input.value.split(',').map(function(t){return t.trim();}).filter(Boolean);
+    var d = await postApi('/api/asset/update', {asset_id: aid, tags: tags});
+    if (d && d.ok) {
+      toast('Tags updated');
+      closeModal();
+      loadAssets();
+    } else { toast(d ? d.error : 'Failed', 'error'); }
+  }
+
+  // Make modal functions global
+  window.closeModal = closeModal;
+  window.showAssetModal = showAssetModal;
+  window.deleteAsset = deleteAsset;
+  window.showEditTags = showEditTags;
+  window.saveEditTags = saveEditTags;
+  window.toast = toast;
+
   // ── Load status ──────────────────────────────────────────────
   async function loadStatus() {
     var d = await api('/api/status');
@@ -1331,10 +1630,14 @@ select option { background: #1a1a1a; color: #e8e8e8; }
     var html = '';
     list.forEach(function(a) {
       var tags = (a.tags || []).map(function(t) { return '<span class="pill">' + esc(t) + '</span>'; }).join('');
-      html += '<div class="asset-item">' +
+      var priceHtml = a.spot_price != null
+        ? '<span class="price-badge">' + a.spot_price + ' OAS</span>'
+        : '<span class="price-badge none">Not listed</span>';
+      html += '<div class="asset-item" onclick="showAssetModal(\'' + esc(a.asset_id) + '\')">' +
+        '<button class="asset-delete-btn" title="Delete" onclick="event.stopPropagation();deleteAsset(\'' + esc(a.asset_id) + '\')">&times;</button>' +
         '<div class="asset-id">' + esc(trunc(a.asset_id, 24)) + '</div>' +
         '<div class="asset-owner">' + esc(a.owner) + '</div>' +
-        '<div class="asset-meta">' + tags + '<span class="time-ago">' + timeAgo(a.created_at) + '</span></div>' +
+        '<div class="asset-meta">' + tags + priceHtml + '<span class="time-ago">' + timeAgo(a.created_at) + '</span></div>' +
         '</div>';
     });
     container.innerHTML = html;
@@ -1403,6 +1706,51 @@ select option { background: #1a1a1a; color: #e8e8e8; }
     document.getElementById('stakes-list').innerHTML = html;
   }
 
+  // ── Load portfolio ──────────────────────────────────────────
+  async function loadPortfolio() {
+    var list = await api('/api/portfolio?buyer=gui_user') || [];
+    var container = document.getElementById('portfolio-list');
+    if (!list.length) {
+      container.innerHTML = '<div class="empty-state">No holdings yet. Buy data access to see your portfolio.</div>';
+      return;
+    }
+    var html = '<table class="portfolio-table"><thead><tr><th>Asset</th><th style="text-align:right;">Shares</th><th style="text-align:right;">Price</th><th style="text-align:right;">Value</th></tr></thead><tbody>';
+    list.forEach(function(h) {
+      html += '<tr>' +
+        '<td class="mono">' + esc(trunc(h.asset_id, 16)) + '</td>' +
+        '<td class="num">' + h.shares + '</td>' +
+        '<td class="num">' + h.spot_price + ' OAS</td>' +
+        '<td class="num green">' + h.value_oas + ' OAS</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  }
+
+  // ── Load transaction history ───────────────────────────────
+  async function loadTransactions() {
+    var list = await api('/api/transactions') || [];
+    var container = document.getElementById('tx-history-list');
+    if (!list.length) {
+      container.innerHTML = '<div class="empty-state">No transactions yet.</div>';
+      return;
+    }
+    var html = '';
+    list.forEach(function(tx) {
+      html += '<div class="tx-item">' +
+        '<div class="tx-item-left">' +
+          '<span class="tx-item-id">' + esc(trunc(tx.receipt_id, 16)) + '</span>' +
+          '<span class="tx-item-detail">' + esc(trunc(tx.asset_id, 16)) + ' &middot; ' + esc(tx.buyer) + '</span>' +
+        '</div>' +
+        '<div class="tx-item-right">' +
+          '<div class="tx-item-tokens">+' + tx.tokens + ' tokens</div>' +
+          '<div class="tx-item-status">' + esc(tx.status) + '</div>' +
+        '</div>' +
+        '</div>';
+    });
+    container.innerHTML = html;
+  }
+
   // ── Register ─────────────────────────────────────────────
   document.getElementById('reg-btn').addEventListener('click', async function() {
     var btn = this; btn.textContent = 'Working...'; btn.disabled = true;
@@ -1415,8 +1763,9 @@ select option { background: #1a1a1a; color: #e8e8e8; }
       var d = await r.json();
       if (d.ok) {
         div.innerHTML = '<div class="trace-result" style="border-color:#22c55e;margin-top:12px;"><div class="trace-row"><span class="trace-key">Asset ID</span><span class="trace-val">' + esc(d.asset_id) + '</span></div><div class="trace-row"><span class="trace-key">File hash</span><span class="trace-val">' + esc(trunc(d.file_hash,24)) + '</span></div></div>';
+        toast('Asset registered successfully');
         loadAssets(); loadStatus();
-      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; }
+      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; toast(d.error, 'error'); }
     } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
     btn.textContent = 'Register'; btn.disabled = false;
   });
@@ -1441,11 +1790,14 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   });
 
   document.getElementById('buy-btn').addEventListener('click', async function() {
-    var btn = this; btn.textContent = 'Working...'; btn.disabled = true;
+    var btn = this;
     var aid = document.getElementById('buy-asset').value.trim();
     var amount = document.getElementById('buy-amount').value.trim() || '10';
     var div = document.getElementById('buy-result');
-    if (!aid) { div.innerHTML = '<p class="err">Enter an asset ID</p>'; btn.textContent='Buy';btn.disabled=false; return; }
+    if (!aid) { div.innerHTML = '<p class="err">Enter an asset ID</p>'; return; }
+    var ok = await confirmAction('Buy ' + amount + ' OAS of asset ' + aid.slice(0,16) + '...?');
+    if (!ok) return;
+    btn.textContent = 'Working...'; btn.disabled = true;
     try {
       var r = await fetch('/api/buy', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:aid,buyer:'gui_user',amount:parseFloat(amount)})});
       var d = await r.json();
@@ -1456,8 +1808,10 @@ select option { background: #1a1a1a; color: #e8e8e8; }
           '<div class="trace-row"><span class="trace-key">New price</span><span class="trace-val">' + d.price_after + ' OAS</span></div>' +
           '<div class="trace-row"><span class="trace-key">Your equity</span><span class="trace-val">' + d.equity_balance + '</span></div>' +
           '</div>';
-      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; }
-    } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+        toast('Purchase successful! ' + d.tokens + ' tokens received');
+        loadPortfolio(); loadTransactions(); loadAssets();
+      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; toast(d.error, 'error'); }
+    } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; toast(e.message, 'error'); }
     btn.textContent = 'Buy'; btn.disabled = false;
   });
 
@@ -1499,8 +1853,9 @@ select option { background: #1a1a1a; color: #e8e8e8; }
           '<div class="trace-row"><span class="trace-key">Total staked</span><span class="trace-val" style="color:#22c55e;">' + d.total_stake + ' OAS</span></div>' +
           '<div class="trace-row"><span class="trace-key">Status</span><span class="trace-val">' + esc(d.status) + '</span></div>' +
           '</div>';
+        toast('Staked ' + d.total_stake + ' OAS');
         loadStakes();
-      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; }
+      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; toast(d.error, 'error'); }
     } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
     btn.textContent = 'Stake'; btn.disabled = false;
   });
@@ -1731,6 +2086,8 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   // ── Init ─────────────────────────────────────────────────────
   loadStatus();
   loadAssets();
+  loadPortfolio();
+  loadTransactions();
   loadStakes();
   loadAhrpStats();
 
