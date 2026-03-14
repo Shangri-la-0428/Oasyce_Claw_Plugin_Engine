@@ -7,6 +7,7 @@ Command-line interface for data asset registration, search, and pricing.
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -935,6 +936,178 @@ def cmd_asset_validate(args):
                 print(f"   - {err}")
 
 
+def cmd_testnet_start(args):
+    """Start a testnet node."""
+    import asyncio
+    from oasyce_plugin.config import (
+        NetworkMode, get_data_dir, load_or_create_node_identity,
+        TESTNET_NETWORK_CONFIG,
+    )
+    from oasyce_plugin.network.node import OasyceNode
+    from oasyce_plugin.storage.ledger import Ledger
+
+    data_dir = get_data_dir(NetworkMode.TESTNET)
+    port = args.port or TESTNET_NETWORK_CONFIG.listen_port
+    host = TESTNET_NETWORK_CONFIG.listen_host
+    db_path = os.path.join(data_dir, "chain.db")
+    ledger = Ledger(db_path)
+
+    _priv, node_id = load_or_create_node_identity(data_dir)
+    node_id_short = node_id[:16]
+
+    node = OasyceNode(
+        host=host, port=port, node_id=node_id_short,
+        ledger=ledger, data_dir=data_dir,
+    )
+
+    async def _run():
+        await node.start(bootstrap=True)
+        print(f"[TESTNET] Oasyce node {node_id_short} listening on {host}:{port}")
+        if node.peers:
+            print(f"  Known peers: {len(node.peers)}")
+        print("Press Ctrl+C to stop.")
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await node.stop()
+            print("\nTestnet node stopped.")
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+
+
+def cmd_testnet_faucet(args):
+    """Claim testnet tokens from faucet."""
+    from oasyce_plugin.config import NetworkMode, get_data_dir, load_or_create_node_identity
+    from oasyce_plugin.services.faucet import Faucet
+
+    data_dir = get_data_dir(NetworkMode.TESTNET)
+    _priv, node_id = load_or_create_node_identity(data_dir)
+    node_id_short = node_id[:16]
+
+    faucet = Faucet(data_dir)
+    result = faucet.claim(node_id_short)
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    elif result["success"]:
+        print(f"Claimed {result['amount']:.0f} OAS")
+        print(f"  Balance: {result['balance']:.0f} OAS")
+        print(f"  Next claim available in 24h")
+    else:
+        print(f"Faucet: {result['error']}")
+        print(f"  Balance: {result['balance']:.0f} OAS")
+
+
+def cmd_testnet_status(args):
+    """Show testnet status."""
+    from oasyce_plugin.config import (
+        NetworkMode, get_data_dir, get_economics,
+        load_or_create_node_identity, TESTNET_NETWORK_CONFIG,
+    )
+    from oasyce_plugin.services.faucet import Faucet
+
+    data_dir = get_data_dir(NetworkMode.TESTNET)
+    economics = get_economics(NetworkMode.TESTNET)
+
+    # Node identity
+    _priv, node_id = load_or_create_node_identity(data_dir)
+    node_id_short = node_id[:16]
+
+    # Faucet balance
+    faucet = Faucet(data_dir)
+    balance = faucet.balance(node_id_short)
+
+    # Chain height
+    db_path = os.path.join(data_dir, "chain.db")
+    height = 0
+    try:
+        from oasyce_plugin.storage.ledger import Ledger
+        ledger = Ledger(db_path)
+        height = ledger.get_chain_height()
+    except Exception:
+        pass
+
+    # Peers
+    peers_path = Path(data_dir) / "peers.json"
+    peers_count = 0
+    if peers_path.exists():
+        try:
+            peers_count = len(json.loads(peers_path.read_text()))
+        except Exception:
+            pass
+
+    info = {
+        "mode": "testnet",
+        "node_id": node_id_short,
+        "port": TESTNET_NETWORK_CONFIG.listen_port,
+        "data_dir": data_dir,
+        "chain_height": height,
+        "known_peers": peers_count,
+        "faucet_balance": balance,
+        "economics": economics,
+    }
+
+    if args.json:
+        print(json.dumps(info, indent=2))
+    else:
+        print(f"── Testnet Status ──")
+        print(f"  Node ID:      {node_id_short}")
+        print(f"  Port:         {TESTNET_NETWORK_CONFIG.listen_port}")
+        print(f"  Data dir:     {data_dir}")
+        print(f"  Chain height: {height}")
+        print(f"  Known peers:  {peers_count}")
+        print(f"  Balance:      {balance:.0f} OAS")
+        print(f"  Min stake:    {economics['min_stake']:.0f} OAS")
+        print(f"  Block reward: {economics['block_reward']:.0f} OAS")
+
+
+def cmd_testnet_onboard(args):
+    """One-click testnet onboarding."""
+    from oasyce_plugin.config import NetworkMode, get_data_dir, load_or_create_node_identity
+    from oasyce_plugin.services.testnet import TestnetOnboarding
+
+    data_dir = get_data_dir(NetworkMode.TESTNET)
+    _priv, node_id = load_or_create_node_identity(data_dir)
+    node_id_short = node_id[:16]
+
+    onboarding = TestnetOnboarding(data_dir)
+    result = onboarding.onboard(node_id_short)
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"── Testnet Onboarding ──")
+        for step in result["summary"]:
+            print(f"  {step}")
+
+
+def cmd_testnet_reset(args):
+    """Reset testnet data."""
+    import shutil
+    from oasyce_plugin.config import NetworkMode, get_data_dir
+
+    data_dir = get_data_dir(NetworkMode.TESTNET)
+    data_path = Path(data_dir)
+
+    if not data_path.exists():
+        print("Testnet data directory does not exist — nothing to reset.")
+        return
+
+    if not args.force:
+        print(f"This will delete all testnet data in {data_dir}")
+        print("Use --force to confirm.")
+        return
+
+    shutil.rmtree(data_dir)
+    print(f"Testnet data reset. Removed {data_dir}")
+
+
 def cmd_verify(args):
     """Verify a PoPC certificate."""
     from oasyce_plugin.engines.core_engines import CertificateEngine
@@ -1201,6 +1374,27 @@ def main():
     pf_parser.add_argument("--json", action="store_true", help="Output as JSON")
     pf_parser.set_defaults(func=cmd_price_factors)
 
+    # ── testnet ──────────────────────────────────────────────────────
+    testnet_parser = subparsers.add_parser("testnet", help="Testnet management")
+    testnet_sub = testnet_parser.add_subparsers(dest="testnet_command", help="Testnet sub-commands")
+
+    testnet_start_parser = testnet_sub.add_parser("start", help="Start a testnet node")
+    testnet_start_parser.add_argument("--port", type=int, default=None, help="Listen port (default 9528)")
+    testnet_start_parser.set_defaults(func=cmd_testnet_start)
+
+    testnet_faucet_parser = testnet_sub.add_parser("faucet", help="Claim testnet tokens")
+    testnet_faucet_parser.set_defaults(func=cmd_testnet_faucet)
+
+    testnet_status_parser = testnet_sub.add_parser("status", help="Show testnet status")
+    testnet_status_parser.set_defaults(func=cmd_testnet_status)
+
+    testnet_onboard_parser = testnet_sub.add_parser("onboard", help="One-click onboarding (faucet + register + stake)")
+    testnet_onboard_parser.set_defaults(func=cmd_testnet_onboard)
+
+    testnet_reset_parser = testnet_sub.add_parser("reset", help="Reset all testnet data")
+    testnet_reset_parser.add_argument("--force", action="store_true", help="Confirm reset")
+    testnet_reset_parser.set_defaults(func=cmd_testnet_reset)
+
     # ── demo-network ─────────────────────────────────────────────────
     demo_net_parser = subparsers.add_parser(
         "demo-network",
@@ -1237,6 +1431,10 @@ def main():
 
     if args.command == "leakage" and getattr(args, "leak_command", None) is None:
         leak_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "testnet" and getattr(args, "testnet_command", None) is None:
+        testnet_parser.print_help()
         sys.exit(0)
 
     args.func(args)

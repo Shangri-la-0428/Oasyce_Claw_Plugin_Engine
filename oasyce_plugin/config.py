@@ -4,6 +4,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -13,11 +14,22 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+# ── Network mode ─────────────────────────────────────────────────────
+class NetworkMode(str, Enum):
+    MAINNET = "mainnet"
+    TESTNET = "testnet"
+    LOCAL = "local"
+
+
 # ── Bootstrap nodes ──────────────────────────────────────────────────
 BOOTSTRAP_NODES: List[Dict[str, object]] = [
     # 格式：{"host": "x.x.x.x", "port": 9527, "node_id": "..."}
     # 初始：Shangrila 跑的公共 bootstrap 节点
     {"host": "bootstrap.oasyce.com", "port": 9527, "node_id": "bootstrap-0"},
+]
+
+TESTNET_BOOTSTRAP_NODES: List[Dict[str, object]] = [
+    {"host": "testnet.oasyce.com", "port": 9528, "node_id": "testnet-bootstrap-0"},
 ]
 
 
@@ -29,6 +41,28 @@ class NetworkConfig:
     public_host: Optional[str] = None   # 公网 IP/域名（NAT 后需要）
     public_port: Optional[int] = None
     use_stun: bool = False              # 未来扩展：STUN/TURN
+
+
+TESTNET_NETWORK_CONFIG = NetworkConfig(
+    listen_port=9528,
+    public_host=None,
+)
+
+
+# ── Testnet 经济参数（加速体验）────────────────────────────────────
+TESTNET_ECONOMICS = {
+    "block_reward": 40.0,        # 10x mainnet（快速积累）
+    "min_stake": 100.0,          # 1/100 mainnet（低门槛）
+    "agent_stake": 1.0,          # 极低门槛
+    "halving_interval": 10000,   # 更快减半（测试用）
+}
+
+MAINNET_ECONOMICS = {
+    "block_reward": 4.0,
+    "min_stake": 10000.0,
+    "agent_stake": 100.0,
+    "halving_interval": 1_051_200,
+}
 
 
 # ── Node identity persistence ───────────────────────────────────────
@@ -72,6 +106,22 @@ def _default_vault_dir() -> str:
 
 def _default_data_dir() -> str:
     return os.path.join(os.path.expanduser("~"), ".oasyce")
+
+
+def _testnet_data_dir() -> str:
+    return os.path.join(os.path.expanduser("~"), ".oasyce-testnet")
+
+
+def get_data_dir(mode: NetworkMode = NetworkMode.MAINNET) -> str:
+    if mode == NetworkMode.TESTNET:
+        return _testnet_data_dir()
+    return _default_data_dir()
+
+
+def get_economics(mode: NetworkMode = NetworkMode.MAINNET) -> dict:
+    if mode == NetworkMode.TESTNET:
+        return dict(TESTNET_ECONOMICS)
+    return dict(MAINNET_ECONOMICS)
 
 
 def _parse_tags(raw: Optional[str]) -> List[str]:
