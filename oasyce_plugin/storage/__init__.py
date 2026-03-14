@@ -1,4 +1,3 @@
-from .ipfs_client import IPFSClient, StorageBackend
-from .ledger import Ledger
-
-__all__ = ["IPFSClient", "StorageBackend", "Ledger"]
+"""Re-exported from oasyce_core. Do not add logic here."""
+from oasyce_core.storage import *  # noqa: F401,F403
+from oasyce_core.storage import IPFSClient, StorageBackend, Ledger

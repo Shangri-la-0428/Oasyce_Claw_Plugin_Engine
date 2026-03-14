@@ -1,6 +1,3 @@
-# Oasyce Exposure Tracking — ExposureRegistry + LiabilityWindow
-
-from .registry import ExposureRegistry
-from .window import LiabilityWindow
-
-__all__ = ["ExposureRegistry", "LiabilityWindow"]
+"""Re-exported from oasyce_core. Do not add logic here."""
+from oasyce_core.services.exposure import *  # noqa: F401,F403
+from oasyce_core.services.exposure import ExposureRegistry, LiabilityWindow
