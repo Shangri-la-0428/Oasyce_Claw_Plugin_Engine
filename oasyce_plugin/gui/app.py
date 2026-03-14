@@ -552,6 +552,56 @@ body{
   .nav-link{padding:0 10px;font-size:12px;}
 }
 
+.nav-lang,.nav-about{
+  width:32px;height:32px;
+  border-radius:50%;
+  border:1px solid var(--border);
+  background:transparent;
+  color:var(--text-s);
+  font-size:12px;font-weight:600;
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all 0.15s;
+  font-family:inherit;
+  flex-shrink:0;
+}
+.nav-lang:hover,.nav-about:hover{background:var(--hover);border-color:var(--border-h);color:var(--text);}
+.about-panel{
+  position:fixed;top:0;right:0;bottom:0;
+  width:340px;max-width:90vw;
+  background:var(--bg);
+  border-left:1px solid var(--border);
+  box-shadow:-4px 0 24px var(--shadow);
+  z-index:250;
+  padding:28px 24px;
+  overflow-y:auto;
+  animation:slideIn 0.2s ease;
+  transition:background 0.3s;
+}
+.about-panel h3{font-size:18px;font-weight:600;margin-bottom:20px;}
+.about-panel p{font-size:14px;color:var(--text-s);line-height:1.7;margin-bottom:16px;}
+.about-links{list-style:none;padding:0;}
+.about-links li{margin-bottom:10px;}
+.about-links a{
+  font-size:14px;color:var(--text);
+  text-decoration:none;
+  display:flex;align-items:center;gap:8px;
+  padding:10px 14px;
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  transition:all 0.15s;
+}
+.about-links a:hover{background:var(--hover);border-color:var(--border-h);}
+.about-links .link-label{font-weight:500;}
+.about-links .link-desc{font-size:12px;color:var(--text-t);}
+.about-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--text-t);font-size:18px;cursor:pointer;}
+.about-close:hover{color:var(--text);}
+.about-contact{margin-top:24px;padding-top:20px;border-top:1px solid var(--border);font-size:13px;color:var(--text-t);}
+.about-contact a{color:var(--text-s);text-decoration:none;}
+.about-contact a:hover{color:var(--text);}
+@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+.about-overlay{position:fixed;inset:0;z-index:240;background:transparent;}
+
 /* ── Pages ──────────── */
 .page{display:none;}
 .page.active{display:block;}
@@ -833,11 +883,15 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
 <nav class="nav">
   <div class="nav-brand">Oasyce <span class="nav-dot" id="status-dot"></span></div>
   <div class="nav-links">
-    <a class="nav-link active" data-page="register">Register</a>
-    <a class="nav-link" data-page="trade">Trade</a>
-    <a class="nav-link" data-page="assets">Assets</a>
-    <a class="nav-link" data-page="agents">Agents</a>
-    <a class="nav-link" data-page="network">Network</a>
+    <a class="nav-link active" data-page="register" data-en="Register" data-zh="注册">Register</a>
+    <a class="nav-link" data-page="trade" data-en="Trade" data-zh="交易">Trade</a>
+    <a class="nav-link" data-page="assets" data-en="Assets" data-zh="资产">Assets</a>
+    <a class="nav-link" data-page="agents" data-en="Agents" data-zh="代理">Agents</a>
+    <a class="nav-link" data-page="network" data-en="Network" data-zh="网络">Network</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+    <button class="nav-about" id="about-btn" title="About Oasyce">i</button>
+    <button class="nav-lang" id="lang-btn">中</button>
   </div>
 </nav>
 
@@ -1070,7 +1124,217 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       document.getElementById('pg-'+this.dataset.page).classList.add('active');
       if(this.dataset.page==='assets')loadAssets();
       if(this.dataset.page==='trade')loadPortfolio();
-      if(this.dataset.page==='network'){loadStatus();loadStakes();}
+      if(this.dataset.page==='network'){// ── i18n ──
+  var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
+  var _t = {
+    en: {
+      'pg-register-title': 'Register a data asset',
+      'pg-register-desc': 'Claim ownership of a file. Once registered, other agents can discover, quote, and purchase access rights.',
+      'pg-trade-title': 'Trade',
+      'pg-trade-desc': 'Quote and purchase shares in data assets. Buy to gain access rights and revenue share.',
+      'pg-assets-title': 'Your Assets',
+      'pg-assets-desc': 'Manage registered data assets. Click any asset for details.',
+      'pg-agents-title': 'Agent Protocol',
+      'pg-agents-desc': 'Register your agent on the AHRP network, discover data providers, and execute transactions.',
+      'pg-network-title': 'Network',
+      'pg-network-desc': 'Node status and validator information.',
+      'reg-path-ph': '/path/to/your/file',
+      'reg-owner-ph': 'Your name or agent ID',
+      'reg-tags-ph': 'medical, imaging, dicom',
+      'reg-btn': 'Register',
+      'buy-asset-ph': 'Paste asset ID',
+      'quote-btn': 'Quote',
+      'buy-btn': 'Buy',
+      'card-buy': 'Buy Shares',
+      'card-portfolio': 'Portfolio',
+      'card-stake': 'Stake',
+      'stake-node-ph': 'Validator node ID',
+      'stake-btn': 'Stake',
+      'search-ph': 'Search by ID or tag...',
+      'card-announce': 'Announce Agent',
+      'announce-btn': 'Announce',
+      'card-discover': 'Discover Agents',
+      'find-btn': 'Find',
+      'card-tx': 'Transaction',
+      'accept-btn': 'Accept & Create',
+      'deliver-btn': 'Deliver',
+      'confirm-btn': 'Confirm & Settle',
+      'card-node': 'Node',
+      'card-validators': 'Validators',
+      'card-watermark': 'Watermark',
+      'embed-btn': 'Embed',
+      'trace-btn': 'Trace',
+      'lookup-btn': 'Lookup',
+      'lbl-file': 'File path',
+      'lbl-owner': 'Owner',
+      'lbl-tags': 'Tags',
+      'lbl-asset-id': 'Asset ID',
+      'lbl-amount': 'Amount (OAS)',
+      'lbl-node-id': 'Node ID',
+      'empty-assets': 'No assets yet. Go to <strong>Register</strong> to add your first.',
+      'empty-portfolio': 'No holdings yet',
+      'stat-assets': 'Assets',
+      'stat-blocks': 'Blocks',
+      'stat-watermarks': 'Watermarks',
+      'lang-btn': '中',
+      'about-title': 'About Oasyce',
+      'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+      'link-intro': 'Introduction',
+      'link-intro-d': 'What is Oasyce and why it matters',
+      'link-whitepaper': 'Whitepaper',
+      'link-whitepaper-d': 'Protocol design and economics',
+      'link-docs': 'Documentation',
+      'link-docs-d': 'Technical reference and API',
+      'link-github': 'GitHub',
+      'link-github-d': 'Source code and contributions',
+      'link-contact': 'Contact',
+    },
+    zh: {
+      'pg-register-title': '注册数据资产',
+      'pg-register-desc': '确立文件的归属权。注册后，其他代理可以发现、报价和购买访问权限。',
+      'pg-trade-title': '交易',
+      'pg-trade-desc': '报价并购买数据资产份额。购买即获得访问权和收益分成。',
+      'pg-assets-title': '我的资产',
+      'pg-assets-desc': '管理已注册的数据资产。点击任意资产查看详情。',
+      'pg-agents-title': '代理协议',
+      'pg-agents-desc': '在 AHRP 网络注册你的代理，发现数据提供者，执行交易。',
+      'pg-network-title': '网络',
+      'pg-network-desc': '节点状态与验证者信息。',
+      'reg-path-ph': '文件路径',
+      'reg-owner-ph': '所有者名称或代理 ID',
+      'reg-tags-ph': '标签，用逗号分隔',
+      'reg-btn': '注册',
+      'buy-asset-ph': '粘贴资产 ID',
+      'quote-btn': '报价',
+      'buy-btn': '购买',
+      'card-buy': '购买份额',
+      'card-portfolio': '持仓',
+      'card-stake': '质押',
+      'stake-node-ph': '验证者节点 ID',
+      'stake-btn': '质押',
+      'search-ph': '按 ID 或标签搜索...',
+      'card-announce': '注册代理',
+      'announce-btn': '广播',
+      'card-discover': '发现代理',
+      'find-btn': '查找',
+      'card-tx': '交易流程',
+      'accept-btn': '接受并创建',
+      'deliver-btn': '交付',
+      'confirm-btn': '确认并结算',
+      'card-node': '节点',
+      'card-validators': '验证者',
+      'card-watermark': '水印',
+      'embed-btn': '嵌入',
+      'trace-btn': '追溯',
+      'lookup-btn': '查询',
+      'lbl-file': '文件路径',
+      'lbl-owner': '所有者',
+      'lbl-tags': '标签',
+      'lbl-asset-id': '资产 ID',
+      'lbl-amount': '数量（OAS）',
+      'lbl-node-id': '节点 ID',
+      'empty-assets': '暂无资产。前往 <strong>注册</strong> 添加你的第一个资产。',
+      'empty-portfolio': '暂无持仓',
+      'stat-assets': '资产',
+      'stat-blocks': '区块',
+      'stat-watermarks': '水印',
+      'lang-btn': 'En',
+      'about-title': '关于 Oasyce',
+      'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+      'link-intro': '项目介绍',
+      'link-intro-d': '什么是 Oasyce，为什么重要',
+      'link-whitepaper': '白皮书',
+      'link-whitepaper-d': '协议设计与经济模型',
+      'link-docs': '技术文档',
+      'link-docs-d': '技术参考与 API',
+      'link-github': 'GitHub',
+      'link-github-d': '源代码与贡献',
+      'link-contact': '联系我们',
+    }
+  };
+
+  function applyLang() {
+    var t = _t[_lang];
+    // Nav links
+    document.querySelectorAll('.nav-link').forEach(function(el){
+      el.textContent = el.getAttribute('data-'+_lang) || el.textContent;
+    });
+    // Lang button
+    document.getElementById('lang-btn').textContent = t['lang-btn'];
+    // Page titles & descs
+    ['register','trade','assets','agents','network'].forEach(function(pg){
+      var title = document.querySelector('#pg-'+pg+' .page-title');
+      var desc = document.querySelector('#pg-'+pg+' .page-desc');
+      if(title) title.textContent = t['pg-'+pg+'-title'] || title.textContent;
+      if(desc) desc.textContent = t['pg-'+pg+'-desc'] || desc.textContent;
+    });
+    // Stat labels
+    var statLabels = document.querySelectorAll('.stat-l');
+    if(statLabels[0]) statLabels[0].textContent = t['stat-assets'];
+    if(statLabels[1]) statLabels[1].textContent = t['stat-blocks'];
+    if(statLabels[2]) statLabels[2].textContent = t['stat-watermarks'];
+    // Buttons
+    document.getElementById('reg-btn').textContent = t['reg-btn'];
+    document.getElementById('quote-btn').textContent = t['quote-btn'];
+    document.getElementById('buy-btn').textContent = t['buy-btn'];
+    document.getElementById('stake-btn').textContent = t['stake-btn'];
+    document.getElementById('ahrp-announce-btn').textContent = t['announce-btn'];
+    document.getElementById('ahrp-find-btn').textContent = t['find-btn'];
+    document.getElementById('tx-accept-btn').textContent = t['accept-btn'];
+    document.getElementById('tx-deliver-btn').textContent = t['deliver-btn'];
+    document.getElementById('tx-confirm-btn').textContent = t['confirm-btn'];
+    document.getElementById('emb-btn').textContent = t['embed-btn'];
+    document.getElementById('fp-trace-btn').textContent = t['trace-btn'];
+    document.getElementById('fp-list-btn').textContent = t['lookup-btn'];
+    // Placeholders
+    document.getElementById('reg-path').placeholder = t['reg-path-ph'];
+    document.getElementById('reg-owner').placeholder = t['reg-owner-ph'];
+    document.getElementById('reg-tags').placeholder = t['reg-tags-ph'];
+    document.getElementById('buy-asset').placeholder = t['buy-asset-ph'];
+    document.getElementById('stake-node').placeholder = t['stake-node-ph'];
+    document.getElementById('asset-search').placeholder = t['search-ph'];
+    // Card titles
+    var cardTitles = document.querySelectorAll('.card-title');
+    var cardMap = ['card-buy','card-portfolio','card-stake','card-announce','card-discover','card-tx','card-node','','card-watermark'];
+    cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
+    // Field labels
+    var labels = document.querySelectorAll('.field-label');
+    // Store lang
+    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
+  }
+
+  // Lang toggle
+  document.getElementById('lang-btn').addEventListener('click', function(){
+    _lang = _lang === 'en' ? 'zh' : 'en';
+    applyLang();
+  });
+
+  // About panel
+  document.getElementById('about-btn').addEventListener('click', function(){
+    var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
+    var t = _t[_lang];
+    var overlay=document.createElement('div');overlay.id='about-overlay';
+    overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
+      '<div class="about-panel">'+
+      '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
+      '<h3>'+t['about-title']+'</h3>'+
+      '<p>'+t['about-desc']+'</p>'+
+      '<ul class="about-links">'+
+        '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github']+'</div><div class="link-desc">'+t['link-github-d']+'</div></div></a></li>'+
+      '</ul>'+
+      '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '</div>';
+    document.body.appendChild(overlay);
+  });
+
+  // Restore lang from localStorage or detect system
+  try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
+  applyLang();
+
+  loadStatus();loadStakes();}
     });
   });
 
@@ -1098,7 +1362,217 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   }
 
   window.editTags=async function(aid){var input=document.getElementById('m-tags');var tags=input.value.split(',').map(function(t){return t.trim();}).filter(Boolean);var r=await postApi('/api/asset/update',{asset_id:aid,tags:tags});if(r&&r.ok){toast('Tags updated');loadAssets();}else{toast(r?r.error:'Failed','error');}};
-  window.deleteAsset=async function(aid){if(!confirm('Delete permanently?'))return;try{var r=await fetch('/api/asset/'+aid,{method:'DELETE'});var d=await r.json();if(d.ok){toast('Deleted');loadAssets();loadStatus();}else{toast(d.error||'Failed','error');}}catch(e){toast(e.message,'error');}};
+  window.deleteAsset=async function(aid){if(!confirm('Delete permanently?'))return;try{var r=await fetch('/api/asset/'+aid,{method:'DELETE'});var d=await r.json();if(d.ok){toast('Deleted');loadAssets();// ── i18n ──
+  var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
+  var _t = {
+    en: {
+      'pg-register-title': 'Register a data asset',
+      'pg-register-desc': 'Claim ownership of a file. Once registered, other agents can discover, quote, and purchase access rights.',
+      'pg-trade-title': 'Trade',
+      'pg-trade-desc': 'Quote and purchase shares in data assets. Buy to gain access rights and revenue share.',
+      'pg-assets-title': 'Your Assets',
+      'pg-assets-desc': 'Manage registered data assets. Click any asset for details.',
+      'pg-agents-title': 'Agent Protocol',
+      'pg-agents-desc': 'Register your agent on the AHRP network, discover data providers, and execute transactions.',
+      'pg-network-title': 'Network',
+      'pg-network-desc': 'Node status and validator information.',
+      'reg-path-ph': '/path/to/your/file',
+      'reg-owner-ph': 'Your name or agent ID',
+      'reg-tags-ph': 'medical, imaging, dicom',
+      'reg-btn': 'Register',
+      'buy-asset-ph': 'Paste asset ID',
+      'quote-btn': 'Quote',
+      'buy-btn': 'Buy',
+      'card-buy': 'Buy Shares',
+      'card-portfolio': 'Portfolio',
+      'card-stake': 'Stake',
+      'stake-node-ph': 'Validator node ID',
+      'stake-btn': 'Stake',
+      'search-ph': 'Search by ID or tag...',
+      'card-announce': 'Announce Agent',
+      'announce-btn': 'Announce',
+      'card-discover': 'Discover Agents',
+      'find-btn': 'Find',
+      'card-tx': 'Transaction',
+      'accept-btn': 'Accept & Create',
+      'deliver-btn': 'Deliver',
+      'confirm-btn': 'Confirm & Settle',
+      'card-node': 'Node',
+      'card-validators': 'Validators',
+      'card-watermark': 'Watermark',
+      'embed-btn': 'Embed',
+      'trace-btn': 'Trace',
+      'lookup-btn': 'Lookup',
+      'lbl-file': 'File path',
+      'lbl-owner': 'Owner',
+      'lbl-tags': 'Tags',
+      'lbl-asset-id': 'Asset ID',
+      'lbl-amount': 'Amount (OAS)',
+      'lbl-node-id': 'Node ID',
+      'empty-assets': 'No assets yet. Go to <strong>Register</strong> to add your first.',
+      'empty-portfolio': 'No holdings yet',
+      'stat-assets': 'Assets',
+      'stat-blocks': 'Blocks',
+      'stat-watermarks': 'Watermarks',
+      'lang-btn': '中',
+      'about-title': 'About Oasyce',
+      'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+      'link-intro': 'Introduction',
+      'link-intro-d': 'What is Oasyce and why it matters',
+      'link-whitepaper': 'Whitepaper',
+      'link-whitepaper-d': 'Protocol design and economics',
+      'link-docs': 'Documentation',
+      'link-docs-d': 'Technical reference and API',
+      'link-github': 'GitHub',
+      'link-github-d': 'Source code and contributions',
+      'link-contact': 'Contact',
+    },
+    zh: {
+      'pg-register-title': '注册数据资产',
+      'pg-register-desc': '确立文件的归属权。注册后，其他代理可以发现、报价和购买访问权限。',
+      'pg-trade-title': '交易',
+      'pg-trade-desc': '报价并购买数据资产份额。购买即获得访问权和收益分成。',
+      'pg-assets-title': '我的资产',
+      'pg-assets-desc': '管理已注册的数据资产。点击任意资产查看详情。',
+      'pg-agents-title': '代理协议',
+      'pg-agents-desc': '在 AHRP 网络注册你的代理，发现数据提供者，执行交易。',
+      'pg-network-title': '网络',
+      'pg-network-desc': '节点状态与验证者信息。',
+      'reg-path-ph': '文件路径',
+      'reg-owner-ph': '所有者名称或代理 ID',
+      'reg-tags-ph': '标签，用逗号分隔',
+      'reg-btn': '注册',
+      'buy-asset-ph': '粘贴资产 ID',
+      'quote-btn': '报价',
+      'buy-btn': '购买',
+      'card-buy': '购买份额',
+      'card-portfolio': '持仓',
+      'card-stake': '质押',
+      'stake-node-ph': '验证者节点 ID',
+      'stake-btn': '质押',
+      'search-ph': '按 ID 或标签搜索...',
+      'card-announce': '注册代理',
+      'announce-btn': '广播',
+      'card-discover': '发现代理',
+      'find-btn': '查找',
+      'card-tx': '交易流程',
+      'accept-btn': '接受并创建',
+      'deliver-btn': '交付',
+      'confirm-btn': '确认并结算',
+      'card-node': '节点',
+      'card-validators': '验证者',
+      'card-watermark': '水印',
+      'embed-btn': '嵌入',
+      'trace-btn': '追溯',
+      'lookup-btn': '查询',
+      'lbl-file': '文件路径',
+      'lbl-owner': '所有者',
+      'lbl-tags': '标签',
+      'lbl-asset-id': '资产 ID',
+      'lbl-amount': '数量（OAS）',
+      'lbl-node-id': '节点 ID',
+      'empty-assets': '暂无资产。前往 <strong>注册</strong> 添加你的第一个资产。',
+      'empty-portfolio': '暂无持仓',
+      'stat-assets': '资产',
+      'stat-blocks': '区块',
+      'stat-watermarks': '水印',
+      'lang-btn': 'En',
+      'about-title': '关于 Oasyce',
+      'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+      'link-intro': '项目介绍',
+      'link-intro-d': '什么是 Oasyce，为什么重要',
+      'link-whitepaper': '白皮书',
+      'link-whitepaper-d': '协议设计与经济模型',
+      'link-docs': '技术文档',
+      'link-docs-d': '技术参考与 API',
+      'link-github': 'GitHub',
+      'link-github-d': '源代码与贡献',
+      'link-contact': '联系我们',
+    }
+  };
+
+  function applyLang() {
+    var t = _t[_lang];
+    // Nav links
+    document.querySelectorAll('.nav-link').forEach(function(el){
+      el.textContent = el.getAttribute('data-'+_lang) || el.textContent;
+    });
+    // Lang button
+    document.getElementById('lang-btn').textContent = t['lang-btn'];
+    // Page titles & descs
+    ['register','trade','assets','agents','network'].forEach(function(pg){
+      var title = document.querySelector('#pg-'+pg+' .page-title');
+      var desc = document.querySelector('#pg-'+pg+' .page-desc');
+      if(title) title.textContent = t['pg-'+pg+'-title'] || title.textContent;
+      if(desc) desc.textContent = t['pg-'+pg+'-desc'] || desc.textContent;
+    });
+    // Stat labels
+    var statLabels = document.querySelectorAll('.stat-l');
+    if(statLabels[0]) statLabels[0].textContent = t['stat-assets'];
+    if(statLabels[1]) statLabels[1].textContent = t['stat-blocks'];
+    if(statLabels[2]) statLabels[2].textContent = t['stat-watermarks'];
+    // Buttons
+    document.getElementById('reg-btn').textContent = t['reg-btn'];
+    document.getElementById('quote-btn').textContent = t['quote-btn'];
+    document.getElementById('buy-btn').textContent = t['buy-btn'];
+    document.getElementById('stake-btn').textContent = t['stake-btn'];
+    document.getElementById('ahrp-announce-btn').textContent = t['announce-btn'];
+    document.getElementById('ahrp-find-btn').textContent = t['find-btn'];
+    document.getElementById('tx-accept-btn').textContent = t['accept-btn'];
+    document.getElementById('tx-deliver-btn').textContent = t['deliver-btn'];
+    document.getElementById('tx-confirm-btn').textContent = t['confirm-btn'];
+    document.getElementById('emb-btn').textContent = t['embed-btn'];
+    document.getElementById('fp-trace-btn').textContent = t['trace-btn'];
+    document.getElementById('fp-list-btn').textContent = t['lookup-btn'];
+    // Placeholders
+    document.getElementById('reg-path').placeholder = t['reg-path-ph'];
+    document.getElementById('reg-owner').placeholder = t['reg-owner-ph'];
+    document.getElementById('reg-tags').placeholder = t['reg-tags-ph'];
+    document.getElementById('buy-asset').placeholder = t['buy-asset-ph'];
+    document.getElementById('stake-node').placeholder = t['stake-node-ph'];
+    document.getElementById('asset-search').placeholder = t['search-ph'];
+    // Card titles
+    var cardTitles = document.querySelectorAll('.card-title');
+    var cardMap = ['card-buy','card-portfolio','card-stake','card-announce','card-discover','card-tx','card-node','','card-watermark'];
+    cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
+    // Field labels
+    var labels = document.querySelectorAll('.field-label');
+    // Store lang
+    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
+  }
+
+  // Lang toggle
+  document.getElementById('lang-btn').addEventListener('click', function(){
+    _lang = _lang === 'en' ? 'zh' : 'en';
+    applyLang();
+  });
+
+  // About panel
+  document.getElementById('about-btn').addEventListener('click', function(){
+    var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
+    var t = _t[_lang];
+    var overlay=document.createElement('div');overlay.id='about-overlay';
+    overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
+      '<div class="about-panel">'+
+      '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
+      '<h3>'+t['about-title']+'</h3>'+
+      '<p>'+t['about-desc']+'</p>'+
+      '<ul class="about-links">'+
+        '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github']+'</div><div class="link-desc">'+t['link-github-d']+'</div></div></a></li>'+
+      '</ul>'+
+      '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '</div>';
+    document.body.appendChild(overlay);
+  });
+
+  // Restore lang from localStorage or detect system
+  try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
+  applyLang();
+
+  loadStatus();}else{toast(d.error||'Failed','error');}}catch(e){toast(e.message,'error');}};
 
   /* ── Status ──────────── */
   async function loadStatus(){
@@ -1149,7 +1623,217 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   document.getElementById('asset-search').addEventListener('input',function(){_page=1;renderPage();});
 
   /* ── Register ──────────── */
-  document.getElementById('reg-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Registering...';btn.disabled=true;var fp=document.getElementById('reg-path').value.trim();var owner=document.getElementById('reg-owner').value.trim();var tags=document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);var div=document.getElementById('reg-result');try{var r=await postApi('/api/register',{file_path:fp,owner:owner||undefined,tags:tags});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Asset ID</span><span class="kv-v" style="font-size:11px;">'+esc(r.asset_id)+'</span></div></div>';toast('Asset registered');_all=[];loadStatus();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Register';btn.disabled=false;});
+  document.getElementById('reg-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Registering...';btn.disabled=true;var fp=document.getElementById('reg-path').value.trim();var owner=document.getElementById('reg-owner').value.trim();var tags=document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);var div=document.getElementById('reg-result');try{var r=await postApi('/api/register',{file_path:fp,owner:owner||undefined,tags:tags});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Asset ID</span><span class="kv-v" style="font-size:11px;">'+esc(r.asset_id)+'</span></div></div>';toast('Asset registered');_all=[];// ── i18n ──
+  var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
+  var _t = {
+    en: {
+      'pg-register-title': 'Register a data asset',
+      'pg-register-desc': 'Claim ownership of a file. Once registered, other agents can discover, quote, and purchase access rights.',
+      'pg-trade-title': 'Trade',
+      'pg-trade-desc': 'Quote and purchase shares in data assets. Buy to gain access rights and revenue share.',
+      'pg-assets-title': 'Your Assets',
+      'pg-assets-desc': 'Manage registered data assets. Click any asset for details.',
+      'pg-agents-title': 'Agent Protocol',
+      'pg-agents-desc': 'Register your agent on the AHRP network, discover data providers, and execute transactions.',
+      'pg-network-title': 'Network',
+      'pg-network-desc': 'Node status and validator information.',
+      'reg-path-ph': '/path/to/your/file',
+      'reg-owner-ph': 'Your name or agent ID',
+      'reg-tags-ph': 'medical, imaging, dicom',
+      'reg-btn': 'Register',
+      'buy-asset-ph': 'Paste asset ID',
+      'quote-btn': 'Quote',
+      'buy-btn': 'Buy',
+      'card-buy': 'Buy Shares',
+      'card-portfolio': 'Portfolio',
+      'card-stake': 'Stake',
+      'stake-node-ph': 'Validator node ID',
+      'stake-btn': 'Stake',
+      'search-ph': 'Search by ID or tag...',
+      'card-announce': 'Announce Agent',
+      'announce-btn': 'Announce',
+      'card-discover': 'Discover Agents',
+      'find-btn': 'Find',
+      'card-tx': 'Transaction',
+      'accept-btn': 'Accept & Create',
+      'deliver-btn': 'Deliver',
+      'confirm-btn': 'Confirm & Settle',
+      'card-node': 'Node',
+      'card-validators': 'Validators',
+      'card-watermark': 'Watermark',
+      'embed-btn': 'Embed',
+      'trace-btn': 'Trace',
+      'lookup-btn': 'Lookup',
+      'lbl-file': 'File path',
+      'lbl-owner': 'Owner',
+      'lbl-tags': 'Tags',
+      'lbl-asset-id': 'Asset ID',
+      'lbl-amount': 'Amount (OAS)',
+      'lbl-node-id': 'Node ID',
+      'empty-assets': 'No assets yet. Go to <strong>Register</strong> to add your first.',
+      'empty-portfolio': 'No holdings yet',
+      'stat-assets': 'Assets',
+      'stat-blocks': 'Blocks',
+      'stat-watermarks': 'Watermarks',
+      'lang-btn': '中',
+      'about-title': 'About Oasyce',
+      'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+      'link-intro': 'Introduction',
+      'link-intro-d': 'What is Oasyce and why it matters',
+      'link-whitepaper': 'Whitepaper',
+      'link-whitepaper-d': 'Protocol design and economics',
+      'link-docs': 'Documentation',
+      'link-docs-d': 'Technical reference and API',
+      'link-github': 'GitHub',
+      'link-github-d': 'Source code and contributions',
+      'link-contact': 'Contact',
+    },
+    zh: {
+      'pg-register-title': '注册数据资产',
+      'pg-register-desc': '确立文件的归属权。注册后，其他代理可以发现、报价和购买访问权限。',
+      'pg-trade-title': '交易',
+      'pg-trade-desc': '报价并购买数据资产份额。购买即获得访问权和收益分成。',
+      'pg-assets-title': '我的资产',
+      'pg-assets-desc': '管理已注册的数据资产。点击任意资产查看详情。',
+      'pg-agents-title': '代理协议',
+      'pg-agents-desc': '在 AHRP 网络注册你的代理，发现数据提供者，执行交易。',
+      'pg-network-title': '网络',
+      'pg-network-desc': '节点状态与验证者信息。',
+      'reg-path-ph': '文件路径',
+      'reg-owner-ph': '所有者名称或代理 ID',
+      'reg-tags-ph': '标签，用逗号分隔',
+      'reg-btn': '注册',
+      'buy-asset-ph': '粘贴资产 ID',
+      'quote-btn': '报价',
+      'buy-btn': '购买',
+      'card-buy': '购买份额',
+      'card-portfolio': '持仓',
+      'card-stake': '质押',
+      'stake-node-ph': '验证者节点 ID',
+      'stake-btn': '质押',
+      'search-ph': '按 ID 或标签搜索...',
+      'card-announce': '注册代理',
+      'announce-btn': '广播',
+      'card-discover': '发现代理',
+      'find-btn': '查找',
+      'card-tx': '交易流程',
+      'accept-btn': '接受并创建',
+      'deliver-btn': '交付',
+      'confirm-btn': '确认并结算',
+      'card-node': '节点',
+      'card-validators': '验证者',
+      'card-watermark': '水印',
+      'embed-btn': '嵌入',
+      'trace-btn': '追溯',
+      'lookup-btn': '查询',
+      'lbl-file': '文件路径',
+      'lbl-owner': '所有者',
+      'lbl-tags': '标签',
+      'lbl-asset-id': '资产 ID',
+      'lbl-amount': '数量（OAS）',
+      'lbl-node-id': '节点 ID',
+      'empty-assets': '暂无资产。前往 <strong>注册</strong> 添加你的第一个资产。',
+      'empty-portfolio': '暂无持仓',
+      'stat-assets': '资产',
+      'stat-blocks': '区块',
+      'stat-watermarks': '水印',
+      'lang-btn': 'En',
+      'about-title': '关于 Oasyce',
+      'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+      'link-intro': '项目介绍',
+      'link-intro-d': '什么是 Oasyce，为什么重要',
+      'link-whitepaper': '白皮书',
+      'link-whitepaper-d': '协议设计与经济模型',
+      'link-docs': '技术文档',
+      'link-docs-d': '技术参考与 API',
+      'link-github': 'GitHub',
+      'link-github-d': '源代码与贡献',
+      'link-contact': '联系我们',
+    }
+  };
+
+  function applyLang() {
+    var t = _t[_lang];
+    // Nav links
+    document.querySelectorAll('.nav-link').forEach(function(el){
+      el.textContent = el.getAttribute('data-'+_lang) || el.textContent;
+    });
+    // Lang button
+    document.getElementById('lang-btn').textContent = t['lang-btn'];
+    // Page titles & descs
+    ['register','trade','assets','agents','network'].forEach(function(pg){
+      var title = document.querySelector('#pg-'+pg+' .page-title');
+      var desc = document.querySelector('#pg-'+pg+' .page-desc');
+      if(title) title.textContent = t['pg-'+pg+'-title'] || title.textContent;
+      if(desc) desc.textContent = t['pg-'+pg+'-desc'] || desc.textContent;
+    });
+    // Stat labels
+    var statLabels = document.querySelectorAll('.stat-l');
+    if(statLabels[0]) statLabels[0].textContent = t['stat-assets'];
+    if(statLabels[1]) statLabels[1].textContent = t['stat-blocks'];
+    if(statLabels[2]) statLabels[2].textContent = t['stat-watermarks'];
+    // Buttons
+    document.getElementById('reg-btn').textContent = t['reg-btn'];
+    document.getElementById('quote-btn').textContent = t['quote-btn'];
+    document.getElementById('buy-btn').textContent = t['buy-btn'];
+    document.getElementById('stake-btn').textContent = t['stake-btn'];
+    document.getElementById('ahrp-announce-btn').textContent = t['announce-btn'];
+    document.getElementById('ahrp-find-btn').textContent = t['find-btn'];
+    document.getElementById('tx-accept-btn').textContent = t['accept-btn'];
+    document.getElementById('tx-deliver-btn').textContent = t['deliver-btn'];
+    document.getElementById('tx-confirm-btn').textContent = t['confirm-btn'];
+    document.getElementById('emb-btn').textContent = t['embed-btn'];
+    document.getElementById('fp-trace-btn').textContent = t['trace-btn'];
+    document.getElementById('fp-list-btn').textContent = t['lookup-btn'];
+    // Placeholders
+    document.getElementById('reg-path').placeholder = t['reg-path-ph'];
+    document.getElementById('reg-owner').placeholder = t['reg-owner-ph'];
+    document.getElementById('reg-tags').placeholder = t['reg-tags-ph'];
+    document.getElementById('buy-asset').placeholder = t['buy-asset-ph'];
+    document.getElementById('stake-node').placeholder = t['stake-node-ph'];
+    document.getElementById('asset-search').placeholder = t['search-ph'];
+    // Card titles
+    var cardTitles = document.querySelectorAll('.card-title');
+    var cardMap = ['card-buy','card-portfolio','card-stake','card-announce','card-discover','card-tx','card-node','','card-watermark'];
+    cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
+    // Field labels
+    var labels = document.querySelectorAll('.field-label');
+    // Store lang
+    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
+  }
+
+  // Lang toggle
+  document.getElementById('lang-btn').addEventListener('click', function(){
+    _lang = _lang === 'en' ? 'zh' : 'en';
+    applyLang();
+  });
+
+  // About panel
+  document.getElementById('about-btn').addEventListener('click', function(){
+    var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
+    var t = _t[_lang];
+    var overlay=document.createElement('div');overlay.id='about-overlay';
+    overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
+      '<div class="about-panel">'+
+      '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
+      '<h3>'+t['about-title']+'</h3>'+
+      '<p>'+t['about-desc']+'</p>'+
+      '<ul class="about-links">'+
+        '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github']+'</div><div class="link-desc">'+t['link-github-d']+'</div></div></a></li>'+
+      '</ul>'+
+      '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '</div>';
+    document.body.appendChild(overlay);
+  });
+
+  // Restore lang from localStorage or detect system
+  try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
+  applyLang();
+
+  loadStatus();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Register';btn.disabled=false;});
 
   /* ── Quote & Buy ──────────── */
   document.getElementById('quote-btn').addEventListener('click',async function(){var aid=document.getElementById('buy-asset').value.trim();var amt=document.getElementById('buy-amount').value.trim()||'10';var div=document.getElementById('buy-result');if(!aid){div.innerHTML='<p class="err">Enter asset ID</p>';return;}var r=await api('/api/quote?asset_id='+encodeURIComponent(aid)+'&amount='+amt);if(!r||r.error){div.innerHTML='<p class="err">'+esc(r?r.error:'Failed')+'</p>';return;}div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Pay</span><span class="kv-v">'+r.payment+' OAS</span></div><div class="kv"><span class="kv-k">Get</span><span class="kv-v">'+r.tokens+' tokens</span></div><div class="kv"><span class="kv-k">Impact</span><span class="kv-v">'+r.impact_pct+'%</span></div><div class="kv"><span class="kv-k">Burned</span><span class="kv-v">'+r.burn+' OAS</span></div></div>';});
@@ -1164,7 +1848,217 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   async function loadStakes(){var list=await api('/api/stakes')||[];var sec=document.getElementById('stakes-card');if(!list.length){sec.style.display='none';return;}sec.style.display='block';var h='';list.forEach(function(s){h+='<div class="stk-item"><span class="stk-id">'+esc(trunc(s.validator_id,20))+'</span><span class="stk-a">'+s.total+' OAS</span></div>';});document.getElementById('stakes-list').innerHTML=h;}
 
   /* ── Watermark ──────────── */
-  document.getElementById('emb-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Embedding...';btn.disabled=true;var aid=document.getElementById('emb-asset').value.trim();var caller=document.getElementById('emb-caller').value.trim();var content=document.getElementById('emb-content').value;var div=document.getElementById('emb-result');if(!aid||!caller||!content){div.innerHTML='<p class="err">Fill all fields</p>';btn.textContent='Embed';btn.disabled=false;return;}try{var r=await postApi('/api/fingerprint/embed',{asset_id:aid,caller_id:caller,content:content});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Fingerprint</span><span class="kv-v">'+esc(trunc(r.fingerprint,24))+'</span></div></div><textarea readonly style="width:100%;min-height:60px;margin-top:8px;color:var(--success);">'+esc(r.watermarked_content)+'</textarea>';toast('Embedded');loadStatus();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Embed';btn.disabled=false;});
+  document.getElementById('emb-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Embedding...';btn.disabled=true;var aid=document.getElementById('emb-asset').value.trim();var caller=document.getElementById('emb-caller').value.trim();var content=document.getElementById('emb-content').value;var div=document.getElementById('emb-result');if(!aid||!caller||!content){div.innerHTML='<p class="err">Fill all fields</p>';btn.textContent='Embed';btn.disabled=false;return;}try{var r=await postApi('/api/fingerprint/embed',{asset_id:aid,caller_id:caller,content:content});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Fingerprint</span><span class="kv-v">'+esc(trunc(r.fingerprint,24))+'</span></div></div><textarea readonly style="width:100%;min-height:60px;margin-top:8px;color:var(--success);">'+esc(r.watermarked_content)+'</textarea>';toast('Embedded');// ── i18n ──
+  var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
+  var _t = {
+    en: {
+      'pg-register-title': 'Register a data asset',
+      'pg-register-desc': 'Claim ownership of a file. Once registered, other agents can discover, quote, and purchase access rights.',
+      'pg-trade-title': 'Trade',
+      'pg-trade-desc': 'Quote and purchase shares in data assets. Buy to gain access rights and revenue share.',
+      'pg-assets-title': 'Your Assets',
+      'pg-assets-desc': 'Manage registered data assets. Click any asset for details.',
+      'pg-agents-title': 'Agent Protocol',
+      'pg-agents-desc': 'Register your agent on the AHRP network, discover data providers, and execute transactions.',
+      'pg-network-title': 'Network',
+      'pg-network-desc': 'Node status and validator information.',
+      'reg-path-ph': '/path/to/your/file',
+      'reg-owner-ph': 'Your name or agent ID',
+      'reg-tags-ph': 'medical, imaging, dicom',
+      'reg-btn': 'Register',
+      'buy-asset-ph': 'Paste asset ID',
+      'quote-btn': 'Quote',
+      'buy-btn': 'Buy',
+      'card-buy': 'Buy Shares',
+      'card-portfolio': 'Portfolio',
+      'card-stake': 'Stake',
+      'stake-node-ph': 'Validator node ID',
+      'stake-btn': 'Stake',
+      'search-ph': 'Search by ID or tag...',
+      'card-announce': 'Announce Agent',
+      'announce-btn': 'Announce',
+      'card-discover': 'Discover Agents',
+      'find-btn': 'Find',
+      'card-tx': 'Transaction',
+      'accept-btn': 'Accept & Create',
+      'deliver-btn': 'Deliver',
+      'confirm-btn': 'Confirm & Settle',
+      'card-node': 'Node',
+      'card-validators': 'Validators',
+      'card-watermark': 'Watermark',
+      'embed-btn': 'Embed',
+      'trace-btn': 'Trace',
+      'lookup-btn': 'Lookup',
+      'lbl-file': 'File path',
+      'lbl-owner': 'Owner',
+      'lbl-tags': 'Tags',
+      'lbl-asset-id': 'Asset ID',
+      'lbl-amount': 'Amount (OAS)',
+      'lbl-node-id': 'Node ID',
+      'empty-assets': 'No assets yet. Go to <strong>Register</strong> to add your first.',
+      'empty-portfolio': 'No holdings yet',
+      'stat-assets': 'Assets',
+      'stat-blocks': 'Blocks',
+      'stat-watermarks': 'Watermarks',
+      'lang-btn': '中',
+      'about-title': 'About Oasyce',
+      'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+      'link-intro': 'Introduction',
+      'link-intro-d': 'What is Oasyce and why it matters',
+      'link-whitepaper': 'Whitepaper',
+      'link-whitepaper-d': 'Protocol design and economics',
+      'link-docs': 'Documentation',
+      'link-docs-d': 'Technical reference and API',
+      'link-github': 'GitHub',
+      'link-github-d': 'Source code and contributions',
+      'link-contact': 'Contact',
+    },
+    zh: {
+      'pg-register-title': '注册数据资产',
+      'pg-register-desc': '确立文件的归属权。注册后，其他代理可以发现、报价和购买访问权限。',
+      'pg-trade-title': '交易',
+      'pg-trade-desc': '报价并购买数据资产份额。购买即获得访问权和收益分成。',
+      'pg-assets-title': '我的资产',
+      'pg-assets-desc': '管理已注册的数据资产。点击任意资产查看详情。',
+      'pg-agents-title': '代理协议',
+      'pg-agents-desc': '在 AHRP 网络注册你的代理，发现数据提供者，执行交易。',
+      'pg-network-title': '网络',
+      'pg-network-desc': '节点状态与验证者信息。',
+      'reg-path-ph': '文件路径',
+      'reg-owner-ph': '所有者名称或代理 ID',
+      'reg-tags-ph': '标签，用逗号分隔',
+      'reg-btn': '注册',
+      'buy-asset-ph': '粘贴资产 ID',
+      'quote-btn': '报价',
+      'buy-btn': '购买',
+      'card-buy': '购买份额',
+      'card-portfolio': '持仓',
+      'card-stake': '质押',
+      'stake-node-ph': '验证者节点 ID',
+      'stake-btn': '质押',
+      'search-ph': '按 ID 或标签搜索...',
+      'card-announce': '注册代理',
+      'announce-btn': '广播',
+      'card-discover': '发现代理',
+      'find-btn': '查找',
+      'card-tx': '交易流程',
+      'accept-btn': '接受并创建',
+      'deliver-btn': '交付',
+      'confirm-btn': '确认并结算',
+      'card-node': '节点',
+      'card-validators': '验证者',
+      'card-watermark': '水印',
+      'embed-btn': '嵌入',
+      'trace-btn': '追溯',
+      'lookup-btn': '查询',
+      'lbl-file': '文件路径',
+      'lbl-owner': '所有者',
+      'lbl-tags': '标签',
+      'lbl-asset-id': '资产 ID',
+      'lbl-amount': '数量（OAS）',
+      'lbl-node-id': '节点 ID',
+      'empty-assets': '暂无资产。前往 <strong>注册</strong> 添加你的第一个资产。',
+      'empty-portfolio': '暂无持仓',
+      'stat-assets': '资产',
+      'stat-blocks': '区块',
+      'stat-watermarks': '水印',
+      'lang-btn': 'En',
+      'about-title': '关于 Oasyce',
+      'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+      'link-intro': '项目介绍',
+      'link-intro-d': '什么是 Oasyce，为什么重要',
+      'link-whitepaper': '白皮书',
+      'link-whitepaper-d': '协议设计与经济模型',
+      'link-docs': '技术文档',
+      'link-docs-d': '技术参考与 API',
+      'link-github': 'GitHub',
+      'link-github-d': '源代码与贡献',
+      'link-contact': '联系我们',
+    }
+  };
+
+  function applyLang() {
+    var t = _t[_lang];
+    // Nav links
+    document.querySelectorAll('.nav-link').forEach(function(el){
+      el.textContent = el.getAttribute('data-'+_lang) || el.textContent;
+    });
+    // Lang button
+    document.getElementById('lang-btn').textContent = t['lang-btn'];
+    // Page titles & descs
+    ['register','trade','assets','agents','network'].forEach(function(pg){
+      var title = document.querySelector('#pg-'+pg+' .page-title');
+      var desc = document.querySelector('#pg-'+pg+' .page-desc');
+      if(title) title.textContent = t['pg-'+pg+'-title'] || title.textContent;
+      if(desc) desc.textContent = t['pg-'+pg+'-desc'] || desc.textContent;
+    });
+    // Stat labels
+    var statLabels = document.querySelectorAll('.stat-l');
+    if(statLabels[0]) statLabels[0].textContent = t['stat-assets'];
+    if(statLabels[1]) statLabels[1].textContent = t['stat-blocks'];
+    if(statLabels[2]) statLabels[2].textContent = t['stat-watermarks'];
+    // Buttons
+    document.getElementById('reg-btn').textContent = t['reg-btn'];
+    document.getElementById('quote-btn').textContent = t['quote-btn'];
+    document.getElementById('buy-btn').textContent = t['buy-btn'];
+    document.getElementById('stake-btn').textContent = t['stake-btn'];
+    document.getElementById('ahrp-announce-btn').textContent = t['announce-btn'];
+    document.getElementById('ahrp-find-btn').textContent = t['find-btn'];
+    document.getElementById('tx-accept-btn').textContent = t['accept-btn'];
+    document.getElementById('tx-deliver-btn').textContent = t['deliver-btn'];
+    document.getElementById('tx-confirm-btn').textContent = t['confirm-btn'];
+    document.getElementById('emb-btn').textContent = t['embed-btn'];
+    document.getElementById('fp-trace-btn').textContent = t['trace-btn'];
+    document.getElementById('fp-list-btn').textContent = t['lookup-btn'];
+    // Placeholders
+    document.getElementById('reg-path').placeholder = t['reg-path-ph'];
+    document.getElementById('reg-owner').placeholder = t['reg-owner-ph'];
+    document.getElementById('reg-tags').placeholder = t['reg-tags-ph'];
+    document.getElementById('buy-asset').placeholder = t['buy-asset-ph'];
+    document.getElementById('stake-node').placeholder = t['stake-node-ph'];
+    document.getElementById('asset-search').placeholder = t['search-ph'];
+    // Card titles
+    var cardTitles = document.querySelectorAll('.card-title');
+    var cardMap = ['card-buy','card-portfolio','card-stake','card-announce','card-discover','card-tx','card-node','','card-watermark'];
+    cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
+    // Field labels
+    var labels = document.querySelectorAll('.field-label');
+    // Store lang
+    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
+  }
+
+  // Lang toggle
+  document.getElementById('lang-btn').addEventListener('click', function(){
+    _lang = _lang === 'en' ? 'zh' : 'en';
+    applyLang();
+  });
+
+  // About panel
+  document.getElementById('about-btn').addEventListener('click', function(){
+    var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
+    var t = _t[_lang];
+    var overlay=document.createElement('div');overlay.id='about-overlay';
+    overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
+      '<div class="about-panel">'+
+      '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
+      '<h3>'+t['about-title']+'</h3>'+
+      '<p>'+t['about-desc']+'</p>'+
+      '<ul class="about-links">'+
+        '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github']+'</div><div class="link-desc">'+t['link-github-d']+'</div></div></a></li>'+
+      '</ul>'+
+      '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '</div>';
+    document.body.appendChild(overlay);
+  });
+
+  // Restore lang from localStorage or detect system
+  try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
+  applyLang();
+
+  loadStatus();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Embed';btn.disabled=false;});
   document.getElementById('fp-trace-btn').addEventListener('click',async function(){var fp=document.getElementById('fp-input').value.trim();if(!fp)return;var r=await api('/api/trace?fp='+encodeURIComponent(fp));var div=document.getElementById('fp-trace-result');if(!r||r.error){div.innerHTML='<p class="err">Not found</p>';}else{div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Asset</span><span class="kv-v">'+esc(r.asset_id)+'</span></div><div class="kv"><span class="kv-k">Buyer</span><span class="kv-v">'+esc(r.caller_id)+'</span></div><div class="kv"><span class="kv-k">When</span><span class="kv-v">'+timeAgo(r.timestamp||r.created_at)+'</span></div></div>';}});
   document.getElementById('fp-list-btn').addEventListener('click',async function(){var aid=document.getElementById('fp-asset-input').value.trim();if(!aid)return;var list=await api('/api/fingerprints?asset_id='+encodeURIComponent(aid));var c=document.getElementById('fp-dist-list');if(!list||!list.length){c.innerHTML='<p class="err">None found</p>';return;}var h='';list.forEach(function(r){h+='<div class="p-row"><span class="p-id" style="font-size:11px;">'+esc(trunc(r.fingerprint,18))+'</span><span class="p-v">'+esc(r.caller_id)+' &middot; '+timeAgo(r.timestamp)+'</span></div>';});c.innerHTML=h;});
 
@@ -1184,6 +2078,216 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   updatePipe(0);
 
   /* ── Init ──────────── */
+  // ── i18n ──
+  var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
+  var _t = {
+    en: {
+      'pg-register-title': 'Register a data asset',
+      'pg-register-desc': 'Claim ownership of a file. Once registered, other agents can discover, quote, and purchase access rights.',
+      'pg-trade-title': 'Trade',
+      'pg-trade-desc': 'Quote and purchase shares in data assets. Buy to gain access rights and revenue share.',
+      'pg-assets-title': 'Your Assets',
+      'pg-assets-desc': 'Manage registered data assets. Click any asset for details.',
+      'pg-agents-title': 'Agent Protocol',
+      'pg-agents-desc': 'Register your agent on the AHRP network, discover data providers, and execute transactions.',
+      'pg-network-title': 'Network',
+      'pg-network-desc': 'Node status and validator information.',
+      'reg-path-ph': '/path/to/your/file',
+      'reg-owner-ph': 'Your name or agent ID',
+      'reg-tags-ph': 'medical, imaging, dicom',
+      'reg-btn': 'Register',
+      'buy-asset-ph': 'Paste asset ID',
+      'quote-btn': 'Quote',
+      'buy-btn': 'Buy',
+      'card-buy': 'Buy Shares',
+      'card-portfolio': 'Portfolio',
+      'card-stake': 'Stake',
+      'stake-node-ph': 'Validator node ID',
+      'stake-btn': 'Stake',
+      'search-ph': 'Search by ID or tag...',
+      'card-announce': 'Announce Agent',
+      'announce-btn': 'Announce',
+      'card-discover': 'Discover Agents',
+      'find-btn': 'Find',
+      'card-tx': 'Transaction',
+      'accept-btn': 'Accept & Create',
+      'deliver-btn': 'Deliver',
+      'confirm-btn': 'Confirm & Settle',
+      'card-node': 'Node',
+      'card-validators': 'Validators',
+      'card-watermark': 'Watermark',
+      'embed-btn': 'Embed',
+      'trace-btn': 'Trace',
+      'lookup-btn': 'Lookup',
+      'lbl-file': 'File path',
+      'lbl-owner': 'Owner',
+      'lbl-tags': 'Tags',
+      'lbl-asset-id': 'Asset ID',
+      'lbl-amount': 'Amount (OAS)',
+      'lbl-node-id': 'Node ID',
+      'empty-assets': 'No assets yet. Go to <strong>Register</strong> to add your first.',
+      'empty-portfolio': 'No holdings yet',
+      'stat-assets': 'Assets',
+      'stat-blocks': 'Blocks',
+      'stat-watermarks': 'Watermarks',
+      'lang-btn': '中',
+      'about-title': 'About Oasyce',
+      'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+      'link-intro': 'Introduction',
+      'link-intro-d': 'What is Oasyce and why it matters',
+      'link-whitepaper': 'Whitepaper',
+      'link-whitepaper-d': 'Protocol design and economics',
+      'link-docs': 'Documentation',
+      'link-docs-d': 'Technical reference and API',
+      'link-github': 'GitHub',
+      'link-github-d': 'Source code and contributions',
+      'link-contact': 'Contact',
+    },
+    zh: {
+      'pg-register-title': '注册数据资产',
+      'pg-register-desc': '确立文件的归属权。注册后，其他代理可以发现、报价和购买访问权限。',
+      'pg-trade-title': '交易',
+      'pg-trade-desc': '报价并购买数据资产份额。购买即获得访问权和收益分成。',
+      'pg-assets-title': '我的资产',
+      'pg-assets-desc': '管理已注册的数据资产。点击任意资产查看详情。',
+      'pg-agents-title': '代理协议',
+      'pg-agents-desc': '在 AHRP 网络注册你的代理，发现数据提供者，执行交易。',
+      'pg-network-title': '网络',
+      'pg-network-desc': '节点状态与验证者信息。',
+      'reg-path-ph': '文件路径',
+      'reg-owner-ph': '所有者名称或代理 ID',
+      'reg-tags-ph': '标签，用逗号分隔',
+      'reg-btn': '注册',
+      'buy-asset-ph': '粘贴资产 ID',
+      'quote-btn': '报价',
+      'buy-btn': '购买',
+      'card-buy': '购买份额',
+      'card-portfolio': '持仓',
+      'card-stake': '质押',
+      'stake-node-ph': '验证者节点 ID',
+      'stake-btn': '质押',
+      'search-ph': '按 ID 或标签搜索...',
+      'card-announce': '注册代理',
+      'announce-btn': '广播',
+      'card-discover': '发现代理',
+      'find-btn': '查找',
+      'card-tx': '交易流程',
+      'accept-btn': '接受并创建',
+      'deliver-btn': '交付',
+      'confirm-btn': '确认并结算',
+      'card-node': '节点',
+      'card-validators': '验证者',
+      'card-watermark': '水印',
+      'embed-btn': '嵌入',
+      'trace-btn': '追溯',
+      'lookup-btn': '查询',
+      'lbl-file': '文件路径',
+      'lbl-owner': '所有者',
+      'lbl-tags': '标签',
+      'lbl-asset-id': '资产 ID',
+      'lbl-amount': '数量（OAS）',
+      'lbl-node-id': '节点 ID',
+      'empty-assets': '暂无资产。前往 <strong>注册</strong> 添加你的第一个资产。',
+      'empty-portfolio': '暂无持仓',
+      'stat-assets': '资产',
+      'stat-blocks': '区块',
+      'stat-watermarks': '水印',
+      'lang-btn': 'En',
+      'about-title': '关于 Oasyce',
+      'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+      'link-intro': '项目介绍',
+      'link-intro-d': '什么是 Oasyce，为什么重要',
+      'link-whitepaper': '白皮书',
+      'link-whitepaper-d': '协议设计与经济模型',
+      'link-docs': '技术文档',
+      'link-docs-d': '技术参考与 API',
+      'link-github': 'GitHub',
+      'link-github-d': '源代码与贡献',
+      'link-contact': '联系我们',
+    }
+  };
+
+  function applyLang() {
+    var t = _t[_lang];
+    // Nav links
+    document.querySelectorAll('.nav-link').forEach(function(el){
+      el.textContent = el.getAttribute('data-'+_lang) || el.textContent;
+    });
+    // Lang button
+    document.getElementById('lang-btn').textContent = t['lang-btn'];
+    // Page titles & descs
+    ['register','trade','assets','agents','network'].forEach(function(pg){
+      var title = document.querySelector('#pg-'+pg+' .page-title');
+      var desc = document.querySelector('#pg-'+pg+' .page-desc');
+      if(title) title.textContent = t['pg-'+pg+'-title'] || title.textContent;
+      if(desc) desc.textContent = t['pg-'+pg+'-desc'] || desc.textContent;
+    });
+    // Stat labels
+    var statLabels = document.querySelectorAll('.stat-l');
+    if(statLabels[0]) statLabels[0].textContent = t['stat-assets'];
+    if(statLabels[1]) statLabels[1].textContent = t['stat-blocks'];
+    if(statLabels[2]) statLabels[2].textContent = t['stat-watermarks'];
+    // Buttons
+    document.getElementById('reg-btn').textContent = t['reg-btn'];
+    document.getElementById('quote-btn').textContent = t['quote-btn'];
+    document.getElementById('buy-btn').textContent = t['buy-btn'];
+    document.getElementById('stake-btn').textContent = t['stake-btn'];
+    document.getElementById('ahrp-announce-btn').textContent = t['announce-btn'];
+    document.getElementById('ahrp-find-btn').textContent = t['find-btn'];
+    document.getElementById('tx-accept-btn').textContent = t['accept-btn'];
+    document.getElementById('tx-deliver-btn').textContent = t['deliver-btn'];
+    document.getElementById('tx-confirm-btn').textContent = t['confirm-btn'];
+    document.getElementById('emb-btn').textContent = t['embed-btn'];
+    document.getElementById('fp-trace-btn').textContent = t['trace-btn'];
+    document.getElementById('fp-list-btn').textContent = t['lookup-btn'];
+    // Placeholders
+    document.getElementById('reg-path').placeholder = t['reg-path-ph'];
+    document.getElementById('reg-owner').placeholder = t['reg-owner-ph'];
+    document.getElementById('reg-tags').placeholder = t['reg-tags-ph'];
+    document.getElementById('buy-asset').placeholder = t['buy-asset-ph'];
+    document.getElementById('stake-node').placeholder = t['stake-node-ph'];
+    document.getElementById('asset-search').placeholder = t['search-ph'];
+    // Card titles
+    var cardTitles = document.querySelectorAll('.card-title');
+    var cardMap = ['card-buy','card-portfolio','card-stake','card-announce','card-discover','card-tx','card-node','','card-watermark'];
+    cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
+    // Field labels
+    var labels = document.querySelectorAll('.field-label');
+    // Store lang
+    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
+  }
+
+  // Lang toggle
+  document.getElementById('lang-btn').addEventListener('click', function(){
+    _lang = _lang === 'en' ? 'zh' : 'en';
+    applyLang();
+  });
+
+  // About panel
+  document.getElementById('about-btn').addEventListener('click', function(){
+    var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
+    var t = _t[_lang];
+    var overlay=document.createElement('div');overlay.id='about-overlay';
+    overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
+      '<div class="about-panel">'+
+      '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
+      '<h3>'+t['about-title']+'</h3>'+
+      '<p>'+t['about-desc']+'</p>'+
+      '<ul class="about-links">'+
+        '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
+        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github']+'</div><div class="link-desc">'+t['link-github-d']+'</div></div></a></li>'+
+      '</ul>'+
+      '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '</div>';
+    document.body.appendChild(overlay);
+  });
+
+  // Restore lang from localStorage or detect system
+  try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
+  applyLang();
+
   loadStatus();
   setInterval(loadStatus,30000);
 })();
