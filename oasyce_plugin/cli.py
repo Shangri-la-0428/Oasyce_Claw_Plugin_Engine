@@ -630,6 +630,110 @@ def cmd_reputation_update(args):
         print(f"📊 Updated '{args.agent_id}' ({event}) → reputation: {score:.1f}")
 
 
+def cmd_contribution_prove(args):
+    """Generate a contribution proof for a file."""
+    from oasyce_plugin.services.contribution import ContributionEngine
+
+    engine = ContributionEngine()
+    try:
+        cert = engine.generate_proof(
+            args.file, args.creator,
+            source_type=args.source_type,
+            source_evidence=args.source_evidence or "",
+        )
+        if args.json:
+            print(json.dumps(cert.to_dict(), indent=2))
+        else:
+            print(f"✅ Contribution proof generated")
+            print(f"   Hash:    {cert.content_hash[:16]}...")
+            print(f"   Source:  {cert.source_type}")
+            print(f"   Creator: {cert.creator_key}")
+            print(f"   Time:    {cert.timestamp}")
+            if cert.semantic_fingerprint:
+                print(f"   Vector:  [{len(cert.semantic_fingerprint)} dims]")
+    except (FileNotFoundError, ValueError) as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_contribution_verify(args):
+    """Verify a contribution certificate."""
+    from oasyce_plugin.services.contribution import ContributionEngine, ContributionCertificate
+
+    engine = ContributionEngine()
+    try:
+        cert_data = json.loads(args.certificate_json)
+        cert = ContributionCertificate.from_dict(cert_data)
+        result = engine.verify_proof(cert, args.file)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            status = "✅ Valid" if result["valid"] else "❌ Invalid"
+            print(f"{status}")
+            for check, ok in result["checks"].items():
+                mark = "✅" if ok else "❌"
+                print(f"   {mark} {check}")
+    except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_contribution_score(args):
+    """Calculate contribution score for a file."""
+    from oasyce_plugin.services.contribution import ContributionEngine
+
+    config = Config.from_env()
+    engine = ContributionEngine()
+    try:
+        cert = engine.generate_proof(args.file, args.creator, source_type=args.source_type)
+
+        # Gather existing assets for comparison
+        skills = OasyceSkills(config)
+        existing = skills._get_existing_asset_vectors()
+
+        score = engine.calculate_contribution_score(cert, existing)
+        if args.json:
+            print(json.dumps({"score": score, "content_hash": cert.content_hash}, indent=2))
+        else:
+            print(f"📊 Contribution Score: {score:.4f}")
+            print(f"   File: {args.file}")
+            print(f"   Hash: {cert.content_hash[:16]}...")
+            print(f"   Compared against {len(existing)} existing asset(s)")
+    except (FileNotFoundError, ValueError) as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_leakage_check(args):
+    """Check leakage budget for an agent-asset pair."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+    result = skills.check_leakage_budget_skill(args.agent_id, args.asset_id)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"📊 Leakage Budget: {args.agent_id} → {args.asset_id}")
+        print(f"   Budget:    {result['budget']:.2f}")
+        print(f"   Used:      {result['used']:.2f}")
+        print(f"   Remaining: {result['remaining']:.2f}")
+        print(f"   Queries:   {result['queries']}")
+        print(f"   Exhausted: {result['exhausted']}")
+
+
+def cmd_leakage_reset(args):
+    """Reset leakage budget for an agent-asset pair."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+    result = skills.access_provider.leakage.reset_budget(args.agent_id, args.asset_id)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        if "error" in result:
+            print(f"❌ {result['error']}")
+        else:
+            print(f"✅ Leakage budget reset for {args.agent_id} → {args.asset_id}")
+
+
 def cmd_asset_info(args):
     """Display full OAS-DAS 5-layer information for an asset."""
     config = Config.from_env()
@@ -912,6 +1016,43 @@ def main():
     rep_update_parser.add_argument("--damage", action="store_true", help="Record damage event")
     rep_update_parser.set_defaults(func=cmd_reputation_update)
 
+    # Contribution command group
+    contrib_parser = subparsers.add_parser("contribution", help="Contribution proof management")
+    contrib_sub = contrib_parser.add_subparsers(dest="contrib_command", help="Contribution sub-commands")
+
+    contrib_prove_parser = contrib_sub.add_parser("prove", help="Generate contribution proof")
+    contrib_prove_parser.add_argument("file", help="Path to the data file")
+    contrib_prove_parser.add_argument("--creator", required=True, help="Creator public key")
+    contrib_prove_parser.add_argument("--source-type", default="manual",
+                                      help="Source type (tee_capture/api_log/sensor_sig/git_commit/manual)")
+    contrib_prove_parser.add_argument("--source-evidence", default="", help="Source evidence (hash/sig/URL)")
+    contrib_prove_parser.set_defaults(func=cmd_contribution_prove)
+
+    contrib_verify_parser = contrib_sub.add_parser("verify", help="Verify contribution certificate")
+    contrib_verify_parser.add_argument("certificate_json", help="Certificate JSON string")
+    contrib_verify_parser.add_argument("file", help="Path to original data file")
+    contrib_verify_parser.set_defaults(func=cmd_contribution_verify)
+
+    contrib_score_parser = contrib_sub.add_parser("score", help="Calculate contribution score")
+    contrib_score_parser.add_argument("file", help="Path to the data file")
+    contrib_score_parser.add_argument("--creator", required=True, help="Creator public key")
+    contrib_score_parser.add_argument("--source-type", default="manual", help="Source type")
+    contrib_score_parser.set_defaults(func=cmd_contribution_score)
+
+    # Leakage command group
+    leak_parser = subparsers.add_parser("leakage", help="Leakage budget management")
+    leak_sub = leak_parser.add_subparsers(dest="leak_command", help="Leakage sub-commands")
+
+    leak_check_parser = leak_sub.add_parser("check", help="Check leakage budget")
+    leak_check_parser.add_argument("agent_id", help="Agent ID")
+    leak_check_parser.add_argument("asset_id", help="Asset ID")
+    leak_check_parser.set_defaults(func=cmd_leakage_check)
+
+    leak_reset_parser = leak_sub.add_parser("reset", help="Reset leakage budget")
+    leak_reset_parser.add_argument("agent_id", help="Agent ID")
+    leak_reset_parser.add_argument("asset_id", help="Asset ID")
+    leak_reset_parser.set_defaults(func=cmd_leakage_reset)
+
     # GUI command
     gui_parser = subparsers.add_parser("gui", help="Launch web dashboard (port 8420)")
     gui_parser.add_argument("--port", type=int, default=8420, help="Port (default: 8420)")
@@ -945,6 +1086,14 @@ def main():
 
     if args.command == "reputation" and getattr(args, "rep_command", None) is None:
         rep_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "contribution" and getattr(args, "contrib_command", None) is None:
+        contrib_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "leakage" and getattr(args, "leak_command", None) is None:
+        leak_parser.print_help()
         sys.exit(0)
 
     args.func(args)

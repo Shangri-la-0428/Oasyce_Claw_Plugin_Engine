@@ -629,6 +629,69 @@ class OasyceSkills:
         errors = das.validate()
         return {"valid": len(errors) == 0, "errors": errors, "asset_id": asset_id}
 
+    # ── Contribution Proof Skills ────────────────────────────────
+
+    def generate_contribution_proof_skill(
+        self,
+        file_path: str,
+        creator_key: str,
+        source_type: str = "manual",
+    ) -> Dict[str, Any]:
+        """Generate a contribution proof for a data file.
+
+        Args:
+            file_path: Path to the data file.
+            creator_key: Creator's public key.
+            source_type: Source type (tee_capture/api_log/sensor_sig/git_commit/manual).
+
+        Returns:
+            Contribution certificate as dict.
+        """
+        from oasyce_plugin.services.contribution import ContributionEngine
+
+        engine = ContributionEngine()
+        cert = engine.generate_proof(file_path, creator_key, source_type=source_type)
+        return cert.to_dict()
+
+    def verify_contribution_proof_skill(
+        self,
+        certificate_dict: Dict[str, Any],
+        file_path: str,
+    ) -> Dict[str, Any]:
+        """Verify a contribution proof against a file.
+
+        Args:
+            certificate_dict: Certificate as dict (from generate_contribution_proof_skill).
+            file_path: Path to the original data file.
+
+        Returns:
+            {"valid": bool, "checks": {...}}
+        """
+        from oasyce_plugin.services.contribution import (
+            ContributionEngine,
+            ContributionCertificate,
+        )
+
+        engine = ContributionEngine()
+        cert = ContributionCertificate.from_dict(certificate_dict)
+        return engine.verify_proof(cert, file_path)
+
+    # ── Leakage Budget Skills ─────────────────────────────────
+
+    def check_leakage_budget_skill(
+        self, agent_id: str, asset_id: str
+    ) -> Dict[str, Any]:
+        """Check leakage budget remaining for an (agent, asset) pair.
+
+        Args:
+            agent_id: Agent ID.
+            asset_id: Asset ID.
+
+        Returns:
+            Budget status dict.
+        """
+        return self.access_provider.leakage.get_remaining(agent_id, asset_id)
+
     def calculate_bond_skill(self, agent_id: str, asset_id: str, access_level: str) -> Dict[str, Any]:
         """计算指定访问级别所需的保证金。
 

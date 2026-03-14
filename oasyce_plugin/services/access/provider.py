@@ -24,6 +24,7 @@ from oasyce_plugin.services.access import (
 from oasyce_plugin.services.access.config import AccessControlConfig
 from oasyce_plugin.services.reputation import ReputationEngine
 from oasyce_plugin.services.exposure.registry import ExposureRegistry
+from oasyce_plugin.services.leakage import LeakageBudget
 
 
 # ─── Result types ─────────────────────────────────────────────────
@@ -54,10 +55,12 @@ class DataAccessProvider:
         config: Optional[AccessControlConfig] = None,
         reputation: Optional[ReputationEngine] = None,
         exposure: Optional[ExposureRegistry] = None,
+        leakage: Optional[LeakageBudget] = None,
     ) -> None:
         self.config = config or AccessControlConfig()
         self.reputation = reputation or ReputationEngine(config=self.config)
         self.exposure = exposure or ExposureRegistry(config=self.config)
+        self.leakage = leakage or LeakageBudget()
         # asset_id → {value, risk_level, max_access_level}
         self._assets: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
@@ -126,6 +129,22 @@ class DataAccessProvider:
             bond = self._calculate_bond(agent_id, asset_id, required_level)
             asset_value = self._assets[asset_id]["value"]
 
+            # Leakage budget check (if initialized for this pair)
+            leakage_remaining = self.leakage.get_remaining(agent_id, asset_id)
+            if leakage_remaining["total_size"] > 0:
+                gain = self.leakage.estimate_information_gain(
+                    query_result_size=0,
+                    dataset_size=leakage_remaining["total_size"],
+                    access_level=required_level.value,
+                )
+                consume_result = self.leakage.consume(agent_id, asset_id, gain)
+                if not consume_result["allowed"]:
+                    return AccessResult(
+                        success=False,
+                        access_level=required_level.value,
+                        error=f"Leakage budget exceeded: {consume_result['warning']}",
+                    )
+
             self.exposure.track_access(
                 agent_id, asset_id, asset_value, required_level.value,
             )
@@ -135,6 +154,13 @@ class DataAccessProvider:
             if self.exposure.check_fragmentation_attack(agent_id, asset_id):
                 bond = round(bond * self.config.fragmentation_penalty, 6)
                 warning = "Fragmentation attack detected: bond upgraded"
+
+            # Append leakage warning if budget is low
+            if leakage_remaining["total_size"] > 0:
+                updated = self.leakage.get_remaining(agent_id, asset_id)
+                if updated["remaining"] < updated["budget"] * 0.2 and updated["budget"] > 0:
+                    lw = f"Leakage budget low: {updated['remaining']:.2f} remaining"
+                    warning = f"{warning}; {lw}" if warning else lw
 
             return AccessResult(
                 success=True,
