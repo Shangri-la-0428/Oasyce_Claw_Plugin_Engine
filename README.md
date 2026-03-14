@@ -5,12 +5,12 @@
 **Decentralized data-rights clearinghouse — settle access, usage, and revenue rights for the AI era.**
 **Local-first, zero-server, every node is the network.**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-335%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-445%20passed-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-[Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Access Control](#data-access-control) · [OAS-DAS](#oas-das-standard) · [Economics](docs/ECONOMICS.md) · [Testing](#testing)
+[Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Access Control](#data-access-control) · [OAS-DAS](#oas-das-standard) · [PDC](#proof-of-data-contribution) · [Pricing](#dataset-pricing-curve) · [Economics](docs/ECONOMICS.md) · [Testing](#testing)
 
 </div>
 
@@ -107,7 +107,9 @@ Bond is dynamic: `Bond = TWAP(Value) × Multiplier × RiskFactor × (1 - Reputat
 | Technical | TEE enclaves, per-buyer watermarking |
 | Access | L0-L3 levels, creator-controlled caps |
 | Economic | Dynamic bond, bonding curve, 15% burn |
-| Behavioral | Agent reputation, sandbox, blacklist, exposure tracking |
+| Behavioral | Three-tier reputation (sandbox R<20 / limited 20–50 / full R≥50), blacklist, exposure tracking |
+| Anti-Scraping | Fragmentation detection (access-time + registration-time), thread-safe concurrent access |
+| Information | Leakage Budget (per-agent, per-asset, L0–L3 gain estimation) |
 | Temporal | Liability windows (1–30 days by level) |
 
 ### Transaction Fee Distribution (Network Layer)
@@ -238,6 +240,57 @@ assert errors == []
 # Check for duplicates
 score = descriptor.similarity(other_descriptor)
 ```
+
+---
+
+## Proof of Data Contribution
+
+**PDC (Proof of Data Contribution)** proves that a data asset was genuinely created by the registrant, complementing PoPC which proves data *existence* at capture time.
+
+### Three-Layer Fingerprint
+
+| Layer | What It Proves |
+|-------|---------------|
+| **Content Hash** | Exact binary identity (SHA-256) |
+| **Semantic Fingerprint** | Meaning-level identity — survives reformatting, compression, minor edits |
+| **Source Proof** | Provenance chain — git commit, camera EXIF, API trace, etc. |
+
+### Contribution Score
+
+Each asset receives a **ContributionScore** that influences pricing and reputation rewards:
+
+```
+ContributionScore = originality × rarity × freshness
+```
+
+- **Originality:** Semantic distance from all existing assets (0–1)
+- **Rarity:** Inverse of supply in the same category (0–1)
+- **Freshness:** Time decay — newer data scores higher
+
+### ContributionCertificate
+
+A `ContributionCertificate` bundles the three-layer fingerprint with the contribution score and is signed by the creator's Ed25519 key. It is stored on-chain alongside the PoPC certificate.
+
+**Relationship to PoPC:** PoPC verifies *data existence* at capture time (physical layer). PDC verifies *data origin authenticity* (semantic layer). Together they form a complete provenance proof.
+
+---
+
+## Dataset Pricing Curve
+
+The **Dataset Pricing Curve** determines the base price of a data asset using four market factors:
+
+```
+Price = BasePrice × D(demand) × S(scarcity) × Q(quality) × F(freshness)
+```
+
+| Factor | Formula | Range | What It Captures |
+|--------|---------|-------|-----------------|
+| **Demand** | `1 + ln(1 + purchases)` | 1.0–∞ | More buyers → higher price |
+| **Scarcity** | `1 / (1 + competitors)` | 0–1.0 | Fewer alternatives → higher price |
+| **Quality** | `ContributionScore` | 0–1.0 | Better data → higher price |
+| **Freshness** | `exp(-λ × age_days)` | 0–1.0 | Newer data → higher price |
+
+**Relationship to Bonding Curve:** The Bonding Curve manages **OAS token liquidity** (how much OAS you get for your deposit). The Pricing Curve manages **data asset valuation** (how much a dataset is worth). They are independent — the Pricing Curve feeds into settlement, the Bonding Curve feeds into token economics.
 
 ---
 
@@ -385,6 +438,36 @@ oasyce reputation check <agent_id>
 oasyce reputation update <agent_id> [--success] [--leak] [--damage]
 ```
 
+### Contribution (PDC)
+
+```bash
+# Generate a contribution certificate for an asset
+oasyce contribution certify <asset_id>
+
+# View contribution score breakdown
+oasyce contribution score <asset_id> [--json]
+```
+
+### Leakage Budget
+
+```bash
+# Check remaining leakage budget for an agent on an asset
+oasyce leakage budget <agent_id> <asset_id>
+
+# View leakage gain estimation by access level
+oasyce leakage estimate <agent_id> <asset_id> --level L0|L1|L2|L3
+```
+
+### Pricing
+
+```bash
+# Get dynamic price for a dataset (four-factor pricing)
+oasyce price <asset_id> [--json]
+
+# View pricing factor breakdown (demand, scarcity, quality, freshness)
+oasyce price factors <asset_id> [--json]
+```
+
 ### Asset Standard (OAS-DAS)
 
 ```bash
@@ -518,12 +601,12 @@ Oasyce_Claw_Plugin_Engine/
 │   │   └── ipfs_client.py          # IPFS integration
 │   └── scripts/
 │       └── demo_network.py         # Multi-node demo orchestrator
-├── tests/                          # 335 tests across 19 test files
+├── tests/                          # 445 tests across 22 test files
 ├── examples/                       # Usage examples
 ├── scripts/                        # Setup & utility scripts
 ├── docs/                           # Documentation
 │   └── ECONOMICS.md                # Detailed economic model
-├── setup.py                        # Package config (v1.0.0)
+├── setup.py                        # Package config (v1.1.0)
 └── README.md                       # This file
 ```
 
@@ -542,7 +625,7 @@ python3 -m pytest tests/ -v --cov=oasyce_plugin --cov-report=term-missing
 python3 -m pytest tests/test_settlement_engine.py -v
 ```
 
-**Test suite:** 335 tests across 19 test files covering:
+**Test suite:** 445 tests across 22 test files covering:
 
 | Test File | Coverage Area |
 |-----------|-------------|
@@ -565,6 +648,9 @@ python3 -m pytest tests/test_settlement_engine.py -v
 | `test_exposure_registry.py` | Cumulative exposure, fragmentation |
 | `test_liability_window.py` | Bond lock/release, time windows |
 | `test_oas_das.py` | 5-layer schema validation, dedup |
+| `test_reputation_tiers.py` | Three-tier reputation, fragmentation detection |
+| `test_pdc.py` | Proof of Data Contribution, leakage budget |
+| `test_pricing_curve.py` | Dataset pricing curve, four-factor pricing |
 
 ---
 
@@ -596,7 +682,7 @@ export OASYCE_SIGNING_KEY_ID=my_key_001
 
 | Metric | Value |
 |--------|-------|
-| Tests | 335 passing |
+| Tests | 445 passing |
 | Source files | ~50 |
 | Development phases | 9 |
 | Core dependencies | Zero (stdlib only for protocol) |

@@ -613,22 +613,59 @@ Without decay, early agents accumulate permanent advantages and new entrants can
 
 **Why R_max = 95:** No agent ever gets zero bond. Even the most trusted participant maintains skin in the game.
 
-### Sandbox Mode (Cold Start)
+### Three-Tier Reputation System
 
-Agents with low reputation enter a zero-barrier restricted environment:
+Agents are classified into three tiers based on their reputation score. Each tier determines access privileges and bond requirements:
+
+| Tier | Reputation Range | Access Levels | Data Types | Bond Required |
+|------|-----------------|---------------|------------|---------------|
+| **Sandbox** | R < 20 | L0 only | Public only (RF=0) | 0 |
+| **Limited** | 20 ≤ R < 50 | L0, L1 | Public + Low | Standard formula |
+| **Full** | R ≥ 50 | L0–L3 | All | Standard formula (with reputation discount) |
+
+**Sandbox mode** solves the cold-start problem — new agents (R=10) can discover the network's value through L0 queries before economic commitment. As agents build trust, they graduate to Limited (L1 access unlocked) and eventually Full (all access levels).
+
+**Reputation decay to sandbox:** Inactive agents decay at −5 per 90 days. Unlike active agents (floor=50), inactive agents can decay all the way back to sandbox (R < 20), losing their access privileges until they re-engage.
+
+### Information Leakage Budget
+
+Every agent has a per-asset **leakage budget** that tracks how much information has been gained through cumulative access:
 
 ```
-Condition: R < 20
+LeakageBudget(agent, asset) = MaxBudget − Σ InformationGain(access_i)
 ```
 
-| Restriction | Value |
-|-------------|-------|
-| Access level | L0 only |
-| Data types | Public only (RiskFactor = 0) |
-| Query rate | ≤ 10 queries/day |
-| Bond required | 0 |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| MaxBudget | 5% of asset information value | Maximum cumulative information an agent can extract |
+| L0 gain | 0.1% per query | Aggregate statistics reveal minimal information |
+| L1 gain | 1.0% per sample | Redacted fragments reveal partial structure |
+| L2 gain | 0.5% per compute | TEE outputs reveal derived information only |
+| L3 gain | 100% (single access) | Full delivery exhausts entire budget |
 
-**Purpose:** Let new agents build reputation through genuine usage before requiring economic commitment. This solves the cold-start problem — agents can discover the network's value before investing.
+When an agent's leakage budget is exhausted, further access requests are denied regardless of bond or reputation. This prevents slow exfiltration attacks where an agent makes thousands of small queries to reconstruct a dataset.
+
+### Anti-Scraping Defense Stack
+
+```
+┌─────────────────────────────────────────────────┐
+│  Layer 1: Reputation Gate (three-tier)          │
+│  → Sandbox agents restricted to L0/public only  │
+├─────────────────────────────────────────────────┤
+│  Layer 2: Fragmentation Detection               │
+│  → Access-time: rate + pattern analysis         │
+│  → Registration-time: duplicate/near-dup detect │
+│  → Thread-safe concurrent access tracking       │
+├─────────────────────────────────────────────────┤
+│  Layer 3: Leakage Budget                        │
+│  → Per-agent, per-asset information cap (5%)    │
+│  → L0–L3 gain estimation                       │
+├─────────────────────────────────────────────────┤
+│  Layer 4: Economic Deterrence                   │
+│  → Bond + Stake + Collateral                    │
+│  → Exposure-scaled bond (cumulative tracking)   │
+└─────────────────────────────────────────────────┘
+```
 
 ### Agent Identity & Anti-Sybil
 
@@ -910,7 +947,140 @@ Despite these limitations, Oasyce's **exposure-based liability model** (`Bond �
 
 ---
 
-## 13. Governance
+## 13. Proof of Data Contribution (PDC)
+
+### The Problem PoPC Doesn't Solve
+
+PoPC (Proof of Physical Capture) proves that data **existed** at a specific point in time — a camera took this photo, a sensor recorded this reading. But it doesn't prove **who created the data** or **how original it is**. An attacker could capture someone else's work and register a valid PoPC certificate.
+
+PDC complements PoPC by proving **data origin authenticity** at the semantic layer.
+
+### Three-Layer Fingerprint
+
+| Layer | Method | What It Proves |
+|-------|--------|---------------|
+| **Content Hash** | SHA-256 of raw bytes | Exact binary identity — detects any modification |
+| **Semantic Fingerprint** | LSH/SimHash of content meaning | Meaning-level identity — survives reformatting, compression, minor edits |
+| **Source Proof** | Git commit, EXIF metadata, API trace, etc. | Provenance chain — links data to its creation context |
+
+### ContributionScore
+
+Each asset receives a score that reflects its value to the network:
+
+```
+ContributionScore = originality × rarity × freshness
+```
+
+| Factor | Range | How It's Computed |
+|--------|-------|-------------------|
+| **Originality** | 0–1 | Semantic distance from all existing assets (1 − max_similarity) |
+| **Rarity** | 0–1 | `1 / (1 + same_category_count)` — fewer similar assets → higher score |
+| **Freshness** | 0–1 | `exp(-λ × age_days)` — exponential decay, newer is better |
+
+### ContributionCertificate
+
+```
+ContributionCertificate {
+  asset_id:             AssetID,
+  content_hash:         SHA256,
+  semantic_fingerprint: SimHash,
+  source_proof:         SourceProof,
+  contribution_score:   float,       // originality × rarity × freshness
+  creator_pubkey:       Ed25519PublicKey,
+  signature:            Ed25519Signature,
+  timestamp:            BlockHeight
+}
+```
+
+The certificate is stored on-chain alongside the PoPC certificate. Together they form a complete provenance proof:
+
+- **PoPC** → "This data existed at time T" (physical layer)
+- **PDC** → "This data was created by agent A with originality O" (semantic layer)
+
+### Integration with Reputation
+
+High ContributionScore earns bonus reputation:
+
+```
+R(t+1) += α_contribution × ContributionScore
+```
+
+This incentivizes original, high-quality data registration over mass-registration of low-value duplicates.
+
+---
+
+## 14. Dynamic Pricing (Dataset Pricing Curve)
+
+### The Problem
+
+Flat pricing doesn't reflect market reality. A dataset's value depends on demand, scarcity, quality, and freshness — all of which change over time.
+
+### Four-Factor Pricing Formula
+
+```
+Price = BasePrice × D(demand) × S(scarcity) × Q(quality) × F(freshness)
+```
+
+| Factor | Formula | Range | Economic Intuition |
+|--------|---------|-------|--------------------|
+| **D(demand)** | `1 + ln(1 + purchases)` | 1.0 → ∞ | More buyers signal higher value |
+| **S(scarcity)** | `1 / (1 + competitors)` | 0 → 1.0 | Monopoly data commands premium |
+| **Q(quality)** | `ContributionScore` | 0 → 1.0 | Higher quality → higher price |
+| **F(freshness)** | `exp(-λ × age_days)` | 0 → 1.0 | Stale data depreciates |
+
+### Relationship to Bonding Curve
+
+The protocol has two independent pricing mechanisms:
+
+| Mechanism | What It Prices | Formula |
+|-----------|---------------|---------|
+| **Bonding Curve** | OAS token liquidity | `ΔTokens = S × ((1 + ΔR/R)^F − 1)` |
+| **Pricing Curve** | Data asset value | `Price = Base × D × S × Q × F` |
+
+The Bonding Curve determines how much OAS you receive for a deposit (token economics). The Pricing Curve determines how much a dataset costs (data economics). They are fully decoupled — the Pricing Curve feeds into settlement, the Bonding Curve feeds into token supply.
+
+### Worked Example
+
+**Dataset:** Traffic sensor data, registered 30 days ago
+
+| Parameter | Value |
+|-----------|-------|
+| BasePrice | 10 OAS |
+| Purchases so far | 7 |
+| Competitors (similar datasets) | 2 |
+| ContributionScore | 0.85 |
+| Age | 30 days |
+| λ (freshness decay) | 0.01 |
+
+```
+D(demand)    = 1 + ln(1 + 7)    = 1 + 2.079  = 3.079
+S(scarcity)  = 1 / (1 + 2)      = 0.333
+Q(quality)   = 0.85
+F(freshness) = exp(-0.01 × 30)  = 0.741
+
+Price = 10 × 3.079 × 0.333 × 0.85 × 0.741
+      = 10 × 0.646
+      = 6.46 OAS
+```
+
+The dataset started at 10 OAS but its effective price reflects moderate demand, some competition, high quality, and slight aging.
+
+### Price Evolution Over Time
+
+As the dataset gains more buyers and ages:
+
+| Day | Purchases | Demand | Freshness | Price |
+|-----|-----------|--------|-----------|-------|
+| 1 | 0 | 1.00 | 0.99 | 2.80 OAS |
+| 30 | 7 | 3.08 | 0.74 | 6.46 OAS |
+| 90 | 25 | 4.26 | 0.41 | 4.94 OAS |
+| 180 | 30 | 4.43 | 0.17 | 2.12 OAS |
+
+**Key insight:** Price rises with demand but eventually falls as freshness decays — creating natural incentives for creators to produce new, updated datasets.
+
+---
+
+## 15. Governance
 
 All economic parameters are **governance-configurable** by OAS token holders:
 
@@ -927,7 +1097,7 @@ All economic parameters are **governance-configurable** by OAS token holders:
 
 ---
 
-## 14. Token Utility — Why OAS Must Exist
+## 16. Token Utility — Why OAS Must Exist
 
 A protocol token is justified when, and only when, a native unit of account creates value that a stablecoin or existing token cannot.
 
@@ -941,7 +1111,7 @@ A protocol token is justified when, and only when, a native unit of account crea
 
 ---
 
-## 15. Competitive Landscape
+## 17. Competitive Landscape
 
 | Project | Focus | Difference from Oasyce |
 |---------|-------|----------------------|
@@ -955,7 +1125,7 @@ A protocol token is justified when, and only when, a native unit of account crea
 
 ---
 
-## 16. Bootstrapping — The Cold Start Problem
+## 18. Bootstrapping — The Cold Start Problem
 
 ### Why Do the First 100 Agents Join?
 
@@ -986,7 +1156,7 @@ Agents auto-register outputs → data supply grows → other agents discover use
 
 ---
 
-## 17. Implementation Notes
+## 19. Implementation Notes
 
 ### Reference Implementation
 
