@@ -12,6 +12,8 @@ import re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse, parse_qs
+from urllib.request import Request, urlopen
+from urllib.error import URLError
 
 from oasyce_plugin.config import Config
 from oasyce_plugin.storage.ledger import Ledger
@@ -153,6 +155,33 @@ def _api_stakes() -> list:
     return [{"validator_id": r["validator_id"], "total": r["total"]} for r in rows]
 
 
+_AHRP_CORE_BASE = "http://localhost:8000"
+_AHRP_UNREACHABLE = json.dumps(
+    {"ok": False, "error": "AHRP node not running. Start with: oasyce serve"}
+).encode("utf-8")
+
+
+def _proxy_ahrp(handler: BaseHTTPRequestHandler, method: str, path: str,
+                body: bytes = b"") -> None:
+    url = _AHRP_CORE_BASE + path
+    req = Request(url, data=body if body else None, method=method)
+    req.add_header("Content-Type", "application/json")
+    try:
+        resp = urlopen(req, timeout=10)
+        data = resp.read()
+        handler.send_response(resp.status)
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+        handler.send_header("Content-Length", str(len(data)))
+        handler.end_headers()
+        handler.wfile.write(data)
+    except (URLError, OSError):
+        handler.send_response(502)
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+        handler.send_header("Content-Length", str(len(_AHRP_UNREACHABLE)))
+        handler.end_headers()
+        handler.wfile.write(_AHRP_UNREACHABLE)
+
+
 # ── Request handler ──────────────────────────────────────────────────
 
 class _Handler(BaseHTTPRequestHandler):
@@ -237,6 +266,10 @@ class _Handler(BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
+
+        # ── AHRP proxy (GET) ─────────────────────────────────────
+        if path.startswith("/ahrp/"):
+            return _proxy_ahrp(self, "GET", self.path)
 
         # ── SPA ──────────────────────────────────────────────────
         return _html_response(self, _INDEX_HTML)
@@ -326,6 +359,11 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
+        # ── AHRP proxy (POST) ────────────────────────────────────
+        if path.startswith("/ahrp/"):
+            raw = json.dumps(body).encode("utf-8") if body else b""
+            return _proxy_ahrp(self, "POST", self.path, raw)
+
         return _json_response(self, {"error": "not found"}, 404)
 
 
@@ -347,6 +385,44 @@ body {
   font-size: 16px;
   line-height: 1.6;
 }
+
+/* ── Top Nav ─────────────────────────────────────────────── */
+.top-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10,10,10,0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid #252525;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  height: 52px;
+  gap: 24px;
+}
+.nav-brand {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 1px;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.nav-links { display: flex; gap: 4px; }
+.nav-links a {
+  color: #888;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 8px;
+  transition: color 0.2s, background 0.2s;
+}
+.nav-links a:hover { color: #e8e8e8; background: #1a1a1a; }
+.nav-links a.active { color: #fff; background: #1f1f1f; }
 
 .wrap {
   max-width: 720px;
@@ -438,7 +514,7 @@ body {
 }
 
 /* Inputs and buttons */
-input[type="text"] {
+input[type="text"], input[type="number"], select {
   width: 100%;
   height: 48px;
   font-size: 16px;
@@ -450,8 +526,10 @@ input[type="text"] {
   outline: none;
   transition: border-color 0.2s;
 }
-input[type="text"]:focus { border-color: #3b82f6; }
-input[type="text"]::placeholder { color: #555; }
+input[type="text"]:focus, input[type="number"]:focus, select:focus { border-color: #3b82f6; }
+input[type="text"]::placeholder, input[type="number"]::placeholder { color: #555; }
+select { cursor: pointer; }
+select option { background: #1a1a1a; color: #e8e8e8; }
 
 .btn {
   height: 48px;
@@ -473,7 +551,7 @@ input[type="text"]::placeholder { color: #555; }
   gap: 10px;
   margin-bottom: 16px;
 }
-.input-row input { flex: 1; }
+.input-row input, .input-row select { flex: 1; }
 
 /* Asset list */
 .asset-item {
@@ -630,6 +708,210 @@ input[type="text"]::placeholder { color: #555; }
 .err { color: #ef4444; margin-top: 12px; font-size: 15px; }
 .ok { color: #22c55e; }
 
+/* ── AHRP Section ────────────────────────────────────────── */
+.ahrp-header {
+  text-align: center;
+  margin-bottom: 8px;
+}
+.ahrp-header h2 {
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 4px;
+}
+.ahrp-header p { color: #666; font-size: 14px; }
+
+/* AHRP Stats Bar */
+.ahrp-stats-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 0;
+}
+.ahrp-stat {
+  background: #1a1a1a;
+  border: 1px solid #252525;
+  border-radius: 10px;
+  padding: 14px 10px;
+  text-align: center;
+}
+.ahrp-stat-num {
+  font-size: 24px;
+  font-weight: 700;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  line-height: 1.1;
+  color: #6366f1;
+}
+.ahrp-stat-label {
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* AHRP Checkboxes */
+.checkbox-group {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #ccc;
+  cursor: pointer;
+}
+.checkbox-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #6366f1;
+  cursor: pointer;
+}
+
+/* AHRP Match Cards */
+.match-card {
+  background: #1a1a1a;
+  border: 1px solid #252525;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 10px;
+}
+.match-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.match-agent {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 14px;
+  color: #3b82f6;
+}
+.origin-badge {
+  display: inline-block;
+  height: 22px;
+  line-height: 22px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.origin-human { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e44; }
+.origin-sensor { background: #3b82f622; color: #3b82f6; border: 1px solid #3b82f644; }
+.origin-curated { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
+.origin-synthetic { background: #8b5cf622; color: #8b5cf6; border: 1px solid #8b5cf644; }
+.match-score-bar {
+  width: 100%;
+  height: 6px;
+  background: #252525;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+.match-score-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #3b82f6, #22c55e);
+  transition: width 0.6s ease;
+}
+.match-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #888;
+}
+
+/* ── Transaction Pipeline ─────────────────────────────────── */
+.tx-pipeline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+.tx-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 12px;
+  min-width: 90px;
+  position: relative;
+}
+.tx-step-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  border: 2px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  transition: all 0.5s ease;
+  position: relative;
+  z-index: 1;
+}
+.tx-step.done .tx-step-circle {
+  background: #22c55e22;
+  border-color: #22c55e;
+  box-shadow: 0 0 16px #22c55e44;
+}
+.tx-step.active .tx-step-circle {
+  background: #3b82f622;
+  border-color: #3b82f6;
+  box-shadow: 0 0 16px #3b82f644;
+  animation: pulse-step 2s infinite;
+}
+@keyframes pulse-step {
+  0%, 100% { box-shadow: 0 0 16px #3b82f644; }
+  50% { box-shadow: 0 0 28px #3b82f666; }
+}
+.tx-step-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #555;
+  transition: color 0.5s ease;
+}
+.tx-step.done .tx-step-label { color: #22c55e; }
+.tx-step.active .tx-step-label { color: #3b82f6; }
+.tx-arrow {
+  font-size: 20px;
+  color: #333;
+  margin: 0 -2px;
+  padding-bottom: 20px;
+  transition: color 0.5s ease;
+}
+.tx-arrow.done { color: #22c55e; }
+
+/* Star rating */
+.star-rating {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.star-rating span {
+  font-size: 28px;
+  cursor: pointer;
+  color: #333;
+  transition: color 0.15s, transform 0.15s;
+  user-select: none;
+}
+.star-rating span:hover { transform: scale(1.2); }
+.star-rating span.lit { color: #f59e0b; }
+
 /* Responsive */
 @media (max-width: 640px) {
   .wrap { padding: 20px 14px 48px; gap: 24px; }
@@ -640,10 +922,24 @@ input[type="text"]::placeholder { color: #555; }
   .trace-row { flex-direction: column; gap: 2px; }
   .trace-val { text-align: left; max-width: 100%; }
   .input-row { flex-direction: column; }
+  .ahrp-stats-bar { grid-template-columns: repeat(2, 1fr); }
+  .tx-pipeline { gap: 0; }
+  .tx-step { min-width: 60px; padding: 10px 6px; }
+  .tx-step-circle { width: 40px; height: 40px; font-size: 16px; }
+  .top-nav { gap: 12px; }
 }
 </style>
 </head>
 <body>
+
+<!-- ── Navigation Bar ──────────────────────────────────────── -->
+<nav class="top-nav">
+  <span class="nav-brand">OASYCE</span>
+  <div class="nav-links">
+    <a href="/" class="active">Dashboard</a>
+    <a href="http://localhost:8421" target="_blank">Explorer</a>
+  </div>
+</nav>
 
 <div class="wrap">
 
@@ -675,10 +971,11 @@ input[type="text"]::placeholder { color: #555; }
 
   <!-- Section 2: Quick Actions -->
   <div class="card fade" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
-    <button class="btn" onclick="document.getElementById('register-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:140px;">&#x1f4e6; Register</button>
-    <button class="btn" onclick="document.getElementById('buy-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:140px;background:#22c55e;">&#x1f4b0; Buy</button>
-    <button class="btn" onclick="document.getElementById('embed-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:140px;background:#f59e0b;color:#000;">&#x1f512; Watermark</button>
-    <button class="btn" onclick="document.getElementById('stake-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:140px;background:#8b5cf6;">&#x26d3; Stake</button>
+    <button class="btn" onclick="document.getElementById('register-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x1f4e6; Register</button>
+    <button class="btn" onclick="document.getElementById('buy-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;background:#22c55e;">&#x1f4b0; Buy</button>
+    <button class="btn" onclick="document.getElementById('embed-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;background:#f59e0b;color:#000;">&#x1f512; Watermark</button>
+    <button class="btn" onclick="document.getElementById('stake-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;background:#8b5cf6;">&#x26d3; Stake</button>
+    <button class="btn" onclick="document.getElementById('ahrp-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;background:linear-gradient(135deg,#3b82f6,#6366f1);">&#x1f91d; AHRP</button>
   </div>
 
   <!-- Section 3: Your Assets -->
@@ -693,7 +990,7 @@ input[type="text"]::placeholder { color: #555; }
     <h2>Register a file</h2>
     <div class="input-row"><input type="text" id="reg-path" placeholder="File path (e.g. /Users/you/report.pdf)"></div>
     <div class="input-row">
-      <input type="text" id="reg-owner" placeholder="Owner name" value="Shangrila" style="flex:1;">
+      <input type="text" id="reg-owner" placeholder="Owner name" style="flex:1;">
       <input type="text" id="reg-tags" placeholder="Tags (comma-separated)" style="flex:1;">
     </div>
     <button class="btn" id="reg-btn" style="width:100%;">Register</button>
@@ -757,6 +1054,177 @@ input[type="text"]::placeholder { color: #555; }
     <div id="stake-result"></div>
   </div>
 
+  <!-- ══════════════════════════════════════════════════════════
+       AHRP — Agent Handshake & Routing Protocol
+       ══════════════════════════════════════════════════════════ -->
+  <div id="ahrp-section">
+
+    <div class="card fade">
+      <div class="ahrp-header">
+        <h2>Agent Handshake &amp; Routing Protocol</h2>
+        <p>Register agents, discover capabilities, and execute verified data transactions</p>
+      </div>
+
+      <!-- AHRP Network Stats Bar -->
+      <div class="ahrp-stats-bar" id="ahrp-stats-bar">
+        <div class="ahrp-stat">
+          <div class="ahrp-stat-num" id="ahrp-stat-agents">--</div>
+          <div class="ahrp-stat-label">Agents</div>
+        </div>
+        <div class="ahrp-stat">
+          <div class="ahrp-stat-num" id="ahrp-stat-caps">--</div>
+          <div class="ahrp-stat-label">Capabilities</div>
+        </div>
+        <div class="ahrp-stat">
+          <div class="ahrp-stat-num" id="ahrp-stat-txs">--</div>
+          <div class="ahrp-stat-label">Transactions</div>
+        </div>
+        <div class="ahrp-stat">
+          <div class="ahrp-stat-num" id="ahrp-stat-vol">--</div>
+          <div class="ahrp-stat-label">Volume (OAS)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- (a) Agent Registration Panel -->
+    <div class="card fade" id="ahrp-register">
+      <h2>Register Agent</h2>
+      <div class="input-row">
+        <input type="text" id="ahrp-agent-id" placeholder="Agent ID" style="flex:1;">
+        <input type="text" id="ahrp-pub-key" placeholder="Public key" style="flex:1;">
+      </div>
+      <div class="input-row">
+        <input type="number" id="ahrp-reputation" placeholder="Reputation" value="10" style="flex:1;">
+        <input type="number" id="ahrp-stake" placeholder="Stake (OAS)" value="100" style="flex:1;">
+      </div>
+      <div class="sep" style="margin-top:8px;padding-top:16px;">
+        <h2 style="font-size:16px;">Capability</h2>
+        <div class="input-row">
+          <input type="text" id="ahrp-cap-id" placeholder="Capability ID" style="flex:1;">
+          <input type="text" id="ahrp-cap-tags" placeholder="Tags (comma-sep)" style="flex:1;">
+        </div>
+        <div class="input-row">
+          <input type="text" id="ahrp-cap-desc" placeholder="Description" style="flex:2;">
+          <input type="number" id="ahrp-cap-price" placeholder="Price floor" value="1.0" style="flex:1;">
+        </div>
+        <div class="input-row">
+          <select id="ahrp-cap-origin" style="flex:1;">
+            <option value="human">human</option>
+            <option value="sensor">sensor</option>
+            <option value="curated">curated</option>
+            <option value="synthetic">synthetic</option>
+          </select>
+        </div>
+        <div class="checkbox-group">
+          <label><input type="checkbox" value="L0" checked> L0</label>
+          <label><input type="checkbox" value="L1" checked> L1</label>
+          <label><input type="checkbox" value="L2"> L2</label>
+          <label><input type="checkbox" value="L3"> L3</label>
+        </div>
+      </div>
+      <button class="btn" id="ahrp-announce-btn" style="width:100%;background:linear-gradient(135deg,#3b82f6,#6366f1);">Announce Agent</button>
+      <div id="ahrp-announce-result"></div>
+    </div>
+
+    <!-- (b) Discovery & Matching Panel -->
+    <div class="card fade" id="ahrp-discover">
+      <h2>Discover Capabilities</h2>
+      <div class="input-row">
+        <input type="text" id="ahrp-search-desc" placeholder="Description (what data do you need?)" style="flex:2;">
+        <input type="text" id="ahrp-search-tags" placeholder="Tags" style="flex:1;">
+      </div>
+      <div class="input-row">
+        <input type="number" id="ahrp-search-rep" placeholder="Min reputation" value="5" style="flex:1;">
+        <input type="number" id="ahrp-search-price" placeholder="Max price" value="100" style="flex:1;">
+        <select id="ahrp-search-access" style="flex:1;">
+          <option value="L0">L0</option>
+          <option value="L1">L1</option>
+          <option value="L2">L2</option>
+          <option value="L3">L3</option>
+        </select>
+      </div>
+      <button class="btn" id="ahrp-find-btn" style="width:100%;background:#333;">Find Matches</button>
+      <div id="ahrp-matches" style="margin-top:16px;"></div>
+    </div>
+
+    <!-- (c) Transaction Flow Panel -->
+    <div class="card fade" id="ahrp-tx-flow">
+      <h2>Transaction Flow</h2>
+
+      <!-- Visual Pipeline -->
+      <div class="tx-pipeline" id="tx-pipeline">
+        <div class="tx-step" id="tx-step-request">
+          <div class="tx-step-circle">&#x1f4e8;</div>
+          <div class="tx-step-label">Request</div>
+        </div>
+        <div class="tx-arrow" id="tx-arrow-1">&#x25b6;</div>
+        <div class="tx-step" id="tx-step-offer">
+          <div class="tx-step-circle">&#x1f4cb;</div>
+          <div class="tx-step-label">Offer</div>
+        </div>
+        <div class="tx-arrow" id="tx-arrow-2">&#x25b6;</div>
+        <div class="tx-step" id="tx-step-accept">
+          <div class="tx-step-circle">&#x2705;</div>
+          <div class="tx-step-label">Accept</div>
+        </div>
+        <div class="tx-arrow" id="tx-arrow-3">&#x25b6;</div>
+        <div class="tx-step" id="tx-step-deliver">
+          <div class="tx-step-circle">&#x1f4e6;</div>
+          <div class="tx-step-label">Deliver</div>
+        </div>
+        <div class="tx-arrow" id="tx-arrow-4">&#x25b6;</div>
+        <div class="tx-step" id="tx-step-confirm">
+          <div class="tx-step-circle">&#x2b50;</div>
+          <div class="tx-step-label">Confirm</div>
+        </div>
+      </div>
+
+      <!-- Accept -->
+      <div class="sep">
+        <h2 style="font-size:16px;">1. Accept a deal</h2>
+        <div class="input-row">
+          <input type="text" id="tx-buyer" placeholder="Buyer ID" style="flex:1;">
+          <input type="text" id="tx-seller" placeholder="Seller ID" style="flex:1;">
+        </div>
+        <div class="input-row">
+          <input type="text" id="tx-cap-id" placeholder="Capability ID" style="flex:1;">
+          <input type="number" id="tx-price" placeholder="Price (OAS)" value="10" style="flex:1;">
+        </div>
+        <button class="btn" id="tx-accept-btn" style="width:100%;">Accept &amp; Create Transaction</button>
+        <div id="tx-accept-result"></div>
+      </div>
+
+      <!-- Deliver -->
+      <div class="sep">
+        <h2 style="font-size:16px;">2. Deliver content</h2>
+        <div class="input-row">
+          <input type="text" id="tx-deliver-id" placeholder="Transaction ID (auto-filled)" style="flex:2;">
+          <input type="text" id="tx-content-hash" placeholder="Content hash" style="flex:1;">
+        </div>
+        <button class="btn" id="tx-deliver-btn" style="width:100%;background:#22c55e;">Deliver</button>
+        <div id="tx-deliver-result"></div>
+      </div>
+
+      <!-- Confirm -->
+      <div class="sep">
+        <h2 style="font-size:16px;">3. Confirm &amp; rate</h2>
+        <div class="input-row">
+          <input type="text" id="tx-confirm-id" placeholder="Transaction ID (auto-filled)" style="flex:1;">
+        </div>
+        <div class="star-rating" id="star-rating">
+          <span data-v="1">&#x2605;</span>
+          <span data-v="2">&#x2605;</span>
+          <span data-v="3">&#x2605;</span>
+          <span data-v="4">&#x2605;</span>
+          <span data-v="5">&#x2605;</span>
+        </div>
+        <button class="btn" id="tx-confirm-btn" style="width:100%;background:#f59e0b;color:#000;">Confirm &amp; Settle</button>
+        <div id="tx-confirm-result"></div>
+      </div>
+    </div>
+
+  </div><!-- /ahrp-section -->
+
   <!-- Section 7: Network -->
   <div class="card fade" id="network-section">
     <h2>Network</h2>
@@ -768,7 +1236,7 @@ input[type="text"]::placeholder { color: #555; }
   </div>
 
   <!-- Footer -->
-  <div class="footer fade">Oasyce Protocol v0.9.0 &middot; MIT License</div>
+  <div class="footer fade">Oasyce Protocol v1.2.0 &middot; MIT License</div>
 
 </div>
 
@@ -810,6 +1278,15 @@ input[type="text"]::placeholder { color: #555; }
       return r.json();
     } catch(e) {
       return null;
+    }
+  }
+
+  async function postApi(path, body) {
+    try {
+      var r = await fetch(path, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      return r.json();
+    } catch(e) {
+      return {ok:false,error:e.message};
     }
   }
 
@@ -930,11 +1407,11 @@ input[type="text"]::placeholder { color: #555; }
   document.getElementById('reg-btn').addEventListener('click', async function() {
     var btn = this; btn.textContent = 'Working...'; btn.disabled = true;
     var fp = document.getElementById('reg-path').value.trim();
-    var owner = document.getElementById('reg-owner').value.trim() || 'Shangrila';
+    var owner = document.getElementById('reg-owner').value.trim();
     var tags = document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);
     var div = document.getElementById('reg-result');
     try {
-      var r = await fetch('/api/register', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_path:fp,owner:owner,tags:tags})});
+      var r = await fetch('/api/register', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_path:fp,owner:owner||undefined,tags:tags})});
       var d = await r.json();
       if (d.ok) {
         div.innerHTML = '<div class="trace-result" style="border-color:#22c55e;margin-top:12px;"><div class="trace-row"><span class="trace-key">Asset ID</span><span class="trace-val">' + esc(d.asset_id) + '</span></div><div class="trace-row"><span class="trace-key">File hash</span><span class="trace-val">' + esc(trunc(d.file_hash,24)) + '</span></div></div>';
@@ -1028,13 +1505,234 @@ input[type="text"]::placeholder { color: #555; }
     btn.textContent = 'Stake'; btn.disabled = false;
   });
 
+  // ═══════════════════════════════════════════════════════════
+  // AHRP — Agent Handshake & Routing Protocol
+  // ═══════════════════════════════════════════════════════════
+
+  // ── AHRP Stats (auto-refresh) ──────────────────────────────
+  async function loadAhrpStats() {
+    var d = await api('/ahrp/v1/stats');
+    if (!d || d.error) {
+      document.getElementById('ahrp-stat-agents').textContent = '--';
+      document.getElementById('ahrp-stat-caps').textContent = '--';
+      document.getElementById('ahrp-stat-txs').textContent = '--';
+      document.getElementById('ahrp-stat-vol').textContent = '--';
+      return;
+    }
+    document.getElementById('ahrp-stat-agents').textContent = d.registered_agents || d.agents || 0;
+    document.getElementById('ahrp-stat-caps').textContent = d.active_capabilities || d.capabilities || 0;
+    document.getElementById('ahrp-stat-txs').textContent = d.completed_transactions || d.transactions || 0;
+    document.getElementById('ahrp-stat-vol').textContent = d.total_volume || d.volume || 0;
+  }
+
+  // ── Announce Agent ─────────────────────────────────────────
+  document.getElementById('ahrp-announce-btn').addEventListener('click', async function() {
+    var btn = this; btn.textContent = 'Announcing...'; btn.disabled = true;
+    var div = document.getElementById('ahrp-announce-result');
+    var accessLevels = [];
+    document.querySelectorAll('#ahrp-register .checkbox-group input:checked').forEach(function(cb) {
+      accessLevels.push(cb.value);
+    });
+    var payload = {
+      agent_id: document.getElementById('ahrp-agent-id').value.trim(),
+      public_key: document.getElementById('ahrp-pub-key').value.trim(),
+      reputation: parseFloat(document.getElementById('ahrp-reputation').value) || 10,
+      stake: parseFloat(document.getElementById('ahrp-stake').value) || 100,
+      capabilities: [{
+        capability_id: document.getElementById('ahrp-cap-id').value.trim(),
+        tags: document.getElementById('ahrp-cap-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean),
+        description: document.getElementById('ahrp-cap-desc').value.trim(),
+        price_floor: parseFloat(document.getElementById('ahrp-cap-price').value) || 1.0,
+        origin_type: document.getElementById('ahrp-cap-origin').value,
+        access_levels: accessLevels
+      }]
+    };
+    var d = await postApi('/ahrp/v1/announce', payload);
+    if (d && d.ok !== false && !d.error) {
+      var caps = d.capabilities_indexed || d.capabilities || 0;
+      var pending = d.pending_matches || 0;
+      div.innerHTML = '<div class="trace-result" style="border-color:#6366f1;margin-top:12px;">' +
+        '<div class="trace-row"><span class="trace-key">Status</span><span class="trace-val ok">Announced</span></div>' +
+        '<div class="trace-row"><span class="trace-key">Capabilities indexed</span><span class="trace-val">' + esc(caps) + '</span></div>' +
+        '<div class="trace-row"><span class="trace-key">Pending matches</span><span class="trace-val">' + esc(pending) + '</span></div>' +
+        '</div>';
+      loadAhrpStats();
+    } else {
+      div.innerHTML = '<p class="err">' + esc(d ? d.error : 'AHRP node not reachable') + '</p>';
+    }
+    btn.textContent = 'Announce Agent'; btn.disabled = false;
+  });
+
+  // ── Find Matches ───────────────────────────────────────────
+  document.getElementById('ahrp-find-btn').addEventListener('click', async function() {
+    var btn = this; btn.textContent = 'Searching...'; btn.disabled = true;
+    var container = document.getElementById('ahrp-matches');
+    var payload = {
+      description: document.getElementById('ahrp-search-desc').value.trim(),
+      tags: document.getElementById('ahrp-search-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean),
+      min_reputation: parseFloat(document.getElementById('ahrp-search-rep').value) || 0,
+      max_price: parseFloat(document.getElementById('ahrp-search-price').value) || 1000,
+      required_access_level: document.getElementById('ahrp-search-access').value
+    };
+    var d = await postApi('/ahrp/v1/request', payload);
+    if (d && d.error) {
+      container.innerHTML = '<p class="err">' + esc(d.error) + '</p>';
+    } else {
+      var matches = d ? (d.matches || d.results || []) : [];
+      if (!matches.length) {
+        container.innerHTML = '<div class="empty-state">No matching capabilities found. Try broader criteria.</div>';
+      } else {
+        var html = '';
+        matches.forEach(function(m) {
+          var score = Math.round((m.score || 0) * 100);
+          var origin = m.origin_type || 'unknown';
+          var originClass = 'origin-' + origin;
+          html += '<div class="match-card">' +
+            '<div class="match-card-header">' +
+              '<span class="match-agent">' + esc(m.agent_id || '') + ' / ' + esc(m.capability_id || '') + '</span>' +
+              '<span class="origin-badge ' + originClass + '">' + esc(origin) + '</span>' +
+            '</div>' +
+            '<div class="match-score-bar"><div class="match-score-fill" style="width:' + score + '%;"></div></div>' +
+            '<div class="match-details">' +
+              '<span>Score: ' + score + '%</span>' +
+              '<span>Floor: ' + esc(m.price_floor || 0) + ' OAS</span>' +
+            '</div>' +
+          '</div>';
+        });
+        container.innerHTML = html;
+      }
+    }
+    btn.textContent = 'Find Matches'; btn.disabled = false;
+  });
+
+  // ── Transaction Pipeline State ─────────────────────────────
+  var _txState = { step: 0, tx_id: '' };
+  var _txSteps = ['request','offer','accept','deliver','confirm'];
+  var _selectedRating = 5;
+
+  function updatePipeline(step) {
+    _txState.step = step;
+    for (var i = 0; i < _txSteps.length; i++) {
+      var el = document.getElementById('tx-step-' + _txSteps[i]);
+      el.className = 'tx-step';
+      if (i < step) el.className = 'tx-step done';
+      else if (i === step) el.className = 'tx-step active';
+    }
+    for (var j = 1; j <= 4; j++) {
+      var arrow = document.getElementById('tx-arrow-' + j);
+      arrow.className = j <= step ? 'tx-arrow done' : 'tx-arrow';
+    }
+  }
+
+  // Star rating interaction
+  var stars = document.querySelectorAll('#star-rating span');
+  stars.forEach(function(star) {
+    star.addEventListener('click', function() {
+      _selectedRating = parseInt(this.getAttribute('data-v'));
+      stars.forEach(function(s) {
+        s.className = parseInt(s.getAttribute('data-v')) <= _selectedRating ? 'lit' : '';
+      });
+    });
+    star.addEventListener('mouseenter', function() {
+      var v = parseInt(this.getAttribute('data-v'));
+      stars.forEach(function(s) {
+        s.className = parseInt(s.getAttribute('data-v')) <= v ? 'lit' : '';
+      });
+    });
+  });
+  document.getElementById('star-rating').addEventListener('mouseleave', function() {
+    stars.forEach(function(s) {
+      s.className = parseInt(s.getAttribute('data-v')) <= _selectedRating ? 'lit' : '';
+    });
+  });
+  // Initialize stars
+  stars.forEach(function(s) {
+    s.className = parseInt(s.getAttribute('data-v')) <= _selectedRating ? 'lit' : '';
+  });
+
+  // ── Accept ─────────────────────────────────────────────────
+  document.getElementById('tx-accept-btn').addEventListener('click', async function() {
+    var btn = this; btn.textContent = 'Accepting...'; btn.disabled = true;
+    var div = document.getElementById('tx-accept-result');
+    updatePipeline(0); // request
+    var payload = {
+      buyer_id: document.getElementById('tx-buyer').value.trim(),
+      seller_id: document.getElementById('tx-seller').value.trim(),
+      capability_id: document.getElementById('tx-cap-id').value.trim(),
+      price_oas: parseFloat(document.getElementById('tx-price').value) || 10
+    };
+    // Briefly show request step, then offer, then accept
+    await new Promise(function(r){ setTimeout(r, 300); });
+    updatePipeline(1); // offer
+    await new Promise(function(r){ setTimeout(r, 300); });
+    var d = await postApi('/ahrp/v1/accept', payload);
+    if (d && !d.error) {
+      _txState.tx_id = d.tx_id || d.transaction_id || '';
+      document.getElementById('tx-deliver-id').value = _txState.tx_id;
+      document.getElementById('tx-confirm-id').value = _txState.tx_id;
+      updatePipeline(2); // accept done
+      div.innerHTML = '<div class="trace-result" style="border-color:#22c55e;margin-top:12px;">' +
+        '<div class="trace-row"><span class="trace-key">Transaction ID</span><span class="trace-val" style="color:#3b82f6;">' + esc(_txState.tx_id) + '</span></div>' +
+        '<div class="trace-row"><span class="trace-key">State</span><span class="trace-val ok">Accepted</span></div>' +
+        '</div>';
+    } else {
+      div.innerHTML = '<p class="err">' + esc(d ? d.error : 'Failed to connect') + '</p>';
+      updatePipeline(0);
+    }
+    btn.textContent = 'Accept & Create Transaction'; btn.disabled = false;
+  });
+
+  // ── Deliver ────────────────────────────────────────────────
+  document.getElementById('tx-deliver-btn').addEventListener('click', async function() {
+    var btn = this; btn.textContent = 'Delivering...'; btn.disabled = true;
+    var div = document.getElementById('tx-deliver-result');
+    var txId = document.getElementById('tx-deliver-id').value.trim();
+    var hash = document.getElementById('tx-content-hash').value.trim();
+    var d = await postApi('/ahrp/v1/deliver', {tx_id: txId, content_hash: hash});
+    if (d && !d.error) {
+      updatePipeline(3); // deliver done
+      div.innerHTML = '<div class="trace-result" style="border-color:#22c55e;margin-top:12px;">' +
+        '<div class="trace-row"><span class="trace-key">State</span><span class="trace-val ok">Delivered</span></div>' +
+        '<div class="trace-row"><span class="trace-key">Content hash</span><span class="trace-val">' + esc(trunc(hash, 24)) + '</span></div>' +
+        '</div>';
+    } else {
+      div.innerHTML = '<p class="err">' + esc(d ? d.error : 'Failed') + '</p>';
+    }
+    btn.textContent = 'Deliver'; btn.disabled = false;
+  });
+
+  // ── Confirm ────────────────────────────────────────────────
+  document.getElementById('tx-confirm-btn').addEventListener('click', async function() {
+    var btn = this; btn.textContent = 'Confirming...'; btn.disabled = true;
+    var div = document.getElementById('tx-confirm-result');
+    var txId = document.getElementById('tx-confirm-id').value.trim();
+    var d = await postApi('/ahrp/v1/confirm', {tx_id: txId, rating: _selectedRating});
+    if (d && !d.error) {
+      updatePipeline(4); // all done
+      div.innerHTML = '<div class="trace-result" style="border-color:#f59e0b;margin-top:12px;">' +
+        '<div class="trace-row"><span class="trace-key">State</span><span class="trace-val ok">' + esc(d.state || 'confirmed') + '</span></div>' +
+        '<div class="trace-row"><span class="trace-key">Rating</span><span class="trace-val" style="color:#f59e0b;">' + _selectedRating + ' / 5</span></div>' +
+        (d.settled_at ? '<div class="trace-row"><span class="trace-key">Settled at</span><span class="trace-val">' + esc(d.settled_at) + '</span></div>' : '') +
+        '</div>';
+      loadAhrpStats();
+    } else {
+      div.innerHTML = '<p class="err">' + esc(d ? d.error : 'Failed') + '</p>';
+    }
+    btn.textContent = 'Confirm & Settle'; btn.disabled = false;
+  });
+
+  // Initialize pipeline at step 0
+  updatePipeline(0);
+
   // ── Auto refresh ────────────────────────────────────────────
   setInterval(loadStatus, 30000);
+  setInterval(loadAhrpStats, 30000);
 
   // ── Init ─────────────────────────────────────────────────────
   loadStatus();
   loadAssets();
   loadStakes();
+  loadAhrpStats();
 
 })();
 </script>
