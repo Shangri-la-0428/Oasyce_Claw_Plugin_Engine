@@ -463,9 +463,9 @@ _INDEX_HTML = r"""<!DOCTYPE html>
 body {
   background: #0a0a0a;
   color: #e0e0e0;
-  font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', system-ui, sans-serif;
-  font-size: 15px;
-  line-height: 1.65;
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', 'Menlo', monospace;
+  font-size: 14px;
+  line-height: 1.7;
   letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
 }
@@ -485,7 +485,7 @@ body {
   background: rgba(10,10,10,0.88);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid #1a1a1a;
+  border-bottom: 1px solid #333;
   height: 48px;
   display: flex;
   align-items: center;
@@ -495,7 +495,7 @@ body {
   font-size: 14px;
   font-weight: 600;
   color: #fff;
-  letter-spacing: 3px;
+  letter-spacing: 5px;
   text-transform: uppercase;
 }
 .top-bar-dot {
@@ -515,11 +515,11 @@ body {
   padding: 56px 0 40px;
 }
 .hero-num {
-  font-size: 56px;
-  font-weight: 300;
+  font-size: 48px;
+  font-weight: 200;
   color: #fff;
   line-height: 1;
-  font-family: -apple-system, 'Helvetica Neue', sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 .hero-label {
   font-size: 13px;
@@ -536,9 +536,10 @@ body {
 }
 .hero-sub-item { text-align: center; }
 .hero-sub-num {
-  font-size: 24px;
-  font-weight: 400;
-  color: #ccc;
+  font-size: 22px;
+  font-weight: 300;
+  color: #bbb;
+  font-variant-numeric: tabular-nums;
 }
 .hero-sub-label {
   font-size: 11px;
@@ -550,7 +551,7 @@ body {
 
 /* ── Sections ────────────────────────────────────────────── */
 .section {
-  border-top: 1px solid #1a1a1a;
+  border-top: 1px solid #282828;
   padding: 32px 0;
 }
 .section-header {
@@ -562,19 +563,19 @@ body {
   padding: 0 4px;
 }
 .section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #888;
+  font-size: 11px;
+  font-weight: 500;
+  color: #666;
   text-transform: uppercase;
-  letter-spacing: 2px;
+  letter-spacing: 3px;
 }
 .section-toggle {
-  font-size: 18px;
+  font-size: 12px;
   color: #555;
-  transition: transform 0.3s ease;
+  transition: transform 0.2s ease;
   line-height: 1;
 }
-.section-toggle.open { transform: rotate(45deg); }
+.section-toggle.open { transform: rotate(90deg); }
 .section-body {
   overflow: hidden;
   transition: max-height 0.4s ease, opacity 0.3s ease;
@@ -595,17 +596,19 @@ input[type="text"], input[type="number"], select, textarea {
   height: 44px;
   font-size: 14px;
   background: transparent;
-  border: 1px solid #2a2a2a;
-  border-radius: 8px;
+  border: none;
+  border-bottom: 1px solid #2a2a2a;
+  border-radius: 0;
   color: #e0e0e0;
   padding: 0 14px;
   outline: none;
   transition: border-color 0.2s;
   font-family: inherit;
 }
-input:focus, select:focus, textarea:focus { border-color: #555; }
+select { border: 1px solid #2a2a2a; border-radius: 0; }
+input:focus, select:focus, textarea:focus { border-bottom-color: #666; }
 input::placeholder, textarea::placeholder { color: #444; }
-textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical; }
+textarea { height: auto; min-height: 80px; padding: 10px 12px; resize: vertical; border: 1px solid #2a2a2a; }
 
 .input-row {
   display: flex;
@@ -619,17 +622,17 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   height: 44px;
   font-size: 14px;
   font-weight: 500;
-  background: #1a1a1a;
-  color: #ccc;
-  border: 1px solid #2a2a2a;
-  border-radius: 8px;
+  background: #141414;
+  color: #aaa;
+  border: 1px solid #333;
+  border-radius: 0;
   padding: 0 20px;
   cursor: pointer;
   transition: all 0.2s;
   width: 100%;
   font-family: inherit;
 }
-.btn:hover { background: #222; border-color: #444; color: #fff; }
+.btn:hover { background: #1a1a1a; border-color: #555; color: #fff; box-shadow: 1px 1px 0 #333; }
 
 /* ── Asset List ──────────────────────────────────────────── */
 .asset-item {
@@ -637,7 +640,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   align-items: center;
   justify-content: space-between;
   padding: 14px 0;
-  border-bottom: 1px solid #141414;
+  border-bottom: 1px dotted #222;
   cursor: pointer;
   transition: opacity 0.2s;
 }
@@ -645,7 +648,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
 .asset-item:last-child { border-bottom: none; }
 .asset-left { flex: 1; min-width: 0; }
 .asset-id {
-  font-family: ui-monospace, 'SF Mono', monospace;
+  font-family: inherit;
   font-size: 13px;
   color: #ccc;
   white-space: nowrap;
@@ -677,7 +680,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   color: #444;
   font-size: 16px;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 0;
   opacity: 0;
   transition: all 0.2s;
   display: flex;
@@ -690,13 +693,15 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
 /* ── Tags ────────────────────────────────────────────────── */
 .pill {
   display: inline-block;
-  height: 20px;
-  line-height: 20px;
-  padding: 0 8px;
-  font-size: 11px;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 6px;
+  font-size: 10px;
   border: 1px solid #333;
-  border-radius: 4px;
-  color: #888;
+  border-radius: 0;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
   margin-right: 4px;
 }
 
@@ -706,8 +711,8 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   justify-content: space-between;
   align-items: baseline;
   padding: 8px 0;
-  border-bottom: 1px solid #141414;
-  font-size: 14px;
+  border-bottom: 1px dotted #222;
+  font-size: 13px;
 }
 .kv-row:last-child { border-bottom: none; }
 .kv-key { color: #555; }
@@ -722,9 +727,9 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
 
 /* ── Result Box ──────────────────────────────────────────── */
 .result-box {
-  background: #0f0f0f;
-  border: 1px solid #1a1a1a;
-  border-radius: 8px;
+  background: #0d0d0d;
+  border: 1px solid #333;
+  border-radius: 0;
   padding: 16px;
   margin-top: 16px;
 }
@@ -743,8 +748,9 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
 }
 .modal {
   background: #111;
-  border: 1px solid #222;
-  border-radius: 12px;
+  border: 1px solid #333;
+  border-radius: 0;
+  box-shadow: 3px 3px 0 #000;
   max-width: 480px;
   width: 90%;
   max-height: 80vh;
@@ -759,7 +765,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   background: none;
   border: none;
   color: #555;
-  font-size: 20px;
+  font-size: 16px;
   cursor: pointer;
 }
 .modal-close:hover { color: #fff; }
@@ -783,9 +789,9 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
 .toast {
   background: #141414;
   border: 1px solid #2a2a2a;
-  border-radius: 8px;
-  padding: 12px 16px;
-  font-size: 13px;
+  border-radius: 0;
+  padding: 10px 14px;
+  font-size: 12px;
   color: #ccc;
   animation: toastIn 0.25s ease, toastOut 0.25s ease 2.7s forwards;
   max-width: 300px;
@@ -854,8 +860,8 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   width: 100%;
   height: 2px;
   background: #1a1a1a;
-  border-radius: 1px;
-  margin: 8px 0;
+  border-radius: 0;
+  margin: 6px 0;
 }
 .match-bar-fill {
   height: 100%;
@@ -885,9 +891,9 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   padding: 8px 12px;
 }
 .tx-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
   border: 1.5px solid #333;
   background: transparent;
   transition: all 0.3s ease;
@@ -945,7 +951,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
 .checkbox-group input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: #888;
+  accent-color: #666;
 }
 
 /* ── Network Info ────────────────────────────────────────── */
@@ -1027,7 +1033,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   <div class="section" id="sec-assets">
     <div class="section-header" onclick="toggleSection('assets')">
       <span class="section-title">Your Assets</span>
-      <span class="section-toggle open" id="toggle-assets">+</span>
+      <span class="section-toggle open" id="toggle-assets">▸</span>
     </div>
     <div class="section-body open" id="body-assets">
       <div class="section-content">
@@ -1041,7 +1047,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   <div class="section" id="sec-register">
     <div class="section-header" onclick="toggleSection('register')">
       <span class="section-title">Register</span>
-      <span class="section-toggle" id="toggle-register">+</span>
+      <span class="section-toggle" id="toggle-register">▸</span>
     </div>
     <div class="section-body" id="body-register">
       <div class="section-content">
@@ -1060,7 +1066,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   <div class="section" id="sec-trade">
     <div class="section-header" onclick="toggleSection('trade')">
       <span class="section-title">Trade</span>
-      <span class="section-toggle" id="toggle-trade">+</span>
+      <span class="section-toggle" id="toggle-trade">▸</span>
     </div>
     <div class="section-body" id="body-trade">
       <div class="section-content">
@@ -1081,7 +1087,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   <div class="section" id="sec-portfolio">
     <div class="section-header" onclick="toggleSection('portfolio')">
       <span class="section-title">Portfolio</span>
-      <span class="section-toggle" id="toggle-portfolio">+</span>
+      <span class="section-toggle" id="toggle-portfolio">▸</span>
     </div>
     <div class="section-body" id="body-portfolio">
       <div class="section-content" id="portfolio-list"></div>
@@ -1092,7 +1098,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   <div class="section" id="sec-watermark">
     <div class="section-header" onclick="toggleSection('watermark')">
       <span class="section-title">Watermark</span>
-      <span class="section-toggle" id="toggle-watermark">+</span>
+      <span class="section-toggle" id="toggle-watermark">▸</span>
     </div>
     <div class="section-body" id="body-watermark">
       <div class="section-content">
@@ -1127,7 +1133,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   <div class="section" id="sec-stake">
     <div class="section-header" onclick="toggleSection('stake')">
       <span class="section-title">Stake</span>
-      <span class="section-toggle" id="toggle-stake">+</span>
+      <span class="section-toggle" id="toggle-stake">▸</span>
     </div>
     <div class="section-body" id="body-stake">
       <div class="section-content">
@@ -1145,7 +1151,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   <div class="section" id="sec-ahrp">
     <div class="section-header" onclick="toggleSection('ahrp')">
       <span class="section-title">Agent Protocol (AHRP)</span>
-      <span class="section-toggle" id="toggle-ahrp">+</span>
+      <span class="section-toggle" id="toggle-ahrp">▸</span>
     </div>
     <div class="section-body" id="body-ahrp">
       <div class="section-content">
@@ -1266,7 +1272,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   <div class="section" id="sec-network">
     <div class="section-header" onclick="toggleSection('network')">
       <span class="section-title">Network</span>
-      <span class="section-toggle" id="toggle-network">+</span>
+      <span class="section-toggle" id="toggle-network">▸</span>
     </div>
     <div class="section-body" id="body-network">
       <div class="section-content">
@@ -1279,7 +1285,7 @@ textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical
   </div>
 
   <!-- Footer -->
-  <div style="text-align:center;font-size:11px;color:#333;padding:40px 0 0;">Oasyce Protocol</div>
+  <div style="text-align:center;font-size:10px;color:#333;padding:48px 0 0;letter-spacing:3px;text-transform:uppercase;">Oasyce Protocol · 2026</div>
 
 </div>
 
