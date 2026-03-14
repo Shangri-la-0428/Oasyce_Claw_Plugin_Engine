@@ -119,6 +119,69 @@ class ExposureRegistry:
         total = sum(r.exposure_value for r in records)
         return total > max_single
 
+    def check_registration_fragmentation(
+        self,
+        new_asset_vector: list,
+        new_asset_size: int,
+        existing_assets: list,
+        similarity_threshold: float = 0.8,
+        size_ratio_threshold: float = 0.3,
+    ) -> dict:
+        """Check if a new asset is a potential fragment of an existing dataset.
+
+        A fragment is detected when the new asset is semantically similar
+        (cosine similarity > similarity_threshold) to an existing asset
+        AND significantly smaller (size_ratio < size_ratio_threshold).
+
+        Args:
+            new_asset_vector: Semantic vector of the new asset.
+            new_asset_size: File size (bytes) of the new asset.
+            existing_assets: List of dicts with keys:
+                asset_id, semantic_vector, file_size_bytes.
+            similarity_threshold: Cosine similarity above which assets
+                are considered semantically related.
+            size_ratio_threshold: Size ratio below which the new asset
+                is considered a fragment of the existing one.
+
+        Returns:
+            dict with 'is_fragment' (bool), 'warning' (str or None),
+            and 'matches' (list of matching asset_ids).
+        """
+        if not new_asset_vector or new_asset_size <= 0:
+            return {"is_fragment": False, "warning": None, "matches": []}
+
+        matches = []
+        for asset in existing_assets:
+            vec = asset.get("semantic_vector")
+            size = asset.get("file_size_bytes", 0)
+            if not vec or size <= 0:
+                continue
+            if len(vec) != len(new_asset_vector):
+                continue
+
+            # Cosine similarity
+            dot = sum(a * b for a, b in zip(new_asset_vector, vec))
+            mag_a = sum(a * a for a in new_asset_vector) ** 0.5
+            mag_b = sum(b * b for b in vec) ** 0.5
+            if mag_a == 0 or mag_b == 0:
+                continue
+            sim = dot / (mag_a * mag_b)
+
+            size_ratio = new_asset_size / size
+            if sim > similarity_threshold and size_ratio < size_ratio_threshold:
+                matches.append(asset.get("asset_id", "unknown"))
+
+        if matches:
+            return {
+                "is_fragment": True,
+                "warning": (
+                    f"Potential fragment detected: new asset is semantically similar "
+                    f"to {matches} but significantly smaller (possible data fragmentation)"
+                ),
+                "matches": matches,
+            }
+        return {"is_fragment": False, "warning": None, "matches": []}
+
     @property
     def total_access_count(self) -> int:
         """Monotonic counter of all tracked access events (integrity check)."""

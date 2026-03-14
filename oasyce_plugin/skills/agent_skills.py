@@ -88,17 +88,86 @@ class OasyceSkills:
     ) -> Dict[str, Any]:
         """
         注册数据资产
-        
+
         Args:
             metadata: 元数据
             file_path: 原文件路径（可选，如果提供则上传到存储后端）
             storage_backend: 存储后端 ("local" | "ipfs")，默认 "local"
         """
         storage_dir = getattr(self.config, 'storage_dir', None)
-        return self._unwrap(UploadEngine.register_asset_with_storage(
+        result = self._unwrap(UploadEngine.register_asset_with_storage(
             metadata, self.vault_path, file_path, storage_backend, storage_dir,
             ledger=self.ledger,
         ))
+
+        # Registration-time fragmentation detection
+        frag_result = self._check_registration_fragmentation(metadata)
+        if frag_result and frag_result.get("is_fragment"):
+            result["fragment_warning"] = frag_result["warning"]
+            result["fragment_matches"] = frag_result["matches"]
+
+        return result
+
+    def _check_registration_fragmentation(self, metadata: Dict[str, Any]) -> Optional[Dict]:
+        """Check if a newly registered asset is a fragment of existing assets."""
+        from oasyce_plugin.services.exposure.registry import ExposureRegistry
+
+        new_vector = metadata.get("semantic_vector")
+        new_size = metadata.get("file_size_bytes", 0)
+        if not new_vector or not new_size:
+            return None
+
+        # Gather existing assets from ledger or vault
+        existing = self._get_existing_asset_vectors()
+        if not existing:
+            return None
+
+        registry = ExposureRegistry()
+        return registry.check_registration_fragmentation(
+            new_vector, new_size, existing,
+        )
+
+    def _get_existing_asset_vectors(self) -> List[Dict[str, Any]]:
+        """Collect asset_id, semantic_vector, file_size_bytes from registered assets."""
+        import json as _json
+
+        assets: List[Dict[str, Any]] = []
+
+        # Try ledger first
+        if self.ledger is not None:
+            try:
+                for a in self.ledger.search_assets(""):
+                    vec = a.get("semantic_vector")
+                    size = a.get("file_size_bytes", 0)
+                    if vec and size:
+                        assets.append({
+                            "asset_id": a.get("asset_id", ""),
+                            "semantic_vector": vec,
+                            "file_size_bytes": size,
+                        })
+            except Exception:
+                pass
+
+        # Fallback: scan vault JSON files
+        if not assets and os.path.isdir(self.vault_path):
+            for fname in os.listdir(self.vault_path):
+                if fname.endswith(".json"):
+                    fpath = os.path.join(self.vault_path, fname)
+                    try:
+                        with open(fpath, "r", encoding="utf-8") as f:
+                            data = _json.load(f)
+                        vec = data.get("semantic_vector")
+                        size = data.get("file_size_bytes", 0)
+                        if vec and size:
+                            assets.append({
+                                "asset_id": data.get("asset_id", ""),
+                                "semantic_vector": vec,
+                                "file_size_bytes": size,
+                            })
+                    except Exception:
+                        continue
+
+        return assets
 
     def search_data_skill(self, query_tag: str) -> List[Dict[str, Any]]:
         """搜索数据资产"""

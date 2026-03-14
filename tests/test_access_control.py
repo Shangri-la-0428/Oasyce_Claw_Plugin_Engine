@@ -125,8 +125,8 @@ class TestReputationEngine:
             reputation.update("agent-1", success=True)
         # Apply 2 decay periods (180 days)
         score = reputation.update("agent-1", time_since_last=180.0)
-        # 30 + (-10 damage) + (-10 for 2 periods) = 10, floor=max(10,0)=10
-        assert score == 10.0
+        # 30 + (-10 damage) = 20, then -10 (2 periods) = 10, decay floor → max(10, 20) = 20
+        assert score == 20.0
 
     def test_decay_floor(self, reputation):
         # Boost: 10 + 20 (rate-limited) = 30
@@ -134,8 +134,9 @@ class TestReputationEngine:
             reputation.update("agent-1", success=True)
         # Apply massive decay (900 days = 10 periods)
         score = reputation.update("agent-1", time_since_last=900.0, success=True)
-        # 30 + 5 (success) - 50 (10 periods × -5) = -15, floor=max(-15,0)=0
-        assert score == 0.0
+        # 30 + 0 (rate-limited) - 50 (decay) = -20, decay floor → max(-20, 20) = 20
+        # hard floor → max(20, 0) = 20
+        assert score == 20.0
 
     def test_bond_discount(self, reputation):
         # Initial rep = 10 → discount = 1 - 10/100 = 0.9
@@ -218,6 +219,77 @@ class TestExposureRegistry:
         exposure.track_access("agent-1", "ASSET_001", 50.0, "L0")
         # total=150 > max_single=100 → fragmentation detected
         assert exposure.check_fragmentation_attack("agent-1", "ASSET_001") is True
+
+    def test_registration_fragmentation_detected(self, exposure):
+        """New small asset similar to existing large one is a potential fragment."""
+        existing = [
+            {"asset_id": "BIG_001", "semantic_vector": [1.0, 0.0, 0.0], "file_size_bytes": 10000},
+        ]
+        result = exposure.check_registration_fragmentation(
+            new_asset_vector=[1.0, 0.0, 0.0],
+            new_asset_size=500,  # 5% of 10000 < 30%
+            existing_assets=existing,
+        )
+        assert result["is_fragment"] is True
+        assert "BIG_001" in result["matches"]
+        assert result["warning"] is not None
+
+    def test_registration_no_fragmentation_different_content(self, exposure):
+        """Dissimilar asset is not a fragment even if small."""
+        existing = [
+            {"asset_id": "BIG_001", "semantic_vector": [1.0, 0.0, 0.0], "file_size_bytes": 10000},
+        ]
+        result = exposure.check_registration_fragmentation(
+            new_asset_vector=[0.0, 1.0, 0.0],  # orthogonal
+            new_asset_size=500,
+            existing_assets=existing,
+        )
+        assert result["is_fragment"] is False
+        assert result["matches"] == []
+
+    def test_registration_no_fragmentation_similar_size(self, exposure):
+        """Similar asset of comparable size is not a fragment."""
+        existing = [
+            {"asset_id": "BIG_001", "semantic_vector": [1.0, 0.0, 0.0], "file_size_bytes": 10000},
+        ]
+        result = exposure.check_registration_fragmentation(
+            new_asset_vector=[1.0, 0.0, 0.0],
+            new_asset_size=5000,  # 50% > 30%
+            existing_assets=existing,
+        )
+        assert result["is_fragment"] is False
+
+    def test_registration_fragmentation_no_vector(self, exposure):
+        """No vector → no fragmentation check."""
+        result = exposure.check_registration_fragmentation(
+            new_asset_vector=None,
+            new_asset_size=500,
+            existing_assets=[{"asset_id": "X", "semantic_vector": [1.0], "file_size_bytes": 10000}],
+        )
+        assert result["is_fragment"] is False
+
+    def test_registration_fragmentation_empty_existing(self, exposure):
+        """No existing assets → no fragmentation."""
+        result = exposure.check_registration_fragmentation(
+            new_asset_vector=[1.0, 0.0],
+            new_asset_size=500,
+            existing_assets=[],
+        )
+        assert result["is_fragment"] is False
+
+    def test_registration_fragmentation_multiple_matches(self, exposure):
+        """Multiple existing assets can match."""
+        existing = [
+            {"asset_id": "BIG_001", "semantic_vector": [1.0, 0.0], "file_size_bytes": 10000},
+            {"asset_id": "BIG_002", "semantic_vector": [0.99, 0.1], "file_size_bytes": 8000},
+        ]
+        result = exposure.check_registration_fragmentation(
+            new_asset_vector=[1.0, 0.0],
+            new_asset_size=200,
+            existing_assets=existing,
+        )
+        assert result["is_fragment"] is True
+        assert "BIG_001" in result["matches"]
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -321,13 +393,31 @@ class TestDataAccessProviderAccess:
         assert result.success is False
         assert "exceeds" in result.error
 
-    def test_deliver_requires_high_rep(self, provider, reputation):
-        """L3 delivery requires non-sandbox reputation."""
-        for _ in range(5):
+    def test_l2_denied_for_limited_tier(self, provider, reputation):
+        """Agents with 20 <= rep < 50 cannot access L2+."""
+        for _ in range(3):
             reputation.update("agent-1", success=True)
-        result = provider.deliver("agent-1", "ASSET_001")
+        # rep = 10 + 15 = 25, in limited tier (20-50)
+        result = provider.compute("agent-1", "ASSET_001")
+        assert result.success is False
+
+    def test_deliver_requires_full_rep(self, provider, reputation):
+        """L3 delivery requires rep >= limited_threshold (50)."""
+        # Need rep >= 50.  Initial 10 + 20/day cap = 30 first day.
+        # Manually set score to bypass rate limit for test
+        agent = reputation._ensure_agent("agent-full")
+        agent.score = 55.0
+        result = provider.deliver("agent-full", "ASSET_001")
         assert result.success is True
         assert result.access_level == "L3"
+
+    def test_l2_allowed_with_full_rep(self, provider, reputation):
+        """L2 access requires rep >= limited_threshold (50)."""
+        agent = reputation._ensure_agent("agent-full")
+        agent.score = 55.0
+        result = provider.compute("agent-full", "ASSET_001")
+        assert result.success is True
+        assert result.access_level == "L2"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -345,16 +435,15 @@ class TestBondCalculation:
         assert result.bond_required == 900.0
 
     def test_l3_bond_public(self, provider, reputation):
-        """L3, public risk, rep boosted to 30 (rate-limited: 4×5=20 cap/day).
+        """L3, public risk, rep set to 55 (above limited_threshold).
 
-        Bond = 1000 × 5.0 × 1.0 × (1 - 30/100) × 1.0 = 5000 × 0.7 = 3500
+        Bond = 1000 × 5.0 × 1.0 × (1 - 55/100) × 1.0 = 5000 × 0.45 = 2250
         """
-        for _ in range(5):
-            reputation.update("agent-1", success=True)
-        # rep = 10 + 20 (capped at 20/day) = 30
-        result = provider.deliver("agent-1", "ASSET_001")
+        agent = reputation._ensure_agent("agent-l3")
+        agent.score = 55.0
+        result = provider.deliver("agent-l3", "ASSET_001")
         assert result.success is True
-        assert result.bond_required == 3500.0
+        assert result.bond_required == 2250.0
 
     def test_high_risk_multiplier(self, provider, reputation):
         """ASSET_002 has risk=high (2.0×) and value=500.
@@ -454,19 +543,28 @@ class TestSkillsAccessControl:
 
     def test_skills_compute(self, skills):
         rep = skills.access_provider.reputation
-        for _ in range(5):
-            rep.update("agent-z", success=True)
+        agent = rep._ensure_agent("agent-z")
+        agent.score = 55.0  # above limited_threshold (50)
         result = skills.compute_data_skill("agent-z", "ASSET_S1", "sum(col1)")
         assert result["success"] is True
         assert result["access_level"] == "L2"
 
     def test_skills_deliver(self, skills):
         rep = skills.access_provider.reputation
-        for _ in range(5):
-            rep.update("agent-z", success=True)
+        agent = rep._ensure_agent("agent-z")
+        agent.score = 55.0  # above limited_threshold (50)
         result = skills.deliver_data_skill("agent-z", "ASSET_S1")
         assert result["success"] is True
         assert result["access_level"] == "L3"
+
+    def test_skills_compute_denied_limited_tier(self, skills):
+        """Agent with rep 20-50 (limited tier) cannot access L2."""
+        rep = skills.access_provider.reputation
+        for _ in range(3):
+            rep.update("agent-lim", success=True)
+        # rep = 10 + 15 = 25, in limited tier
+        result = skills.compute_data_skill("agent-lim", "ASSET_S1", "sum(col1)")
+        assert result["success"] is False
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -569,16 +667,20 @@ class TestThreadSafety:
 # ═══════════════════════════════════════════════════════════════════
 
 class TestRepFloorAlignment:
-    def test_rep_floor_below_sandbox_threshold(self, config):
-        """rep_floor must be <= sandbox_threshold so decay can reach sandbox."""
-        assert config.rep_floor <= config.sandbox_threshold
+    def test_rep_floor_at_sandbox_threshold(self, config):
+        """rep_floor equals sandbox_threshold — decay stops at sandbox boundary."""
+        assert config.rep_floor == config.sandbox_threshold
 
-    def test_rep_floor_is_zero(self, config):
-        """rep_floor defaults to 0."""
-        assert config.rep_floor == 0.0
+    def test_rep_floor_is_twenty(self, config):
+        """rep_floor defaults to 20."""
+        assert config.rep_floor == 20.0
 
-    def test_decay_reaches_sandbox(self, reputation):
-        """With rep_floor=0, decay can push agent below sandbox threshold."""
+    def test_limited_threshold(self, config):
+        """limited_threshold defaults to 50."""
+        assert config.limited_threshold == 50.0
+
+    def test_decay_stops_at_sandbox_boundary(self, reputation):
+        """With rep_floor=20, decay floors agent at sandbox threshold."""
         # Boost to 30
         for _ in range(5):
             reputation.update("agent-1", success=True)
@@ -586,11 +688,19 @@ class TestRepFloorAlignment:
 
         # Heavy decay: 900 days = 10 periods × -5 = -50
         score = reputation.update("agent-1", time_since_last=900.0, success=True)
-        # Should be below sandbox threshold (20)
-        assert score < 20.0
+        # 30 + 0 (rate-limited) then decay: -50 → 30-50 = -20, decay floor → max(-20, 20) = 20
+        # hard floor → max(20, 0) = 20
+        assert score == 20.0
 
-    def test_inactive_agent_returns_to_sandbox(self, reputation, config):
-        """Long-inactive agent decays back to sandbox mode."""
+    def test_penalty_can_push_below_sandbox(self, reputation):
+        """Penalties (leak) can push rep below sandbox_threshold despite rep_floor."""
+        # Leak penalty bypasses decay floor, only hard-floor (0) applies
+        score = reputation.update("agent-1", leak_detected=True)
+        # 10 - 50 = -40, hard-floor → 0
+        assert score == 0.0
+
+    def test_inactive_agent_decays_to_sandbox(self, reputation, config):
+        """Long-inactive agent decays to sandbox zone (rep_floor=20)."""
         # Build reputation above sandbox threshold
         for _ in range(5):
             reputation.update("agent-1", success=True)
@@ -599,7 +709,8 @@ class TestRepFloorAlignment:
 
         # Simulate very long inactivity via manual decay
         score = reputation.update("agent-1", time_since_last=1800.0)
-        # 1800 days / 90 = 20 periods × -5 = -100 (plus damage -10)
-        # Should be at floor (0)
-        assert score == 0.0
-        assert score < config.sandbox_threshold
+        # Order: damage(-10) first → 30-10=20, then decay(-100) → 20-100=-80
+        # → decay floor max(-80, 20) = 20, hard floor max(20, 0) = 20
+        assert score == 20.0
+        # At sandbox boundary — agent is exactly at sandbox_threshold
+        assert score == config.sandbox_threshold

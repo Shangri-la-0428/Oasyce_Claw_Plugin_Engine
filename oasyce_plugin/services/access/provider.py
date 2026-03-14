@@ -149,9 +149,12 @@ class DataAccessProvider:
     ) -> bool:
         """Verify agent may access at the requested level.
 
-        Checks:
-        1. required_level ≤ asset's max_access_level
-        2. Sandbox agents (reputation < threshold) limited to L0
+        Three-tier reputation gating:
+        1. R < sandbox_threshold (20): sandbox — L0 only
+        2. sandbox_threshold <= R < limited_threshold (50): limited — L0, L1
+        3. R >= limited_threshold (50): full access — L0, L1, L2, L3
+
+        Also checks: required_level ≤ asset's max_access_level.
         """
         asset = self._assets[asset_id]
         max_level = parse_max_access_level(asset["max_access_level"])
@@ -160,8 +163,18 @@ class DataAccessProvider:
             return False
 
         rep = self.reputation.get_reputation(agent_id)
-        if rep < self.config.sandbox_threshold and required_level != AccessLevel.L0_QUERY:
-            return False
+
+        # Tier 1: sandbox — L0 only
+        if rep < self.config.sandbox_threshold:
+            if required_level != AccessLevel.L0_QUERY:
+                return False
+
+        # Tier 2: limited — L0, L1 only
+        elif rep < self.config.limited_threshold:
+            if access_level_index(required_level) > access_level_index(AccessLevel.L1_SAMPLE):
+                return False
+
+        # Tier 3: full access — all levels allowed (no extra check)
 
         return True
 
