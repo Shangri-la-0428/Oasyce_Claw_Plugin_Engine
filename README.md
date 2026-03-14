@@ -5,12 +5,12 @@
 **Decentralized data-rights clearinghouse — settle access, usage, and revenue rights for the AI era.**
 **Local-first, zero-server, every node is the network.**
 
-[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-237%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-335%20passed-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-[Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Economics](docs/ECONOMICS.md) · [Testing](#testing)
+[Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Access Control](#data-access-control) · [OAS-DAS](#oas-das-standard) · [Economics](docs/ECONOMICS.md) · [Testing](#testing)
 
 </div>
 
@@ -63,7 +63,7 @@ Built across 9 development phases:
 | 8 | **Staking Economy** | Proof-of-Stake, validator lifecycle, slashing, halving rewards |
 | 9 | **Fingerprint Watermarking** | Steganographic embedding, extraction, leak tracing |
 
-**Plus:** Web GUI dashboard, settlement engine (Bancor curves), privacy filter, IPFS-compatible storage, PoPC verification service, oasyce_core bridge layer.
+**Plus:** Web GUI dashboard, settlement engine (Bancor curves), privacy filter, IPFS-compatible storage, PoPC verification service, oasyce_core bridge layer, **data access control (L0-L3)**, **reputation engine**, **exposure registry**, **OAS-DAS standard**.
 
 ---
 
@@ -131,6 +131,113 @@ For each data access fee collected at the network level:
 ### Fingerprint Economics
 
 Each buyer receives a uniquely watermarked copy. Leak detection: extract watermark → identify leaker → on-chain proof (fingerprint ↔ caller_id ↔ timestamp).
+
+---
+
+## Data Access Control
+
+Oasyce enforces **four levels of data access**, each with increasing exposure and correspondingly higher bond requirements. Buyers purchase **rights to use**, not rights to possess.
+
+### Access Levels
+
+| Level | Method | Data Exposure | Bond Multiplier | Use Case |
+|-------|--------|---------------|-----------------|----------|
+| **L0** Query | Aggregated statistics | Zero | 1× | "How many records match X?" |
+| **L1** Sample | Redacted + watermarked fragments | Minimal | 2× | Preview before full purchase |
+| **L2** Compute | Code executes in TEE, only outputs leave | Zero | 3× | Train a model without seeing raw data |
+| **L3** Deliver | Full data + per-buyer watermark | Full | 5× | Traditional data delivery |
+
+### Bond Calculation
+
+Every access request requires a bond that is held for the liability window:
+
+```
+Bond = TWAP(Value) × Multiplier(Level) × RiskFactor × (1 - R/100) × ExposureFactor
+```
+
+- **Multipliers:** L0=1.0, L1=2.0, L2=3.0, L3=5.0
+- **Risk Factors:** public=1.0, low=1.2, medium=1.5, high=2.0, critical=3.0
+- **R** = agent reputation score (higher reputation → lower bond)
+- **ExposureFactor** = `1 + (cumulative_exposure / asset_value)` — prevents fragmentation attacks
+
+### Reputation Engine
+
+Agents build trust through behavior. Reputation determines bond discounts and access privileges:
+
+```
+R(t+1) = R(t) + α·S − β·D − γ·L − δ·T
+
+α = +5   successful access completion
+β = −10  data damage or incorrect result
+γ = −50  watermark leak detected
+δ = −5   time decay (every 90 days)
+```
+
+- **Initial score:** 10 (sandbox mode — L0 only)
+- **Sandbox threshold:** R < 20 restricts agent to L0 access
+- **Floor after decay:** 50 (decay alone cannot push below 50)
+
+### Liability Windows
+
+Bonds are time-locked and released only after the liability period:
+
+| Level | Window | Rationale |
+|-------|--------|-----------|
+| L0 Query | 1 day | No data exposed |
+| L1 Sample | 3 days | Minimal exposure |
+| L2 Compute | 7 days | TEE output verification |
+| L3 Deliver | 30 days | Full exposure, maximum risk |
+
+### Exposure Registry
+
+Cumulative exposure tracking prevents fragmentation attacks — many small L1 requests cannot circumvent the bond requirement of a single L3 delivery:
+
+```
+E*(agent, dataset) = max(V_current, Σ V_i)
+```
+
+---
+
+## OAS-DAS Standard
+
+The **Oasyce Data Asset Standard (OAS-DAS)** defines a machine-readable, five-layer schema for every data asset on the network. It enables semantic deduplication, automated policy enforcement, and cross-platform interoperability.
+
+### Five-Layer Schema
+
+| Layer | Name | Contents |
+|-------|------|----------|
+| **L1** | Identity | Global unique ID, creator, timestamps, version, namespace |
+| **L2** | Metadata | Title, tags, file info, checksum, language, category |
+| **L3** | Access Policy | Risk level, max access level (L0-L3), pricing model, license type, geographic restrictions, expiry |
+| **L4** | Compute Interface | TEE execution parameters: supported operations, input/output schemas, runtime, resource limits |
+| **L5** | Provenance | PoPC signature, certificate issuer, parent assets, fingerprint ID, semantic vector |
+
+### Validation
+
+Every asset is validated against the OAS-DAS schema before registration:
+
+- **Risk levels:** `public`, `low`, `medium`, `high`, `critical`
+- **Access levels:** `L0`, `L1`, `L2`, `L3`
+- **Pricing models:** `bonding_curve`, `free`
+- **License types:** `proprietary`, `cc-by`, `cc-by-sa`, `mit`, `public-domain`
+
+### Semantic Deduplication
+
+Layer 5 includes a semantic vector that enables automatic detection of near-duplicate assets. The `similarity()` method computes cosine similarity between asset vectors, and `is_duplicate()` flags assets above the configurable threshold.
+
+```python
+from oasyce_plugin.standards import OasDas
+
+# Build a standard descriptor from existing asset metadata
+descriptor = OasDas.from_asset_metadata(asset_metadata)
+
+# Validate
+errors = descriptor.validate()
+assert errors == []
+
+# Check for duplicates
+score = descriptor.similarity(other_descriptor)
+```
 
 ---
 
@@ -249,6 +356,45 @@ oasyce fingerprint trace <fingerprint_hash>
 oasyce fingerprint list <asset_id>
 ```
 
+### Data Access Control
+
+```bash
+# Query aggregated statistics (L0 — zero exposure)
+oasyce access query <asset_id> --agent <agent_id> [--query "count matching X"]
+
+# Request redacted sample (L1 — minimal exposure)
+oasyce access sample <asset_id> --agent <agent_id> [--size 10]
+
+# Execute code in TEE (L2 — zero exposure)
+oasyce access compute <asset_id> --agent <agent_id> --code "model.fit(data)"
+
+# Full delivery with watermark (L3 — full exposure)
+oasyce access deliver <asset_id> --agent <agent_id>
+
+# Calculate bond requirement for a given access level
+oasyce access bond <asset_id> --agent <agent_id> --level L0|L1|L2|L3
+```
+
+### Reputation
+
+```bash
+# Check an agent's reputation score
+oasyce reputation check <agent_id>
+
+# Update reputation (admin/testing)
+oasyce reputation update <agent_id> [--success] [--leak] [--damage]
+```
+
+### Asset Standard (OAS-DAS)
+
+```bash
+# View full 5-layer OAS-DAS descriptor for an asset
+oasyce asset-info <asset_id> [--json]
+
+# Validate an asset against the OAS-DAS schema
+oasyce asset-validate <asset_id> [--json]
+```
+
 ### Utilities
 
 ```bash
@@ -345,6 +491,15 @@ Oasyce_Claw_Plugin_Engine/
 │   ├── security/
 │   │   └── keymanager.py           # Key management
 │   ├── services/
+│   │   ├── access/
+│   │   │   ├── __init__.py         # AccessLevel enum, helpers
+│   │   │   ├── config.py           # Access control configuration
+│   │   │   └── provider.py         # L0-L3 access methods + bond calc
+│   │   ├── reputation/
+│   │   │   └── __init__.py         # Agent reputation scoring engine
+│   │   ├── exposure/
+│   │   │   ├── registry.py         # Cumulative exposure tracking
+│   │   │   └── window.py           # Liability window + bond release
 │   │   ├── settlement/
 │   │   │   └── engine.py           # Bancor bonding curve settlement
 │   │   ├── staking/
@@ -354,18 +509,21 @@ Oasyce_Claw_Plugin_Engine/
 │   │       └── engine.py           # PoPC verification engine
 │   ├── skills/
 │   │   └── agent_skills.py         # AI agent integration (OpenClaw)
+│   ├── standards/
+│   │   ├── __init__.py             # OAS-DAS exports
+│   │   └── oas_das.py              # 5-layer data asset standard schema
 │   ├── storage/
 │   │   ├── __init__.py             # Storage backends
 │   │   ├── ledger.py               # SQLite blockchain ledger
 │   │   └── ipfs_client.py          # IPFS integration
 │   └── scripts/
 │       └── demo_network.py         # Multi-node demo orchestrator
-├── tests/                          # 220 tests across 15 test files
+├── tests/                          # 335 tests across 19 test files
 ├── examples/                       # Usage examples
 ├── scripts/                        # Setup & utility scripts
 ├── docs/                           # Documentation
 │   └── ECONOMICS.md                # Detailed economic model
-├── setup.py                        # Package config (v0.9.0)
+├── setup.py                        # Package config (v1.0.0)
 └── README.md                       # This file
 ```
 
@@ -384,7 +542,7 @@ python3 -m pytest tests/ -v --cov=oasyce_plugin --cov-report=term-missing
 python3 -m pytest tests/test_settlement_engine.py -v
 ```
 
-**Test suite:** 220 tests across 15 test files covering:
+**Test suite:** 335 tests across 19 test files covering:
 
 | Test File | Coverage Area |
 |-----------|-------------|
@@ -403,6 +561,10 @@ python3 -m pytest tests/test_settlement_engine.py -v
 | `test_staking.py` | Staking, slashing, rewards |
 | `test_sync.py` | Block synchronization |
 | `test_verification_service.py` | PoPC verification service |
+| `test_access_control.py` | L0-L3 access, bond calc, reputation |
+| `test_exposure_registry.py` | Cumulative exposure, fragmentation |
+| `test_liability_window.py` | Bond lock/release, time windows |
+| `test_oas_das.py` | 5-layer schema validation, dedup |
 
 ---
 
@@ -434,7 +596,7 @@ export OASYCE_SIGNING_KEY_ID=my_key_001
 
 | Metric | Value |
 |--------|-------|
-| Tests | 220 passing |
+| Tests | 335 passing |
 | Source files | ~50 |
 | Development phases | 9 |
 | Core dependencies | Zero (stdlib only for protocol) |
