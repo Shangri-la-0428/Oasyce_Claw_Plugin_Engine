@@ -684,6 +684,63 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   color:var(--text);margin-bottom:16px;
 }
 
+/* ── Drop Zone ──────────── */
+.drop-zone{
+  border:2px dashed var(--border);
+  border-radius:12px;
+  padding:48px 24px;
+  text-align:center;
+  cursor:pointer;
+  transition:all 0.2s;
+  position:relative;
+}
+.drop-zone:hover,.drop-zone.over{
+  border-color:var(--border-h);
+  background:var(--hover);
+}
+.drop-zone.has-file{
+  border-style:solid;
+  border-color:var(--success);
+  background:transparent;
+  padding:20px 24px;
+}
+.drop-icon{font-size:32px;margin-bottom:12px;opacity:0.5;}
+.drop-text{font-size:14px;color:var(--text-s);}
+.drop-link{color:var(--text);font-weight:500;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
+.drop-hint{font-size:12px;color:var(--text-t);margin-top:8px;}
+.drop-file{
+  display:flex;align-items:center;gap:12px;
+  font-size:14px;color:var(--text);
+}
+.drop-file-name{font-weight:500;word-break:break-all;}
+.drop-file-size{font-size:12px;color:var(--text-t);}
+.drop-file-remove{
+  margin-left:auto;
+  background:none;border:none;
+  color:var(--text-t);font-size:16px;
+  cursor:pointer;padding:4px 8px;
+}
+.drop-file-remove:hover{color:var(--error);}
+
+/* ── Field Hints ──────────── */
+.field-hint{
+  font-size:12px;
+  color:var(--text-t);
+  margin-top:4px;
+  line-height:1.4;
+}
+.required{
+  font-size:10px;
+  color:var(--error);
+  font-weight:normal;
+}
+.optional{
+  font-size:10px;
+  color:var(--text-t);
+  font-weight:normal;
+  font-style:italic;
+}
+
 /* ── Asset List ──────────── */
 .a-table{width:100%;}
 .a-row{
@@ -921,10 +978,10 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     <div class="page-desc">Quote and purchase shares in data assets. Buy to gain access rights and revenue share.</div>
 
     <div class="card">
-      <div class="card-title">Buy Shares</div>
+      <div class="card-title" data-i18n="card-buy">Buy Shares</div>
       <div class="row">
-        <div class="field"><label class="field-label">Asset ID</label><input type="text" id="buy-asset" placeholder="Paste asset ID"></div>
-        <div class="field" style="max-width:140px;"><label class="field-label">Amount (OAS)</label><input type="number" id="buy-amount" value="10"></div>
+        <div class="field"><label class="field-label"><span data-i18n="lbl-asset-id">Asset ID</span> <span class="required">*</span></label><input type="text" id="buy-asset" placeholder="Paste asset ID"><div class="field-hint" data-i18n="hint-buy-asset">Copy from the Assets tab or from the creator who shared it with you.</div></div>
+        <div class="field" style="max-width:140px;"><label class="field-label"><span data-i18n="lbl-amount">Amount (OAS)</span></label><input type="number" id="buy-amount" value="10"><div class="field-hint" data-i18n="hint-buy-amount">How much to spend.</div></div>
       </div>
       <div class="row">
         <button class="btn btn-ghost btn-full" id="quote-btn">Quote</button>
@@ -1124,7 +1181,87 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       document.getElementById('pg-'+this.dataset.page).classList.add('active');
       if(this.dataset.page==='assets')loadAssets();
       if(this.dataset.page==='trade')loadPortfolio();
-      if(this.dataset.page==='network'){// ── i18n ──
+      if(this.dataset.page==='network'){// ── Drop Zone ──
+  var dropZone = document.getElementById('drop-zone');
+  var filePick = document.getElementById('file-pick');
+  var regFields = document.getElementById('reg-fields');
+  var dropFileInfo = document.getElementById('drop-file-info');
+  var dropText = document.getElementById('drop-text');
+  var _droppedPath = '';
+
+  function formatSize(bytes){
+    if(bytes<1024)return bytes+' B';
+    if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
+    return(bytes/1048576).toFixed(1)+' MB';
+  }
+
+  function handleFile(file){
+    _droppedPath = file.name;
+    // Try to get full path (only works in some browsers via webkitRelativePath)
+    if(file.path) _droppedPath = file.path;
+    else if(file.webkitRelativePath) _droppedPath = file.webkitRelativePath;
+
+    document.getElementById('reg-path').value = _droppedPath;
+
+    // Auto-generate tags from file extension and name
+    var ext = file.name.split('.').pop().toLowerCase();
+    var autoTags = [];
+    if(['csv','json','xml','parquet','sqlite','db'].indexOf(ext)!==-1) autoTags.push('dataset');
+    if(['jpg','jpeg','png','gif','webp','svg','bmp'].indexOf(ext)!==-1) autoTags.push('image');
+    if(['mp4','mov','avi','mkv'].indexOf(ext)!==-1) autoTags.push('video');
+    if(['mp3','wav','flac','ogg'].indexOf(ext)!==-1) autoTags.push('audio');
+    if(['pdf','doc','docx','txt','md'].indexOf(ext)!==-1) autoTags.push('document');
+    if(['py','js','ts','go','rs','java','c','cpp'].indexOf(ext)!==-1) autoTags.push('code');
+    if(ext) autoTags.push(ext);
+    document.getElementById('reg-tags').value = autoTags.join(', ');
+
+    // Show file info in drop zone
+    dropZone.classList.add('has-file');
+    dropFileInfo.style.display = 'flex';
+    dropFileInfo.innerHTML = '<div><div class="drop-file-name">'+esc(file.name)+'</div><div class="drop-file-size">'+formatSize(file.size)+'</div></div><button class="drop-file-remove" onclick="clearFile()">&times;</button>';
+    dropText.style.display = 'none';
+    document.querySelector('.drop-icon').style.display = 'none';
+    document.querySelector('.drop-hint').style.display = 'none';
+
+    // Show form fields
+    regFields.style.display = 'block';
+  }
+
+  window.clearFile = function(){
+    _droppedPath = '';
+    document.getElementById('reg-path').value = '';
+    document.getElementById('reg-tags').value = '';
+    dropZone.classList.remove('has-file');
+    dropFileInfo.style.display = 'none';
+    dropFileInfo.innerHTML = '';
+    dropText.style.display = '';
+    document.querySelector('.drop-icon').style.display = '';
+    document.querySelector('.drop-hint').style.display = '';
+    regFields.style.display = 'none';
+    filePick.value = '';
+  };
+
+  // Drag events
+  ['dragenter','dragover'].forEach(function(evt){
+    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('over');});
+  });
+  ['dragleave','drop'].forEach(function(evt){
+    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('over');});
+  });
+  dropZone.addEventListener('drop', function(e){
+    var files = e.dataTransfer.files;
+    if(files.length > 0) handleFile(files[0]);
+  });
+  dropZone.addEventListener('click', function(e){
+    if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'LABEL' && !dropZone.classList.contains('has-file')){
+      filePick.click();
+    }
+  });
+  filePick.addEventListener('change', function(){
+    if(this.files.length > 0) handleFile(this.files[0]);
+  });
+
+  // ── i18n ──
   var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
   var _t = {
     en: {
@@ -1139,6 +1276,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'pg-network-title': 'Network',
       'pg-network-desc': 'Node status and validator information.',
       'reg-path-ph': '/path/to/your/file',
+      'drop-text': 'Drag a file here, or <label for="file-pick" class="drop-link">browse</label>',
+      'drop-hint': 'Register your file to claim ownership on the Oasyce network',
+      'hint-file': 'Auto-filled from your dropped file',
+      'hint-owner': 'Who owns this data? Defaults to your node ID if left blank.',
+      'hint-tags': 'Help others find your asset. Comma-separated keywords.',
+      'optional': 'optional',
       'reg-owner-ph': 'Your name or agent ID',
       'reg-tags-ph': 'medical, imaging, dicom',
       'reg-btn': 'Register',
@@ -1146,6 +1289,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'quote-btn': 'Quote',
       'buy-btn': 'Buy',
       'card-buy': 'Buy Shares',
+      'hint-buy-asset': 'Copy from the Assets tab or from the creator who shared it with you.',
+      'hint-buy-amount': 'How much to spend.',
       'card-portfolio': 'Portfolio',
       'card-stake': 'Stake',
       'stake-node-ph': 'Validator node ID',
@@ -1201,6 +1346,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'pg-network-title': '网络',
       'pg-network-desc': '节点状态与验证者信息。',
       'reg-path-ph': '文件路径',
+      'drop-text': '拖拽文件到这里，或 <label for="file-pick" class="drop-link">浏览选择</label>',
+      'drop-hint': '注册你的文件，在 Oasyce 网络上确立数据归属权',
+      'hint-file': '已从拖入的文件自动填写',
+      'hint-owner': '数据所有者。留空则默认使用你的节点 ID。',
+      'hint-tags': '帮助其他代理发现你的资产。用逗号分隔关键词。',
+      'optional': '可选',
       'reg-owner-ph': '所有者名称或代理 ID',
       'reg-tags-ph': '标签，用逗号分隔',
       'reg-btn': '注册',
@@ -1208,6 +1359,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'quote-btn': '报价',
       'buy-btn': '购买',
       'card-buy': '购买份额',
+      'hint-buy-asset': '从资产页复制，或从数据创建者处获取。',
+      'hint-buy-amount': '你愿意花多少 OAS。',
       'card-portfolio': '持仓',
       'card-stake': '质押',
       'stake-node-ph': '验证者节点 ID',
@@ -1362,7 +1515,87 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   }
 
   window.editTags=async function(aid){var input=document.getElementById('m-tags');var tags=input.value.split(',').map(function(t){return t.trim();}).filter(Boolean);var r=await postApi('/api/asset/update',{asset_id:aid,tags:tags});if(r&&r.ok){toast('Tags updated');loadAssets();}else{toast(r?r.error:'Failed','error');}};
-  window.deleteAsset=async function(aid){if(!confirm('Delete permanently?'))return;try{var r=await fetch('/api/asset/'+aid,{method:'DELETE'});var d=await r.json();if(d.ok){toast('Deleted');loadAssets();// ── i18n ──
+  window.deleteAsset=async function(aid){if(!confirm('Delete permanently?'))return;try{var r=await fetch('/api/asset/'+aid,{method:'DELETE'});var d=await r.json();if(d.ok){toast('Deleted');loadAssets();// ── Drop Zone ──
+  var dropZone = document.getElementById('drop-zone');
+  var filePick = document.getElementById('file-pick');
+  var regFields = document.getElementById('reg-fields');
+  var dropFileInfo = document.getElementById('drop-file-info');
+  var dropText = document.getElementById('drop-text');
+  var _droppedPath = '';
+
+  function formatSize(bytes){
+    if(bytes<1024)return bytes+' B';
+    if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
+    return(bytes/1048576).toFixed(1)+' MB';
+  }
+
+  function handleFile(file){
+    _droppedPath = file.name;
+    // Try to get full path (only works in some browsers via webkitRelativePath)
+    if(file.path) _droppedPath = file.path;
+    else if(file.webkitRelativePath) _droppedPath = file.webkitRelativePath;
+
+    document.getElementById('reg-path').value = _droppedPath;
+
+    // Auto-generate tags from file extension and name
+    var ext = file.name.split('.').pop().toLowerCase();
+    var autoTags = [];
+    if(['csv','json','xml','parquet','sqlite','db'].indexOf(ext)!==-1) autoTags.push('dataset');
+    if(['jpg','jpeg','png','gif','webp','svg','bmp'].indexOf(ext)!==-1) autoTags.push('image');
+    if(['mp4','mov','avi','mkv'].indexOf(ext)!==-1) autoTags.push('video');
+    if(['mp3','wav','flac','ogg'].indexOf(ext)!==-1) autoTags.push('audio');
+    if(['pdf','doc','docx','txt','md'].indexOf(ext)!==-1) autoTags.push('document');
+    if(['py','js','ts','go','rs','java','c','cpp'].indexOf(ext)!==-1) autoTags.push('code');
+    if(ext) autoTags.push(ext);
+    document.getElementById('reg-tags').value = autoTags.join(', ');
+
+    // Show file info in drop zone
+    dropZone.classList.add('has-file');
+    dropFileInfo.style.display = 'flex';
+    dropFileInfo.innerHTML = '<div><div class="drop-file-name">'+esc(file.name)+'</div><div class="drop-file-size">'+formatSize(file.size)+'</div></div><button class="drop-file-remove" onclick="clearFile()">&times;</button>';
+    dropText.style.display = 'none';
+    document.querySelector('.drop-icon').style.display = 'none';
+    document.querySelector('.drop-hint').style.display = 'none';
+
+    // Show form fields
+    regFields.style.display = 'block';
+  }
+
+  window.clearFile = function(){
+    _droppedPath = '';
+    document.getElementById('reg-path').value = '';
+    document.getElementById('reg-tags').value = '';
+    dropZone.classList.remove('has-file');
+    dropFileInfo.style.display = 'none';
+    dropFileInfo.innerHTML = '';
+    dropText.style.display = '';
+    document.querySelector('.drop-icon').style.display = '';
+    document.querySelector('.drop-hint').style.display = '';
+    regFields.style.display = 'none';
+    filePick.value = '';
+  };
+
+  // Drag events
+  ['dragenter','dragover'].forEach(function(evt){
+    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('over');});
+  });
+  ['dragleave','drop'].forEach(function(evt){
+    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('over');});
+  });
+  dropZone.addEventListener('drop', function(e){
+    var files = e.dataTransfer.files;
+    if(files.length > 0) handleFile(files[0]);
+  });
+  dropZone.addEventListener('click', function(e){
+    if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'LABEL' && !dropZone.classList.contains('has-file')){
+      filePick.click();
+    }
+  });
+  filePick.addEventListener('change', function(){
+    if(this.files.length > 0) handleFile(this.files[0]);
+  });
+
+  // ── i18n ──
   var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
   var _t = {
     en: {
@@ -1377,6 +1610,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'pg-network-title': 'Network',
       'pg-network-desc': 'Node status and validator information.',
       'reg-path-ph': '/path/to/your/file',
+      'drop-text': 'Drag a file here, or <label for="file-pick" class="drop-link">browse</label>',
+      'drop-hint': 'Register your file to claim ownership on the Oasyce network',
+      'hint-file': 'Auto-filled from your dropped file',
+      'hint-owner': 'Who owns this data? Defaults to your node ID if left blank.',
+      'hint-tags': 'Help others find your asset. Comma-separated keywords.',
+      'optional': 'optional',
       'reg-owner-ph': 'Your name or agent ID',
       'reg-tags-ph': 'medical, imaging, dicom',
       'reg-btn': 'Register',
@@ -1384,6 +1623,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'quote-btn': 'Quote',
       'buy-btn': 'Buy',
       'card-buy': 'Buy Shares',
+      'hint-buy-asset': 'Copy from the Assets tab or from the creator who shared it with you.',
+      'hint-buy-amount': 'How much to spend.',
       'card-portfolio': 'Portfolio',
       'card-stake': 'Stake',
       'stake-node-ph': 'Validator node ID',
@@ -1439,6 +1680,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'pg-network-title': '网络',
       'pg-network-desc': '节点状态与验证者信息。',
       'reg-path-ph': '文件路径',
+      'drop-text': '拖拽文件到这里，或 <label for="file-pick" class="drop-link">浏览选择</label>',
+      'drop-hint': '注册你的文件，在 Oasyce 网络上确立数据归属权',
+      'hint-file': '已从拖入的文件自动填写',
+      'hint-owner': '数据所有者。留空则默认使用你的节点 ID。',
+      'hint-tags': '帮助其他代理发现你的资产。用逗号分隔关键词。',
+      'optional': '可选',
       'reg-owner-ph': '所有者名称或代理 ID',
       'reg-tags-ph': '标签，用逗号分隔',
       'reg-btn': '注册',
@@ -1446,6 +1693,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'quote-btn': '报价',
       'buy-btn': '购买',
       'card-buy': '购买份额',
+      'hint-buy-asset': '从资产页复制，或从数据创建者处获取。',
+      'hint-buy-amount': '你愿意花多少 OAS。',
       'card-portfolio': '持仓',
       'card-stake': '质押',
       'stake-node-ph': '验证者节点 ID',
@@ -1623,7 +1872,87 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   document.getElementById('asset-search').addEventListener('input',function(){_page=1;renderPage();});
 
   /* ── Register ──────────── */
-  document.getElementById('reg-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Registering...';btn.disabled=true;var fp=document.getElementById('reg-path').value.trim();var owner=document.getElementById('reg-owner').value.trim();var tags=document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);var div=document.getElementById('reg-result');try{var r=await postApi('/api/register',{file_path:fp,owner:owner||undefined,tags:tags});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Asset ID</span><span class="kv-v" style="font-size:11px;">'+esc(r.asset_id)+'</span></div></div>';toast('Asset registered');_all=[];// ── i18n ──
+  document.getElementById('reg-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Registering...';btn.disabled=true;var fp=document.getElementById('reg-path').value.trim();var owner=document.getElementById('reg-owner').value.trim();var tags=document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);var div=document.getElementById('reg-result');try{var r=await postApi('/api/register',{file_path:fp,owner:owner||undefined,tags:tags});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Asset ID</span><span class="kv-v" style="font-size:11px;">'+esc(r.asset_id)+'</span></div></div>';toast('Asset registered');_all=[];// ── Drop Zone ──
+  var dropZone = document.getElementById('drop-zone');
+  var filePick = document.getElementById('file-pick');
+  var regFields = document.getElementById('reg-fields');
+  var dropFileInfo = document.getElementById('drop-file-info');
+  var dropText = document.getElementById('drop-text');
+  var _droppedPath = '';
+
+  function formatSize(bytes){
+    if(bytes<1024)return bytes+' B';
+    if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
+    return(bytes/1048576).toFixed(1)+' MB';
+  }
+
+  function handleFile(file){
+    _droppedPath = file.name;
+    // Try to get full path (only works in some browsers via webkitRelativePath)
+    if(file.path) _droppedPath = file.path;
+    else if(file.webkitRelativePath) _droppedPath = file.webkitRelativePath;
+
+    document.getElementById('reg-path').value = _droppedPath;
+
+    // Auto-generate tags from file extension and name
+    var ext = file.name.split('.').pop().toLowerCase();
+    var autoTags = [];
+    if(['csv','json','xml','parquet','sqlite','db'].indexOf(ext)!==-1) autoTags.push('dataset');
+    if(['jpg','jpeg','png','gif','webp','svg','bmp'].indexOf(ext)!==-1) autoTags.push('image');
+    if(['mp4','mov','avi','mkv'].indexOf(ext)!==-1) autoTags.push('video');
+    if(['mp3','wav','flac','ogg'].indexOf(ext)!==-1) autoTags.push('audio');
+    if(['pdf','doc','docx','txt','md'].indexOf(ext)!==-1) autoTags.push('document');
+    if(['py','js','ts','go','rs','java','c','cpp'].indexOf(ext)!==-1) autoTags.push('code');
+    if(ext) autoTags.push(ext);
+    document.getElementById('reg-tags').value = autoTags.join(', ');
+
+    // Show file info in drop zone
+    dropZone.classList.add('has-file');
+    dropFileInfo.style.display = 'flex';
+    dropFileInfo.innerHTML = '<div><div class="drop-file-name">'+esc(file.name)+'</div><div class="drop-file-size">'+formatSize(file.size)+'</div></div><button class="drop-file-remove" onclick="clearFile()">&times;</button>';
+    dropText.style.display = 'none';
+    document.querySelector('.drop-icon').style.display = 'none';
+    document.querySelector('.drop-hint').style.display = 'none';
+
+    // Show form fields
+    regFields.style.display = 'block';
+  }
+
+  window.clearFile = function(){
+    _droppedPath = '';
+    document.getElementById('reg-path').value = '';
+    document.getElementById('reg-tags').value = '';
+    dropZone.classList.remove('has-file');
+    dropFileInfo.style.display = 'none';
+    dropFileInfo.innerHTML = '';
+    dropText.style.display = '';
+    document.querySelector('.drop-icon').style.display = '';
+    document.querySelector('.drop-hint').style.display = '';
+    regFields.style.display = 'none';
+    filePick.value = '';
+  };
+
+  // Drag events
+  ['dragenter','dragover'].forEach(function(evt){
+    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('over');});
+  });
+  ['dragleave','drop'].forEach(function(evt){
+    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('over');});
+  });
+  dropZone.addEventListener('drop', function(e){
+    var files = e.dataTransfer.files;
+    if(files.length > 0) handleFile(files[0]);
+  });
+  dropZone.addEventListener('click', function(e){
+    if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'LABEL' && !dropZone.classList.contains('has-file')){
+      filePick.click();
+    }
+  });
+  filePick.addEventListener('change', function(){
+    if(this.files.length > 0) handleFile(this.files[0]);
+  });
+
+  // ── i18n ──
   var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
   var _t = {
     en: {
@@ -1638,6 +1967,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'pg-network-title': 'Network',
       'pg-network-desc': 'Node status and validator information.',
       'reg-path-ph': '/path/to/your/file',
+      'drop-text': 'Drag a file here, or <label for="file-pick" class="drop-link">browse</label>',
+      'drop-hint': 'Register your file to claim ownership on the Oasyce network',
+      'hint-file': 'Auto-filled from your dropped file',
+      'hint-owner': 'Who owns this data? Defaults to your node ID if left blank.',
+      'hint-tags': 'Help others find your asset. Comma-separated keywords.',
+      'optional': 'optional',
       'reg-owner-ph': 'Your name or agent ID',
       'reg-tags-ph': 'medical, imaging, dicom',
       'reg-btn': 'Register',
@@ -1645,6 +1980,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'quote-btn': 'Quote',
       'buy-btn': 'Buy',
       'card-buy': 'Buy Shares',
+      'hint-buy-asset': 'Copy from the Assets tab or from the creator who shared it with you.',
+      'hint-buy-amount': 'How much to spend.',
       'card-portfolio': 'Portfolio',
       'card-stake': 'Stake',
       'stake-node-ph': 'Validator node ID',
@@ -1700,6 +2037,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'pg-network-title': '网络',
       'pg-network-desc': '节点状态与验证者信息。',
       'reg-path-ph': '文件路径',
+      'drop-text': '拖拽文件到这里，或 <label for="file-pick" class="drop-link">浏览选择</label>',
+      'drop-hint': '注册你的文件，在 Oasyce 网络上确立数据归属权',
+      'hint-file': '已从拖入的文件自动填写',
+      'hint-owner': '数据所有者。留空则默认使用你的节点 ID。',
+      'hint-tags': '帮助其他代理发现你的资产。用逗号分隔关键词。',
+      'optional': '可选',
       'reg-owner-ph': '所有者名称或代理 ID',
       'reg-tags-ph': '标签，用逗号分隔',
       'reg-btn': '注册',
@@ -1707,6 +2050,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'quote-btn': '报价',
       'buy-btn': '购买',
       'card-buy': '购买份额',
+      'hint-buy-asset': '从资产页复制，或从数据创建者处获取。',
+      'hint-buy-amount': '你愿意花多少 OAS。',
       'card-portfolio': '持仓',
       'card-stake': '质押',
       'stake-node-ph': '验证者节点 ID',
@@ -1848,7 +2193,87 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   async function loadStakes(){var list=await api('/api/stakes')||[];var sec=document.getElementById('stakes-card');if(!list.length){sec.style.display='none';return;}sec.style.display='block';var h='';list.forEach(function(s){h+='<div class="stk-item"><span class="stk-id">'+esc(trunc(s.validator_id,20))+'</span><span class="stk-a">'+s.total+' OAS</span></div>';});document.getElementById('stakes-list').innerHTML=h;}
 
   /* ── Watermark ──────────── */
-  document.getElementById('emb-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Embedding...';btn.disabled=true;var aid=document.getElementById('emb-asset').value.trim();var caller=document.getElementById('emb-caller').value.trim();var content=document.getElementById('emb-content').value;var div=document.getElementById('emb-result');if(!aid||!caller||!content){div.innerHTML='<p class="err">Fill all fields</p>';btn.textContent='Embed';btn.disabled=false;return;}try{var r=await postApi('/api/fingerprint/embed',{asset_id:aid,caller_id:caller,content:content});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Fingerprint</span><span class="kv-v">'+esc(trunc(r.fingerprint,24))+'</span></div></div><textarea readonly style="width:100%;min-height:60px;margin-top:8px;color:var(--success);">'+esc(r.watermarked_content)+'</textarea>';toast('Embedded');// ── i18n ──
+  document.getElementById('emb-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Embedding...';btn.disabled=true;var aid=document.getElementById('emb-asset').value.trim();var caller=document.getElementById('emb-caller').value.trim();var content=document.getElementById('emb-content').value;var div=document.getElementById('emb-result');if(!aid||!caller||!content){div.innerHTML='<p class="err">Fill all fields</p>';btn.textContent='Embed';btn.disabled=false;return;}try{var r=await postApi('/api/fingerprint/embed',{asset_id:aid,caller_id:caller,content:content});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Fingerprint</span><span class="kv-v">'+esc(trunc(r.fingerprint,24))+'</span></div></div><textarea readonly style="width:100%;min-height:60px;margin-top:8px;color:var(--success);">'+esc(r.watermarked_content)+'</textarea>';toast('Embedded');// ── Drop Zone ──
+  var dropZone = document.getElementById('drop-zone');
+  var filePick = document.getElementById('file-pick');
+  var regFields = document.getElementById('reg-fields');
+  var dropFileInfo = document.getElementById('drop-file-info');
+  var dropText = document.getElementById('drop-text');
+  var _droppedPath = '';
+
+  function formatSize(bytes){
+    if(bytes<1024)return bytes+' B';
+    if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
+    return(bytes/1048576).toFixed(1)+' MB';
+  }
+
+  function handleFile(file){
+    _droppedPath = file.name;
+    // Try to get full path (only works in some browsers via webkitRelativePath)
+    if(file.path) _droppedPath = file.path;
+    else if(file.webkitRelativePath) _droppedPath = file.webkitRelativePath;
+
+    document.getElementById('reg-path').value = _droppedPath;
+
+    // Auto-generate tags from file extension and name
+    var ext = file.name.split('.').pop().toLowerCase();
+    var autoTags = [];
+    if(['csv','json','xml','parquet','sqlite','db'].indexOf(ext)!==-1) autoTags.push('dataset');
+    if(['jpg','jpeg','png','gif','webp','svg','bmp'].indexOf(ext)!==-1) autoTags.push('image');
+    if(['mp4','mov','avi','mkv'].indexOf(ext)!==-1) autoTags.push('video');
+    if(['mp3','wav','flac','ogg'].indexOf(ext)!==-1) autoTags.push('audio');
+    if(['pdf','doc','docx','txt','md'].indexOf(ext)!==-1) autoTags.push('document');
+    if(['py','js','ts','go','rs','java','c','cpp'].indexOf(ext)!==-1) autoTags.push('code');
+    if(ext) autoTags.push(ext);
+    document.getElementById('reg-tags').value = autoTags.join(', ');
+
+    // Show file info in drop zone
+    dropZone.classList.add('has-file');
+    dropFileInfo.style.display = 'flex';
+    dropFileInfo.innerHTML = '<div><div class="drop-file-name">'+esc(file.name)+'</div><div class="drop-file-size">'+formatSize(file.size)+'</div></div><button class="drop-file-remove" onclick="clearFile()">&times;</button>';
+    dropText.style.display = 'none';
+    document.querySelector('.drop-icon').style.display = 'none';
+    document.querySelector('.drop-hint').style.display = 'none';
+
+    // Show form fields
+    regFields.style.display = 'block';
+  }
+
+  window.clearFile = function(){
+    _droppedPath = '';
+    document.getElementById('reg-path').value = '';
+    document.getElementById('reg-tags').value = '';
+    dropZone.classList.remove('has-file');
+    dropFileInfo.style.display = 'none';
+    dropFileInfo.innerHTML = '';
+    dropText.style.display = '';
+    document.querySelector('.drop-icon').style.display = '';
+    document.querySelector('.drop-hint').style.display = '';
+    regFields.style.display = 'none';
+    filePick.value = '';
+  };
+
+  // Drag events
+  ['dragenter','dragover'].forEach(function(evt){
+    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('over');});
+  });
+  ['dragleave','drop'].forEach(function(evt){
+    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('over');});
+  });
+  dropZone.addEventListener('drop', function(e){
+    var files = e.dataTransfer.files;
+    if(files.length > 0) handleFile(files[0]);
+  });
+  dropZone.addEventListener('click', function(e){
+    if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'LABEL' && !dropZone.classList.contains('has-file')){
+      filePick.click();
+    }
+  });
+  filePick.addEventListener('change', function(){
+    if(this.files.length > 0) handleFile(this.files[0]);
+  });
+
+  // ── i18n ──
   var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
   var _t = {
     en: {
@@ -1863,6 +2288,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'pg-network-title': 'Network',
       'pg-network-desc': 'Node status and validator information.',
       'reg-path-ph': '/path/to/your/file',
+      'drop-text': 'Drag a file here, or <label for="file-pick" class="drop-link">browse</label>',
+      'drop-hint': 'Register your file to claim ownership on the Oasyce network',
+      'hint-file': 'Auto-filled from your dropped file',
+      'hint-owner': 'Who owns this data? Defaults to your node ID if left blank.',
+      'hint-tags': 'Help others find your asset. Comma-separated keywords.',
+      'optional': 'optional',
       'reg-owner-ph': 'Your name or agent ID',
       'reg-tags-ph': 'medical, imaging, dicom',
       'reg-btn': 'Register',
@@ -1870,6 +2301,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'quote-btn': 'Quote',
       'buy-btn': 'Buy',
       'card-buy': 'Buy Shares',
+      'hint-buy-asset': 'Copy from the Assets tab or from the creator who shared it with you.',
+      'hint-buy-amount': 'How much to spend.',
       'card-portfolio': 'Portfolio',
       'card-stake': 'Stake',
       'stake-node-ph': 'Validator node ID',
@@ -1925,6 +2358,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'pg-network-title': '网络',
       'pg-network-desc': '节点状态与验证者信息。',
       'reg-path-ph': '文件路径',
+      'drop-text': '拖拽文件到这里，或 <label for="file-pick" class="drop-link">浏览选择</label>',
+      'drop-hint': '注册你的文件，在 Oasyce 网络上确立数据归属权',
+      'hint-file': '已从拖入的文件自动填写',
+      'hint-owner': '数据所有者。留空则默认使用你的节点 ID。',
+      'hint-tags': '帮助其他代理发现你的资产。用逗号分隔关键词。',
+      'optional': '可选',
       'reg-owner-ph': '所有者名称或代理 ID',
       'reg-tags-ph': '标签，用逗号分隔',
       'reg-btn': '注册',
@@ -1932,6 +2371,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'quote-btn': '报价',
       'buy-btn': '购买',
       'card-buy': '购买份额',
+      'hint-buy-asset': '从资产页复制，或从数据创建者处获取。',
+      'hint-buy-amount': '你愿意花多少 OAS。',
       'card-portfolio': '持仓',
       'card-stake': '质押',
       'stake-node-ph': '验证者节点 ID',
@@ -2078,6 +2519,86 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   updatePipe(0);
 
   /* ── Init ──────────── */
+  // ── Drop Zone ──
+  var dropZone = document.getElementById('drop-zone');
+  var filePick = document.getElementById('file-pick');
+  var regFields = document.getElementById('reg-fields');
+  var dropFileInfo = document.getElementById('drop-file-info');
+  var dropText = document.getElementById('drop-text');
+  var _droppedPath = '';
+
+  function formatSize(bytes){
+    if(bytes<1024)return bytes+' B';
+    if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
+    return(bytes/1048576).toFixed(1)+' MB';
+  }
+
+  function handleFile(file){
+    _droppedPath = file.name;
+    // Try to get full path (only works in some browsers via webkitRelativePath)
+    if(file.path) _droppedPath = file.path;
+    else if(file.webkitRelativePath) _droppedPath = file.webkitRelativePath;
+
+    document.getElementById('reg-path').value = _droppedPath;
+
+    // Auto-generate tags from file extension and name
+    var ext = file.name.split('.').pop().toLowerCase();
+    var autoTags = [];
+    if(['csv','json','xml','parquet','sqlite','db'].indexOf(ext)!==-1) autoTags.push('dataset');
+    if(['jpg','jpeg','png','gif','webp','svg','bmp'].indexOf(ext)!==-1) autoTags.push('image');
+    if(['mp4','mov','avi','mkv'].indexOf(ext)!==-1) autoTags.push('video');
+    if(['mp3','wav','flac','ogg'].indexOf(ext)!==-1) autoTags.push('audio');
+    if(['pdf','doc','docx','txt','md'].indexOf(ext)!==-1) autoTags.push('document');
+    if(['py','js','ts','go','rs','java','c','cpp'].indexOf(ext)!==-1) autoTags.push('code');
+    if(ext) autoTags.push(ext);
+    document.getElementById('reg-tags').value = autoTags.join(', ');
+
+    // Show file info in drop zone
+    dropZone.classList.add('has-file');
+    dropFileInfo.style.display = 'flex';
+    dropFileInfo.innerHTML = '<div><div class="drop-file-name">'+esc(file.name)+'</div><div class="drop-file-size">'+formatSize(file.size)+'</div></div><button class="drop-file-remove" onclick="clearFile()">&times;</button>';
+    dropText.style.display = 'none';
+    document.querySelector('.drop-icon').style.display = 'none';
+    document.querySelector('.drop-hint').style.display = 'none';
+
+    // Show form fields
+    regFields.style.display = 'block';
+  }
+
+  window.clearFile = function(){
+    _droppedPath = '';
+    document.getElementById('reg-path').value = '';
+    document.getElementById('reg-tags').value = '';
+    dropZone.classList.remove('has-file');
+    dropFileInfo.style.display = 'none';
+    dropFileInfo.innerHTML = '';
+    dropText.style.display = '';
+    document.querySelector('.drop-icon').style.display = '';
+    document.querySelector('.drop-hint').style.display = '';
+    regFields.style.display = 'none';
+    filePick.value = '';
+  };
+
+  // Drag events
+  ['dragenter','dragover'].forEach(function(evt){
+    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('over');});
+  });
+  ['dragleave','drop'].forEach(function(evt){
+    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('over');});
+  });
+  dropZone.addEventListener('drop', function(e){
+    var files = e.dataTransfer.files;
+    if(files.length > 0) handleFile(files[0]);
+  });
+  dropZone.addEventListener('click', function(e){
+    if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'LABEL' && !dropZone.classList.contains('has-file')){
+      filePick.click();
+    }
+  });
+  filePick.addEventListener('change', function(){
+    if(this.files.length > 0) handleFile(this.files[0]);
+  });
+
   // ── i18n ──
   var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
   var _t = {
@@ -2093,6 +2614,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'pg-network-title': 'Network',
       'pg-network-desc': 'Node status and validator information.',
       'reg-path-ph': '/path/to/your/file',
+      'drop-text': 'Drag a file here, or <label for="file-pick" class="drop-link">browse</label>',
+      'drop-hint': 'Register your file to claim ownership on the Oasyce network',
+      'hint-file': 'Auto-filled from your dropped file',
+      'hint-owner': 'Who owns this data? Defaults to your node ID if left blank.',
+      'hint-tags': 'Help others find your asset. Comma-separated keywords.',
+      'optional': 'optional',
       'reg-owner-ph': 'Your name or agent ID',
       'reg-tags-ph': 'medical, imaging, dicom',
       'reg-btn': 'Register',
@@ -2100,6 +2627,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'quote-btn': 'Quote',
       'buy-btn': 'Buy',
       'card-buy': 'Buy Shares',
+      'hint-buy-asset': 'Copy from the Assets tab or from the creator who shared it with you.',
+      'hint-buy-amount': 'How much to spend.',
       'card-portfolio': 'Portfolio',
       'card-stake': 'Stake',
       'stake-node-ph': 'Validator node ID',
@@ -2155,6 +2684,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'pg-network-title': '网络',
       'pg-network-desc': '节点状态与验证者信息。',
       'reg-path-ph': '文件路径',
+      'drop-text': '拖拽文件到这里，或 <label for="file-pick" class="drop-link">浏览选择</label>',
+      'drop-hint': '注册你的文件，在 Oasyce 网络上确立数据归属权',
+      'hint-file': '已从拖入的文件自动填写',
+      'hint-owner': '数据所有者。留空则默认使用你的节点 ID。',
+      'hint-tags': '帮助其他代理发现你的资产。用逗号分隔关键词。',
+      'optional': '可选',
       'reg-owner-ph': '所有者名称或代理 ID',
       'reg-tags-ph': '标签，用逗号分隔',
       'reg-btn': '注册',
@@ -2162,6 +2697,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'quote-btn': '报价',
       'buy-btn': '购买',
       'card-buy': '购买份额',
+      'hint-buy-asset': '从资产页复制，或从数据创建者处获取。',
+      'hint-buy-amount': '你愿意花多少 OAS。',
       'card-portfolio': '持仓',
       'card-stake': '质押',
       'stake-node-ph': '验证者节点 ID',
