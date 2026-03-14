@@ -40,12 +40,23 @@
 
 ```bash
 pip install oasyce
+
+# 如果提示 oasyce 命令找不到，把 pip 安装目录加到 PATH：
+# macOS: export PATH="$HOME/Library/Python/3.9/bin:$PATH"
+# Linux: export PATH="$HOME/.local/bin:$PATH"
 ```
 
 ### 启动仪表盘
 
 ```bash
 oasyce gui
+```
+
+如果需要 AHRP Agent 交易功能，另开终端安装并启动核心节点：
+
+```bash
+pip install oasyce-core
+oasyce serve
 ```
 
 浏览器打开 `http://localhost:8420`，你会看到：
