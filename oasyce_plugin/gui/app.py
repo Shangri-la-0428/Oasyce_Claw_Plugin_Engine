@@ -684,6 +684,50 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   color:var(--text);margin-bottom:16px;
 }
 
+/* ── Identity Box ──────────── */
+.identity-box{
+  display:flex;
+  gap:16px;
+  align-items:flex-start;
+}
+.id-avatar{
+  width:44px;height:44px;
+  border-radius:50%;
+  background:var(--bg-t);
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;font-weight:600;
+  color:var(--text-s);
+  flex-shrink:0;
+}
+.id-node{
+  font-family:ui-monospace,'SF Mono',monospace;
+  font-size:14px;
+  color:var(--text);
+  font-weight:500;
+}
+.id-hint{
+  font-size:13px;
+  color:var(--text-s);
+  margin-top:6px;
+  line-height:1.5;
+}
+.id-backup{
+  font-size:12px;
+  color:var(--error);
+  margin-top:8px;
+  line-height:1.4;
+  padding:8px 12px;
+  background:var(--bg-s);
+  border-radius:6px;
+}
+.id-backup code{
+  font-family:ui-monospace,'SF Mono',monospace;
+  font-size:11px;
+  background:var(--bg-t);
+  padding:1px 4px;
+  border-radius:3px;
+}
+
 /* ── Drop Zone ──────────── */
 .drop-zone{
   border:2px dashed var(--border);
@@ -1113,13 +1157,18 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     <div class="page-desc">Node status and validator information.</div>
 
     <div class="stat-row">
-      <div class="stat-item"><div class="stat-n" id="stat-assets">&mdash;</div><div class="stat-l">Assets</div></div>
-      <div class="stat-item"><div class="stat-n" id="stat-blocks">&mdash;</div><div class="stat-l">Blocks</div></div>
-      <div class="stat-item"><div class="stat-n" id="stat-dists">&mdash;</div><div class="stat-l">Watermarks</div></div>
+      <div class="stat-item"><div class="stat-n" id="stat-assets">&mdash;</div><div class="stat-l" data-i18n="stat-assets">Assets</div></div>
+      <div class="stat-item"><div class="stat-n" id="stat-blocks">&mdash;</div><div class="stat-l" data-i18n="stat-blocks">Blocks</div></div>
+      <div class="stat-item"><div class="stat-n" id="stat-dists">&mdash;</div><div class="stat-l" data-i18n="stat-watermarks">Watermarks</div></div>
+    </div>
+
+    <div class="card" id="identity-card">
+      <div class="card-title" data-i18n="card-identity">Your Identity</div>
+      <div id="identity-info" class="empty" data-i18n="loading-identity">Loading...</div>
     </div>
 
     <div class="card">
-      <div class="card-title">Node</div>
+      <div class="card-title" data-i18n="card-node">Node</div>
       <div class="ng" id="net-info"></div>
     </div>
 
@@ -1322,6 +1371,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'stat-blocks': 'Blocks',
       'stat-watermarks': 'Watermarks',
       'lang-btn': '中',
+      'card-identity': 'Your Identity',
+      'no-identity': 'No identity found. Run <code>oasyce start</code> to generate your keys.',
+      'id-hint': 'This is your unique identity on the Oasyce network. Every asset you register is cryptographically signed with your private key.',
+      'id-backup': '&#9888; Back up <code>~/.oasyce/keys/</code> — if you lose your keys, you lose access to all your registered assets.',
+      'copied': 'Copied',
+      'auto-default': 'auto',
+      'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
       'link-intro': 'Introduction',
@@ -1392,6 +1448,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'stat-blocks': '区块',
       'stat-watermarks': '水印',
       'lang-btn': 'En',
+      'card-identity': '你的身份',
+      'no-identity': '未找到密钥。运行 <code>oasyce start</code> 生成你的身份。',
+      'id-hint': '这是你在 Oasyce 网络上的唯一身份。你注册的每个资产都会用你的私钥进行密码学签名。',
+      'id-backup': '&#9888; 请备份 <code>~/.oasyce/keys/</code> 目录 —— 丢失密钥意味着永久失去所有已注册资产的控制权。',
+      'copied': '已复制',
+      'auto-default': '自动',
+      'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
       'link-intro': '项目介绍',
@@ -1656,6 +1719,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'stat-blocks': 'Blocks',
       'stat-watermarks': 'Watermarks',
       'lang-btn': '中',
+      'card-identity': 'Your Identity',
+      'no-identity': 'No identity found. Run <code>oasyce start</code> to generate your keys.',
+      'id-hint': 'This is your unique identity on the Oasyce network. Every asset you register is cryptographically signed with your private key.',
+      'id-backup': '&#9888; Back up <code>~/.oasyce/keys/</code> — if you lose your keys, you lose access to all your registered assets.',
+      'copied': 'Copied',
+      'auto-default': 'auto',
+      'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
       'link-intro': 'Introduction',
@@ -1726,6 +1796,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'stat-blocks': '区块',
       'stat-watermarks': '水印',
       'lang-btn': 'En',
+      'card-identity': '你的身份',
+      'no-identity': '未找到密钥。运行 <code>oasyce start</code> 生成你的身份。',
+      'id-hint': '这是你在 Oasyce 网络上的唯一身份。你注册的每个资产都会用你的私钥进行密码学签名。',
+      'id-backup': '&#9888; 请备份 <code>~/.oasyce/keys/</code> 目录 —— 丢失密钥意味着永久失去所有已注册资产的控制权。',
+      'copied': '已复制',
+      'auto-default': '自动',
+      'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
       'link-intro': '项目介绍',
@@ -2013,6 +2090,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'stat-blocks': 'Blocks',
       'stat-watermarks': 'Watermarks',
       'lang-btn': '中',
+      'card-identity': 'Your Identity',
+      'no-identity': 'No identity found. Run <code>oasyce start</code> to generate your keys.',
+      'id-hint': 'This is your unique identity on the Oasyce network. Every asset you register is cryptographically signed with your private key.',
+      'id-backup': '&#9888; Back up <code>~/.oasyce/keys/</code> — if you lose your keys, you lose access to all your registered assets.',
+      'copied': 'Copied',
+      'auto-default': 'auto',
+      'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
       'link-intro': 'Introduction',
@@ -2083,6 +2167,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'stat-blocks': '区块',
       'stat-watermarks': '水印',
       'lang-btn': 'En',
+      'card-identity': '你的身份',
+      'no-identity': '未找到密钥。运行 <code>oasyce start</code> 生成你的身份。',
+      'id-hint': '这是你在 Oasyce 网络上的唯一身份。你注册的每个资产都会用你的私钥进行密码学签名。',
+      'id-backup': '&#9888; 请备份 <code>~/.oasyce/keys/</code> 目录 —— 丢失密钥意味着永久失去所有已注册资产的控制权。',
+      'copied': '已复制',
+      'auto-default': '自动',
+      'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
       'link-intro': '项目介绍',
@@ -2334,6 +2425,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'stat-blocks': 'Blocks',
       'stat-watermarks': 'Watermarks',
       'lang-btn': '中',
+      'card-identity': 'Your Identity',
+      'no-identity': 'No identity found. Run <code>oasyce start</code> to generate your keys.',
+      'id-hint': 'This is your unique identity on the Oasyce network. Every asset you register is cryptographically signed with your private key.',
+      'id-backup': '&#9888; Back up <code>~/.oasyce/keys/</code> — if you lose your keys, you lose access to all your registered assets.',
+      'copied': 'Copied',
+      'auto-default': 'auto',
+      'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
       'link-intro': 'Introduction',
@@ -2404,6 +2502,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'stat-blocks': '区块',
       'stat-watermarks': '水印',
       'lang-btn': 'En',
+      'card-identity': '你的身份',
+      'no-identity': '未找到密钥。运行 <code>oasyce start</code> 生成你的身份。',
+      'id-hint': '这是你在 Oasyce 网络上的唯一身份。你注册的每个资产都会用你的私钥进行密码学签名。',
+      'id-backup': '&#9888; 请备份 <code>~/.oasyce/keys/</code> 目录 —— 丢失密钥意味着永久失去所有已注册资产的控制权。',
+      'copied': '已复制',
+      'auto-default': '自动',
+      'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
       'link-intro': '项目介绍',
@@ -2660,6 +2765,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'stat-blocks': 'Blocks',
       'stat-watermarks': 'Watermarks',
       'lang-btn': '中',
+      'card-identity': 'Your Identity',
+      'no-identity': 'No identity found. Run <code>oasyce start</code> to generate your keys.',
+      'id-hint': 'This is your unique identity on the Oasyce network. Every asset you register is cryptographically signed with your private key.',
+      'id-backup': '&#9888; Back up <code>~/.oasyce/keys/</code> — if you lose your keys, you lose access to all your registered assets.',
+      'copied': 'Copied',
+      'auto-default': 'auto',
+      'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
       'link-intro': 'Introduction',
@@ -2730,6 +2842,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'stat-blocks': '区块',
       'stat-watermarks': '水印',
       'lang-btn': 'En',
+      'card-identity': '你的身份',
+      'no-identity': '未找到密钥。运行 <code>oasyce start</code> 生成你的身份。',
+      'id-hint': '这是你在 Oasyce 网络上的唯一身份。你注册的每个资产都会用你的私钥进行密码学签名。',
+      'id-backup': '&#9888; 请备份 <code>~/.oasyce/keys/</code> 目录 —— 丢失密钥意味着永久失去所有已注册资产的控制权。',
+      'copied': '已复制',
+      'auto-default': '自动',
+      'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
       'link-intro': '项目介绍',
