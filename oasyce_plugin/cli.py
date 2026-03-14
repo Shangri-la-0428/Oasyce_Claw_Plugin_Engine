@@ -519,6 +519,117 @@ def cmd_fingerprint_list(args):
             print(f"  {r['fingerprint'][:16]}... -> {r['caller_id']} @ {r['timestamp']}")
 
 
+def cmd_access_query(args):
+    """L0 query an asset."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+    result = skills.query_data_skill(args.agent, args.asset_id, args.query)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        if result["success"]:
+            print(f"✅ L0 Query OK — bond: {result['bond_required']:.2f} OAS")
+            if result["data"]:
+                print(f"   Data: {result['data']}")
+        else:
+            print(f"❌ Denied: {result['error']}")
+
+
+def cmd_access_sample(args):
+    """L1 sample an asset."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+    result = skills.sample_data_skill(args.agent, args.asset_id, args.size)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        if result["success"]:
+            print(f"✅ L1 Sample OK — bond: {result['bond_required']:.2f} OAS")
+            if result["data"]:
+                print(f"   Data: {result['data']}")
+        else:
+            print(f"❌ Denied: {result['error']}")
+
+
+def cmd_access_compute(args):
+    """L2 compute on an asset."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+    result = skills.compute_data_skill(args.agent, args.asset_id, args.code)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        if result["success"]:
+            print(f"✅ L2 Compute OK — bond: {result['bond_required']:.2f} OAS")
+            if result["data"]:
+                print(f"   Data: {result['data']}")
+        else:
+            print(f"❌ Denied: {result['error']}")
+
+
+def cmd_access_deliver(args):
+    """L3 deliver an asset."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+    result = skills.deliver_data_skill(args.agent, args.asset_id)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        if result["success"]:
+            print(f"✅ L3 Deliver OK — bond: {result['bond_required']:.2f} OAS")
+            if result["data"]:
+                print(f"   Data: {result['data']}")
+        else:
+            print(f"❌ Denied: {result['error']}")
+
+
+def cmd_access_bond(args):
+    """Calculate bond for an access level."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+    try:
+        result = skills.calculate_bond_skill(args.agent, args.asset_id, args.level)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"💰 Bond for {args.asset_id} at {args.level}:")
+            print(f"   Agent: {args.agent}")
+            print(f"   Bond:  {result['bond_required']:.2f} OAS")
+    except (ValueError, KeyError) as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_reputation_check(args):
+    """Check agent reputation."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+    result = skills.check_reputation_skill(args.agent_id)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"📊 Reputation for '{args.agent_id}':")
+        print(f"   Score:    {result['reputation']:.1f}")
+        print(f"   Discount: {result['bond_discount']:.2f} (bond multiplier)")
+
+
+def cmd_reputation_update(args):
+    """Update agent reputation."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+    rep = skills.access_provider.reputation
+    score = rep.update(
+        args.agent_id,
+        success=args.success,
+        leak_detected=args.leak,
+    )
+    if args.json:
+        print(json.dumps({"agent_id": args.agent_id, "reputation": score}, indent=2))
+    else:
+        event = "success" if args.success else ("leak" if args.leak else "damage")
+        print(f"📊 Updated '{args.agent_id}' ({event}) → reputation: {score:.1f}")
+
+
 def cmd_verify(args):
     """Verify a PoPC certificate."""
     from oasyce_plugin.engines.core_engines import CertificateEngine
@@ -654,6 +765,54 @@ def main():
     fp_list_parser.add_argument("asset_id", help="Asset ID")
     fp_list_parser.set_defaults(func=cmd_fingerprint_list)
 
+    # Access command group
+    access_parser = subparsers.add_parser("access", help="Data access control")
+    access_sub = access_parser.add_subparsers(dest="access_command", help="Access sub-commands")
+
+    access_query_parser = access_sub.add_parser("query", help="L0 query (aggregated stats)")
+    access_query_parser.add_argument("asset_id", help="Asset ID")
+    access_query_parser.add_argument("--agent", required=True, help="Agent ID")
+    access_query_parser.add_argument("--query", default="", help="Query string")
+    access_query_parser.set_defaults(func=cmd_access_query)
+
+    access_sample_parser = access_sub.add_parser("sample", help="L1 sample (redacted fragments)")
+    access_sample_parser.add_argument("asset_id", help="Asset ID")
+    access_sample_parser.add_argument("--agent", required=True, help="Agent ID")
+    access_sample_parser.add_argument("--size", type=int, default=10, help="Sample size (default 10)")
+    access_sample_parser.set_defaults(func=cmd_access_sample)
+
+    access_compute_parser = access_sub.add_parser("compute", help="L2 compute (TEE execution)")
+    access_compute_parser.add_argument("asset_id", help="Asset ID")
+    access_compute_parser.add_argument("--agent", required=True, help="Agent ID")
+    access_compute_parser.add_argument("--code", required=True, help="Code to execute")
+    access_compute_parser.set_defaults(func=cmd_access_compute)
+
+    access_deliver_parser = access_sub.add_parser("deliver", help="L3 deliver (full data)")
+    access_deliver_parser.add_argument("asset_id", help="Asset ID")
+    access_deliver_parser.add_argument("--agent", required=True, help="Agent ID")
+    access_deliver_parser.set_defaults(func=cmd_access_deliver)
+
+    access_bond_parser = access_sub.add_parser("bond", help="Calculate bond requirement")
+    access_bond_parser.add_argument("asset_id", help="Asset ID")
+    access_bond_parser.add_argument("--agent", required=True, help="Agent ID")
+    access_bond_parser.add_argument("--level", required=True, help="Access level (L0/L1/L2/L3)")
+    access_bond_parser.set_defaults(func=cmd_access_bond)
+
+    # Reputation command group
+    rep_parser = subparsers.add_parser("reputation", help="Agent reputation management")
+    rep_sub = rep_parser.add_subparsers(dest="rep_command", help="Reputation sub-commands")
+
+    rep_check_parser = rep_sub.add_parser("check", help="Check agent reputation")
+    rep_check_parser.add_argument("agent_id", help="Agent ID")
+    rep_check_parser.set_defaults(func=cmd_reputation_check)
+
+    rep_update_parser = rep_sub.add_parser("update", help="Update agent reputation")
+    rep_update_parser.add_argument("agent_id", help="Agent ID")
+    rep_update_parser.add_argument("--success", action="store_true", help="Record successful access")
+    rep_update_parser.add_argument("--leak", action="store_true", help="Record data leak")
+    rep_update_parser.add_argument("--damage", action="store_true", help="Record damage event")
+    rep_update_parser.set_defaults(func=cmd_reputation_update)
+
     # GUI command
     gui_parser = subparsers.add_parser("gui", help="Launch web dashboard (port 8420)")
     gui_parser.add_argument("--port", type=int, default=8420, help="Port (default: 8420)")
@@ -679,6 +838,14 @@ def main():
 
     if args.command == "fingerprint" and getattr(args, "fp_command", None) is None:
         fp_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "access" and getattr(args, "access_command", None) is None:
+        access_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "reputation" and getattr(args, "rep_command", None) is None:
+        rep_parser.print_help()
         sys.exit(0)
 
     args.func(args)

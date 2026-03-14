@@ -9,6 +9,8 @@ from oasyce_plugin.engines.result import Result
 from oasyce_plugin.models import AssetMetadata
 from oasyce_plugin.config import Config
 from oasyce_plugin.fingerprint import FingerprintEngine, FingerprintRegistry
+from oasyce_plugin.services.access.provider import DataAccessProvider
+from oasyce_plugin.services.reputation import ReputationEngine
 
 
 class OasyceSkills:
@@ -35,6 +37,9 @@ class OasyceSkills:
         # 隐私过滤器配置
         self.privacy_filter = PrivacyFilter()
         self.enable_privacy_check = True  # 默认启用隐私检查
+
+        # 访问控制
+        self.access_provider = DataAccessProvider()
 
     def _unwrap(self, result: Result) -> Any:
         if not result.ok:
@@ -377,3 +382,106 @@ class OasyceSkills:
             return []
         registry = FingerprintRegistry(self.ledger)
         return registry.get_distributions(asset_id)
+
+    # ── Access Control Skills ─────────────────────────────────────
+
+    def query_data_skill(self, agent_id: str, asset_id: str, query_string: str) -> Dict[str, Any]:
+        """L0 查询 — 仅返回聚合统计，数据不离开飞地。
+
+        Args:
+            agent_id: 请求方 Agent ID
+            asset_id: 资产 ID
+            query_string: 查询语句
+        """
+        result = self.access_provider.query(agent_id, asset_id, query_string)
+        return {
+            "success": result.success,
+            "access_level": result.access_level,
+            "bond_required": result.bond_required,
+            "data": result.data,
+            "error": result.error,
+        }
+
+    def sample_data_skill(self, agent_id: str, asset_id: str, sample_size: int = 10) -> Dict[str, Any]:
+        """L1 采样 — 返回脱敏+水印片段。
+
+        Args:
+            agent_id: 请求方 Agent ID
+            asset_id: 资产 ID
+            sample_size: 采样数量
+        """
+        result = self.access_provider.sample(agent_id, asset_id, sample_size)
+        return {
+            "success": result.success,
+            "access_level": result.access_level,
+            "bond_required": result.bond_required,
+            "data": result.data,
+            "error": result.error,
+        }
+
+    def compute_data_skill(self, agent_id: str, asset_id: str, code: str, params: dict = None) -> Dict[str, Any]:
+        """L2 计算 — 在 TEE 内执行代码，只有输出离开。
+
+        Args:
+            agent_id: 请求方 Agent ID
+            asset_id: 资产 ID
+            code: 要执行的代码
+            params: 可选参数字典
+        """
+        result = self.access_provider.compute(agent_id, asset_id, code, params)
+        return {
+            "success": result.success,
+            "access_level": result.access_level,
+            "bond_required": result.bond_required,
+            "data": result.data,
+            "error": result.error,
+        }
+
+    def deliver_data_skill(self, agent_id: str, asset_id: str) -> Dict[str, Any]:
+        """L3 交付 — 完整数据交付，需要最高保证金。
+
+        Args:
+            agent_id: 请求方 Agent ID
+            asset_id: 资产 ID
+        """
+        result = self.access_provider.deliver(agent_id, asset_id)
+        return {
+            "success": result.success,
+            "access_level": result.access_level,
+            "bond_required": result.bond_required,
+            "data": result.data,
+            "error": result.error,
+        }
+
+    def check_reputation_skill(self, agent_id: str) -> Dict[str, Any]:
+        """查询 Agent 信誉分与保证金折扣。
+
+        Args:
+            agent_id: Agent ID
+        """
+        rep = self.access_provider.reputation
+        score = rep.get_reputation(agent_id)
+        discount = rep.get_bond_discount(agent_id)
+        return {
+            "agent_id": agent_id,
+            "reputation": score,
+            "bond_discount": discount,
+        }
+
+    def calculate_bond_skill(self, agent_id: str, asset_id: str, access_level: str) -> Dict[str, Any]:
+        """计算指定访问级别所需的保证金。
+
+        Args:
+            agent_id: Agent ID
+            asset_id: 资产 ID
+            access_level: 访问级别 (L0/L1/L2/L3)
+        """
+        from oasyce_plugin.services.access import AccessLevel, parse_max_access_level
+        level = parse_max_access_level(access_level)
+        bond = self.access_provider._calculate_bond(agent_id, asset_id, level)
+        return {
+            "agent_id": agent_id,
+            "asset_id": asset_id,
+            "access_level": access_level,
+            "bond_required": bond,
+        }

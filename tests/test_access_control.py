@@ -394,3 +394,64 @@ class TestAccessControlConfig:
     def test_frozen(self, config):
         with pytest.raises(AttributeError):
             config.L0_multiplier = 99.0
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  OasyceSkills — Access Control Methods
+# ═══════════════════════════════════════════════════════════════════
+
+class TestSkillsAccessControl:
+    @pytest.fixture
+    def skills(self):
+        from oasyce_plugin.config import Config
+        from oasyce_plugin.skills.agent_skills import OasyceSkills
+        config = Config.from_env()
+        s = OasyceSkills(config)
+        s.access_provider.register_asset("ASSET_S1", value=1000.0, risk_level="public")
+        return s
+
+    def test_skills_query(self, skills):
+        result = skills.query_data_skill("agent-x", "ASSET_S1", "count(*)")
+        assert result["success"] is True
+        assert result["access_level"] == "L0"
+        assert result["bond_required"] > 0
+
+    def test_skills_sample(self, skills):
+        # New agent (rep=10) is sandboxed → L1 denied
+        result = skills.sample_data_skill("agent-x", "ASSET_S1", sample_size=5)
+        assert result["success"] is False
+
+    def test_skills_sample_after_rep(self, skills):
+        rep = skills.access_provider.reputation
+        for _ in range(3):
+            rep.update("agent-y", success=True)
+        result = skills.sample_data_skill("agent-y", "ASSET_S1", sample_size=5)
+        assert result["success"] is True
+        assert result["access_level"] == "L1"
+
+    def test_skills_reputation(self, skills):
+        result = skills.check_reputation_skill("agent-new")
+        assert result["agent_id"] == "agent-new"
+        assert result["reputation"] == 10.0
+        assert result["bond_discount"] == 0.9
+
+    def test_skills_query_unknown_asset(self, skills):
+        result = skills.query_data_skill("agent-x", "NONEXIST", "")
+        assert result["success"] is False
+        assert "Unknown asset" in result["error"]
+
+    def test_skills_compute(self, skills):
+        rep = skills.access_provider.reputation
+        for _ in range(5):
+            rep.update("agent-z", success=True)
+        result = skills.compute_data_skill("agent-z", "ASSET_S1", "sum(col1)")
+        assert result["success"] is True
+        assert result["access_level"] == "L2"
+
+    def test_skills_deliver(self, skills):
+        rep = skills.access_provider.reputation
+        for _ in range(5):
+            rep.update("agent-z", success=True)
+        result = skills.deliver_data_skill("agent-z", "ASSET_S1")
+        assert result["success"] is True
+        assert result["access_level"] == "L3"
