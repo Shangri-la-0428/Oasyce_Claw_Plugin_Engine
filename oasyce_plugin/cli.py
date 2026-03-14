@@ -350,8 +350,9 @@ def cmd_demo_network(args):
 
 
 def cmd_node_start(args):
-    """Start the Oasyce P2P node."""
+    """Start the Oasyce P2P node with persistent identity."""
     import asyncio
+    from oasyce_plugin.config import load_or_create_node_identity
     from oasyce_plugin.network.node import OasyceNode
     from oasyce_plugin.storage.ledger import Ledger
 
@@ -359,13 +360,21 @@ def cmd_node_start(args):
     port = args.port or config.node_port
     host = config.node_host
     ledger = Ledger(config.db_path)
-    node_id = (config.public_key or "unknown")[:16]
 
-    node = OasyceNode(host=host, port=port, node_id=node_id, ledger=ledger)
+    # Use persistent node identity
+    _priv, node_id = load_or_create_node_identity(config.data_dir)
+    node_id_short = node_id[:16]
+
+    node = OasyceNode(
+        host=host, port=port, node_id=node_id_short,
+        ledger=ledger, data_dir=config.data_dir,
+    )
 
     async def _run():
-        await node.start()
-        print(f"Oasyce node {node_id} listening on {host}:{port}")
+        await node.start(bootstrap=True)
+        print(f"Oasyce node {node_id_short} listening on {host}:{port}")
+        if node.peers:
+            print(f"  Known peers: {len(node.peers)}")
         print("Press Ctrl+C to stop.")
         try:
             while True:
@@ -384,25 +393,81 @@ def cmd_node_start(args):
 
 def cmd_node_info(args):
     """Show node information."""
-    config = Config.from_env()
+    from oasyce_plugin.config import load_or_create_node_identity
     from oasyce_plugin.storage.ledger import Ledger
 
+    config = Config.from_env()
     ledger = Ledger(config.db_path)
-    node_id = (config.public_key or "unknown")[:16]
+    _priv, node_id = load_or_create_node_identity(config.data_dir)
+    node_id_short = node_id[:16]
     height = ledger.get_chain_height()
 
+    # Load saved peers count
+    from pathlib import Path
+    peers_path = Path(config.data_dir) / "peers.json"
+    peers_count = 0
+    if peers_path.exists():
+        try:
+            peers_count = len(json.loads(peers_path.read_text()))
+        except Exception:
+            pass
+
     info = {
-        "node_id": node_id,
+        "node_id": node_id_short,
+        "node_id_full": node_id,
         "host": config.node_host,
         "port": config.node_port,
         "chain_height": height,
+        "known_peers": peers_count,
     }
     if args.json:
         print(json.dumps(info, indent=2))
     else:
-        print(f"Node ID:      {node_id}")
+        print(f"Node ID:      {node_id_short}")
+        print(f"Full ID:      {node_id}")
         print(f"Listen:       {config.node_host}:{config.node_port}")
         print(f"Chain height: {height}")
+        print(f"Known peers:  {peers_count}")
+
+
+def cmd_node_reset_identity(args):
+    """Force-reset node identity."""
+    from oasyce_plugin.config import reset_node_identity
+
+    config = Config.from_env()
+    _priv, new_id = reset_node_identity(config.data_dir)
+    print(f"Node identity reset.")
+    print(f"  New Node ID: {new_id[:16]}")
+    print(f"  Full ID:     {new_id}")
+
+
+def cmd_node_peers(args):
+    """Show known peer list."""
+    from pathlib import Path
+
+    config = Config.from_env()
+    peers_path = Path(config.data_dir) / "peers.json"
+
+    if not peers_path.exists():
+        print("No known peers.")
+        return
+
+    try:
+        peers = json.loads(peers_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        print("No known peers.")
+        return
+
+    if not peers:
+        print("No known peers.")
+        return
+
+    if args.json:
+        print(json.dumps(peers, indent=2))
+    else:
+        print(f"Known peers ({len(peers)}):")
+        for p in peers:
+            print(f"  {p.get('node_id', '?')[:16]}  {p['host']}:{p['port']}")
 
 
 def cmd_node_ping(args):
@@ -994,6 +1059,13 @@ def main():
     node_ping_parser = node_sub.add_parser("ping", help="Ping another node")
     node_ping_parser.add_argument("target", help="Target node (host:port)")
     node_ping_parser.set_defaults(func=cmd_node_ping)
+
+    node_reset_parser = node_sub.add_parser("reset-identity", help="Force-reset node identity")
+    node_reset_parser.set_defaults(func=cmd_node_reset_identity)
+
+    node_peers_parser = node_sub.add_parser("peers", help="Show known peer list")
+    node_peers_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    node_peers_parser.set_defaults(func=cmd_node_peers)
 
     # Fingerprint command group
     fp_parser = subparsers.add_parser("fingerprint", help="Fingerprint watermarking")

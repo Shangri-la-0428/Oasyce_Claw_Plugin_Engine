@@ -1,8 +1,8 @@
 """
 Oasyce P2P Node — lightweight TCP + JSON protocol.
 
-Single-node first: listens on a port, responds to ping/pong,
-get_height, get_block, get_peers.  Ready for future peer connections.
+Listens on a port, responds to ping/pong, get_height, get_block, get_peers.
+Supports persistent peer lists and bootstrap node connections.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -38,24 +39,87 @@ class OasyceNode:
         port: int = 9527,
         node_id: Optional[str] = None,
         ledger: Any = None,
+        data_dir: Optional[str] = None,
     ):
         self.host = host
         self.port = port
         self.node_id = node_id or "node_unknown"
         self.ledger = ledger
+        self.data_dir = data_dir
         self.peers: Dict[str, PeerInfo] = {}
         self._server: Optional[asyncio.AbstractServer] = None
         self._started = False
         self._block_rate: Dict[str, List[float]] = defaultdict(list)
 
+        # Load persisted peers
+        if self.data_dir:
+            self._load_peers()
+
+    # ── peer persistence ─────────────────────────────────────────────
+
+    @property
+    def _peers_path(self) -> Optional[Path]:
+        if not self.data_dir:
+            return None
+        return Path(self.data_dir) / "peers.json"
+
+    def _load_peers(self) -> None:
+        """Load persisted peer list from disk."""
+        path = self._peers_path
+        if path is None or not path.exists():
+            return
+        try:
+            data = json.loads(path.read_text())
+            for entry in data:
+                pid = entry.get("node_id", f"{entry['host']}:{entry['port']}")
+                self.peers[pid] = PeerInfo(
+                    host=entry["host"],
+                    port=entry["port"],
+                    node_id=pid,
+                    last_seen=entry.get("last_seen", 0.0),
+                )
+        except (json.JSONDecodeError, KeyError, OSError):
+            logger.warning("Failed to load peers.json, starting with empty peer list")
+
+    def _save_peers(self) -> None:
+        """Persist current peer list to disk."""
+        path = self._peers_path
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entries = [
+            {"host": p.host, "port": p.port, "node_id": p.node_id, "last_seen": p.last_seen}
+            for p in self.peers.values()
+        ]
+        path.write_text(json.dumps(entries, indent=2))
+
+    def add_peer(self, node_id: str, host: str, port: int) -> None:
+        """Add a peer and persist to disk."""
+        self.peers[node_id] = PeerInfo(
+            host=host, port=port, node_id=node_id, last_seen=time.time(),
+        )
+        self._save_peers()
+
+    def remove_peer(self, node_id: str) -> bool:
+        """Remove a peer and persist to disk. Returns True if removed."""
+        if node_id in self.peers:
+            del self.peers[node_id]
+            self._save_peers()
+            return True
+        return False
+
     # ── lifecycle ────────────────────────────────────────────────────
 
-    async def start(self) -> None:
+    async def start(self, bootstrap: bool = False) -> None:
         self._server = await asyncio.start_server(
             self._handle_connection, self.host, self.port,
         )
         self._started = True
         logger.info("Oasyce node %s listening on %s:%s", self.node_id, self.host, self.port)
+
+        if bootstrap:
+            await self._connect_bootstrap()
+            await self._reconnect_saved_peers()
 
     async def stop(self) -> None:
         if self._server is not None:
@@ -67,6 +131,47 @@ class OasyceNode:
     @property
     def is_running(self) -> bool:
         return self._started
+
+    async def _connect_bootstrap(self) -> None:
+        """Try connecting to bootstrap nodes to discover peers."""
+        from oasyce_plugin.config import BOOTSTRAP_NODES
+
+        for entry in BOOTSTRAP_NODES:
+            host = str(entry["host"])
+            port = int(entry["port"])  # type: ignore[arg-type]
+            try:
+                resp = await asyncio.wait_for(
+                    self.connect_to_peer(host, port), timeout=5.0,
+                )
+                logger.info("Connected to bootstrap %s:%s → %s", host, port, resp.get("node_id"))
+                # Ask bootstrap for more peers
+                try:
+                    peers_resp = await asyncio.wait_for(
+                        self._request(host, port, {"type": "get_peers"}), timeout=5.0,
+                    )
+                    for p in peers_resp.get("peers", []):
+                        if p.get("node_id") != self.node_id:
+                            try:
+                                await asyncio.wait_for(
+                                    self.connect_to_peer(p["host"], p["port"]), timeout=3.0,
+                                )
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+            except Exception:
+                logger.debug("Bootstrap %s:%s unreachable", host, port)
+
+    async def _reconnect_saved_peers(self) -> None:
+        """Try reconnecting to previously saved peers."""
+        saved = list(self.peers.values())
+        for peer in saved:
+            try:
+                await asyncio.wait_for(
+                    self.connect_to_peer(peer.host, peer.port), timeout=3.0,
+                )
+            except Exception:
+                logger.debug("Saved peer %s:%s unreachable", peer.host, peer.port)
 
     # ── connection handler ───────────────────────────────────────────
 
@@ -205,9 +310,7 @@ class OasyceNode:
             resp = json.loads(line.decode())
 
             peer_id = resp.get("node_id", f"{host}:{port}")
-            self.peers[peer_id] = PeerInfo(
-                host=host, port=port, node_id=peer_id, last_seen=time.time(),
-            )
+            self.add_peer(peer_id, host, port)
             return resp
         finally:
             writer.close()

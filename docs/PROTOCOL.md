@@ -333,18 +333,70 @@ Attacking is always more expensive than the extractable value. When this holds, 
 
 ---
 
-## 9. Upgrade Path
+## 9. Network Assumptions & NAT Traversal
+
+### Current Assumptions (v1)
+
+- Nodes have **public IPs** or are on the **same LAN**.
+- Direct TCP connections on port 9527 (no firewalls or NAT between peers).
+- Bootstrap nodes are publicly reachable at well-known addresses.
+- Persistent node identity (`~/.oasyce/node_id.json`) survives restarts.
+- Peer lists are persisted to `~/.oasyce/peers.json` and reloaded on startup.
+
+### Node Identity
+
+Each node generates an Ed25519 keypair on first run and stores it in
+`~/.oasyce/node_id.json`. The public key (hex) serves as the stable node ID
+across restarts. Use `oasyce node reset-identity` to force-regenerate.
+
+### Peer Discovery
+
+1. On startup, connect to hardcoded **bootstrap nodes** (see `config.py:BOOTSTRAP_NODES`).
+2. Ask each bootstrap for its peer list via `get_peers`.
+3. Reconnect to previously saved peers from `peers.json`.
+4. Peers discovered at runtime are automatically persisted.
+
+### NetworkConfig
+
+```python
+@dataclass
+class NetworkConfig:
+    listen_host: str = "0.0.0.0"       # Bind address (127.0.0.1 for local-only)
+    listen_port: int = 9527             # TCP port
+    public_host: Optional[str] = None   # Public IP/domain (needed behind NAT)
+    public_port: Optional[int] = None   # Public port (if port-forwarded)
+    use_stun: bool = False              # Future: STUN/TURN discovery
+```
+
+### Future: v1.1 — STUN/TURN + Relay Nodes
+
+- Use STUN to discover public IP and port mapping.
+- Fall back to TURN relay nodes when UDP hole-punching fails.
+- Relay nodes forward TCP traffic for NATed peers (bandwidth-limited).
+- `NetworkConfig.use_stun = True` to enable.
+
+### Future: v2.0 — libp2p + Hole Punching
+
+- Migrate transport to libp2p (noise encryption, multiplexing, mDNS).
+- DCUtR (Direct Connection Upgrade through Relay) for hole punching.
+- Kademlia DHT for decentralized peer discovery.
+- Circuit relay v2 with reservation system.
+
+---
+
+## 10. Upgrade Path
 
 ### v1 — Reference Implementation (current)
 
-- Single-machine P2P (localhost multi-node)
+- Single-machine and LAN P2P with persistent identity and peer lists
+- Bootstrap node discovery
 - SQLite ledger backend
 - Python reference implementation
-- 220+ tests, full protocol coverage
+- 440+ tests, full protocol coverage
 
 ### v2 — Production Network
 
-- Multi-machine P2P with NAT traversal and node discovery
+- Multi-machine P2P with NAT traversal (STUN/TURN) and node discovery
 - RocksDB or distributed storage backend
 - On-chain governance (token-weighted parameter voting)
 - Semantic watermarking (robust against formatters and LLMs)

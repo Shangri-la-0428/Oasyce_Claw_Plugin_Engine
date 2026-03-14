@@ -1,14 +1,69 @@
 from __future__ import annotations
 
+import json
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 
 # 自动加载 .env 文件（从项目根目录）
 load_dotenv()
+
+
+# ── Bootstrap nodes ──────────────────────────────────────────────────
+BOOTSTRAP_NODES: List[Dict[str, object]] = [
+    # 格式：{"host": "x.x.x.x", "port": 9527, "node_id": "..."}
+    # 初始：Shangrila 跑的公共 bootstrap 节点
+    {"host": "bootstrap.oasyce.com", "port": 9527, "node_id": "bootstrap-0"},
+]
+
+
+# ── Network configuration ───────────────────────────────────────────
+@dataclass
+class NetworkConfig:
+    listen_host: str = "0.0.0.0"
+    listen_port: int = 9527
+    public_host: Optional[str] = None   # 公网 IP/域名（NAT 后需要）
+    public_port: Optional[int] = None
+    use_stun: bool = False              # 未来扩展：STUN/TURN
+
+
+# ── Node identity persistence ───────────────────────────────────────
+def load_or_create_node_identity(data_dir: str) -> Tuple[str, str]:
+    """Load or create a persistent node identity (Ed25519 keypair).
+
+    Saves to ``<data_dir>/node_id.json``.
+
+    Returns:
+        (private_key_hex, public_key_hex)
+    """
+    from oasyce_plugin.crypto import generate_keypair
+
+    identity_path = Path(data_dir) / "node_id.json"
+    if identity_path.exists():
+        data = json.loads(identity_path.read_text())
+        return data["private_key"], data["node_id"]
+
+    # Generate new identity
+    private_hex, public_hex = generate_keypair()
+    identity_path.parent.mkdir(parents=True, exist_ok=True)
+    identity_path.write_text(json.dumps({
+        "node_id": public_hex,
+        "private_key": private_hex,
+        "created_at": time.time(),
+    }, indent=2))
+    return private_hex, public_hex
+
+
+def reset_node_identity(data_dir: str) -> Tuple[str, str]:
+    """Force-reset node identity by deleting existing and generating new."""
+    identity_path = Path(data_dir) / "node_id.json"
+    if identity_path.exists():
+        identity_path.unlink()
+    return load_or_create_node_identity(data_dir)
 
 
 def _default_vault_dir() -> str:
