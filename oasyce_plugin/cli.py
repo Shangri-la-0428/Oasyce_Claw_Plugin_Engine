@@ -1352,6 +1352,11 @@ def main():
     gui_parser.add_argument("--port", type=int, default=8420, help="Port (default: 8420)")
     gui_parser.set_defaults(func=lambda args: __import__('oasyce_plugin.gui.app', fromlist=['OasyceGUI']).OasyceGUI(port=args.port).run())
 
+    # Explorer command
+    explorer_parser = subparsers.add_parser("explorer", help="Launch block explorer (port 8421)")
+    explorer_parser.add_argument("--port", type=int, default=8421, help="Port (default: 8421)")
+    explorer_parser.set_defaults(func=lambda args: __import__('oasyce_plugin.explorer.app', fromlist=['OasyceExplorer']).OasyceExplorer(port=args.port).run())
+
     # ── price ─────────────────────────────────────────────────────────
     price_parser = subparsers.add_parser("price", help="Calculate dataset price with demand/scarcity factors")
     price_parser.add_argument("asset_id", help="Asset ID")
