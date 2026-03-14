@@ -466,6 +466,7 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 16px;
   line-height: 1.6;
+  letter-spacing: 0.01em;
 }
 
 /* ── Top Nav ─────────────────────────────────────────────── */
@@ -488,10 +489,6 @@ body {
   font-weight: 700;
   color: #fff;
   letter-spacing: 1px;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 .nav-links { display: flex; gap: 4px; }
 .nav-links a {
@@ -509,45 +506,43 @@ body {
 .wrap {
   max-width: 720px;
   margin: 0 auto;
-  padding: 32px 20px 64px;
+  padding: 24px 20px 48px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 24px;
 }
 
 /* Fade-in animation */
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .fade { animation: fadeIn 0.3s ease both; }
-.fade:nth-child(2) { animation-delay: 0.05s; }
-.fade:nth-child(3) { animation-delay: 0.1s; }
-.fade:nth-child(4) { animation-delay: 0.15s; }
-.fade:nth-child(5) { animation-delay: 0.2s; }
 
 /* Cards */
 .card {
   background: #141414;
   border: 1px solid #252525;
   border-radius: 12px;
-  padding: 24px;
+  padding: 20px;
 }
 .card h2 {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 16px;
-  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 14px;
+  color: #888;
 }
 
 /* Hero status */
 .hero {
   text-align: center;
-  padding: 40px 24px 32px;
+  padding: 32px 24px 24px;
 }
 .hero h1 {
   font-size: 28px;
-  font-weight: 700;
+  font-weight: 600;
   color: #fff;
   margin-bottom: 8px;
-  letter-spacing: 0.5px;
+  letter-spacing: 2px;
 }
 .status-dot {
   display: inline-block;
@@ -557,8 +552,8 @@ body {
   margin-right: 8px;
   vertical-align: middle;
 }
-.status-dot.online { background: #22c55e; box-shadow: 0 0 8px #22c55e66; }
-.status-dot.offline { background: #ef4444; box-shadow: 0 0 8px #ef444466; }
+.status-dot.online { background: #4ade80; }
+.status-dot.offline { background: #f87171; }
 .status-label {
   font-size: 16px;
   color: #999;
@@ -576,7 +571,7 @@ body {
   background: #141414;
   border: 1px solid #252525;
   border-radius: 12px;
-  padding: 20px 16px;
+  padding: 16px 12px;
   text-align: center;
 }
 .stat-icon { font-size: 24px; margin-bottom: 6px; }
@@ -586,9 +581,7 @@ body {
   font-family: ui-monospace, 'SF Mono', monospace;
   line-height: 1.1;
 }
-.stat-num.green { color: #22c55e; }
-.stat-num.blue { color: #3b82f6; }
-.stat-num.amber { color: #f59e0b; }
+.stat-num.green, .stat-num.blue, .stat-num.amber { color: #fff; }
 .stat-label {
   font-size: 14px;
   color: #888;
@@ -608,7 +601,7 @@ input[type="text"], input[type="number"], select {
   outline: none;
   transition: border-color 0.2s;
 }
-input[type="text"]:focus, input[type="number"]:focus, select:focus { border-color: #3b82f6; }
+input[type="text"]:focus, input[type="number"]:focus, select:focus { border-color: #888; }
 input[type="text"]::placeholder, input[type="number"]::placeholder { color: #555; }
 select { cursor: pointer; }
 select option { background: #1a1a1a; color: #e8e8e8; }
@@ -617,7 +610,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   height: 48px;
   font-size: 16px;
   font-weight: 500;
-  background: #3b82f6;
+  background: #252525;
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -626,7 +619,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   transition: background 0.2s;
   white-space: nowrap;
 }
-.btn:hover { background: #2563eb; }
+.btn:hover { background: #333; }
 
 .input-row {
   display: flex;
@@ -646,7 +639,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
 .asset-id {
   font-family: ui-monospace, 'SF Mono', monospace;
   font-size: 14px;
-  color: #3b82f6;
+  color: #ccc;
   word-break: break-all;
 }
 .asset-owner {
@@ -667,8 +660,8 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   line-height: 24px;
   padding: 0 10px;
   font-size: 12px;
-  background: #222;
-  border: 1px solid #444;
+  background: transparent;
+  border: 1px solid #555;
   border-radius: 20px;
   color: #ccc;
 }
@@ -690,7 +683,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   padding: 4px 8px;
   border-radius: 6px;
   font-size: 14px;
-  color: #3b82f6;
+  color: #ccc;
   font-family: ui-monospace, 'SF Mono', monospace;
 }
 
@@ -732,7 +725,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
 .dist-item .mono {
   font-family: ui-monospace, 'SF Mono', monospace;
   font-size: 13px;
-  color: #3b82f6;
+  color: #ccc;
   word-break: break-all;
 }
 .dist-item .meta {
@@ -772,7 +765,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
 .stake-amount {
   font-family: ui-monospace, 'SF Mono', monospace;
   font-weight: 600;
-  color: #22c55e;
+  color: #fff;
 }
 
 /* Footer */
@@ -787,8 +780,8 @@ select option { background: #1a1a1a; color: #e8e8e8; }
 .sep { margin-top: 20px; padding-top: 20px; border-top: 1px solid #252525; }
 
 /* Error / status text */
-.err { color: #ef4444; margin-top: 12px; font-size: 15px; }
-.ok { color: #22c55e; }
+.err { color: #f87171; margin-top: 12px; font-size: 15px; }
+.ok { color: #4ade80; }
 
 /* ── AHRP Section ────────────────────────────────────────── */
 .ahrp-header {
@@ -798,11 +791,10 @@ select option { background: #1a1a1a; color: #e8e8e8; }
 .ahrp-header h2 {
   font-size: 22px;
   font-weight: 700;
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #fff;
   margin-bottom: 4px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .ahrp-header p { color: #666; font-size: 14px; }
 
@@ -825,7 +817,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   font-weight: 700;
   font-family: ui-monospace, 'SF Mono', monospace;
   line-height: 1.1;
-  color: #6366f1;
+  color: #fff;
 }
 .ahrp-stat-label {
   font-size: 11px;
@@ -853,7 +845,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
 .checkbox-group input[type="checkbox"] {
   width: 18px;
   height: 18px;
-  accent-color: #6366f1;
+  accent-color: #888;
   cursor: pointer;
 }
 
@@ -874,7 +866,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
 .match-agent {
   font-family: ui-monospace, 'SF Mono', monospace;
   font-size: 14px;
-  color: #3b82f6;
+  color: #ccc;
 }
 .origin-badge {
   display: inline-block;
@@ -887,10 +879,9 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-.origin-human { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e44; }
-.origin-sensor { background: #3b82f622; color: #3b82f6; border: 1px solid #3b82f644; }
-.origin-curated { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
-.origin-synthetic { background: #8b5cf622; color: #8b5cf6; border: 1px solid #8b5cf644; }
+.origin-human, .origin-sensor, .origin-curated, .origin-synthetic {
+  background: transparent; color: #ccc; border: 1px solid #555;
+}
 .match-score-bar {
   width: 100%;
   height: 6px;
@@ -902,7 +893,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
 .match-score-fill {
   height: 100%;
   border-radius: 3px;
-  background: linear-gradient(90deg, #3b82f6, #22c55e);
+  background: #fff;
   transition: width 0.6s ease;
 }
 .match-details {
@@ -945,19 +936,12 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   z-index: 1;
 }
 .tx-step.done .tx-step-circle {
-  background: #22c55e22;
-  border-color: #22c55e;
-  box-shadow: 0 0 16px #22c55e44;
+  background: #fff;
+  border-color: #fff;
+  color: #0a0a0a;
 }
 .tx-step.active .tx-step-circle {
-  background: #3b82f622;
-  border-color: #3b82f6;
-  box-shadow: 0 0 16px #3b82f644;
-  animation: pulse-step 2s infinite;
-}
-@keyframes pulse-step {
-  0%, 100% { box-shadow: 0 0 16px #3b82f644; }
-  50% { box-shadow: 0 0 28px #3b82f666; }
+  border-color: #fff;
 }
 .tx-step-label {
   font-size: 11px;
@@ -967,8 +951,8 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   color: #555;
   transition: color 0.5s ease;
 }
-.tx-step.done .tx-step-label { color: #22c55e; }
-.tx-step.active .tx-step-label { color: #3b82f6; }
+.tx-step.done .tx-step-label { color: #fff; }
+.tx-step.active .tx-step-label { color: #fff; }
 .tx-arrow {
   font-size: 20px;
   color: #333;
@@ -976,7 +960,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   padding-bottom: 20px;
   transition: color 0.5s ease;
 }
-.tx-arrow.done { color: #22c55e; }
+.tx-arrow.done { color: #fff; }
 
 /* Star rating */
 .star-rating {
@@ -992,7 +976,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   user-select: none;
 }
 .star-rating span:hover { transform: scale(1.2); }
-.star-rating span.lit { color: #f59e0b; }
+.star-rating span.lit { color: #fff; }
 
 /* Responsive */
 @media (max-width: 640px) {
@@ -1046,41 +1030,41 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
   max-width: 340px;
 }
-.toast.success { border-color: #22c55e; }
-.toast.error { border-color: #ef4444; }
+.toast.success { border-color: #555; }
+.toast.error { border-color: #f87171; }
 @keyframes toastIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
 @keyframes toastOut { from { opacity:1; } to { opacity:0; } }
 
 /* ── Delete button on asset cards ─────────────────────────── */
 .asset-item { position: relative; cursor: pointer; transition: border-color 0.2s; }
-.asset-item:hover { border-color: #3b82f6; }
+.asset-item:hover { border-color: #555; }
 .asset-delete-btn {
   position: absolute; top: 12px; right: 12px;
-  background: none; border: 1px solid #ef444444; border-radius: 6px;
-  color: #ef4444; font-size: 14px; cursor: pointer;
+  background: none; border: 1px solid #33333300; border-radius: 6px;
+  color: #666; font-size: 14px; cursor: pointer;
   width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-  opacity: 0; transition: opacity 0.2s;
+  opacity: 0; transition: opacity 0.2s, color 0.2s;
 }
 .asset-item:hover .asset-delete-btn { opacity: 1; }
-.asset-delete-btn:hover { background: #ef444422; }
+.asset-delete-btn:hover { color: #f87171; }
 
 /* ── Price badge ──────────────────────────────────────────── */
 .price-badge {
   display: inline-block; height: 24px; line-height: 24px;
   padding: 0 10px; font-size: 12px; font-weight: 600;
   font-family: ui-monospace, 'SF Mono', monospace;
-  background: #22c55e18; border: 1px solid #22c55e44;
-  border-radius: 20px; color: #22c55e;
+  background: transparent; border: 1px solid #555;
+  border-radius: 20px; color: #ccc;
 }
-.price-badge.none { background: #33333344; border-color: #444; color: #666; }
+.price-badge.none { background: transparent; border-color: #333; color: #666; }
 
 /* ── Portfolio table ──────────────────────────────────────── */
 .portfolio-table { width:100%; border-collapse:collapse; font-size:14px; }
 .portfolio-table th { text-align:left; color:#888; font-weight:500; padding:8px 4px; border-bottom:1px solid #333; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; }
 .portfolio-table td { padding:10px 4px; border-bottom:1px solid #1f1f1f; }
-.portfolio-table td.mono { font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:#3b82f6; }
+.portfolio-table td.mono { font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:#ccc; }
 .portfolio-table td.num { font-family:ui-monospace,'SF Mono',monospace; text-align:right; }
-.portfolio-table td.green { color:#22c55e; }
+.portfolio-table td.green { color:#fff; }
 
 /* ── Transaction list ─────────────────────────────────────── */
 .tx-item {
@@ -1089,16 +1073,16 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   display:flex; justify-content:space-between; align-items:center;
 }
 .tx-item-left { display:flex; flex-direction:column; gap:2px; }
-.tx-item-id { font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:#3b82f6; }
+.tx-item-id { font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:#ccc; }
 .tx-item-detail { font-size:13px; color:#888; }
 .tx-item-right { text-align:right; }
-.tx-item-tokens { font-family:ui-monospace,'SF Mono',monospace; font-weight:600; color:#22c55e; }
+.tx-item-tokens { font-family:ui-monospace,'SF Mono',monospace; font-weight:600; color:#fff; }
 .tx-item-status { font-size:12px; color:#888; }
 
 /* Edit tags inline */
 .tag-edit-row { display:flex; gap:8px; margin-top:12px; }
 .tag-edit-row input { flex:1; height:36px; font-size:14px; background:#1a1a1a; border:1px solid #333; border-radius:8px; color:#e8e8e8; padding:0 12px; outline:none; }
-.tag-edit-row input:focus { border-color:#3b82f6; }
+.tag-edit-row input:focus { border-color:#888; }
 .tag-edit-row button { height:36px; font-size:13px; padding:0 16px; border:none; border-radius:8px; cursor:pointer; font-weight:500; }
 </style>
 </head>
@@ -1144,10 +1128,10 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   <!-- Section 2: Quick Actions -->
   <div class="card fade" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
     <button class="btn" onclick="document.getElementById('register-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x1f4e6; Register</button>
-    <button class="btn" onclick="document.getElementById('buy-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;background:#22c55e;">&#x1f4b0; Buy</button>
-    <button class="btn" onclick="document.getElementById('embed-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;background:#f59e0b;color:#000;">&#x1f512; Watermark</button>
-    <button class="btn" onclick="document.getElementById('stake-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;background:#8b5cf6;">&#x26d3; Stake</button>
-    <button class="btn" onclick="document.getElementById('ahrp-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;background:linear-gradient(135deg,#3b82f6,#6366f1);">&#x1f91d; AHRP</button>
+    <button class="btn" onclick="document.getElementById('buy-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x1f4b0; Buy</button>
+    <button class="btn" onclick="document.getElementById('embed-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x1f512; Watermark</button>
+    <button class="btn" onclick="document.getElementById('stake-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x26d3; Stake</button>
+    <button class="btn" onclick="document.getElementById('ahrp-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x1f91d; AHRP</button>
   </div>
 
   <!-- Section 2b: My Portfolio -->
@@ -1189,7 +1173,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
       <input type="text" id="buy-amount" placeholder="Amount (OAS)" value="10" style="max-width:120px;">
     </div>
     <div style="display:flex;gap:10px;">
-      <button class="btn" id="quote-btn" style="flex:1;background:#333;">Get quote</button>
+      <button class="btn" id="quote-btn" style="flex:1;">Get quote</button>
       <button class="btn" id="buy-btn" style="flex:1;">Buy</button>
     </div>
     <div id="buy-result"></div>
@@ -1203,7 +1187,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
       <input type="text" id="emb-caller" placeholder="Buyer ID" style="flex:1;">
     </div>
     <textarea id="emb-content" placeholder="Paste the content to watermark..." style="width:100%;min-height:120px;font-size:16px;background:#1a1a1a;border:1px solid #333;border-radius:10px;color:#e8e8e8;padding:16px;font-family:ui-monospace,monospace;resize:vertical;outline:none;"></textarea>
-    <button class="btn" id="emb-btn" style="width:100%;margin-top:10px;background:#f59e0b;color:#000;">Embed watermark</button>
+    <button class="btn" id="emb-btn" style="width:100%;margin-top:10px;">Embed watermark</button>
     <div id="emb-result"></div>
   </div>
 
@@ -1234,7 +1218,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
       <input type="text" id="stake-node" placeholder="Your node ID" style="flex:1;">
       <input type="text" id="stake-amount" placeholder="Amount (OAS)" value="10000" style="max-width:140px;">
     </div>
-    <button class="btn" id="stake-btn" style="width:100%;background:#8b5cf6;">Stake</button>
+    <button class="btn" id="stake-btn" style="width:100%;">Stake</button>
     <div id="stake-result"></div>
   </div>
 
@@ -1306,7 +1290,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
           <label><input type="checkbox" value="L3"> L3</label>
         </div>
       </div>
-      <button class="btn" id="ahrp-announce-btn" style="width:100%;background:linear-gradient(135deg,#3b82f6,#6366f1);">Announce Agent</button>
+      <button class="btn" id="ahrp-announce-btn" style="width:100%;">Announce Agent</button>
       <div id="ahrp-announce-result"></div>
     </div>
 
@@ -1327,7 +1311,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
           <option value="L3">L3</option>
         </select>
       </div>
-      <button class="btn" id="ahrp-find-btn" style="width:100%;background:#333;">Find Matches</button>
+      <button class="btn" id="ahrp-find-btn" style="width:100%;">Find Matches</button>
       <div id="ahrp-matches" style="margin-top:16px;"></div>
     </div>
 
@@ -1385,7 +1369,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
           <input type="text" id="tx-deliver-id" placeholder="Transaction ID (auto-filled)" style="flex:2;">
           <input type="text" id="tx-content-hash" placeholder="Content hash" style="flex:1;">
         </div>
-        <button class="btn" id="tx-deliver-btn" style="width:100%;background:#22c55e;">Deliver</button>
+        <button class="btn" id="tx-deliver-btn" style="width:100%;">Deliver</button>
         <div id="tx-deliver-result"></div>
       </div>
 
@@ -1402,7 +1386,7 @@ select option { background: #1a1a1a; color: #e8e8e8; }
           <span data-v="4">&#x2605;</span>
           <span data-v="5">&#x2605;</span>
         </div>
-        <button class="btn" id="tx-confirm-btn" style="width:100%;background:#f59e0b;color:#000;">Confirm &amp; Settle</button>
+        <button class="btn" id="tx-confirm-btn" style="width:100%;">Confirm &amp; Settle</button>
         <div id="tx-confirm-result"></div>
       </div>
     </div>
