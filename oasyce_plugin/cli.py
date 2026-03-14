@@ -1145,6 +1145,10 @@ def cmd_start(args):
     core_thread.start()
     time.sleep(1)  # let core start first
 
+    # Auto-open browser
+    import webbrowser
+    webbrowser.open(f"http://localhost:{gui_port}")
+
     # Start Dashboard in main thread
     from oasyce_plugin.gui.app import OasyceGUI
     OasyceGUI(port=gui_port).run()
@@ -1525,7 +1529,7 @@ def main():
     # GUI command
     gui_parser = subparsers.add_parser("gui", help="Launch web dashboard (port 8420)")
     gui_parser.add_argument("--port", type=int, default=8420, help="Port (default: 8420)")
-    gui_parser.set_defaults(func=lambda args: __import__('oasyce_plugin.gui.app', fromlist=['OasyceGUI']).OasyceGUI(port=args.port).run())
+    gui_parser.set_defaults(func=lambda args: (__import__('webbrowser').open(f'http://localhost:{args.port}'), __import__('oasyce_plugin.gui.app', fromlist=['OasyceGUI']).OasyceGUI(port=args.port).run()))
 
     # Start command — one command to rule them all
     start_parser = subparsers.add_parser("start", help="Start everything: Core node + Dashboard (recommended)")
