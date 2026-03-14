@@ -13,6 +13,10 @@ class AssetMetadata:
     popc_signature: Optional[str] = None
     certificate_issuer: Optional[str] = None
     schema_version: str = "1.0"
+    risk_level: str = "public"
+    max_access_level: str = "L3"
+    compute_interface: Optional[str] = None
+    semantic_vector: Optional[List[float]] = None
 
 @dataclass
 class EngineResult:

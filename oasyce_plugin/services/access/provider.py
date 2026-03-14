@@ -1,0 +1,166 @@
+"""
+DataAccessProvider — Tiered Data Access with Bond-Based Authorization
+
+Provides four access methods (query / sample / compute / deliver) that
+enforce access-level checks, bond calculation, and exposure tracking.
+
+Bond formula:
+  Bond = TWAP(Value) × Multiplier(Level) × RiskFactor × (1 - R/100) × ExposureFactor
+
+Each method delegates to the ReputationEngine and ExposureRegistry for
+discount and exposure-factor lookups.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
+
+from oasyce_plugin.services.access import (
+    AccessLevel,
+    access_level_index,
+    parse_max_access_level,
+)
+from oasyce_plugin.services.access.config import AccessControlConfig
+from oasyce_plugin.services.reputation import ReputationEngine
+from oasyce_plugin.services.exposure.registry import ExposureRegistry
+
+
+# ─── Result types ─────────────────────────────────────────────────
+
+@dataclass
+class AccessResult:
+    """Outcome of a data-access request."""
+    success: bool
+    data: Optional[Any] = None
+    bond_required: float = 0.0
+    access_level: str = ""
+    error: Optional[str] = None
+
+
+# ─── DataAccessProvider ──────────────────────────────────────────
+
+class DataAccessProvider:
+    """Enforces tiered access control and computes bond requirements.
+
+    Holds a registry of asset values (TWAP proxy) and risk levels so it
+    can compute bonds.  Actual data retrieval is stubbed — callers must
+    supply concrete data backends.
+    """
+
+    def __init__(
+        self,
+        config: Optional[AccessControlConfig] = None,
+        reputation: Optional[ReputationEngine] = None,
+        exposure: Optional[ExposureRegistry] = None,
+    ) -> None:
+        self.config = config or AccessControlConfig()
+        self.reputation = reputation or ReputationEngine(config=self.config)
+        self.exposure = exposure or ExposureRegistry(config=self.config)
+        # asset_id → {value, risk_level, max_access_level}
+        self._assets: Dict[str, Dict[str, Any]] = {}
+
+    # ─── Asset registration ───────────────────────────────────────
+
+    def register_asset(
+        self,
+        asset_id: str,
+        value: float,
+        risk_level: str = "public",
+        max_access_level: str = "L3",
+    ) -> None:
+        """Register an asset with its TWAP value and risk metadata."""
+        self._assets[asset_id] = {
+            "value": value,
+            "risk_level": risk_level,
+            "max_access_level": max_access_level,
+        }
+
+    # ─── Access methods ───────────────────────────────────────────
+
+    def query(self, agent_id: str, asset_id: str, query_string: str = "") -> AccessResult:
+        """L0 — aggregated statistics only, data never leaves enclave."""
+        return self._access(agent_id, asset_id, AccessLevel.L0_QUERY, query_string)
+
+    def sample(self, agent_id: str, asset_id: str, sample_size: int = 10) -> AccessResult:
+        """L1 — redacted + watermarked sample fragments."""
+        return self._access(agent_id, asset_id, AccessLevel.L1_SAMPLE, f"sample:{sample_size}")
+
+    def compute(self, agent_id: str, asset_id: str, code: str = "", params: Optional[Dict] = None) -> AccessResult:
+        """L2 — execute code inside TEE, only outputs leave."""
+        return self._access(agent_id, asset_id, AccessLevel.L2_COMPUTE, code)
+
+    def deliver(self, agent_id: str, asset_id: str) -> AccessResult:
+        """L3 — full data delivery, maximum bond required."""
+        return self._access(agent_id, asset_id, AccessLevel.L3_DELIVER, "full_delivery")
+
+    # ─── Core logic ───────────────────────────────────────────────
+
+    def _access(
+        self,
+        agent_id: str,
+        asset_id: str,
+        required_level: AccessLevel,
+        payload: str,
+    ) -> AccessResult:
+        """Unified access path: check level → compute bond → record exposure."""
+        if asset_id not in self._assets:
+            return AccessResult(success=False, error=f"Unknown asset: {asset_id}")
+
+        if not self._check_access_level(agent_id, asset_id, required_level):
+            return AccessResult(
+                success=False,
+                access_level=required_level.value,
+                error=f"Access denied: level {required_level.value} exceeds asset max or agent is sandboxed",
+            )
+
+        bond = self._calculate_bond(agent_id, asset_id, required_level)
+        asset_value = self._assets[asset_id]["value"]
+
+        self.exposure.track_access(
+            agent_id, asset_id, asset_value, required_level.value,
+        )
+
+        return AccessResult(
+            success=True,
+            data=f"{required_level.value}:{payload}",
+            bond_required=bond,
+            access_level=required_level.value,
+        )
+
+    def _check_access_level(
+        self, agent_id: str, asset_id: str, required_level: AccessLevel
+    ) -> bool:
+        """Verify agent may access at the requested level.
+
+        Checks:
+        1. required_level ≤ asset's max_access_level
+        2. Sandbox agents (reputation < threshold) limited to L0
+        """
+        asset = self._assets[asset_id]
+        max_level = parse_max_access_level(asset["max_access_level"])
+
+        if access_level_index(required_level) > access_level_index(max_level):
+            return False
+
+        rep = self.reputation.get_reputation(agent_id)
+        if rep < self.config.sandbox_threshold and required_level != AccessLevel.L0_QUERY:
+            return False
+
+        return True
+
+    def _calculate_bond(
+        self, agent_id: str, asset_id: str, access_level: AccessLevel
+    ) -> float:
+        """Compute bond amount.
+
+        Bond = TWAP(Value) × Multiplier(Level) × RiskFactor × (1 - R/100) × ExposureFactor
+        """
+        asset = self._assets[asset_id]
+        value = asset["value"]
+        multiplier = self.config.multiplier_for(access_level.value)
+        risk_factor = self.config.risk_factor_for(asset["risk_level"])
+        rep_discount = self.reputation.get_bond_discount(agent_id)
+        exposure_factor = self.exposure.get_exposure_factor(agent_id, asset_id)
+
+        bond = value * multiplier * risk_factor * rep_discount * exposure_factor
+        return round(bond, 6)
