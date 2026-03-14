@@ -630,6 +630,93 @@ def cmd_reputation_update(args):
         print(f"📊 Updated '{args.agent_id}' ({event}) → reputation: {score:.1f}")
 
 
+def cmd_asset_info(args):
+    """Display full OAS-DAS 5-layer information for an asset."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+
+    try:
+        result = skills.get_asset_standard_skill(args.asset_id)
+    except RuntimeError as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        das = result
+        ident = das["identity"]
+        meta = das["metadata"]
+        access = das["access_policy"]
+        compute = das["compute_interface"]
+        prov = das["provenance"]
+
+        print(f"📋 OAS-DAS Asset: {ident['asset_id']}")
+        print()
+        print("── Layer 1: Identity ──")
+        print(f"   Creator:    {ident['creator']}")
+        print(f"   Created:    {ident['created_at']}")
+        print(f"   Version:    {ident['version']}")
+        print(f"   Namespace:  {ident['namespace']}")
+        print()
+        print("── Layer 2: Metadata ──")
+        print(f"   Title:      {meta['title']}")
+        print(f"   Tags:       {', '.join(meta['tags']) if meta['tags'] else '(none)'}")
+        print(f"   File size:  {meta['file_size_bytes']} bytes")
+        if meta.get("description"):
+            print(f"   Desc:       {meta['description']}")
+        if meta.get("category"):
+            print(f"   Category:   {meta['category']}")
+        print()
+        print("── Layer 3: Access Policy ──")
+        print(f"   Risk level: {access['risk_level']}")
+        print(f"   Max access: {access['max_access_level']}")
+        print(f"   Pricing:    {access['price_model']}")
+        print(f"   License:    {access['license_type']}")
+        if access.get("geographic_restrictions"):
+            print(f"   Geo restrict: {', '.join(access['geographic_restrictions'])}")
+        if access.get("expiry_timestamp"):
+            print(f"   Expires:    {access['expiry_timestamp']}")
+        print()
+        print("── Layer 4: Compute Interface ──")
+        ops = compute.get("supported_operations", [])
+        print(f"   Operations: {', '.join(ops) if ops else '(none)'}")
+        print(f"   Runtime:    {compute['runtime']}")
+        print(f"   Max time:   {compute['max_compute_seconds']}s")
+        print(f"   Memory:     {compute['memory_limit_mb']} MB")
+        print()
+        print("── Layer 5: Provenance ──")
+        print(f"   PoPC sig:   {prov.get('popc_signature') or '(none)'}")
+        print(f"   Issuer:     {prov.get('certificate_issuer') or '(none)'}")
+        parents = prov.get("parent_assets", [])
+        print(f"   Parents:    {', '.join(parents) if parents else '(none)'}")
+        print(f"   Fingerprint:{prov.get('fingerprint_id') or '(none)'}")
+        vec = prov.get("semantic_vector")
+        print(f"   Vector:     {'[' + str(len(vec)) + ' dims]' if vec else '(none)'}")
+
+
+def cmd_asset_validate(args):
+    """Validate asset against OAS-DAS standard."""
+    config = Config.from_env()
+    skills = OasyceSkills(config)
+
+    try:
+        result = skills.validate_asset_standard_skill(args.asset_id)
+    except RuntimeError as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        if result["valid"]:
+            print(f"✅ Asset {args.asset_id} conforms to OAS-DAS standard")
+        else:
+            print(f"❌ Asset {args.asset_id} has {len(result['errors'])} validation error(s):")
+            for err in result["errors"]:
+                print(f"   - {err}")
+
+
 def cmd_verify(args):
     """Verify a PoPC certificate."""
     from oasyce_plugin.engines.core_engines import CertificateEngine
@@ -715,6 +802,18 @@ def main():
     shares_parser = subparsers.add_parser("shares", help="Show share holdings for an owner")
     shares_parser.add_argument("owner", help="Owner identity")
     shares_parser.set_defaults(func=cmd_shares)
+
+    # Asset info command (OAS-DAS)
+    asset_info_parser = subparsers.add_parser("asset-info", help="Show OAS-DAS 5-layer asset info")
+    asset_info_parser.add_argument("asset_id", help="Asset ID")
+    asset_info_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    asset_info_parser.set_defaults(func=cmd_asset_info)
+
+    # Asset validate command (OAS-DAS)
+    asset_validate_parser = subparsers.add_parser("asset-validate", help="Validate asset against OAS-DAS standard")
+    asset_validate_parser.add_argument("asset_id", help="Asset ID")
+    asset_validate_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    asset_validate_parser.set_defaults(func=cmd_asset_validate)
 
     # Demo command
     demo_parser = subparsers.add_parser(

@@ -468,6 +468,98 @@ class OasyceSkills:
             "bond_discount": discount,
         }
 
+    def _find_asset_metadata(self, asset_id: str) -> Dict[str, Any]:
+        """Look up asset metadata by ID from ledger or vault JSON files."""
+        import json as _json
+
+        # Try ledger first
+        if self.ledger is not None:
+            try:
+                assets = self.ledger.search_assets("")
+                for a in assets:
+                    if a.get("asset_id") == asset_id:
+                        return a
+            except Exception:
+                pass
+
+        # Fallback: scan vault JSON files
+        if os.path.isdir(self.vault_path):
+            for fname in os.listdir(self.vault_path):
+                if fname.endswith(".json"):
+                    fpath = os.path.join(self.vault_path, fname)
+                    try:
+                        with open(fpath, "r", encoding="utf-8") as f:
+                            data = _json.load(f)
+                        if data.get("asset_id") == asset_id:
+                            return data
+                    except Exception:
+                        continue
+
+        raise RuntimeError(f"Asset not found: {asset_id}")
+
+    def get_asset_standard_skill(self, asset_id: str) -> Dict[str, Any]:
+        """Return OAS-DAS 5-layer representation of an asset.
+
+        Args:
+            asset_id: Asset ID to look up.
+
+        Returns:
+            OAS-DAS dict with identity/metadata/access_policy/compute_interface/provenance.
+        """
+        from oasyce_plugin.standards.oas_das import OasDasAsset
+
+        meta_dict = self._find_asset_metadata(asset_id)
+        meta = AssetMetadata(
+            asset_id=meta_dict.get("asset_id", ""),
+            filename=meta_dict.get("filename", ""),
+            owner=meta_dict.get("owner", ""),
+            tags=meta_dict.get("tags", []),
+            timestamp=meta_dict.get("timestamp", 0),
+            file_size_bytes=meta_dict.get("file_size_bytes", 0),
+            classification=meta_dict.get("classification"),
+            popc_signature=meta_dict.get("popc_signature"),
+            certificate_issuer=meta_dict.get("certificate_issuer"),
+            schema_version=meta_dict.get("schema_version", "1.0"),
+            risk_level=meta_dict.get("risk_level", "public"),
+            max_access_level=meta_dict.get("max_access_level", "L3"),
+            compute_interface=meta_dict.get("compute_interface"),
+            semantic_vector=meta_dict.get("semantic_vector"),
+        )
+        das = OasDasAsset.from_asset_metadata(meta)
+        return das.to_dict()
+
+    def validate_asset_standard_skill(self, asset_id: str) -> Dict[str, Any]:
+        """Validate an asset against the OAS-DAS standard.
+
+        Args:
+            asset_id: Asset ID to validate.
+
+        Returns:
+            dict with 'valid' (bool) and 'errors' (list of error strings).
+        """
+        from oasyce_plugin.standards.oas_das import OasDasAsset
+
+        meta_dict = self._find_asset_metadata(asset_id)
+        meta = AssetMetadata(
+            asset_id=meta_dict.get("asset_id", ""),
+            filename=meta_dict.get("filename", ""),
+            owner=meta_dict.get("owner", ""),
+            tags=meta_dict.get("tags", []),
+            timestamp=meta_dict.get("timestamp", 0),
+            file_size_bytes=meta_dict.get("file_size_bytes", 0),
+            classification=meta_dict.get("classification"),
+            popc_signature=meta_dict.get("popc_signature"),
+            certificate_issuer=meta_dict.get("certificate_issuer"),
+            schema_version=meta_dict.get("schema_version", "1.0"),
+            risk_level=meta_dict.get("risk_level", "public"),
+            max_access_level=meta_dict.get("max_access_level", "L3"),
+            compute_interface=meta_dict.get("compute_interface"),
+            semantic_vector=meta_dict.get("semantic_vector"),
+        )
+        das = OasDasAsset.from_asset_metadata(meta)
+        errors = das.validate()
+        return {"valid": len(errors) == 0, "errors": errors, "asset_id": asset_id}
+
     def calculate_bond_skill(self, agent_id: str, asset_id: str, access_level: str) -> Dict[str, Any]:
         """计算指定访问级别所需的保证金。
 
