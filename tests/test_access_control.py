@@ -7,7 +7,11 @@ Covers:
   - ExposureRegistry cumulative tracking & fragmentation detection
   - LiabilityWindow delayed release
   - DataAccessProvider access-level checks & bond calculation
+  - Fragmentation check integration
+  - Thread safety
+  - rep_floor / sandbox alignment
 """
+import threading
 import time
 
 import pytest
@@ -116,26 +120,22 @@ class TestReputationEngine:
         assert score == 0.0
 
     def test_time_decay(self, reputation):
-        # Boost to 70
+        # Boost: 10 + 20 (rate-limited) = 30
         for _ in range(12):
             reputation.update("agent-1", success=True)
         # Apply 2 decay periods (180 days)
         score = reputation.update("agent-1", time_since_last=180.0)
-        # 70 - 10 = 60  (but damage also applies since success=False → -10)
-        # Actually: 70 + (-10 for damage) + (-10 for 2 periods) = 50
-        # Wait — success=False and leak_detected=False → damage penalty applies
-        assert score == 50.0
+        # 30 + (-10 damage) + (-10 for 2 periods) = 10, floor=max(10,0)=10
+        assert score == 10.0
 
     def test_decay_floor(self, reputation):
-        # Boost high
+        # Boost: 10 + 20 (rate-limited) = 30
         for _ in range(20):
             reputation.update("agent-1", success=True)
-        # 10 + 100 = 110 (uncapped)
-        # Apply massive decay
+        # Apply massive decay (900 days = 10 periods)
         score = reputation.update("agent-1", time_since_last=900.0, success=True)
-        # 110 + 5 (success) then 10 periods decay = -50
-        # 115 - 50 = 65 → but floor is 50 → max(65, 50) = 65
-        assert score >= 50.0
+        # 30 + 5 (success) - 50 (10 periods × -5) = -15, floor=max(-15,0)=0
+        assert score == 0.0
 
     def test_bond_discount(self, reputation):
         # Initial rep = 10 → discount = 1 - 10/100 = 0.9
@@ -467,3 +467,139 @@ class TestSkillsAccessControl:
         result = skills.deliver_data_skill("agent-z", "ASSET_S1")
         assert result["success"] is True
         assert result["access_level"] == "L3"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Fragmentation Check Integration
+# ═══════════════════════════════════════════════════════════════════
+
+class TestFragmentationIntegration:
+    def test_fragmentation_upgrades_bond(self, provider):
+        """Repeated L0 queries trigger fragmentation penalty on bond."""
+        first = provider.query("agent-1", "ASSET_001")
+        assert first.success is True
+        assert first.warning is None
+
+        second = provider.query("agent-1", "ASSET_001")
+        # After 2 accesses with same value, total > max_single → fragmentation
+        assert second.success is True
+        assert second.warning is not None
+        assert "Fragmentation" in second.warning
+        # Bond should be 2× what it would be without penalty
+        assert second.bond_required > first.bond_required
+
+    def test_no_fragmentation_on_first_access(self, provider):
+        """First access never triggers fragmentation warning."""
+        result = provider.query("agent-1", "ASSET_001")
+        assert result.warning is None
+
+    def test_fragmentation_penalty_value(self, config):
+        """Default fragmentation penalty is 2.0×."""
+        assert config.fragmentation_penalty == 2.0
+
+    def test_access_result_warning_field(self):
+        """AccessResult has an optional warning field."""
+        result = AccessResult(success=True)
+        assert result.warning is None
+        result_with_warning = AccessResult(success=True, warning="test warning")
+        assert result_with_warning.warning == "test warning"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Thread Safety
+# ═══════════════════════════════════════════════════════════════════
+
+class TestThreadSafety:
+    def test_reputation_concurrent_updates(self, reputation):
+        """Concurrent reputation updates don't corrupt state."""
+        errors = []
+
+        def update_rep():
+            try:
+                for _ in range(50):
+                    reputation.update("agent-t", success=True)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=update_rep) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        # Score should be valid (capped at 95)
+        score = reputation.get_reputation("agent-t")
+        assert 0.0 <= score <= 95.0
+
+    def test_exposure_concurrent_tracking(self, exposure):
+        """Concurrent exposure tracking doesn't lose records."""
+        errors = []
+
+        def track():
+            try:
+                for _ in range(50):
+                    exposure.track_access("agent-t", "ASSET_T", 10.0, "L0")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=track) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        total = exposure.get_cumulative_exposure("agent-t", "ASSET_T")
+        assert total == 200 * 10.0  # 4 threads × 50 accesses × 10.0
+
+    def test_liability_window_has_lock(self, window):
+        """LiabilityWindow has a threading lock."""
+        assert hasattr(window, "_lock")
+        assert isinstance(window._lock, type(threading.Lock()))
+
+    def test_provider_has_lock(self, provider):
+        """DataAccessProvider has a threading lock."""
+        assert hasattr(provider, "_lock")
+        assert isinstance(provider._lock, type(threading.Lock()))
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  rep_floor / Sandbox Alignment
+# ═══════════════════════════════════════════════════════════════════
+
+class TestRepFloorAlignment:
+    def test_rep_floor_below_sandbox_threshold(self, config):
+        """rep_floor must be <= sandbox_threshold so decay can reach sandbox."""
+        assert config.rep_floor <= config.sandbox_threshold
+
+    def test_rep_floor_is_zero(self, config):
+        """rep_floor defaults to 0."""
+        assert config.rep_floor == 0.0
+
+    def test_decay_reaches_sandbox(self, reputation):
+        """With rep_floor=0, decay can push agent below sandbox threshold."""
+        # Boost to 30
+        for _ in range(5):
+            reputation.update("agent-1", success=True)
+        assert reputation.get_reputation("agent-1") >= 20.0
+
+        # Heavy decay: 900 days = 10 periods × -5 = -50
+        score = reputation.update("agent-1", time_since_last=900.0, success=True)
+        # Should be below sandbox threshold (20)
+        assert score < 20.0
+
+    def test_inactive_agent_returns_to_sandbox(self, reputation, config):
+        """Long-inactive agent decays back to sandbox mode."""
+        # Build reputation above sandbox threshold
+        for _ in range(5):
+            reputation.update("agent-1", success=True)
+        rep_before = reputation.get_reputation("agent-1")
+        assert rep_before >= config.sandbox_threshold
+
+        # Simulate very long inactivity via manual decay
+        score = reputation.update("agent-1", time_since_last=1800.0)
+        # 1800 days / 90 = 20 periods × -5 = -100 (plus damage -10)
+        # Should be at floor (0)
+        assert score == 0.0
+        assert score < config.sandbox_threshold

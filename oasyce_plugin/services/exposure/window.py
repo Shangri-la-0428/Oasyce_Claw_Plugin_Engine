@@ -14,6 +14,7 @@ A bond can only be released after its window has elapsed.
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 from typing import Dict, Optional
@@ -48,6 +49,7 @@ class LiabilityWindow:
         self.config = config or AccessControlConfig()
         # (agent_id, asset_id) → BondRecord
         self._bonds: Dict[str, BondRecord] = {}
+        self._lock = threading.Lock()
 
     # ─── Public API ───────────────────────────────────────────────
 
@@ -70,26 +72,27 @@ class LiabilityWindow:
         if amount <= 0:
             raise ValueError(f"Bond amount must be positive, got {amount}")
 
-        key = self._key(agent_id, asset_id)
-        existing = self._bonds.get(key)
-        if existing is not None and not existing.released:
-            raise ValueError(
-                f"Active bond already exists for ({agent_id}, {asset_id}). "
-                f"Release or forfeit the existing bond before locking a new one."
-            )
+        with self._lock:
+            key = self._key(agent_id, asset_id)
+            existing = self._bonds.get(key)
+            if existing is not None and not existing.released:
+                raise ValueError(
+                    f"Active bond already exists for ({agent_id}, {asset_id}). "
+                    f"Release or forfeit the existing bond before locking a new one."
+                )
 
-        now = time.time()
-        window = self.config.window_for(access_level)
-        record = BondRecord(
-            agent_id=agent_id,
-            asset_id=asset_id,
-            amount=round(amount, 6),
-            access_level=access_level,
-            locked_at=now,
-            release_after=now + window,
-        )
-        self._bonds[key] = record
-        return record
+            now = time.time()
+            window = self.config.window_for(access_level)
+            record = BondRecord(
+                agent_id=agent_id,
+                asset_id=asset_id,
+                amount=round(amount, 6),
+                access_level=access_level,
+                locked_at=now,
+                release_after=now + window,
+            )
+            self._bonds[key] = record
+            return record
 
     def get_release_time(self, agent_id: str, asset_id: str) -> Optional[float]:
         """Return the epoch timestamp when the bond becomes releasable.
@@ -107,14 +110,15 @@ class LiabilityWindow:
         Returns True if the bond was released, False if the window has
         not elapsed or no bond exists.
         """
-        key = self._key(agent_id, asset_id)
-        record = self._bonds.get(key)
-        if record is None or record.released:
-            return False
-        if time.time() < record.release_after:
-            return False
-        record.released = True
-        return True
+        with self._lock:
+            key = self._key(agent_id, asset_id)
+            record = self._bonds.get(key)
+            if record is None or record.released:
+                return False
+            if time.time() < record.release_after:
+                return False
+            record.released = True
+            return True
 
     def get_bond(self, agent_id: str, asset_id: str) -> Optional[BondRecord]:
         """Return the bond record for (agent, asset), or None."""

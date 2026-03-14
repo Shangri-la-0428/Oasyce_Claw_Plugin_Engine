@@ -18,6 +18,7 @@ Exposure factor grows with cumulative exposure relative to asset value:
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -51,6 +52,7 @@ class ExposureRegistry:
         self._asset_values: Dict[str, float] = {}
         # Monotonic access counter — never decreases, guards against state resets
         self._total_access_count: int = 0
+        self._lock = threading.Lock()
 
     # ─── Public API ───────────────────────────────────────────────
 
@@ -68,20 +70,22 @@ class ExposureRegistry:
         """
         if exposure_value <= 0:
             raise ValueError(f"Exposure value must be positive, got {exposure_value}")
-        key = self._key(agent_id, asset_id)
-        if key not in self._records:
-            self._records[key] = []
-        self._records[key].append(
-            AccessRecord(exposure_value=exposure_value, access_level=access_level)
-        )
-        self._asset_values[key] = exposure_value
-        self._total_access_count += 1
+        with self._lock:
+            key = self._key(agent_id, asset_id)
+            if key not in self._records:
+                self._records[key] = []
+            self._records[key].append(
+                AccessRecord(exposure_value=exposure_value, access_level=access_level)
+            )
+            self._asset_values[key] = exposure_value
+            self._total_access_count += 1
 
     def get_cumulative_exposure(self, agent_id: str, asset_id: str) -> float:
         """Return total exposure value across all access events."""
-        key = self._key(agent_id, asset_id)
-        records = self._records.get(key, [])
-        return round(sum(r.exposure_value for r in records), 6)
+        with self._lock:
+            key = self._key(agent_id, asset_id)
+            records = self._records.get(key, [])
+            return round(sum(r.exposure_value for r in records), 6)
 
     def get_exposure_factor(self, agent_id: str, asset_id: str) -> float:
         """Compute exposure scaling factor.

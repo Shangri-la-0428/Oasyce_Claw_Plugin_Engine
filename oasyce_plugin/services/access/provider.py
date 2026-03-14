@@ -12,6 +12,7 @@ discount and exposure-factor lookups.
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -35,6 +36,7 @@ class AccessResult:
     bond_required: float = 0.0
     access_level: str = ""
     error: Optional[str] = None
+    warning: Optional[str] = None
 
 
 # ─── DataAccessProvider ──────────────────────────────────────────
@@ -58,6 +60,7 @@ class DataAccessProvider:
         self.exposure = exposure or ExposureRegistry(config=self.config)
         # asset_id → {value, risk_level, max_access_level}
         self._assets: Dict[str, Dict[str, Any]] = {}
+        self._lock = threading.Lock()
 
     # ─── Asset registration ───────────────────────────────────────
 
@@ -109,29 +112,37 @@ class DataAccessProvider:
         payload: str,
     ) -> AccessResult:
         """Unified access path: check level → compute bond → record exposure."""
-        if asset_id not in self._assets:
-            return AccessResult(success=False, error=f"Unknown asset: {asset_id}")
+        with self._lock:
+            if asset_id not in self._assets:
+                return AccessResult(success=False, error=f"Unknown asset: {asset_id}")
 
-        if not self._check_access_level(agent_id, asset_id, required_level):
-            return AccessResult(
-                success=False,
-                access_level=required_level.value,
-                error=f"Access denied: level {required_level.value} exceeds asset max or agent is sandboxed",
+            if not self._check_access_level(agent_id, asset_id, required_level):
+                return AccessResult(
+                    success=False,
+                    access_level=required_level.value,
+                    error=f"Access denied: level {required_level.value} exceeds asset max or agent is sandboxed",
+                )
+
+            bond = self._calculate_bond(agent_id, asset_id, required_level)
+            asset_value = self._assets[asset_id]["value"]
+
+            self.exposure.track_access(
+                agent_id, asset_id, asset_value, required_level.value,
             )
 
-        bond = self._calculate_bond(agent_id, asset_id, required_level)
-        asset_value = self._assets[asset_id]["value"]
+            # Fragmentation detection: upgrade bond if attack pattern detected
+            warning = None
+            if self.exposure.check_fragmentation_attack(agent_id, asset_id):
+                bond = round(bond * self.config.fragmentation_penalty, 6)
+                warning = "Fragmentation attack detected: bond upgraded"
 
-        self.exposure.track_access(
-            agent_id, asset_id, asset_value, required_level.value,
-        )
-
-        return AccessResult(
-            success=True,
-            data=f"{required_level.value}:{payload}",
-            bond_required=bond,
-            access_level=required_level.value,
-        )
+            return AccessResult(
+                success=True,
+                data=f"{required_level.value}:{payload}",
+                bond_required=bond,
+                access_level=required_level.value,
+                warning=warning,
+            )
 
     def _check_access_level(
         self, agent_id: str, asset_id: str, required_level: AccessLevel

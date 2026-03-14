@@ -13,11 +13,12 @@ Update formula:
   δ = −5   time decay (every 90 days)
 
   Initial score = 10  (sandbox mode)
-  Floor          = 50 (after decay only — penalties can go lower)
+  Floor          = 0  (after decay only — penalties can go lower)
   Sandbox mode   = R < 20 → agent restricted to L0
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Dict, Optional
@@ -50,14 +51,16 @@ class ReputationEngine:
     def __init__(self, config: Optional[AccessControlConfig] = None) -> None:
         self.config = config or AccessControlConfig()
         self._agents: Dict[str, AgentReputation] = {}
+        self._lock = threading.Lock()
 
     # ─── Public API ───────────────────────────────────────────────
 
     def get_reputation(self, agent_id: str) -> float:
         """Return current reputation score, applying any pending decay."""
-        agent = self._ensure_agent(agent_id)
-        self._decay(agent)
-        return round(agent.score, 6)
+        with self._lock:
+            agent = self._ensure_agent(agent_id)
+            self._decay(agent)
+            return round(agent.score, 6)
 
     def update(
         self,
@@ -78,32 +81,33 @@ class ReputationEngine:
         Returns:
             Updated reputation score.
         """
-        agent = self._ensure_agent(agent_id)
-        self._decay(agent)
+        with self._lock:
+            agent = self._ensure_agent(agent_id)
+            self._decay(agent)
 
-        if success:
-            gain = self._capped_gain(agent, self.config.rep_success)
-            agent.score += gain
-            agent.access_count += 1
+            if success:
+                gain = self._capped_gain(agent, self.config.rep_success)
+                agent.score += gain
+                agent.access_count += 1
 
-        if not success and not leak_detected:
-            # data damage / error
-            agent.score += self.config.rep_damage
+            if not success and not leak_detected:
+                # data damage / error
+                agent.score += self.config.rep_damage
 
-        if leak_detected:
-            agent.score += self.config.rep_leak
+            if leak_detected:
+                agent.score += self.config.rep_leak
 
-        # Manual time-based penalty (days → decay periods)
-        if time_since_last > 0:
-            periods = int(time_since_last / self.config.rep_decay_days)
-            if periods > 0:
-                agent.score += self.config.rep_decay_amount * periods
-                agent.score = max(agent.score, self.config.rep_floor)
+            # Manual time-based penalty (days → decay periods)
+            if time_since_last > 0:
+                periods = int(time_since_last / self.config.rep_decay_days)
+                if periods > 0:
+                    agent.score += self.config.rep_decay_amount * periods
+                    agent.score = max(agent.score, self.config.rep_floor)
 
-        # Score cannot go below 0 or above cap
-        agent.score = max(agent.score, 0.0)
-        agent.score = min(agent.score, self.config.rep_cap)
-        return round(agent.score, 6)
+            # Score cannot go below 0 or above cap
+            agent.score = max(agent.score, 0.0)
+            agent.score = min(agent.score, self.config.rep_cap)
+            return round(agent.score, 6)
 
     def get_bond_discount(self, agent_id: str) -> float:
         """Return bond discount factor: max(floor, 1 - R/100).

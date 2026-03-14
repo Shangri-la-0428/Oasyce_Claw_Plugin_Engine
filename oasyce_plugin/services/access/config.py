@@ -25,7 +25,7 @@ class AccessControlConfig:
     rep_leak: float = -50.0        # γ — watermark leak detected
     rep_decay_days: int = 90       # decay period
     rep_decay_amount: float = -5.0 # δ — per decay period
-    rep_floor: float = 50.0        # absolute minimum (after decay)
+    rep_floor: float = 0.0         # absolute minimum (after decay) — aligned with sandbox_threshold
     rep_cap: float = 95.0          # absolute maximum — prevents zero/negative bonds
     rep_max_gain_per_day: float = 20.0  # max reputation gain in a 24h rolling window
     bond_discount_floor: float = 0.05   # minimum bond discount factor (1 - R/100 ≥ this)
@@ -46,6 +46,9 @@ class AccessControlConfig:
     # ─── Sandbox mode ─────────────────────────────────────────────
     sandbox_threshold: float = 20.0
     sandbox_daily_limit: int = 10
+
+    # ─── Fragmentation detection ──────────────────────────────────
+    fragmentation_penalty: float = 2.0  # bond multiplier when fragmentation detected
 
     # ─── Helpers ──────────────────────────────────────────────────
 
