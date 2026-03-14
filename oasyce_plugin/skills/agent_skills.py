@@ -709,3 +709,33 @@ class OasyceSkills:
             "access_level": access_level,
             "bond_required": bond,
         }
+
+    def calculate_price_skill(
+        self,
+        asset_id: str,
+        base_price: float = 1.0,
+        query_count: int = 0,
+        similar_count: int = 0,
+        contribution_score: float = 1.0,
+        days_since_creation: float = 0,
+    ) -> Dict[str, Any]:
+        """计算数据资产价格（综合需求、稀缺性、贡献评分和新鲜度）。
+
+        Args:
+            asset_id: 资产 ID
+            base_price: 基础价格（OAS）
+            query_count: 累计查询次数
+            similar_count: 相似资产数量
+            contribution_score: 贡献评分 (0~1)
+            days_since_creation: 创建后天数
+        """
+        from oasyce_plugin.services.pricing import DatasetPricingCurve
+        curve = DatasetPricingCurve()
+        return curve.calculate_price(
+            asset_id=asset_id,
+            base_price=base_price,
+            query_count=query_count,
+            similar_count=similar_count,
+            contribution_score=contribution_score,
+            days_since_creation=days_since_creation,
+        )

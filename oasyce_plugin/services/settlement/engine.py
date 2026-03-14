@@ -115,8 +115,13 @@ class SettlementReceipt:
 class SettlementEngine:
     """Stateful settlement engine managing per-asset bonding curves."""
 
-    def __init__(self, config: Optional[SettlementConfig] = None):
+    def __init__(
+        self,
+        config: Optional[SettlementConfig] = None,
+        pricing_curve: Optional[Any] = None,
+    ):
         self.config = config or SettlementConfig()
+        self.pricing_curve = pricing_curve  # Optional DatasetPricingCurve overlay
         self.pools: Dict[str, AssetPool] = {}
         self.receipts: List[SettlementReceipt] = []
         self.balances: Dict[str, Dict[str, float]] = {}  # {asset_id: {buyer: equity}}
@@ -207,6 +212,22 @@ class SettlementEngine:
         new_reserve = pool.reserve_balance + net
         spot_after = new_reserve / (new_supply * F) if new_supply > 0 else 0
         impact = ((spot_after - spot_before) / spot_before * 100) if spot_before > 0 else 0
+
+        # Apply pricing curve overlay (demand / scarcity / quality / freshness)
+        pricing_overlay = None
+        if self.pricing_curve is not None:
+            query_count = self.pricing_curve.get_query_count(asset_id)
+            similar_count = self.pricing_curve.get_similar_count(asset_id)
+            days_since = (time.time() - pool.created_at) / 86400.0
+            pricing_overlay = self.pricing_curve.calculate_price(
+                asset_id=asset_id,
+                base_price=spot_after,
+                query_count=query_count,
+                similar_count=similar_count,
+                days_since_creation=days_since,
+            )
+            spot_after = pricing_overlay["final_price"]
+            impact = ((spot_after - spot_before) / spot_before * 100) if spot_before > 0 else 0
 
         return Quote(
             asset_id=asset_id,

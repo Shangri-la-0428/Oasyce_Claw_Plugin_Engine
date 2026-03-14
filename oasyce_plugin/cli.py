@@ -114,6 +114,55 @@ def cmd_quote(args):
         sys.exit(1)
 
 
+def cmd_price(args):
+    """Calculate dataset price with demand/scarcity/quality/freshness factors."""
+    from oasyce_plugin.services.pricing import DatasetPricingCurve
+
+    curve = DatasetPricingCurve()
+    result = curve.calculate_price(
+        asset_id=args.asset_id,
+        base_price=args.base_price,
+        query_count=args.queries,
+        similar_count=args.similar,
+        contribution_score=args.contribution_score,
+        days_since_creation=args.days,
+    )
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"💰 Price for {args.asset_id}: {result['final_price']:.6f} OAS")
+        print(f"   Base price:  {result['base_price']:.6f} OAS")
+        print(f"   Final price: {result['final_price']:.6f} OAS")
+
+
+def cmd_price_factors(args):
+    """Show detailed pricing factor breakdown."""
+    from oasyce_plugin.services.pricing import DatasetPricingCurve
+
+    curve = DatasetPricingCurve()
+    result = curve.calculate_price(
+        asset_id=args.asset_id,
+        base_price=args.base_price,
+        query_count=args.queries,
+        similar_count=args.similar,
+        contribution_score=args.contribution_score,
+        days_since_creation=args.days,
+    )
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"📊 Pricing Factors for {args.asset_id}:")
+        print(f"   Base price:        {result['base_price']:.6f} OAS")
+        print(f"   Demand factor:     {result['demand_factor']:.6f}  (queries={args.queries})")
+        print(f"   Scarcity factor:   {result['scarcity_factor']:.6f}  (similar={args.similar})")
+        print(f"   Quality factor:    {result['quality_factor']:.6f}  (score={args.contribution_score})")
+        print(f"   Freshness factor:  {result['freshness_factor']:.6f}  (days={args.days})")
+        print(f"   ─────────────────────────────")
+        print(f"   Final price:       {result['final_price']:.6f} OAS")
+
+
 def cmd_buy(args):
     """Buy an asset via oasyce_core (requires --use-core)."""
     from oasyce_plugin.bridge.core_bridge import bridge_buy
@@ -1057,6 +1106,28 @@ def main():
     gui_parser = subparsers.add_parser("gui", help="Launch web dashboard (port 8420)")
     gui_parser.add_argument("--port", type=int, default=8420, help="Port (default: 8420)")
     gui_parser.set_defaults(func=lambda args: __import__('oasyce_plugin.gui.app', fromlist=['OasyceGUI']).OasyceGUI(port=args.port).run())
+
+    # ── price ─────────────────────────────────────────────────────────
+    price_parser = subparsers.add_parser("price", help="Calculate dataset price with demand/scarcity factors")
+    price_parser.add_argument("asset_id", help="Asset ID")
+    price_parser.add_argument("--base-price", type=float, default=1.0, help="Base price in OAS (default: 1.0)")
+    price_parser.add_argument("--queries", type=int, default=0, help="Query count (default: 0)")
+    price_parser.add_argument("--similar", type=int, default=0, help="Number of similar assets (default: 0)")
+    price_parser.add_argument("--contribution-score", type=float, default=1.0, help="Contribution score (default: 1.0)")
+    price_parser.add_argument("--days", type=float, default=0, help="Days since creation (default: 0)")
+    price_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    price_parser.set_defaults(func=cmd_price)
+
+    # ── price-factors ────────────────────────────────────────────────
+    pf_parser = subparsers.add_parser("price-factors", help="Show pricing factor breakdown for an asset")
+    pf_parser.add_argument("asset_id", help="Asset ID")
+    pf_parser.add_argument("--base-price", type=float, default=1.0, help="Base price in OAS (default: 1.0)")
+    pf_parser.add_argument("--queries", type=int, default=0, help="Query count (default: 0)")
+    pf_parser.add_argument("--similar", type=int, default=0, help="Number of similar assets (default: 0)")
+    pf_parser.add_argument("--contribution-score", type=float, default=1.0, help="Contribution score (default: 1.0)")
+    pf_parser.add_argument("--days", type=float, default=0, help="Days since creation (default: 0)")
+    pf_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    pf_parser.set_defaults(func=cmd_price_factors)
 
     # ── demo-network ─────────────────────────────────────────────────
     demo_net_parser = subparsers.add_parser(
