@@ -68,7 +68,13 @@ class DataAccessProvider:
         risk_level: str = "public",
         max_access_level: str = "L3",
     ) -> None:
-        """Register an asset with its TWAP value and risk metadata."""
+        """Register an asset with its TWAP value and risk metadata.
+
+        Raises:
+            ValueError: if value <= 0 or risk_level/max_access_level are invalid.
+        """
+        if value <= 0:
+            raise ValueError(f"Asset value must be positive, got {value}")
         self._assets[asset_id] = {
             "value": value,
             "risk_level": risk_level,

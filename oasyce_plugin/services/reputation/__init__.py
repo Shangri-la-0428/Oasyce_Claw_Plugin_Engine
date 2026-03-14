@@ -33,6 +33,8 @@ class AgentReputation:
     score: float
     last_decay_check: float  # epoch seconds
     access_count: int = 0
+    gain_today: float = 0.0          # rolling reputation gain in current window
+    gain_window_start: float = 0.0   # epoch seconds — start of current gain window
 
 
 # ─── ReputationEngine ─────────────────────────────────────────────
@@ -80,7 +82,8 @@ class ReputationEngine:
         self._decay(agent)
 
         if success:
-            agent.score += self.config.rep_success
+            gain = self._capped_gain(agent, self.config.rep_success)
+            agent.score += gain
             agent.access_count += 1
 
         if not success and not leak_detected:
@@ -97,19 +100,41 @@ class ReputationEngine:
                 agent.score += self.config.rep_decay_amount * periods
                 agent.score = max(agent.score, self.config.rep_floor)
 
-        # Score cannot go below 0
+        # Score cannot go below 0 or above cap
         agent.score = max(agent.score, 0.0)
+        agent.score = min(agent.score, self.config.rep_cap)
         return round(agent.score, 6)
 
     def get_bond_discount(self, agent_id: str) -> float:
-        """Return bond discount factor: (1 - R/100).
+        """Return bond discount factor: max(floor, 1 - R/100).
 
-        Higher reputation → lower bond.  R=100 → factor=0, R=0 → factor=1.
+        Higher reputation → lower bond.  R=95 → factor=0.05 (floor).
+        Clamped so bond is always positive.
         """
         rep = self.get_reputation(agent_id)
-        return round(1.0 - rep / 100.0, 6)
+        factor = 1.0 - rep / 100.0
+        return round(max(factor, self.config.bond_discount_floor), 6)
 
     # ─── Internals ────────────────────────────────────────────────
+
+    def _capped_gain(self, agent: AgentReputation, raw_gain: float) -> float:
+        """Apply per-day rate limit on reputation gains.
+
+        Resets the rolling window every 24 hours. Returns the actual gain
+        allowed (may be less than raw_gain if daily cap is reached).
+        """
+        now = time.time()
+        window = 86400  # 24 hours
+        if now - agent.gain_window_start > window:
+            agent.gain_today = 0.0
+            agent.gain_window_start = now
+
+        remaining = self.config.rep_max_gain_per_day - agent.gain_today
+        if remaining <= 0:
+            return 0.0
+        actual = min(raw_gain, remaining)
+        agent.gain_today += actual
+        return actual
 
     def _ensure_agent(self, agent_id: str) -> AgentReputation:
         """Lazily create agent record with initial score."""

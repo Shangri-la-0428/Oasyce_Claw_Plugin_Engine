@@ -60,9 +60,24 @@ class LiabilityWindow:
     ) -> BondRecord:
         """Lock a bond for the given access event.
 
-        If a bond already exists for this (agent, asset) pair, it is
-        replaced (assumes the new access supersedes the old one).
+        If an unreleased bond already exists for this (agent, asset) pair,
+        raises ValueError — the existing bond must be released first.
+        Released bonds are replaced normally.
+
+        Raises:
+            ValueError: if amount <= 0 or an active bond already exists.
         """
+        if amount <= 0:
+            raise ValueError(f"Bond amount must be positive, got {amount}")
+
+        key = self._key(agent_id, asset_id)
+        existing = self._bonds.get(key)
+        if existing is not None and not existing.released:
+            raise ValueError(
+                f"Active bond already exists for ({agent_id}, {asset_id}). "
+                f"Release or forfeit the existing bond before locking a new one."
+            )
+
         now = time.time()
         window = self.config.window_for(access_level)
         record = BondRecord(
@@ -73,7 +88,7 @@ class LiabilityWindow:
             locked_at=now,
             release_after=now + window,
         )
-        self._bonds[self._key(agent_id, asset_id)] = record
+        self._bonds[key] = record
         return record
 
     def get_release_time(self, agent_id: str, asset_id: str) -> Optional[float]:

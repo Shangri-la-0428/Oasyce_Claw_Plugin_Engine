@@ -26,6 +26,9 @@ class AccessControlConfig:
     rep_decay_days: int = 90       # decay period
     rep_decay_amount: float = -5.0 # δ — per decay period
     rep_floor: float = 50.0        # absolute minimum (after decay)
+    rep_cap: float = 95.0          # absolute maximum — prevents zero/negative bonds
+    rep_max_gain_per_day: float = 20.0  # max reputation gain in a 24h rolling window
+    bond_discount_floor: float = 0.05   # minimum bond discount factor (1 - R/100 ≥ this)
 
     # ─── Liability windows (seconds) ─────────────────────────────
     L0_window: int = 86400         # 1 day

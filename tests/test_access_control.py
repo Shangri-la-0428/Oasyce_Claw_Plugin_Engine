@@ -102,13 +102,13 @@ class TestReputationEngine:
         assert score == 10.0
 
     def test_leak_penalty(self, reputation):
-        # Boost first
+        # Boost first — rate limit caps gain at 20/day
         for _ in range(12):
             reputation.update("agent-1", success=True)
-        # 10 + 60 = 70
+        # 10 + 20 (capped) = 30
         score = reputation.update("agent-1", leak_detected=True)
-        # 70 - 50 = 20
-        assert score == 20.0
+        # 30 - 50 = -20, floored at 0
+        assert score == 0.0
 
     def test_score_floor_at_zero(self, reputation):
         score = reputation.update("agent-1", leak_detected=True)
@@ -145,9 +145,21 @@ class TestReputationEngine:
     def test_bond_discount_high_rep(self, reputation):
         for _ in range(18):
             reputation.update("agent-1", success=True)
-        # 10 + 90 = 100
+        # 10 + 20 (rate-limited) = 30, capped at 95
+        # discount = max(0.05, 1 - 30/100) = 0.7
         discount = reputation.get_bond_discount("agent-1")
-        assert discount == 0.0
+        assert discount == 0.7
+
+    def test_rep_cap_prevents_zero_bond(self, reputation):
+        """Security: even with maximum reputation (95), bond discount never reaches 0."""
+        # Manually set score near cap to bypass rate limit (internal test)
+        agent = reputation._ensure_agent("agent-cap")
+        agent.score = 95.0
+        discount = reputation.get_bond_discount("agent-cap")
+        assert discount == 0.05  # floor
+        # Score can't exceed cap
+        reputation.update("agent-cap", success=True)
+        assert reputation.get_reputation("agent-cap") == 95.0
 
     def test_multiple_agents_independent(self, reputation):
         reputation.update("agent-1", success=True)
@@ -333,16 +345,16 @@ class TestBondCalculation:
         assert result.bond_required == 900.0
 
     def test_l3_bond_public(self, provider, reputation):
-        """L3, public risk, rep boosted to 35.
+        """L3, public risk, rep boosted to 30 (rate-limited: 4×5=20 cap/day).
 
-        Bond = 1000 × 5.0 × 1.0 × (1 - 35/100) × 1.0 = 5000 × 0.65 = 3250
+        Bond = 1000 × 5.0 × 1.0 × (1 - 30/100) × 1.0 = 5000 × 0.7 = 3500
         """
         for _ in range(5):
             reputation.update("agent-1", success=True)
-        # rep = 10 + 25 = 35
+        # rep = 10 + 20 (capped at 20/day) = 30
         result = provider.deliver("agent-1", "ASSET_001")
         assert result.success is True
-        assert result.bond_required == 3250.0
+        assert result.bond_required == 3500.0
 
     def test_high_risk_multiplier(self, provider, reputation):
         """ASSET_002 has risk=high (2.0×) and value=500.

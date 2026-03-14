@@ -49,6 +49,8 @@ class ExposureRegistry:
         self._records: Dict[str, List[AccessRecord]] = {}
         # (agent_id, asset_id) → latest registered asset value
         self._asset_values: Dict[str, float] = {}
+        # Monotonic access counter — never decreases, guards against state resets
+        self._total_access_count: int = 0
 
     # ─── Public API ───────────────────────────────────────────────
 
@@ -59,7 +61,13 @@ class ExposureRegistry:
         exposure_value: float,
         access_level: str,
     ) -> None:
-        """Record an access event for the (agent, asset) pair."""
+        """Record an access event for the (agent, asset) pair.
+
+        Raises:
+            ValueError: if exposure_value <= 0.
+        """
+        if exposure_value <= 0:
+            raise ValueError(f"Exposure value must be positive, got {exposure_value}")
         key = self._key(agent_id, asset_id)
         if key not in self._records:
             self._records[key] = []
@@ -67,6 +75,7 @@ class ExposureRegistry:
             AccessRecord(exposure_value=exposure_value, access_level=access_level)
         )
         self._asset_values[key] = exposure_value
+        self._total_access_count += 1
 
     def get_cumulative_exposure(self, agent_id: str, asset_id: str) -> float:
         """Return total exposure value across all access events."""
@@ -105,6 +114,11 @@ class ExposureRegistry:
         max_single = max(r.exposure_value for r in records)
         total = sum(r.exposure_value for r in records)
         return total > max_single
+
+    @property
+    def total_access_count(self) -> int:
+        """Monotonic counter of all tracked access events (integrity check)."""
+        return self._total_access_count
 
     # ─── Internals ────────────────────────────────────────────────
 
