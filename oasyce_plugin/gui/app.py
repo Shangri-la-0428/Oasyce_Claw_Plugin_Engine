@@ -456,451 +456,417 @@ _INDEX_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Oasyce Dashboard</title>
+<title>Oasyce</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
   background: #0a0a0a;
-  color: #e8e8e8;
-  font-family: system-ui, -apple-system, sans-serif;
-  font-size: 16px;
-  line-height: 1.6;
+  color: #e0e0e0;
+  font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
   letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ── Top Nav ─────────────────────────────────────────────── */
-.top-nav {
+/* ── Layout ──────────────────────────────────────────────── */
+.wrap {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 20px 80px;
+}
+
+/* ── Top Bar ─────────────────────────────────────────────── */
+.top-bar {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(10,10,10,0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid #252525;
-  padding: 0 20px;
+  background: rgba(10,10,10,0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid #1a1a1a;
+  height: 48px;
   display: flex;
   align-items: center;
-  height: 52px;
-  gap: 24px;
+  justify-content: center;
 }
-.nav-brand {
-  font-size: 18px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 1px;
-}
-.nav-links { display: flex; gap: 4px; }
-.nav-links a {
-  color: #888;
-  text-decoration: none;
+.top-bar-brand {
   font-size: 14px;
-  font-weight: 500;
-  padding: 6px 14px;
-  border-radius: 8px;
-  transition: color 0.2s, background 0.2s;
-}
-.nav-links a:hover { color: #e8e8e8; background: #1a1a1a; }
-.nav-links a.active { color: #fff; background: #1f1f1f; }
-
-.wrap {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 24px 20px 48px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-/* Fade-in animation */
-@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.fade { animation: fadeIn 0.3s ease both; }
-
-/* Cards */
-.card {
-  background: #141414;
-  border: 1px solid #252525;
-  border-radius: 12px;
-  padding: 20px;
-}
-.card h2 {
-  font-size: 13px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  margin-bottom: 14px;
-  color: #888;
-}
-
-/* Hero status */
-.hero {
-  text-align: center;
-  padding: 32px 24px 24px;
-}
-.hero h1 {
-  font-size: 28px;
   font-weight: 600;
   color: #fff;
-  margin-bottom: 8px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+.top-bar-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4ade80;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.top-bar-dot.off { background: #555; }
+
+/* ── Hero ────────────────────────────────────────────────── */
+.hero {
+  text-align: center;
+  padding: 56px 0 40px;
+}
+.hero-num {
+  font-size: 56px;
+  font-weight: 300;
+  color: #fff;
+  line-height: 1;
+  font-family: -apple-system, 'Helvetica Neue', sans-serif;
+}
+.hero-label {
+  font-size: 13px;
+  color: #666;
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+.hero-sub {
+  display: flex;
+  justify-content: center;
+  gap: 48px;
+  margin-top: 32px;
+}
+.hero-sub-item { text-align: center; }
+.hero-sub-num {
+  font-size: 24px;
+  font-weight: 400;
+  color: #ccc;
+}
+.hero-sub-label {
+  font-size: 11px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 2px;
+}
+
+/* ── Sections ────────────────────────────────────────────── */
+.section {
+  border-top: 1px solid #1a1a1a;
+  padding: 32px 0;
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  padding: 0 4px;
+}
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
   letter-spacing: 2px;
 }
-.status-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-right: 8px;
-  vertical-align: middle;
+.section-toggle {
+  font-size: 18px;
+  color: #555;
+  transition: transform 0.3s ease;
+  line-height: 1;
 }
-.status-dot.online { background: #4ade80; }
-.status-dot.offline { background: #f87171; }
-.status-label {
-  font-size: 16px;
-  color: #999;
-  vertical-align: middle;
+.section-toggle.open { transform: rotate(45deg); }
+.section-body {
+  overflow: hidden;
+  transition: max-height 0.4s ease, opacity 0.3s ease;
+  max-height: 0;
+  opacity: 0;
 }
-
-/* Stats grid */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-top: 24px;
+.section-body.open {
+  max-height: 4000px;
+  opacity: 1;
 }
-.stat-card {
-  background: #141414;
-  border: 1px solid #252525;
-  border-radius: 12px;
-  padding: 16px 12px;
-  text-align: center;
-}
-.stat-icon { font-size: 24px; margin-bottom: 6px; }
-.stat-num {
-  font-size: 36px;
-  font-weight: 700;
-  font-family: ui-monospace, 'SF Mono', monospace;
-  line-height: 1.1;
-}
-.stat-num.green, .stat-num.blue, .stat-num.amber { color: #fff; }
-.stat-label {
-  font-size: 14px;
-  color: #888;
-  margin-top: 4px;
+.section-content {
+  padding-top: 24px;
 }
 
-/* Inputs and buttons */
-input[type="text"], input[type="number"], select {
+/* ── Inputs ──────────────────────────────────────────────── */
+input[type="text"], input[type="number"], select, textarea {
   width: 100%;
-  height: 48px;
-  font-size: 16px;
-  background: #1a1a1a;
-  border: 1px solid #333;
-  border-radius: 10px;
-  color: #e8e8e8;
-  padding: 0 16px;
+  height: 44px;
+  font-size: 14px;
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  color: #e0e0e0;
+  padding: 0 14px;
   outline: none;
   transition: border-color 0.2s;
+  font-family: inherit;
 }
-input[type="text"]:focus, input[type="number"]:focus, select:focus { border-color: #888; }
-input[type="text"]::placeholder, input[type="number"]::placeholder { color: #555; }
-select { cursor: pointer; }
-select option { background: #1a1a1a; color: #e8e8e8; }
-
-.btn {
-  height: 48px;
-  font-size: 16px;
-  font-weight: 500;
-  background: #252525;
-  color: #fff;
-  border: none;
-  border-radius: 10px;
-  padding: 0 24px;
-  cursor: pointer;
-  transition: background 0.2s;
-  white-space: nowrap;
-}
-.btn:hover { background: #333; }
+input:focus, select:focus, textarea:focus { border-color: #555; }
+input::placeholder, textarea::placeholder { color: #444; }
+textarea { height: auto; min-height: 100px; padding: 12px 14px; resize: vertical; }
 
 .input-row {
   display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 .input-row input, .input-row select { flex: 1; }
 
-/* Asset list */
-.asset-item {
+/* ── Buttons ─────────────────────────────────────────────── */
+.btn {
+  height: 44px;
+  font-size: 14px;
+  font-weight: 500;
   background: #1a1a1a;
-  border: 1px solid #252525;
-  border-radius: 10px;
-  padding: 16px;
-  margin-bottom: 10px;
-}
-.asset-id {
-  font-family: ui-monospace, 'SF Mono', monospace;
-  font-size: 14px;
   color: #ccc;
-  word-break: break-all;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 0 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: 100%;
+  font-family: inherit;
 }
-.asset-owner {
-  font-size: 14px;
-  color: #888;
-  margin-top: 2px;
-}
-.asset-meta {
+.btn:hover { background: #222; border-color: #444; color: #fff; }
+
+/* ── Asset List ──────────────────────────────────────────── */
+.asset-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-bottom: 1px solid #141414;
+  cursor: pointer;
+  transition: opacity 0.2s;
 }
+.asset-item:hover { opacity: 0.7; }
+.asset-item:last-child { border-bottom: none; }
+.asset-left { flex: 1; min-width: 0; }
+.asset-id {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 13px;
+  color: #ccc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.asset-meta-line {
+  font-size: 12px;
+  color: #555;
+  margin-top: 2px;
+}
+.asset-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-left: 16px;
+}
+.asset-price {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 13px;
+  color: #888;
+}
+.asset-delete-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: #444;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 6px;
+  opacity: 0;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.asset-item:hover .asset-delete-btn { opacity: 1; }
+.asset-delete-btn:hover { color: #f87171; background: #1a1a1a; }
+
+/* ── Tags ────────────────────────────────────────────────── */
 .pill {
   display: inline-block;
-  height: 24px;
-  line-height: 24px;
-  padding: 0 10px;
-  font-size: 12px;
-  background: transparent;
-  border: 1px solid #555;
-  border-radius: 20px;
-  color: #ccc;
-}
-.time-ago {
-  font-size: 13px;
-  color: #666;
-  margin-left: auto;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 8px;
+  font-size: 11px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #888;
+  margin-right: 4px;
 }
 
-.empty-state {
-  text-align: center;
-  color: #666;
-  padding: 32px 16px;
-  font-size: 15px;
-  line-height: 1.8;
-}
-.empty-state code {
-  background: #1a1a1a;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 14px;
-  color: #ccc;
-  font-family: ui-monospace, 'SF Mono', monospace;
-}
-
-/* Trace result */
-.trace-result {
-  background: #1a1a1a;
-  border: 1px solid #252525;
-  border-radius: 10px;
-  padding: 16px;
-  margin-top: 12px;
-}
-.trace-row {
+/* ── Key-Value Rows ──────────────────────────────────────── */
+.kv-row {
   display: flex;
   justify-content: space-between;
-  padding: 6px 0;
-  border-bottom: 1px solid #222;
-  font-size: 15px;
-}
-.trace-row:last-child { border-bottom: none; }
-.trace-key { color: #888; }
-.trace-val {
-  font-family: ui-monospace, 'SF Mono', monospace;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid #141414;
   font-size: 14px;
-  color: #e8e8e8;
+}
+.kv-row:last-child { border-bottom: none; }
+.kv-key { color: #555; }
+.kv-val {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 13px;
+  color: #ccc;
   text-align: right;
   word-break: break-all;
   max-width: 60%;
 }
 
-/* Distribution list */
-.dist-item {
-  background: #1a1a1a;
-  border: 1px solid #252525;
-  border-radius: 10px;
-  padding: 12px 16px;
-  margin-bottom: 8px;
-  font-size: 14px;
-}
-.dist-item .mono {
-  font-family: ui-monospace, 'SF Mono', monospace;
-  font-size: 13px;
-  color: #ccc;
-  word-break: break-all;
-}
-.dist-item .meta {
-  color: #888;
-  font-size: 13px;
-  margin-top: 4px;
-}
-
-/* Network section */
-.net-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 24px;
-  font-size: 15px;
-}
-.net-key { color: #888; }
-.net-val {
-  font-family: ui-monospace, 'SF Mono', monospace;
-  font-size: 14px;
-  text-align: right;
-}
-
-.stake-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid #222;
-  font-size: 15px;
-}
-.stake-item:last-child { border-bottom: none; }
-.stake-id {
-  font-family: ui-monospace, 'SF Mono', monospace;
-  font-size: 14px;
-  color: #e8e8e8;
-}
-.stake-amount {
-  font-family: ui-monospace, 'SF Mono', monospace;
-  font-weight: 600;
-  color: #fff;
-}
-
-/* Footer */
-.footer {
-  text-align: center;
-  font-size: 13px;
-  color: #444;
-  padding-bottom: 24px;
-}
-
-/* Separator */
-.sep { margin-top: 20px; padding-top: 20px; border-top: 1px solid #252525; }
-
-/* Error / status text */
-.err { color: #f87171; margin-top: 12px; font-size: 15px; }
-.ok { color: #4ade80; }
-
-/* ── AHRP Section ────────────────────────────────────────── */
-.ahrp-header {
-  text-align: center;
-  margin-bottom: 8px;
-}
-.ahrp-header h2 {
-  font-size: 22px;
-  font-weight: 700;
-  color: #fff;
-  margin-bottom: 4px;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.ahrp-header p { color: #666; font-size: 14px; }
-
-/* AHRP Stats Bar */
-.ahrp-stats-bar {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-bottom: 0;
-}
-.ahrp-stat {
-  background: #1a1a1a;
-  border: 1px solid #252525;
-  border-radius: 10px;
-  padding: 14px 10px;
-  text-align: center;
-}
-.ahrp-stat-num {
-  font-size: 24px;
-  font-weight: 700;
-  font-family: ui-monospace, 'SF Mono', monospace;
-  line-height: 1.1;
-  color: #fff;
-}
-.ahrp-stat-label {
-  font-size: 11px;
-  color: #666;
-  margin-top: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* AHRP Checkboxes */
-.checkbox-group {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-.checkbox-group label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  color: #ccc;
-  cursor: pointer;
-}
-.checkbox-group input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: #888;
-  cursor: pointer;
-}
-
-/* AHRP Match Cards */
-.match-card {
-  background: #1a1a1a;
-  border: 1px solid #252525;
-  border-radius: 10px;
+/* ── Result Box ──────────────────────────────────────────── */
+.result-box {
+  background: #0f0f0f;
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
   padding: 16px;
-  margin-bottom: 10px;
+  margin-top: 16px;
 }
-.match-card-header {
+
+/* ── Modal ────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+.modal {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 12px;
+  max-width: 480px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 32px;
+  position: relative;
+}
+.modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 20px;
+  cursor: pointer;
+}
+.modal-close:hover { color: #fff; }
+.modal h3 {
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  margin-bottom: 20px;
+}
+
+/* ── Toast ────────────────────────────────────────────────── */
+.toast-container {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.toast {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: #ccc;
+  animation: toastIn 0.25s ease, toastOut 0.25s ease 2.7s forwards;
+  max-width: 300px;
+}
+.toast.error { border-color: #f8717144; color: #f87171; }
+
+/* ── Empty State ─────────────────────────────────────────── */
+.empty {
+  text-align: center;
+  color: #444;
+  padding: 40px 16px;
+  font-size: 14px;
+}
+.empty code {
+  background: #141414;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #888;
+  font-family: ui-monospace, 'SF Mono', monospace;
+}
+
+/* ── Status Text ─────────────────────────────────────────── */
+.ok { color: #4ade80; }
+.err { color: #f87171; margin-top: 12px; font-size: 14px; }
+
+/* ── Portfolio Table ─────────────────────────────────────── */
+.port-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #141414;
+  font-size: 13px;
+}
+.port-row:last-child { border-bottom: none; }
+.port-asset {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  color: #ccc;
+}
+.port-val { color: #888; }
+
+/* ── AHRP Match Cards ────────────────────────────────────── */
+.match-card {
+  padding: 14px 0;
+  border-bottom: 1px solid #141414;
+}
+.match-card:last-child { border-bottom: none; }
+.match-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  font-size: 13px;
 }
 .match-agent {
   font-family: ui-monospace, 'SF Mono', monospace;
-  font-size: 14px;
   color: #ccc;
 }
-.origin-badge {
-  display: inline-block;
-  height: 22px;
-  line-height: 22px;
-  padding: 0 10px;
+.match-origin {
   font-size: 11px;
-  font-weight: 600;
-  border-radius: 20px;
+  color: #666;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-.origin-human, .origin-sensor, .origin-curated, .origin-synthetic {
-  background: transparent; color: #ccc; border: 1px solid #555;
-}
-.match-score-bar {
+.match-bar {
   width: 100%;
-  height: 6px;
-  background: #252525;
-  border-radius: 3px;
-  overflow: hidden;
+  height: 2px;
+  background: #1a1a1a;
+  border-radius: 1px;
   margin: 8px 0;
 }
-.match-score-fill {
+.match-bar-fill {
   height: 100%;
-  border-radius: 3px;
-  background: #fff;
-  transition: width 0.6s ease;
+  border-radius: 1px;
+  background: #555;
 }
-.match-details {
+.match-bottom {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
-  color: #888;
+  font-size: 12px;
+  color: #555;
 }
 
 /* ── Transaction Pipeline ─────────────────────────────────── */
@@ -909,1177 +875,818 @@ select option { background: #1a1a1a; color: #e8e8e8; }
   align-items: center;
   justify-content: center;
   gap: 0;
-  margin: 20px 0;
-  flex-wrap: wrap;
+  margin: 24px 0;
 }
 .tx-step {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 16px 12px;
-  min-width: 90px;
-  position: relative;
+  padding: 8px 12px;
 }
-.tx-step-circle {
-  width: 48px;
-  height: 48px;
+.tx-dot {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: #1a1a1a;
-  border: 2px solid #333;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  transition: all 0.5s ease;
-  position: relative;
-  z-index: 1;
+  border: 1.5px solid #333;
+  background: transparent;
+  transition: all 0.3s ease;
 }
-.tx-step.done .tx-step-circle {
-  background: #fff;
-  border-color: #fff;
-  color: #0a0a0a;
+.tx-step.done .tx-dot { background: #fff; border-color: #fff; }
+.tx-step.active .tx-dot { border-color: #888; }
+.tx-line {
+  width: 32px;
+  height: 1px;
+  background: #222;
+  margin-bottom: 18px;
+  transition: background 0.3s ease;
 }
-.tx-step.active .tx-step-circle {
-  border-color: #fff;
-}
+.tx-line.done { background: #555; }
 .tx-step-label {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #555;
-  transition: color 0.5s ease;
+  color: #444;
+  transition: color 0.3s ease;
 }
-.tx-step.done .tx-step-label { color: #fff; }
-.tx-step.active .tx-step-label { color: #fff; }
-.tx-arrow {
-  font-size: 20px;
-  color: #333;
-  margin: 0 -2px;
-  padding-bottom: 20px;
-  transition: color 0.5s ease;
-}
-.tx-arrow.done { color: #fff; }
+.tx-step.done .tx-step-label { color: #888; }
+.tx-step.active .tx-step-label { color: #ccc; }
 
-/* Star rating */
+/* ── Star Rating ─────────────────────────────────────────── */
 .star-rating {
   display: flex;
   gap: 4px;
   margin-bottom: 16px;
 }
 .star-rating span {
-  font-size: 28px;
+  font-size: 20px;
   cursor: pointer;
   color: #333;
-  transition: color 0.15s, transform 0.15s;
+  transition: color 0.15s;
   user-select: none;
 }
-.star-rating span:hover { transform: scale(1.2); }
 .star-rating span.lit { color: #fff; }
 
-/* Responsive */
+/* ── Checkbox group ──────────────────────────────────────── */
+.checkbox-group {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #888;
+  cursor: pointer;
+}
+.checkbox-group input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #888;
+}
+
+/* ── Network Info ────────────────────────────────────────── */
+.net-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 24px;
+  font-size: 13px;
+}
+.net-key { color: #555; }
+.net-val {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 13px;
+  color: #888;
+  text-align: right;
+}
+
+.stake-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #141414;
+  font-size: 13px;
+}
+.stake-item:last-child { border-bottom: none; }
+.stake-id {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  color: #888;
+}
+.stake-amount {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  color: #ccc;
+}
+
+/* ── Animations ──────────────────────────────────────────── */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
+
+/* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 640px) {
-  .wrap { padding: 20px 14px 48px; gap: 24px; }
-  .stats-grid { grid-template-columns: 1fr; }
-  .stat-num { font-size: 28px; }
+  .wrap { padding: 0 16px 64px; }
+  .hero-num { font-size: 44px; }
+  .hero-sub { gap: 24px; }
+  .input-row { flex-direction: column; }
   .net-grid { grid-template-columns: 1fr; }
   .net-val { text-align: left; }
-  .trace-row { flex-direction: column; gap: 2px; }
-  .trace-val { text-align: left; max-width: 100%; }
-  .input-row { flex-direction: column; }
-  .ahrp-stats-bar { grid-template-columns: repeat(2, 1fr); }
-  .tx-pipeline { gap: 0; }
-  .tx-step { min-width: 60px; padding: 10px 6px; }
-  .tx-step-circle { width: 40px; height: 40px; font-size: 16px; }
-  .top-nav { gap: 12px; }
+  .kv-row { flex-direction: column; gap: 2px; }
+  .kv-val { text-align: left; max-width: 100%; }
 }
-
-/* ── Modal ────────────────────────────────────────────────── */
-.modal-overlay {
-  position: fixed; top:0; left:0; right:0; bottom:0;
-  background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
-  z-index: 200; display:flex; align-items:center; justify-content:center;
-}
-.modal {
-  background: #141414; border: 1px solid #333; border-radius: 16px;
-  max-width: 560px; width: 90%; max-height: 80vh; overflow-y: auto;
-  padding: 32px; position: relative;
-}
-.modal-close {
-  position: absolute; top: 16px; right: 16px; background: none;
-  border: none; color: #888; font-size: 24px; cursor: pointer;
-}
-.modal-close:hover { color: #fff; }
-.modal h3 { font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; }
-.modal-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #222; font-size:14px; }
-.modal-row:last-child { border-bottom:none; }
-.modal-key { color:#888; }
-.modal-val { font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:#e8e8e8; text-align:right; word-break:break-all; max-width:60%; cursor:pointer; }
-.modal-val:hover { color:#3b82f6; }
-
-/* ── Toast ────────────────────────────────────────────────── */
-.toast-container {
-  position: fixed; top: 64px; right: 20px; z-index: 300;
-  display: flex; flex-direction: column; gap: 8px;
-}
-.toast {
-  background: #1a1a1a; border: 1px solid #333; border-radius: 10px;
-  padding: 14px 20px; font-size: 14px; color: #e8e8e8;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-  animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
-  max-width: 340px;
-}
-.toast.success { border-color: #555; }
-.toast.error { border-color: #f87171; }
-@keyframes toastIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
-@keyframes toastOut { from { opacity:1; } to { opacity:0; } }
-
-/* ── Delete button on asset cards ─────────────────────────── */
-.asset-item { position: relative; cursor: pointer; transition: border-color 0.2s; }
-.asset-item:hover { border-color: #555; }
-.asset-delete-btn {
-  position: absolute; top: 12px; right: 12px;
-  background: none; border: 1px solid #33333300; border-radius: 6px;
-  color: #666; font-size: 14px; cursor: pointer;
-  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-  opacity: 0; transition: opacity 0.2s, color 0.2s;
-}
-.asset-item:hover .asset-delete-btn { opacity: 1; }
-.asset-delete-btn:hover { color: #f87171; }
-
-/* ── Price badge ──────────────────────────────────────────── */
-.price-badge {
-  display: inline-block; height: 24px; line-height: 24px;
-  padding: 0 10px; font-size: 12px; font-weight: 600;
-  font-family: ui-monospace, 'SF Mono', monospace;
-  background: transparent; border: 1px solid #555;
-  border-radius: 20px; color: #ccc;
-}
-.price-badge.none { background: transparent; border-color: #333; color: #666; }
-
-/* ── Portfolio table ──────────────────────────────────────── */
-.portfolio-table { width:100%; border-collapse:collapse; font-size:14px; }
-.portfolio-table th { text-align:left; color:#888; font-weight:500; padding:8px 4px; border-bottom:1px solid #333; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; }
-.portfolio-table td { padding:10px 4px; border-bottom:1px solid #1f1f1f; }
-.portfolio-table td.mono { font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:#ccc; }
-.portfolio-table td.num { font-family:ui-monospace,'SF Mono',monospace; text-align:right; }
-.portfolio-table td.green { color:#fff; }
-
-/* ── Transaction list ─────────────────────────────────────── */
-.tx-item {
-  background:#1a1a1a; border:1px solid #252525; border-radius:10px;
-  padding:12px 16px; margin-bottom:8px; font-size:14px;
-  display:flex; justify-content:space-between; align-items:center;
-}
-.tx-item-left { display:flex; flex-direction:column; gap:2px; }
-.tx-item-id { font-family:ui-monospace,'SF Mono',monospace; font-size:13px; color:#ccc; }
-.tx-item-detail { font-size:13px; color:#888; }
-.tx-item-right { text-align:right; }
-.tx-item-tokens { font-family:ui-monospace,'SF Mono',monospace; font-weight:600; color:#fff; }
-.tx-item-status { font-size:12px; color:#888; }
-
-/* Edit tags inline */
-.tag-edit-row { display:flex; gap:8px; margin-top:12px; }
-.tag-edit-row input { flex:1; height:36px; font-size:14px; background:#1a1a1a; border:1px solid #333; border-radius:8px; color:#e8e8e8; padding:0 12px; outline:none; }
-.tag-edit-row input:focus { border-color:#888; }
-.tag-edit-row button { height:36px; font-size:13px; padding:0 16px; border:none; border-radius:8px; cursor:pointer; font-weight:500; }
 </style>
 </head>
 <body>
 
-<!-- ── Navigation Bar ──────────────────────────────────────── -->
-<nav class="top-nav">
-  <span class="nav-brand">OASYCE</span>
-  <div class="nav-links">
-    <a href="/" class="active">Dashboard</a>
-    <a href="http://localhost:8421" target="_blank">Explorer</a>
-  </div>
-</nav>
+<div class="top-bar">
+  <span class="top-bar-brand">Oasyce</span>
+  <span class="top-bar-dot" id="status-dot"></span>
+</div>
 
 <div class="wrap">
 
-  <!-- Section 1: Hero Status -->
-  <div class="hero card fade" id="hero">
-    <h1>Oasyce</h1>
-    <div id="status-indicator">
-      <span class="status-dot online"></span>
-      <span class="status-label">Online</span>
-    </div>
-    <div class="stats-grid" id="stats-grid">
-      <div class="stat-card">
-        <div class="stat-icon">&#x1f4e6;</div>
-        <div class="stat-num green" id="stat-assets">--</div>
-        <div class="stat-label">Assets registered</div>
+  <!-- Hero: one big number -->
+  <div class="hero">
+    <div class="hero-num" id="stat-assets">—</div>
+    <div class="hero-label">Assets Registered</div>
+    <div class="hero-sub">
+      <div class="hero-sub-item">
+        <div class="hero-sub-num" id="stat-blocks">—</div>
+        <div class="hero-sub-label">Blocks</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">&#x26d3;</div>
-        <div class="stat-num blue" id="stat-blocks">--</div>
-        <div class="stat-label">Blocks mined</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">&#x1f512;</div>
-        <div class="stat-num amber" id="stat-dists">--</div>
-        <div class="stat-label">Watermarks issued</div>
+      <div class="hero-sub-item">
+        <div class="hero-sub-num" id="stat-dists">—</div>
+        <div class="hero-sub-label">Watermarks</div>
       </div>
     </div>
   </div>
 
-  <!-- Section 2: Quick Actions -->
-  <div class="card fade" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
-    <button class="btn" onclick="document.getElementById('register-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x1f4e6; Register</button>
-    <button class="btn" onclick="document.getElementById('buy-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x1f4b0; Buy</button>
-    <button class="btn" onclick="document.getElementById('embed-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x1f512; Watermark</button>
-    <button class="btn" onclick="document.getElementById('stake-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x26d3; Stake</button>
-    <button class="btn" onclick="document.getElementById('ahrp-section').scrollIntoView({behavior:'smooth'})" style="flex:1;min-width:120px;">&#x1f91d; AHRP</button>
-  </div>
-
-  <!-- Section 2b: My Portfolio -->
-  <div class="card fade" id="portfolio-section">
-    <h2>My portfolio</h2>
-    <div id="portfolio-list"></div>
-  </div>
-
-  <!-- Section 3: Your Assets -->
-  <div class="card fade" id="assets-section">
-    <h2>Your assets</h2>
-    <input type="text" id="asset-search" placeholder="Search your assets...">
-    <div id="assets-list" style="margin-top: 16px;"></div>
-  </div>
-
-  <!-- Section 3b: Register Asset -->
-  <div class="card fade" id="register-section">
-    <h2>Register a file</h2>
-    <div class="input-row"><input type="text" id="reg-path" placeholder="File path (e.g. /Users/you/report.pdf)"></div>
-    <div class="input-row">
-      <input type="text" id="reg-owner" placeholder="Owner name" style="flex:1;">
-      <input type="text" id="reg-tags" placeholder="Tags (comma-separated)" style="flex:1;">
+  <!-- ═══ Assets ═══ -->
+  <div class="section" id="sec-assets">
+    <div class="section-header" onclick="toggleSection('assets')">
+      <span class="section-title">Your Assets</span>
+      <span class="section-toggle open" id="toggle-assets">+</span>
     </div>
-    <button class="btn" id="reg-btn" style="width:100%;">Register</button>
-    <div id="reg-result"></div>
-  </div>
-
-  <!-- Section 3b2: Recent Transactions -->
-  <div class="card fade" id="tx-history-section">
-    <h2>Recent transactions</h2>
-    <div id="tx-history-list"></div>
-  </div>
-
-  <!-- Section 3c: Buy Data -->
-  <div class="card fade" id="buy-section">
-    <h2>Buy data access</h2>
-    <div class="input-row">
-      <input type="text" id="buy-asset" placeholder="Asset ID">
-      <input type="text" id="buy-amount" placeholder="Amount (OAS)" value="10" style="max-width:120px;">
-    </div>
-    <div style="display:flex;gap:10px;">
-      <button class="btn" id="quote-btn" style="flex:1;">Get quote</button>
-      <button class="btn" id="buy-btn" style="flex:1;">Buy</button>
-    </div>
-    <div id="buy-result"></div>
-  </div>
-
-  <!-- Section 3d: Embed Watermark -->
-  <div class="card fade" id="embed-section">
-    <h2>Embed a watermark</h2>
-    <div class="input-row">
-      <input type="text" id="emb-asset" placeholder="Asset ID" style="flex:1;">
-      <input type="text" id="emb-caller" placeholder="Buyer ID" style="flex:1;">
-    </div>
-    <textarea id="emb-content" placeholder="Paste the content to watermark..." style="width:100%;min-height:120px;font-size:16px;background:#1a1a1a;border:1px solid #333;border-radius:10px;color:#e8e8e8;padding:16px;font-family:ui-monospace,monospace;resize:vertical;outline:none;"></textarea>
-    <button class="btn" id="emb-btn" style="width:100%;margin-top:10px;">Embed watermark</button>
-    <div id="emb-result"></div>
-  </div>
-
-  <!-- Section 4: Watermark Tracker -->
-  <div class="card fade" id="trace-section">
-    <h2>Trace a watermark</h2>
-    <div class="input-row">
-      <input type="text" id="fp-input" placeholder="Paste a watermark fingerprint...">
-      <button class="btn" id="fp-trace-btn">Trace</button>
-    </div>
-    <div id="fp-trace-result"></div>
-
-    <div class="sep">
-      <h2>Look up by asset</h2>
-      <div class="input-row">
-        <input type="text" id="fp-asset-input" placeholder="Paste an asset ID...">
-        <button class="btn" id="fp-list-btn">Look up</button>
-      </div>
-      <div id="fp-dist-list"></div>
-    </div>
-  </div>
-
-  <!-- Section 6: Stake OAS -->
-  <div class="card fade" id="stake-section">
-    <h2>Stake OAS</h2>
-    <p style="color:#888;font-size:14px;margin-bottom:12px;">Stake OAS to become a node operator and earn block rewards + transaction fees.</p>
-    <div class="input-row">
-      <input type="text" id="stake-node" placeholder="Your node ID" style="flex:1;">
-      <input type="text" id="stake-amount" placeholder="Amount (OAS)" value="10000" style="max-width:140px;">
-    </div>
-    <button class="btn" id="stake-btn" style="width:100%;">Stake</button>
-    <div id="stake-result"></div>
-  </div>
-
-  <!-- ══════════════════════════════════════════════════════════
-       AHRP — Agent Handshake & Routing Protocol
-       ══════════════════════════════════════════════════════════ -->
-  <div id="ahrp-section">
-
-    <div class="card fade">
-      <div class="ahrp-header">
-        <h2>Agent Handshake &amp; Routing Protocol</h2>
-        <p>Register agents, discover capabilities, and execute verified data transactions</p>
-      </div>
-
-      <!-- AHRP Network Stats Bar -->
-      <div class="ahrp-stats-bar" id="ahrp-stats-bar">
-        <div class="ahrp-stat">
-          <div class="ahrp-stat-num" id="ahrp-stat-agents">--</div>
-          <div class="ahrp-stat-label">Agents</div>
-        </div>
-        <div class="ahrp-stat">
-          <div class="ahrp-stat-num" id="ahrp-stat-caps">--</div>
-          <div class="ahrp-stat-label">Capabilities</div>
-        </div>
-        <div class="ahrp-stat">
-          <div class="ahrp-stat-num" id="ahrp-stat-txs">--</div>
-          <div class="ahrp-stat-label">Transactions</div>
-        </div>
-        <div class="ahrp-stat">
-          <div class="ahrp-stat-num" id="ahrp-stat-vol">--</div>
-          <div class="ahrp-stat-label">Volume (OAS)</div>
-        </div>
+    <div class="section-body open" id="body-assets">
+      <div class="section-content">
+        <input type="text" id="asset-search" placeholder="Search..." style="margin-bottom:16px;">
+        <div id="assets-list"></div>
       </div>
     </div>
+  </div>
 
-    <!-- (a) Agent Registration Panel -->
-    <div class="card fade" id="ahrp-register">
-      <h2>Register Agent</h2>
-      <div class="input-row">
-        <input type="text" id="ahrp-agent-id" placeholder="Agent ID" style="flex:1;">
-        <input type="text" id="ahrp-pub-key" placeholder="Public key" style="flex:1;">
-      </div>
-      <div class="input-row">
-        <input type="number" id="ahrp-reputation" placeholder="Reputation" value="10" style="flex:1;">
-        <input type="number" id="ahrp-stake" placeholder="Stake (OAS)" value="100" style="flex:1;">
-      </div>
-      <div class="sep" style="margin-top:8px;padding-top:16px;">
-        <h2 style="font-size:16px;">Capability</h2>
+  <!-- ═══ Register ═══ -->
+  <div class="section" id="sec-register">
+    <div class="section-header" onclick="toggleSection('register')">
+      <span class="section-title">Register</span>
+      <span class="section-toggle" id="toggle-register">+</span>
+    </div>
+    <div class="section-body" id="body-register">
+      <div class="section-content">
+        <div class="input-row"><input type="text" id="reg-path" placeholder="File path"></div>
         <div class="input-row">
-          <input type="text" id="ahrp-cap-id" placeholder="Capability ID" style="flex:1;">
-          <input type="text" id="ahrp-cap-tags" placeholder="Tags (comma-sep)" style="flex:1;">
+          <input type="text" id="reg-owner" placeholder="Owner">
+          <input type="text" id="reg-tags" placeholder="Tags (comma-separated)">
         </div>
-        <div class="input-row">
-          <input type="text" id="ahrp-cap-desc" placeholder="Description" style="flex:2;">
-          <input type="number" id="ahrp-cap-price" placeholder="Price floor" value="1.0" style="flex:1;">
-        </div>
-        <div class="input-row">
-          <select id="ahrp-cap-origin" style="flex:1;">
-            <option value="human">human</option>
-            <option value="sensor">sensor</option>
-            <option value="curated">curated</option>
-            <option value="synthetic">synthetic</option>
-          </select>
-        </div>
-        <div class="checkbox-group">
-          <label><input type="checkbox" value="L0" checked> L0</label>
-          <label><input type="checkbox" value="L1" checked> L1</label>
-          <label><input type="checkbox" value="L2"> L2</label>
-          <label><input type="checkbox" value="L3"> L3</label>
-        </div>
-      </div>
-      <button class="btn" id="ahrp-announce-btn" style="width:100%;">Announce Agent</button>
-      <div id="ahrp-announce-result"></div>
-    </div>
-
-    <!-- (b) Discovery & Matching Panel -->
-    <div class="card fade" id="ahrp-discover">
-      <h2>Discover Capabilities</h2>
-      <div class="input-row">
-        <input type="text" id="ahrp-search-desc" placeholder="Description (what data do you need?)" style="flex:2;">
-        <input type="text" id="ahrp-search-tags" placeholder="Tags" style="flex:1;">
-      </div>
-      <div class="input-row">
-        <input type="number" id="ahrp-search-rep" placeholder="Min reputation" value="5" style="flex:1;">
-        <input type="number" id="ahrp-search-price" placeholder="Max price" value="100" style="flex:1;">
-        <select id="ahrp-search-access" style="flex:1;">
-          <option value="L0">L0</option>
-          <option value="L1">L1</option>
-          <option value="L2">L2</option>
-          <option value="L3">L3</option>
-        </select>
-      </div>
-      <button class="btn" id="ahrp-find-btn" style="width:100%;">Find Matches</button>
-      <div id="ahrp-matches" style="margin-top:16px;"></div>
-    </div>
-
-    <!-- (c) Transaction Flow Panel -->
-    <div class="card fade" id="ahrp-tx-flow">
-      <h2>Transaction Flow</h2>
-
-      <!-- Visual Pipeline -->
-      <div class="tx-pipeline" id="tx-pipeline">
-        <div class="tx-step" id="tx-step-request">
-          <div class="tx-step-circle">&#x1f4e8;</div>
-          <div class="tx-step-label">Request</div>
-        </div>
-        <div class="tx-arrow" id="tx-arrow-1">&#x25b6;</div>
-        <div class="tx-step" id="tx-step-offer">
-          <div class="tx-step-circle">&#x1f4cb;</div>
-          <div class="tx-step-label">Offer</div>
-        </div>
-        <div class="tx-arrow" id="tx-arrow-2">&#x25b6;</div>
-        <div class="tx-step" id="tx-step-accept">
-          <div class="tx-step-circle">&#x2705;</div>
-          <div class="tx-step-label">Accept</div>
-        </div>
-        <div class="tx-arrow" id="tx-arrow-3">&#x25b6;</div>
-        <div class="tx-step" id="tx-step-deliver">
-          <div class="tx-step-circle">&#x1f4e6;</div>
-          <div class="tx-step-label">Deliver</div>
-        </div>
-        <div class="tx-arrow" id="tx-arrow-4">&#x25b6;</div>
-        <div class="tx-step" id="tx-step-confirm">
-          <div class="tx-step-circle">&#x2b50;</div>
-          <div class="tx-step-label">Confirm</div>
-        </div>
-      </div>
-
-      <!-- Accept -->
-      <div class="sep">
-        <h2 style="font-size:16px;">1. Accept a deal</h2>
-        <div class="input-row">
-          <input type="text" id="tx-buyer" placeholder="Buyer ID" style="flex:1;">
-          <input type="text" id="tx-seller" placeholder="Seller ID" style="flex:1;">
-        </div>
-        <div class="input-row">
-          <input type="text" id="tx-cap-id" placeholder="Capability ID" style="flex:1;">
-          <input type="number" id="tx-price" placeholder="Price (OAS)" value="10" style="flex:1;">
-        </div>
-        <button class="btn" id="tx-accept-btn" style="width:100%;">Accept &amp; Create Transaction</button>
-        <div id="tx-accept-result"></div>
-      </div>
-
-      <!-- Deliver -->
-      <div class="sep">
-        <h2 style="font-size:16px;">2. Deliver content</h2>
-        <div class="input-row">
-          <input type="text" id="tx-deliver-id" placeholder="Transaction ID (auto-filled)" style="flex:2;">
-          <input type="text" id="tx-content-hash" placeholder="Content hash" style="flex:1;">
-        </div>
-        <button class="btn" id="tx-deliver-btn" style="width:100%;">Deliver</button>
-        <div id="tx-deliver-result"></div>
-      </div>
-
-      <!-- Confirm -->
-      <div class="sep">
-        <h2 style="font-size:16px;">3. Confirm &amp; rate</h2>
-        <div class="input-row">
-          <input type="text" id="tx-confirm-id" placeholder="Transaction ID (auto-filled)" style="flex:1;">
-        </div>
-        <div class="star-rating" id="star-rating">
-          <span data-v="1">&#x2605;</span>
-          <span data-v="2">&#x2605;</span>
-          <span data-v="3">&#x2605;</span>
-          <span data-v="4">&#x2605;</span>
-          <span data-v="5">&#x2605;</span>
-        </div>
-        <button class="btn" id="tx-confirm-btn" style="width:100%;">Confirm &amp; Settle</button>
-        <div id="tx-confirm-result"></div>
+        <button class="btn" id="reg-btn">Register</button>
+        <div id="reg-result"></div>
       </div>
     </div>
+  </div>
 
-  </div><!-- /ahrp-section -->
+  <!-- ═══ Trade ═══ -->
+  <div class="section" id="sec-trade">
+    <div class="section-header" onclick="toggleSection('trade')">
+      <span class="section-title">Trade</span>
+      <span class="section-toggle" id="toggle-trade">+</span>
+    </div>
+    <div class="section-body" id="body-trade">
+      <div class="section-content">
+        <div class="input-row">
+          <input type="text" id="buy-asset" placeholder="Asset ID">
+          <input type="text" id="buy-amount" placeholder="Amount (OAS)" value="10" style="max-width:120px;">
+        </div>
+        <div class="input-row" style="gap:8px;">
+          <button class="btn" id="quote-btn" style="flex:1;">Quote</button>
+          <button class="btn" id="buy-btn" style="flex:1;">Buy</button>
+        </div>
+        <div id="buy-result"></div>
+      </div>
+    </div>
+  </div>
 
-  <!-- Section 7: Network -->
-  <div class="card fade" id="network-section">
-    <h2>Network</h2>
-    <div class="net-grid" id="net-info"></div>
-    <div id="stakes-section" style="display:none;" class="sep">
-      <h2 style="margin-bottom:12px;">Node operators</h2>
-      <div id="stakes-list"></div>
+  <!-- ═══ Portfolio ═══ -->
+  <div class="section" id="sec-portfolio">
+    <div class="section-header" onclick="toggleSection('portfolio')">
+      <span class="section-title">Portfolio</span>
+      <span class="section-toggle" id="toggle-portfolio">+</span>
+    </div>
+    <div class="section-body" id="body-portfolio">
+      <div class="section-content" id="portfolio-list"></div>
+    </div>
+  </div>
+
+  <!-- ═══ Watermark ═══ -->
+  <div class="section" id="sec-watermark">
+    <div class="section-header" onclick="toggleSection('watermark')">
+      <span class="section-title">Watermark</span>
+      <span class="section-toggle" id="toggle-watermark">+</span>
+    </div>
+    <div class="section-body" id="body-watermark">
+      <div class="section-content">
+        <div class="input-row">
+          <input type="text" id="emb-asset" placeholder="Asset ID">
+          <input type="text" id="emb-caller" placeholder="Buyer ID">
+        </div>
+        <textarea id="emb-content" placeholder="Content to watermark..."></textarea>
+        <button class="btn" id="emb-btn" style="margin-top:8px;">Embed</button>
+        <div id="emb-result"></div>
+
+        <div style="border-top:1px solid #1a1a1a;margin-top:24px;padding-top:24px;">
+          <div class="input-row">
+            <input type="text" id="fp-input" placeholder="Trace a fingerprint...">
+            <button class="btn" id="fp-trace-btn" style="max-width:100px;">Trace</button>
+          </div>
+          <div id="fp-trace-result"></div>
+        </div>
+
+        <div style="border-top:1px solid #1a1a1a;margin-top:24px;padding-top:24px;">
+          <div class="input-row">
+            <input type="text" id="fp-asset-input" placeholder="Look up by asset ID...">
+            <button class="btn" id="fp-list-btn" style="max-width:100px;">Look up</button>
+          </div>
+          <div id="fp-dist-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Stake ═══ -->
+  <div class="section" id="sec-stake">
+    <div class="section-header" onclick="toggleSection('stake')">
+      <span class="section-title">Stake</span>
+      <span class="section-toggle" id="toggle-stake">+</span>
+    </div>
+    <div class="section-body" id="body-stake">
+      <div class="section-content">
+        <div class="input-row">
+          <input type="text" id="stake-node" placeholder="Node ID">
+          <input type="text" id="stake-amount" placeholder="Amount (OAS)" value="10000" style="max-width:140px;">
+        </div>
+        <button class="btn" id="stake-btn">Stake</button>
+        <div id="stake-result"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ AHRP ═══ -->
+  <div class="section" id="sec-ahrp">
+    <div class="section-header" onclick="toggleSection('ahrp')">
+      <span class="section-title">Agent Protocol (AHRP)</span>
+      <span class="section-toggle" id="toggle-ahrp">+</span>
+    </div>
+    <div class="section-body" id="body-ahrp">
+      <div class="section-content">
+
+        <!-- Register Agent -->
+        <div style="margin-bottom:24px;">
+          <div style="font-size:12px;color:#555;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">Register Agent</div>
+          <div class="input-row">
+            <input type="text" id="ahrp-agent-id" placeholder="Agent ID">
+            <input type="text" id="ahrp-pub-key" placeholder="Public key">
+          </div>
+          <div class="input-row">
+            <input type="number" id="ahrp-reputation" placeholder="Reputation" value="10">
+            <input type="number" id="ahrp-stake" placeholder="Stake" value="100">
+          </div>
+          <div class="input-row">
+            <input type="text" id="ahrp-cap-id" placeholder="Capability ID">
+            <input type="text" id="ahrp-cap-tags" placeholder="Tags">
+          </div>
+          <div class="input-row">
+            <input type="text" id="ahrp-cap-desc" placeholder="Description" style="flex:2;">
+            <input type="number" id="ahrp-cap-price" placeholder="Price floor" value="1.0">
+          </div>
+          <div class="input-row">
+            <select id="ahrp-cap-origin">
+              <option value="human">human</option>
+              <option value="sensor">sensor</option>
+              <option value="curated">curated</option>
+              <option value="synthetic">synthetic</option>
+            </select>
+          </div>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="L0" checked> L0</label>
+            <label><input type="checkbox" value="L1" checked> L1</label>
+            <label><input type="checkbox" value="L2"> L2</label>
+            <label><input type="checkbox" value="L3"> L3</label>
+          </div>
+          <button class="btn" id="ahrp-announce-btn">Announce</button>
+          <div id="ahrp-announce-result"></div>
+        </div>
+
+        <!-- Discover -->
+        <div style="border-top:1px solid #1a1a1a;padding-top:24px;margin-bottom:24px;">
+          <div style="font-size:12px;color:#555;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">Discover</div>
+          <div class="input-row">
+            <input type="text" id="ahrp-search-desc" placeholder="What data do you need?" style="flex:2;">
+            <input type="text" id="ahrp-search-tags" placeholder="Tags">
+          </div>
+          <div class="input-row">
+            <input type="number" id="ahrp-search-rep" placeholder="Min reputation" value="5">
+            <input type="number" id="ahrp-search-price" placeholder="Max price" value="100">
+            <select id="ahrp-search-access">
+              <option value="L0">L0</option><option value="L1">L1</option>
+              <option value="L2">L2</option><option value="L3">L3</option>
+            </select>
+          </div>
+          <button class="btn" id="ahrp-find-btn">Find</button>
+          <div id="ahrp-matches" style="margin-top:16px;"></div>
+        </div>
+
+        <!-- Transaction Flow -->
+        <div style="border-top:1px solid #1a1a1a;padding-top:24px;">
+          <div style="font-size:12px;color:#555;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">Transaction</div>
+
+          <div class="tx-pipeline" id="tx-pipeline">
+            <div class="tx-step" id="tx-step-request"><div class="tx-dot"></div><div class="tx-step-label">Request</div></div>
+            <div class="tx-line" id="tx-line-1"></div>
+            <div class="tx-step" id="tx-step-offer"><div class="tx-dot"></div><div class="tx-step-label">Offer</div></div>
+            <div class="tx-line" id="tx-line-2"></div>
+            <div class="tx-step" id="tx-step-accept"><div class="tx-dot"></div><div class="tx-step-label">Accept</div></div>
+            <div class="tx-line" id="tx-line-3"></div>
+            <div class="tx-step" id="tx-step-deliver"><div class="tx-dot"></div><div class="tx-step-label">Deliver</div></div>
+            <div class="tx-line" id="tx-line-4"></div>
+            <div class="tx-step" id="tx-step-confirm"><div class="tx-dot"></div><div class="tx-step-label">Confirm</div></div>
+          </div>
+
+          <div class="input-row">
+            <input type="text" id="tx-buyer" placeholder="Buyer ID">
+            <input type="text" id="tx-seller" placeholder="Seller ID">
+          </div>
+          <div class="input-row">
+            <input type="text" id="tx-cap-id" placeholder="Capability ID">
+            <input type="number" id="tx-price" placeholder="Price" value="10">
+          </div>
+          <button class="btn" id="tx-accept-btn">Accept & Create</button>
+          <div id="tx-accept-result"></div>
+
+          <div style="border-top:1px solid #1a1a1a;margin-top:20px;padding-top:20px;">
+            <div class="input-row">
+              <input type="text" id="tx-deliver-id" placeholder="Transaction ID">
+              <input type="text" id="tx-content-hash" placeholder="Content hash">
+            </div>
+            <button class="btn" id="tx-deliver-btn">Deliver</button>
+            <div id="tx-deliver-result"></div>
+          </div>
+
+          <div style="border-top:1px solid #1a1a1a;margin-top:20px;padding-top:20px;">
+            <div class="input-row">
+              <input type="text" id="tx-confirm-id" placeholder="Transaction ID">
+            </div>
+            <div class="star-rating" id="star-rating">
+              <span data-v="1">&#x2605;</span>
+              <span data-v="2">&#x2605;</span>
+              <span data-v="3">&#x2605;</span>
+              <span data-v="4">&#x2605;</span>
+              <span data-v="5">&#x2605;</span>
+            </div>
+            <button class="btn" id="tx-confirm-btn">Confirm & Settle</button>
+            <div id="tx-confirm-result"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Network ═══ -->
+  <div class="section" id="sec-network">
+    <div class="section-header" onclick="toggleSection('network')">
+      <span class="section-title">Network</span>
+      <span class="section-toggle" id="toggle-network">+</span>
+    </div>
+    <div class="section-body" id="body-network">
+      <div class="section-content">
+        <div class="net-grid" id="net-info"></div>
+        <div id="stakes-section" style="display:none;margin-top:20px;padding-top:20px;border-top:1px solid #1a1a1a;">
+          <div id="stakes-list"></div>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- Footer -->
-  <div class="footer fade">Oasyce Protocol v1.2.0 &middot; MIT License</div>
+  <div style="text-align:center;font-size:11px;color:#333;padding:40px 0 0;">Oasyce Protocol</div>
 
 </div>
 
 <script>
 (function() {
 
-  // ── Helpers ──────────────────────────────────────────────────
+  /* ── Helpers ──────────────────────────────────────────── */
   function esc(s) {
     if (s == null) return '';
     var d = document.createElement('div');
     d.textContent = String(s);
     return d.innerHTML;
   }
-
-  function trunc(s, n) {
-    n = n || 16;
-    return s && s.length > n ? s.slice(0, n) + '\u2026' : (s || '');
-  }
-
+  function trunc(s, n) { n=n||16; return s&&s.length>n ? s.slice(0,n)+'\u2026' : (s||''); }
   function timeAgo(ts) {
     if (!ts) return '';
-    var then;
-    if (typeof ts === 'number') {
-      then = ts > 1e12 ? new Date(ts) : new Date(ts * 1000);
-    } else {
-      then = new Date(ts);
-    }
-    var diff = Math.floor((Date.now() - then.getTime()) / 1000);
-    if (diff < 0) diff = 0;
-    if (diff < 60) return diff + ' sec ago';
-    if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
-    if (diff < 86400) return Math.floor(diff / 3600) + ' hours ago';
-    return Math.floor(diff / 86400) + ' days ago';
+    var then = typeof ts==='number' ? (ts>1e12?new Date(ts):new Date(ts*1000)) : new Date(ts);
+    var d = Math.floor((Date.now()-then.getTime())/1000);
+    if (d<0) d=0;
+    if (d<60) return d+'s';
+    if (d<3600) return Math.floor(d/60)+'m';
+    if (d<86400) return Math.floor(d/3600)+'h';
+    return Math.floor(d/86400)+'d';
   }
+  async function api(p) { try { return (await fetch(p)).json(); } catch(e) { return null; } }
+  async function postApi(p, b) { try { return (await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json(); } catch(e) { return {error:e.message}; } }
 
-  async function api(path) {
-    try {
-      var r = await fetch(path);
-      return r.json();
-    } catch(e) {
-      return null;
-    }
-  }
-
-  async function postApi(path, body) {
-    try {
-      var r = await fetch(path, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      return r.json();
-    } catch(e) {
-      return {ok:false,error:e.message};
-    }
-  }
-
-  // ── Toast notifications ────────────────────────────────────
+  /* ── Toast ───────────────────────────────────────────── */
   function toast(msg, type) {
-    type = type || 'success';
-    var container = document.getElementById('toast-container');
-    if (!container) {
-      container = document.createElement('div');
-      container.id = 'toast-container';
-      container.className = 'toast-container';
-      document.body.appendChild(container);
-    }
-    var el = document.createElement('div');
-    el.className = 'toast ' + type;
-    el.textContent = msg;
-    container.appendChild(el);
-    setTimeout(function() { el.remove(); }, 3000);
+    var c = document.getElementById('toast-container');
+    if (!c) { c=document.createElement('div'); c.id='toast-container'; c.className='toast-container'; document.body.appendChild(c); }
+    var el=document.createElement('div');
+    el.className='toast'+(type==='error'?' error':'');
+    el.textContent=msg;
+    c.appendChild(el);
+    setTimeout(function(){el.remove();},3000);
   }
 
-  // ── Confirm dialog ─────────────────────────────────────────
-  function confirmAction(msg) {
-    return new Promise(function(resolve) {
-      resolve(window.confirm(msg));
-    });
-  }
+  /* ── Section Toggle ──────────────────────────────────── */
+  window.toggleSection = function(name) {
+    var body = document.getElementById('body-'+name);
+    var toggle = document.getElementById('toggle-'+name);
+    var isOpen = body.classList.contains('open');
+    body.classList.toggle('open');
+    toggle.classList.toggle('open');
+  };
 
-  // ── Delete asset ───────────────────────────────────────────
-  async function deleteAsset(aid) {
-    var ok = await confirmAction('Delete asset ' + aid.slice(0,16) + '...? This cannot be undone.');
-    if (!ok) return;
-    try {
-      var r = await fetch('/api/asset/' + encodeURIComponent(aid), {method:'DELETE'});
-      var d = await r.json();
-      if (d.ok) {
-        toast('Asset deleted');
-        closeModal();
-        loadAssets(); loadStatus(); loadPortfolio();
-      } else { toast(d.error || 'Failed to delete', 'error'); }
-    } catch(e) { toast(e.message, 'error'); }
-  }
-
-  // ── Asset detail modal ─────────────────────────────────────
-  function closeModal() {
-    var overlay = document.getElementById('modal-overlay');
-    if (overlay) overlay.remove();
-  }
-
-  async function showAssetModal(aid) {
-    var d = await api('/api/asset/' + encodeURIComponent(aid));
-    if (!d || d.error) { toast('Asset not found', 'error'); return; }
-    var q = await api('/api/quote?asset_id=' + encodeURIComponent(aid) + '&amount=1');
-    var priceStr = (q && !q.error) ? q.price_before + ' OAS' : 'N/A';
-    var meta = d.metadata || {};
-    var tags = meta.tags || [];
-
+  /* ── Modal ───────────────────────────────────────────── */
+  function showAssetModal(asset) {
+    var existing = document.getElementById('modal-overlay');
+    if (existing) existing.remove();
     var overlay = document.createElement('div');
     overlay.id = 'modal-overlay';
     overlay.className = 'modal-overlay';
-    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal(); });
-
-    var tagsHtml = tags.map(function(t){ return '<span class="pill">' + esc(t) + '</span>'; }).join(' ') || '<span style="color:#666;">None</span>';
-    var metaRows = '';
-    Object.keys(meta).forEach(function(k) {
-      if (k === 'tags') return;
-      metaRows += '<div class="modal-row"><span class="modal-key">' + esc(k) + '</span><span class="modal-val">' + esc(typeof meta[k] === 'object' ? JSON.stringify(meta[k]) : meta[k]) + '</span></div>';
-    });
-
-    overlay.innerHTML = '<div class="modal">' +
-      '<button class="modal-close" onclick="closeModal()">&times;</button>' +
-      '<h3>Asset details</h3>' +
-      '<div class="modal-row"><span class="modal-key">Asset ID</span><span class="modal-val" title="Click to copy" onclick="navigator.clipboard.writeText(\'' + esc(d.asset_id) + '\');toast(\'Copied!\')">' + esc(d.asset_id) + '</span></div>' +
-      '<div class="modal-row"><span class="modal-key">Owner</span><span class="modal-val">' + esc(d.owner) + '</span></div>' +
-      '<div class="modal-row"><span class="modal-key">Created</span><span class="modal-val">' + esc(d.created_at) + '</span></div>' +
-      '<div class="modal-row"><span class="modal-key">Spot price</span><span class="modal-val" style="color:#22c55e;">' + esc(priceStr) + '</span></div>' +
-      '<div class="modal-row"><span class="modal-key">Tags</span><span class="modal-val" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">' + tagsHtml + '</span></div>' +
-      metaRows +
-      '<div id="modal-tag-edit"></div>' +
-      '<div style="display:flex;gap:10px;margin-top:20px;">' +
-        '<button class="btn" style="flex:1;background:#333;font-size:14px;height:40px;" onclick="showEditTags(\'' + esc(d.asset_id) + '\',\'' + esc(tags.join(',')) + '\')">Edit tags</button>' +
-        '<button class="btn" style="flex:1;background:#ef4444;font-size:14px;height:40px;" onclick="deleteAsset(\'' + esc(d.asset_id) + '\')">Delete</button>' +
-      '</div>' +
-      '</div>';
+    var tags = (asset.tags||[]).map(function(t){return '<span class="pill">'+esc(t)+'</span>';}).join(' ');
+    overlay.innerHTML = '<div class="modal" onclick="event.stopPropagation()">'+
+      '<button class="modal-close" onclick="document.getElementById(\'modal-overlay\').remove()">&times;</button>'+
+      '<h3>Asset Detail</h3>'+
+      '<div class="kv-row"><span class="kv-key">ID</span><span class="kv-val" style="cursor:pointer;font-size:12px;" onclick="navigator.clipboard.writeText(\''+esc(asset.asset_id)+'\')">'+esc(asset.asset_id)+' &#x1f4cb;</span></div>'+
+      '<div class="kv-row"><span class="kv-key">Owner</span><span class="kv-val">'+esc(asset.owner)+'</span></div>'+
+      '<div class="kv-row"><span class="kv-key">Created</span><span class="kv-val">'+timeAgo(asset.created_at)+'</span></div>'+
+      '<div class="kv-row"><span class="kv-key">Price</span><span class="kv-val">'+(asset.spot_price!=null?asset.spot_price+' OAS':'—')+'</span></div>'+
+      '<div class="kv-row"><span class="kv-key">Tags</span><span class="kv-val">'+(tags||'—')+'</span></div>'+
+      '<div style="margin-top:16px;display:flex;gap:8px;">'+
+        '<input type="text" id="modal-edit-tags" value="'+(asset.tags||[]).join(', ')+'" placeholder="Edit tags..." style="flex:1;">'+
+        '<button class="btn" style="width:auto;padding:0 16px;" onclick="editTags(\''+esc(asset.asset_id)+'\')">Save</button>'+
+      '</div>'+
+      '<button class="btn" style="margin-top:12px;color:#f87171;border-color:#f8717133;" onclick="if(confirm(\'Delete this asset?\')){deleteAsset(\''+esc(asset.asset_id)+'\');document.getElementById(\'modal-overlay\').remove();}">Delete Asset</button>'+
+    '</div>';
+    overlay.addEventListener('click', function(e) { if(e.target===overlay) overlay.remove(); });
     document.body.appendChild(overlay);
   }
 
-  // ── Edit tags in modal ─────────────────────────────────────
-  function showEditTags(aid, currentTags) {
-    var container = document.getElementById('modal-tag-edit');
-    if (!container) return;
-    container.innerHTML = '<div class="tag-edit-row">' +
-      '<input type="text" id="modal-tag-input" value="' + esc(currentTags) + '" placeholder="tag1, tag2, ...">' +
-      '<button style="background:#3b82f6;color:#fff;" onclick="saveEditTags(\'' + esc(aid) + '\')">Save</button>' +
-      '<button style="background:#333;color:#888;" onclick="document.getElementById(\'modal-tag-edit\').innerHTML=\'\'">Cancel</button>' +
-      '</div>';
-    document.getElementById('modal-tag-input').focus();
-  }
-
-  async function saveEditTags(aid) {
-    var input = document.getElementById('modal-tag-input');
-    if (!input) return;
+  window.editTags = async function(aid) {
+    var input = document.getElementById('modal-edit-tags');
     var tags = input.value.split(',').map(function(t){return t.trim();}).filter(Boolean);
-    var d = await postApi('/api/asset/update', {asset_id: aid, tags: tags});
-    if (d && d.ok) {
-      toast('Tags updated');
-      closeModal();
-      loadAssets();
-    } else { toast(d ? d.error : 'Failed', 'error'); }
-  }
+    var r = await postApi('/api/asset/update', {asset_id:aid,tags:tags});
+    if (r && r.ok) { toast('Tags updated'); loadAssets(); } else { toast(r?r.error:'Failed','error'); }
+  };
 
-  // Make modal functions global
-  window.closeModal = closeModal;
-  window.showAssetModal = showAssetModal;
-  window.deleteAsset = deleteAsset;
-  window.showEditTags = showEditTags;
-  window.saveEditTags = saveEditTags;
-  window.toast = toast;
+  window.deleteAsset = async function(aid) {
+    if (!confirm('Delete this asset permanently?')) return;
+    try {
+      var r = await fetch('/api/asset/'+aid, {method:'DELETE'});
+      var d = await r.json();
+      if (d.ok) { toast('Asset deleted'); loadAssets(); loadStatus(); }
+      else { toast(d.error||'Failed','error'); }
+    } catch(e) { toast(e.message,'error'); }
+  };
 
-  // ── Load status ──────────────────────────────────────────────
+  /* ── Load Status ─────────────────────────────────────── */
   async function loadStatus() {
     var d = await api('/api/status');
-    if (!d) {
-      document.querySelector('.status-dot').className = 'status-dot offline';
-      document.querySelector('.status-label').textContent = 'Offline';
-      return;
-    }
-
-    document.querySelector('.status-dot').className = 'status-dot online';
-    document.querySelector('.status-label').textContent = 'Online';
-
+    var dot = document.getElementById('status-dot');
+    if (!d) { dot.className='top-bar-dot off'; return; }
+    dot.className='top-bar-dot';
     document.getElementById('stat-assets').textContent = d.total_assets;
     document.getElementById('stat-blocks').textContent = d.total_blocks;
     document.getElementById('stat-dists').textContent = d.total_distributions;
-
-    // Network info
-    var ni = document.getElementById('net-info');
-    ni.innerHTML =
-      '<span class="net-key">Node ID</span><span class="net-val">' + esc(d.node_id) + '</span>' +
-      '<span class="net-key">Address</span><span class="net-val">' + esc(d.host) + ':' + esc(d.port) + '</span>' +
-      '<span class="net-key">Blocks mined</span><span class="net-val">' + esc(d.chain_height) + '</span>';
+    var ni=document.getElementById('net-info');
+    ni.innerHTML='<span class="net-key">Node</span><span class="net-val">'+esc(d.node_id)+'</span>'+
+      '<span class="net-key">Address</span><span class="net-val">'+esc(d.host)+':'+esc(d.port)+'</span>'+
+      '<span class="net-key">Height</span><span class="net-val">'+esc(d.chain_height)+'</span>';
   }
 
-  // ── Load assets ──────────────────────────────────────────────
+  /* ── Assets ──────────────────────────────────────────── */
   var _allAssets = [];
-
   async function loadAssets() {
     _allAssets = await api('/api/assets') || [];
     renderAssets(_allAssets);
   }
-
   function renderAssets(list) {
-    var container = document.getElementById('assets-list');
-    if (!list.length) {
-      container.innerHTML = '<div class="empty-state">No assets yet.<br>Register your first file with: <code>oasyce register &lt;file&gt;</code></div>';
-      return;
-    }
-    var html = '';
+    var c = document.getElementById('assets-list');
+    if (!list.length) { c.innerHTML='<div class="empty">No assets yet. Register with <code>oasyce register &lt;file&gt;</code></div>'; return; }
+    var html='';
     list.forEach(function(a) {
-      var tags = (a.tags || []).map(function(t) { return '<span class="pill">' + esc(t) + '</span>'; }).join('');
-      var priceHtml = a.spot_price != null
-        ? '<span class="price-badge">' + a.spot_price + ' OAS</span>'
-        : '<span class="price-badge none">Not listed</span>';
-      html += '<div class="asset-item" onclick="showAssetModal(\'' + esc(a.asset_id) + '\')">' +
-        '<button class="asset-delete-btn" title="Delete" onclick="event.stopPropagation();deleteAsset(\'' + esc(a.asset_id) + '\')">&times;</button>' +
-        '<div class="asset-id">' + esc(trunc(a.asset_id, 24)) + '</div>' +
-        '<div class="asset-owner">' + esc(a.owner) + '</div>' +
-        '<div class="asset-meta">' + tags + priceHtml + '<span class="time-ago">' + timeAgo(a.created_at) + '</span></div>' +
-        '</div>';
+      var tags = (a.tags||[]).map(function(t){return '<span class="pill">'+esc(t)+'</span>';}).join('');
+      html += '<div class="asset-item" onclick=\'showAssetDetail('+JSON.stringify(a).replace(/'/g,"&#39;")+')\'>'+
+        '<div class="asset-left">'+
+          '<div class="asset-id">'+esc(trunc(a.asset_id,28))+'</div>'+
+          '<div class="asset-meta-line">'+esc(a.owner)+' · '+timeAgo(a.created_at)+(tags?' · '+tags:'')+'</div>'+
+        '</div>'+
+        '<div class="asset-right">'+
+          (a.spot_price!=null?'<span class="asset-price">'+a.spot_price+'</span>':'')+
+          '<button class="asset-delete-btn" title="Delete" onclick="event.stopPropagation();deleteAsset(\''+esc(a.asset_id)+'\')">&times;</button>'+
+        '</div>'+
+      '</div>';
     });
-    container.innerHTML = html;
+    c.innerHTML=html;
   }
+  window.showAssetDetail = function(a) { showAssetModal(a); };
 
   document.getElementById('asset-search').addEventListener('input', function(e) {
-    var q = e.target.value.toLowerCase();
-    if (!q) { renderAssets(_allAssets); return; }
-    renderAssets(_allAssets.filter(function(a) {
-      return (a.asset_id || '').toLowerCase().indexOf(q) !== -1 ||
-        (a.tags || []).some(function(t) { return t.toLowerCase().indexOf(q) !== -1; });
+    var q=e.target.value.toLowerCase();
+    if(!q){renderAssets(_allAssets);return;}
+    renderAssets(_allAssets.filter(function(a){
+      return (a.asset_id||'').toLowerCase().indexOf(q)!==-1 ||
+        (a.tags||[]).some(function(t){return t.toLowerCase().indexOf(q)!==-1;});
     }));
   });
 
-  // ── Trace fingerprint ───────────────────────────────────────
-  document.getElementById('fp-trace-btn').addEventListener('click', async function() {
-    var fp = document.getElementById('fp-input').value.trim();
-    if (!fp) return;
-    var r = await api('/api/trace?fp=' + encodeURIComponent(fp));
-    var div = document.getElementById('fp-trace-result');
-    if (!r || r.error) {
-      div.innerHTML = '<p class="err">Not found. Check the fingerprint and try again.</p>';
-    } else {
-      div.innerHTML = '<div class="trace-result">' +
-        '<div class="trace-row"><span class="trace-key">Asset</span><span class="trace-val">' + esc(r.asset_id) + '</span></div>' +
-        '<div class="trace-row"><span class="trace-key">Bought by</span><span class="trace-val">' + esc(r.caller_id) + '</span></div>' +
-        '<div class="trace-row"><span class="trace-key">Fingerprint</span><span class="trace-val">' + esc(trunc(r.fingerprint, 24)) + '</span></div>' +
-        '<div class="trace-row"><span class="trace-key">When</span><span class="trace-val">' + timeAgo(r.timestamp || r.created_at) + '</span></div>' +
-        '</div>';
-    }
-  });
-
-  // ── List distributions ──────────────────────────────────────
-  document.getElementById('fp-list-btn').addEventListener('click', async function() {
-    var aid = document.getElementById('fp-asset-input').value.trim();
-    if (!aid) return;
-    var list = await api('/api/fingerprints?asset_id=' + encodeURIComponent(aid));
-    var container = document.getElementById('fp-dist-list');
-    if (!list || !list.length) {
-      container.innerHTML = '<p class="err">No watermarks found for this asset.</p>';
-      return;
-    }
-    var html = '';
-    list.forEach(function(r) {
-      html += '<div class="dist-item">' +
-        '<div class="mono">' + esc(trunc(r.fingerprint, 24)) + '</div>' +
-        '<div class="meta">' + esc(r.caller_id) + ' &middot; ' + timeAgo(r.timestamp) + '</div>' +
-        '</div>';
-    });
-    container.innerHTML = html;
-  });
-
-  // ── Load stakes ─────────────────────────────────────────────
-  async function loadStakes() {
-    var list = await api('/api/stakes') || [];
-    var sec = document.getElementById('stakes-section');
-    if (!list.length) { sec.style.display = 'none'; return; }
-    sec.style.display = 'block';
-    var html = '';
-    list.forEach(function(s) {
-      html += '<div class="stake-item">' +
-        '<span class="stake-id">' + esc(trunc(s.validator_id, 20)) + '</span>' +
-        '<span class="stake-amount">' + s.total + ' OAS</span>' +
-        '</div>';
-    });
-    document.getElementById('stakes-list').innerHTML = html;
-  }
-
-  // ── Load portfolio ──────────────────────────────────────────
-  async function loadPortfolio() {
-    var list = await api('/api/portfolio?buyer=gui_user') || [];
-    var container = document.getElementById('portfolio-list');
-    if (!list.length) {
-      container.innerHTML = '<div class="empty-state">No holdings yet. Buy data access to see your portfolio.</div>';
-      return;
-    }
-    var html = '<table class="portfolio-table"><thead><tr><th>Asset</th><th style="text-align:right;">Shares</th><th style="text-align:right;">Price</th><th style="text-align:right;">Value</th></tr></thead><tbody>';
-    list.forEach(function(h) {
-      html += '<tr>' +
-        '<td class="mono">' + esc(trunc(h.asset_id, 16)) + '</td>' +
-        '<td class="num">' + h.shares + '</td>' +
-        '<td class="num">' + h.spot_price + ' OAS</td>' +
-        '<td class="num green">' + h.value_oas + ' OAS</td>' +
-        '</tr>';
-    });
-    html += '</tbody></table>';
-    container.innerHTML = html;
-  }
-
-  // ── Load transaction history ───────────────────────────────
-  async function loadTransactions() {
-    var list = await api('/api/transactions') || [];
-    var container = document.getElementById('tx-history-list');
-    if (!list.length) {
-      container.innerHTML = '<div class="empty-state">No transactions yet.</div>';
-      return;
-    }
-    var html = '';
-    list.forEach(function(tx) {
-      html += '<div class="tx-item">' +
-        '<div class="tx-item-left">' +
-          '<span class="tx-item-id">' + esc(trunc(tx.receipt_id, 16)) + '</span>' +
-          '<span class="tx-item-detail">' + esc(trunc(tx.asset_id, 16)) + ' &middot; ' + esc(tx.buyer) + '</span>' +
-        '</div>' +
-        '<div class="tx-item-right">' +
-          '<div class="tx-item-tokens">+' + tx.tokens + ' tokens</div>' +
-          '<div class="tx-item-status">' + esc(tx.status) + '</div>' +
-        '</div>' +
-        '</div>';
-    });
-    container.innerHTML = html;
-  }
-
-  // ── Register ─────────────────────────────────────────────
+  /* ── Register ────────────────────────────────────────── */
   document.getElementById('reg-btn').addEventListener('click', async function() {
-    var btn = this; btn.textContent = 'Working...'; btn.disabled = true;
-    var fp = document.getElementById('reg-path').value.trim();
-    var owner = document.getElementById('reg-owner').value.trim();
-    var tags = document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);
-    var div = document.getElementById('reg-result');
+    var btn=this; btn.textContent='...'; btn.disabled=true;
+    var fp=document.getElementById('reg-path').value.trim();
+    var owner=document.getElementById('reg-owner').value.trim();
+    var tags=document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);
+    var div=document.getElementById('reg-result');
     try {
-      var r = await fetch('/api/register', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_path:fp,owner:owner||undefined,tags:tags})});
-      var d = await r.json();
-      if (d.ok) {
-        div.innerHTML = '<div class="trace-result" style="border-color:#22c55e;margin-top:12px;"><div class="trace-row"><span class="trace-key">Asset ID</span><span class="trace-val">' + esc(d.asset_id) + '</span></div><div class="trace-row"><span class="trace-key">File hash</span><span class="trace-val">' + esc(trunc(d.file_hash,24)) + '</span></div></div>';
-        toast('Asset registered successfully');
-        loadAssets(); loadStatus();
-      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; toast(d.error, 'error'); }
-    } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
-    btn.textContent = 'Register'; btn.disabled = false;
+      var r=await postApi('/api/register',{file_path:fp,owner:owner||undefined,tags:tags});
+      if(r.ok){
+        div.innerHTML='<div class="result-box"><div class="kv-row"><span class="kv-key">Asset ID</span><span class="kv-val">'+esc(r.asset_id)+'</span></div></div>';
+        toast('Registered'); loadAssets(); loadStatus();
+      } else { div.innerHTML='<p class="err">'+esc(r.error)+'</p>'; }
+    } catch(e) { div.innerHTML='<p class="err">'+esc(e.message)+'</p>'; }
+    btn.textContent='Register'; btn.disabled=false;
   });
 
-  // ── Quote & Buy ─────────────────────────────────────────────
+  /* ── Quote & Buy ─────────────────────────────────────── */
   document.getElementById('quote-btn').addEventListener('click', async function() {
-    var aid = document.getElementById('buy-asset').value.trim();
-    var amount = document.getElementById('buy-amount').value.trim() || '10';
-    var div = document.getElementById('buy-result');
-    if (!aid) { div.innerHTML = '<p class="err">Enter an asset ID</p>'; return; }
-    var r = await api('/api/quote?asset_id=' + encodeURIComponent(aid) + '&amount=' + amount);
-    if (!r || r.error) { div.innerHTML = '<p class="err">' + esc(r ? r.error : 'Failed') + '</p>'; return; }
-    div.innerHTML = '<div class="trace-result" style="margin-top:12px;">' +
-      '<div class="trace-row"><span class="trace-key">You pay</span><span class="trace-val">' + r.payment + ' OAS</span></div>' +
-      '<div class="trace-row"><span class="trace-key">You get</span><span class="trace-val">' + r.tokens + ' tokens</span></div>' +
-      '<div class="trace-row"><span class="trace-key">Price before</span><span class="trace-val">' + r.price_before + ' OAS</span></div>' +
-      '<div class="trace-row"><span class="trace-key">Price after</span><span class="trace-val">' + r.price_after + ' OAS</span></div>' +
-      '<div class="trace-row"><span class="trace-key">Price impact</span><span class="trace-val">' + r.impact_pct + '%</span></div>' +
-      '<div class="trace-row"><span class="trace-key">Protocol fee</span><span class="trace-val">' + r.fee + ' OAS</span></div>' +
-      '<div class="trace-row"><span class="trace-key">Burned</span><span class="trace-val" style="color:#ef4444;">' + r.burn + ' OAS</span></div>' +
+    var aid=document.getElementById('buy-asset').value.trim();
+    var amt=document.getElementById('buy-amount').value.trim()||'10';
+    var div=document.getElementById('buy-result');
+    if(!aid){div.innerHTML='<p class="err">Enter an asset ID</p>';return;}
+    var r=await api('/api/quote?asset_id='+encodeURIComponent(aid)+'&amount='+amt);
+    if(!r||r.error){div.innerHTML='<p class="err">'+esc(r?r.error:'Failed')+'</p>';return;}
+    div.innerHTML='<div class="result-box">'+
+      '<div class="kv-row"><span class="kv-key">You pay</span><span class="kv-val">'+r.payment+' OAS</span></div>'+
+      '<div class="kv-row"><span class="kv-key">You get</span><span class="kv-val">'+r.tokens+' tokens</span></div>'+
+      '<div class="kv-row"><span class="kv-key">Impact</span><span class="kv-val">'+r.impact_pct+'%</span></div>'+
+      '<div class="kv-row"><span class="kv-key">Burned</span><span class="kv-val">'+r.burn+' OAS</span></div>'+
       '</div>';
   });
 
   document.getElementById('buy-btn').addEventListener('click', async function() {
-    var btn = this;
-    var aid = document.getElementById('buy-asset').value.trim();
-    var amount = document.getElementById('buy-amount').value.trim() || '10';
-    var div = document.getElementById('buy-result');
-    if (!aid) { div.innerHTML = '<p class="err">Enter an asset ID</p>'; return; }
-    var ok = await confirmAction('Buy ' + amount + ' OAS of asset ' + aid.slice(0,16) + '...?');
-    if (!ok) return;
-    btn.textContent = 'Working...'; btn.disabled = true;
+    if(!confirm('Confirm purchase?')) return;
+    var btn=this; btn.textContent='...'; btn.disabled=true;
+    var aid=document.getElementById('buy-asset').value.trim();
+    var amt=document.getElementById('buy-amount').value.trim()||'10';
+    var div=document.getElementById('buy-result');
+    if(!aid){div.innerHTML='<p class="err">Enter asset ID</p>';btn.textContent='Buy';btn.disabled=false;return;}
     try {
-      var r = await fetch('/api/buy', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:aid,buyer:'gui_user',amount:parseFloat(amount)})});
-      var d = await r.json();
-      if (d.ok) {
-        div.innerHTML = '<div class="trace-result" style="border-color:#22c55e;margin-top:12px;">' +
-          '<div class="trace-row"><span class="trace-key">Receipt</span><span class="trace-val">' + esc(d.receipt_id) + '</span></div>' +
-          '<div class="trace-row"><span class="trace-key">Tokens received</span><span class="trace-val" style="color:#22c55e;">' + d.tokens + '</span></div>' +
-          '<div class="trace-row"><span class="trace-key">New price</span><span class="trace-val">' + d.price_after + ' OAS</span></div>' +
-          '<div class="trace-row"><span class="trace-key">Your equity</span><span class="trace-val">' + d.equity_balance + '</span></div>' +
-          '</div>';
-        toast('Purchase successful! ' + d.tokens + ' tokens received');
-        loadPortfolio(); loadTransactions(); loadAssets();
-      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; toast(d.error, 'error'); }
-    } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; toast(e.message, 'error'); }
-    btn.textContent = 'Buy'; btn.disabled = false;
+      var r=await postApi('/api/buy',{asset_id:aid,buyer:'gui_user',amount:parseFloat(amt)});
+      if(r.ok){
+        div.innerHTML='<div class="result-box"><div class="kv-row"><span class="kv-key">Tokens</span><span class="kv-val ok">'+r.tokens+'</span></div><div class="kv-row"><span class="kv-key">New price</span><span class="kv-val">'+r.price_after+' OAS</span></div></div>';
+        toast('Purchase complete'); loadPortfolio();
+      } else { div.innerHTML='<p class="err">'+esc(r.error)+'</p>'; }
+    } catch(e) { div.innerHTML='<p class="err">'+esc(e.message)+'</p>'; }
+    btn.textContent='Buy'; btn.disabled=false;
   });
 
-  // ── Embed watermark ─────────────────────────────────────────
-  document.getElementById('emb-btn').addEventListener('click', async function() {
-    var btn = this; btn.textContent = 'Working...'; btn.disabled = true;
-    var aid = document.getElementById('emb-asset').value.trim();
-    var caller = document.getElementById('emb-caller').value.trim();
-    var content = document.getElementById('emb-content').value;
-    var div = document.getElementById('emb-result');
-    if (!aid || !caller || !content) { div.innerHTML = '<p class="err">Fill in all fields</p>'; btn.textContent='Embed watermark';btn.disabled=false; return; }
-    try {
-      var r = await fetch('/api/fingerprint/embed', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:aid,caller_id:caller,content:content})});
-      var d = await r.json();
-      if (d.ok) {
-        div.innerHTML = '<div class="trace-result" style="border-color:#f59e0b;margin-top:12px;">' +
-          '<div class="trace-row"><span class="trace-key">Fingerprint</span><span class="trace-val">' + esc(trunc(d.fingerprint,32)) + '</span></div>' +
-          '</div>' +
-          '<textarea readonly style="width:100%;min-height:100px;font-size:14px;background:#1a1a1a;border:1px solid #333;border-radius:10px;color:#22c55e;padding:16px;font-family:ui-monospace,monospace;margin-top:10px;">' + esc(d.watermarked_content) + '</textarea>';
-        loadStatus();
-      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; }
-    } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
-    btn.textContent = 'Embed watermark'; btn.disabled = false;
-  });
-
-  // ── Stake ───────────────────────────────────────────────────
-  document.getElementById('stake-btn').addEventListener('click', async function() {
-    var btn = this; btn.textContent = 'Working...'; btn.disabled = true;
-    var nodeId = document.getElementById('stake-node').value.trim();
-    var amount = document.getElementById('stake-amount').value.trim() || '10000';
-    var div = document.getElementById('stake-result');
-    if (!nodeId) { div.innerHTML = '<p class="err">Enter your node ID</p>'; btn.textContent='Stake';btn.disabled=false; return; }
-    try {
-      var r = await fetch('/api/stake', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node_id:nodeId,amount:parseFloat(amount)})});
-      var d = await r.json();
-      if (d.ok) {
-        div.innerHTML = '<div class="trace-result" style="border-color:#8b5cf6;margin-top:12px;">' +
-          '<div class="trace-row"><span class="trace-key">Node</span><span class="trace-val">' + esc(d.node_id) + '</span></div>' +
-          '<div class="trace-row"><span class="trace-key">Total staked</span><span class="trace-val" style="color:#22c55e;">' + d.total_stake + ' OAS</span></div>' +
-          '<div class="trace-row"><span class="trace-key">Status</span><span class="trace-val">' + esc(d.status) + '</span></div>' +
-          '</div>';
-        toast('Staked ' + d.total_stake + ' OAS');
-        loadStakes();
-      } else { div.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; toast(d.error, 'error'); }
-    } catch(e) { div.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
-    btn.textContent = 'Stake'; btn.disabled = false;
-  });
-
-  // ═══════════════════════════════════════════════════════════
-  // AHRP — Agent Handshake & Routing Protocol
-  // ═══════════════════════════════════════════════════════════
-
-  // ── AHRP Stats (auto-refresh) ──────────────────────────────
-  async function loadAhrpStats() {
-    var d = await api('/ahrp/v1/stats');
-    if (!d || d.error) {
-      document.getElementById('ahrp-stat-agents').textContent = '--';
-      document.getElementById('ahrp-stat-caps').textContent = '--';
-      document.getElementById('ahrp-stat-txs').textContent = '--';
-      document.getElementById('ahrp-stat-vol').textContent = '--';
-      return;
-    }
-    document.getElementById('ahrp-stat-agents').textContent = d.registered_agents || d.agents || 0;
-    document.getElementById('ahrp-stat-caps').textContent = d.active_capabilities || d.capabilities || 0;
-    document.getElementById('ahrp-stat-txs').textContent = d.completed_transactions || d.transactions || 0;
-    document.getElementById('ahrp-stat-vol').textContent = d.total_volume || d.volume || 0;
+  /* ── Portfolio ───────────────────────────────────────── */
+  async function loadPortfolio() {
+    var list = await api('/api/portfolio?buyer=gui_user') || [];
+    var c = document.getElementById('portfolio-list');
+    if (!list.length) { c.innerHTML='<div class="empty">No holdings yet</div>'; return; }
+    var html='';
+    list.forEach(function(h) {
+      html+='<div class="port-row"><span class="port-asset">'+esc(trunc(h.asset_id,20))+'</span><span class="port-val">'+h.shares+' shares · '+h.value_oas+' OAS</span></div>';
+    });
+    c.innerHTML=html;
   }
 
-  // ── Announce Agent ─────────────────────────────────────────
-  document.getElementById('ahrp-announce-btn').addEventListener('click', async function() {
-    var btn = this; btn.textContent = 'Announcing...'; btn.disabled = true;
-    var div = document.getElementById('ahrp-announce-result');
-    var accessLevels = [];
-    document.querySelectorAll('#ahrp-register .checkbox-group input:checked').forEach(function(cb) {
-      accessLevels.push(cb.value);
+  /* ── Watermark Embed ─────────────────────────────────── */
+  document.getElementById('emb-btn').addEventListener('click', async function() {
+    var btn=this; btn.textContent='...'; btn.disabled=true;
+    var aid=document.getElementById('emb-asset').value.trim();
+    var caller=document.getElementById('emb-caller').value.trim();
+    var content=document.getElementById('emb-content').value;
+    var div=document.getElementById('emb-result');
+    if(!aid||!caller||!content){div.innerHTML='<p class="err">Fill all fields</p>';btn.textContent='Embed';btn.disabled=false;return;}
+    try {
+      var r=await postApi('/api/fingerprint/embed',{asset_id:aid,caller_id:caller,content:content});
+      if(r.ok){
+        div.innerHTML='<div class="result-box"><div class="kv-row"><span class="kv-key">Fingerprint</span><span class="kv-val">'+esc(trunc(r.fingerprint,28))+'</span></div></div>'+
+          '<textarea readonly style="width:100%;min-height:80px;margin-top:8px;color:#4ade80;">'+esc(r.watermarked_content)+'</textarea>';
+        toast('Watermark embedded'); loadStatus();
+      } else { div.innerHTML='<p class="err">'+esc(r.error)+'</p>'; }
+    } catch(e) { div.innerHTML='<p class="err">'+esc(e.message)+'</p>'; }
+    btn.textContent='Embed'; btn.disabled=false;
+  });
+
+  /* ── Trace ───────────────────────────────────────────── */
+  document.getElementById('fp-trace-btn').addEventListener('click', async function() {
+    var fp=document.getElementById('fp-input').value.trim();
+    if(!fp)return;
+    var r=await api('/api/trace?fp='+encodeURIComponent(fp));
+    var div=document.getElementById('fp-trace-result');
+    if(!r||r.error){ div.innerHTML='<p class="err">Not found</p>'; }
+    else {
+      div.innerHTML='<div class="result-box">'+
+        '<div class="kv-row"><span class="kv-key">Asset</span><span class="kv-val">'+esc(r.asset_id)+'</span></div>'+
+        '<div class="kv-row"><span class="kv-key">Buyer</span><span class="kv-val">'+esc(r.caller_id)+'</span></div>'+
+        '<div class="kv-row"><span class="kv-key">When</span><span class="kv-val">'+timeAgo(r.timestamp||r.created_at)+'</span></div>'+
+        '</div>';
+    }
+  });
+
+  document.getElementById('fp-list-btn').addEventListener('click', async function() {
+    var aid=document.getElementById('fp-asset-input').value.trim();
+    if(!aid)return;
+    var list=await api('/api/fingerprints?asset_id='+encodeURIComponent(aid));
+    var c=document.getElementById('fp-dist-list');
+    if(!list||!list.length){c.innerHTML='<p class="err">No watermarks found</p>';return;}
+    var html='';
+    list.forEach(function(r){
+      html+='<div class="port-row"><span class="port-asset" style="font-size:12px;">'+esc(trunc(r.fingerprint,20))+'</span><span class="port-val">'+esc(r.caller_id)+' · '+timeAgo(r.timestamp)+'</span></div>';
     });
-    var payload = {
-      agent_id: document.getElementById('ahrp-agent-id').value.trim(),
-      public_key: document.getElementById('ahrp-pub-key').value.trim(),
-      reputation: parseFloat(document.getElementById('ahrp-reputation').value) || 10,
-      stake: parseFloat(document.getElementById('ahrp-stake').value) || 100,
-      capabilities: [{
-        capability_id: document.getElementById('ahrp-cap-id').value.trim(),
-        tags: document.getElementById('ahrp-cap-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean),
-        description: document.getElementById('ahrp-cap-desc').value.trim(),
-        price_floor: parseFloat(document.getElementById('ahrp-cap-price').value) || 1.0,
-        origin_type: document.getElementById('ahrp-cap-origin').value,
-        access_levels: accessLevels
+    c.innerHTML=html;
+  });
+
+  /* ── Stake ───────────────────────────────────────────── */
+  document.getElementById('stake-btn').addEventListener('click', async function() {
+    var btn=this; btn.textContent='...'; btn.disabled=true;
+    var nid=document.getElementById('stake-node').value.trim();
+    var amt=document.getElementById('stake-amount').value.trim()||'10000';
+    var div=document.getElementById('stake-result');
+    if(!nid){div.innerHTML='<p class="err">Enter node ID</p>';btn.textContent='Stake';btn.disabled=false;return;}
+    try {
+      var r=await postApi('/api/stake',{node_id:nid,amount:parseFloat(amt)});
+      if(r.ok){
+        div.innerHTML='<div class="result-box"><div class="kv-row"><span class="kv-key">Staked</span><span class="kv-val">'+r.total_stake+' OAS</span></div></div>';
+        toast('Staked'); loadStakes();
+      } else { div.innerHTML='<p class="err">'+esc(r.error)+'</p>'; }
+    } catch(e) { div.innerHTML='<p class="err">'+esc(e.message)+'</p>'; }
+    btn.textContent='Stake'; btn.disabled=false;
+  });
+
+  async function loadStakes() {
+    var list=await api('/api/stakes')||[];
+    var sec=document.getElementById('stakes-section');
+    if(!list.length){sec.style.display='none';return;}
+    sec.style.display='block';
+    var html='';
+    list.forEach(function(s){html+='<div class="stake-item"><span class="stake-id">'+esc(trunc(s.validator_id,20))+'</span><span class="stake-amount">'+s.total+' OAS</span></div>';});
+    document.getElementById('stakes-list').innerHTML=html;
+  }
+
+  /* ── AHRP ────────────────────────────────────────────── */
+  document.getElementById('ahrp-announce-btn').addEventListener('click', async function() {
+    var btn=this; btn.textContent='...'; btn.disabled=true;
+    var div=document.getElementById('ahrp-announce-result');
+    var levels=[];
+    document.querySelectorAll('#sec-ahrp .checkbox-group input:checked').forEach(function(cb){levels.push(cb.value);});
+    var payload={
+      agent_id:document.getElementById('ahrp-agent-id').value.trim(),
+      public_key:document.getElementById('ahrp-pub-key').value.trim(),
+      reputation:parseFloat(document.getElementById('ahrp-reputation').value)||10,
+      stake:parseFloat(document.getElementById('ahrp-stake').value)||100,
+      capabilities:[{
+        capability_id:document.getElementById('ahrp-cap-id').value.trim(),
+        tags:document.getElementById('ahrp-cap-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean),
+        description:document.getElementById('ahrp-cap-desc').value.trim(),
+        price_floor:parseFloat(document.getElementById('ahrp-cap-price').value)||1.0,
+        origin_type:document.getElementById('ahrp-cap-origin').value,
+        access_levels:levels
       }]
     };
-    var d = await postApi('/ahrp/v1/announce', payload);
-    if (d && d.ok !== false && !d.error) {
-      var caps = d.capabilities_indexed || d.capabilities || 0;
-      var pending = d.pending_matches || 0;
-      div.innerHTML = '<div class="trace-result" style="border-color:#6366f1;margin-top:12px;">' +
-        '<div class="trace-row"><span class="trace-key">Status</span><span class="trace-val ok">Announced</span></div>' +
-        '<div class="trace-row"><span class="trace-key">Capabilities indexed</span><span class="trace-val">' + esc(caps) + '</span></div>' +
-        '<div class="trace-row"><span class="trace-key">Pending matches</span><span class="trace-val">' + esc(pending) + '</span></div>' +
-        '</div>';
-      loadAhrpStats();
-    } else {
-      div.innerHTML = '<p class="err">' + esc(d ? d.error : 'AHRP node not reachable') + '</p>';
-    }
-    btn.textContent = 'Announce Agent'; btn.disabled = false;
+    var d=await postApi('/ahrp/v1/announce',payload);
+    if(d&&!d.error){
+      div.innerHTML='<div class="result-box"><div class="kv-row"><span class="kv-key">Status</span><span class="kv-val ok">Announced</span></div></div>';
+      toast('Agent announced');
+    } else { div.innerHTML='<p class="err">'+esc(d?d.error:'AHRP not reachable')+'</p>'; }
+    btn.textContent='Announce'; btn.disabled=false;
   });
 
-  // ── Find Matches ───────────────────────────────────────────
   document.getElementById('ahrp-find-btn').addEventListener('click', async function() {
-    var btn = this; btn.textContent = 'Searching...'; btn.disabled = true;
-    var container = document.getElementById('ahrp-matches');
-    var payload = {
-      description: document.getElementById('ahrp-search-desc').value.trim(),
-      tags: document.getElementById('ahrp-search-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean),
-      min_reputation: parseFloat(document.getElementById('ahrp-search-rep').value) || 0,
-      max_price: parseFloat(document.getElementById('ahrp-search-price').value) || 1000,
-      required_access_level: document.getElementById('ahrp-search-access').value
+    var btn=this; btn.textContent='...'; btn.disabled=true;
+    var c=document.getElementById('ahrp-matches');
+    var payload={
+      description:document.getElementById('ahrp-search-desc').value.trim(),
+      tags:document.getElementById('ahrp-search-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean),
+      min_reputation:parseFloat(document.getElementById('ahrp-search-rep').value)||0,
+      max_price:parseFloat(document.getElementById('ahrp-search-price').value)||1000,
+      required_access_level:document.getElementById('ahrp-search-access').value
     };
-    var d = await postApi('/ahrp/v1/request', payload);
-    if (d && d.error) {
-      container.innerHTML = '<p class="err">' + esc(d.error) + '</p>';
-    } else {
-      var matches = d ? (d.matches || d.results || []) : [];
-      if (!matches.length) {
-        container.innerHTML = '<div class="empty-state">No matching capabilities found. Try broader criteria.</div>';
-      } else {
-        var html = '';
-        matches.forEach(function(m) {
-          var score = Math.round((m.score || 0) * 100);
-          var origin = m.origin_type || 'unknown';
-          var originClass = 'origin-' + origin;
-          html += '<div class="match-card">' +
-            '<div class="match-card-header">' +
-              '<span class="match-agent">' + esc(m.agent_id || '') + ' / ' + esc(m.capability_id || '') + '</span>' +
-              '<span class="origin-badge ' + originClass + '">' + esc(origin) + '</span>' +
-            '</div>' +
-            '<div class="match-score-bar"><div class="match-score-fill" style="width:' + score + '%;"></div></div>' +
-            '<div class="match-details">' +
-              '<span>Score: ' + score + '%</span>' +
-              '<span>Floor: ' + esc(m.price_floor || 0) + ' OAS</span>' +
-            '</div>' +
+    var d=await postApi('/ahrp/v1/request',payload);
+    var matches=d?(d.matches||d.results||[]):[];
+    if(!matches.length){c.innerHTML='<div class="empty">No matches</div>';}
+    else {
+      var html='';
+      matches.forEach(function(m){
+        var score=Math.round((m.score||0)*100);
+        html+='<div class="match-card">'+
+          '<div class="match-top"><span class="match-agent">'+esc(m.agent_id||'')+' / '+esc(m.capability_id||'')+'</span><span class="match-origin">'+esc(m.origin_type||'')+'</span></div>'+
+          '<div class="match-bar"><div class="match-bar-fill" style="width:'+score+'%"></div></div>'+
+          '<div class="match-bottom"><span>'+score+'%</span><span>'+esc(m.price_floor||0)+' OAS</span></div>'+
           '</div>';
-        });
-        container.innerHTML = html;
-      }
+      });
+      c.innerHTML=html;
     }
-    btn.textContent = 'Find Matches'; btn.disabled = false;
+    btn.textContent='Find'; btn.disabled=false;
   });
 
-  // ── Transaction Pipeline State ─────────────────────────────
-  var _txState = { step: 0, tx_id: '' };
-  var _txSteps = ['request','offer','accept','deliver','confirm'];
-  var _selectedRating = 5;
+  /* ── TX Pipeline ─────────────────────────────────────── */
+  var _txSteps=['request','offer','accept','deliver','confirm'];
+  var _selectedRating=5;
 
   function updatePipeline(step) {
-    _txState.step = step;
-    for (var i = 0; i < _txSteps.length; i++) {
-      var el = document.getElementById('tx-step-' + _txSteps[i]);
-      el.className = 'tx-step';
-      if (i < step) el.className = 'tx-step done';
-      else if (i === step) el.className = 'tx-step active';
+    for(var i=0;i<_txSteps.length;i++){
+      var el=document.getElementById('tx-step-'+_txSteps[i]);
+      el.className='tx-step';
+      if(i<step)el.className='tx-step done';
+      else if(i===step)el.className='tx-step active';
     }
-    for (var j = 1; j <= 4; j++) {
-      var arrow = document.getElementById('tx-arrow-' + j);
-      arrow.className = j <= step ? 'tx-arrow done' : 'tx-arrow';
+    for(var j=1;j<=4;j++){
+      var line=document.getElementById('tx-line-'+j);
+      line.className=j<=step?'tx-line done':'tx-line';
     }
   }
 
-  // Star rating interaction
-  var stars = document.querySelectorAll('#star-rating span');
-  stars.forEach(function(star) {
-    star.addEventListener('click', function() {
-      _selectedRating = parseInt(this.getAttribute('data-v'));
-      stars.forEach(function(s) {
-        s.className = parseInt(s.getAttribute('data-v')) <= _selectedRating ? 'lit' : '';
-      });
-    });
-    star.addEventListener('mouseenter', function() {
-      var v = parseInt(this.getAttribute('data-v'));
-      stars.forEach(function(s) {
-        s.className = parseInt(s.getAttribute('data-v')) <= v ? 'lit' : '';
-      });
+  var stars=document.querySelectorAll('#star-rating span');
+  stars.forEach(function(s){
+    s.addEventListener('click',function(){
+      _selectedRating=parseInt(this.getAttribute('data-v'));
+      stars.forEach(function(x){x.className=parseInt(x.getAttribute('data-v'))<=_selectedRating?'lit':'';});
     });
   });
-  document.getElementById('star-rating').addEventListener('mouseleave', function() {
-    stars.forEach(function(s) {
-      s.className = parseInt(s.getAttribute('data-v')) <= _selectedRating ? 'lit' : '';
-    });
-  });
-  // Initialize stars
-  stars.forEach(function(s) {
-    s.className = parseInt(s.getAttribute('data-v')) <= _selectedRating ? 'lit' : '';
-  });
+  stars.forEach(function(s){s.className=parseInt(s.getAttribute('data-v'))<=_selectedRating?'lit':'';});
 
-  // ── Accept ─────────────────────────────────────────────────
   document.getElementById('tx-accept-btn').addEventListener('click', async function() {
-    var btn = this; btn.textContent = 'Accepting...'; btn.disabled = true;
-    var div = document.getElementById('tx-accept-result');
-    updatePipeline(0); // request
-    var payload = {
-      buyer_id: document.getElementById('tx-buyer').value.trim(),
-      seller_id: document.getElementById('tx-seller').value.trim(),
-      capability_id: document.getElementById('tx-cap-id').value.trim(),
-      price_oas: parseFloat(document.getElementById('tx-price').value) || 10
-    };
-    // Briefly show request step, then offer, then accept
-    await new Promise(function(r){ setTimeout(r, 300); });
-    updatePipeline(1); // offer
-    await new Promise(function(r){ setTimeout(r, 300); });
-    var d = await postApi('/ahrp/v1/accept', payload);
-    if (d && !d.error) {
-      _txState.tx_id = d.tx_id || d.transaction_id || '';
-      document.getElementById('tx-deliver-id').value = _txState.tx_id;
-      document.getElementById('tx-confirm-id').value = _txState.tx_id;
-      updatePipeline(2); // accept done
-      div.innerHTML = '<div class="trace-result" style="border-color:#22c55e;margin-top:12px;">' +
-        '<div class="trace-row"><span class="trace-key">Transaction ID</span><span class="trace-val" style="color:#3b82f6;">' + esc(_txState.tx_id) + '</span></div>' +
-        '<div class="trace-row"><span class="trace-key">State</span><span class="trace-val ok">Accepted</span></div>' +
-        '</div>';
-    } else {
-      div.innerHTML = '<p class="err">' + esc(d ? d.error : 'Failed to connect') + '</p>';
-      updatePipeline(0);
-    }
-    btn.textContent = 'Accept & Create Transaction'; btn.disabled = false;
+    var btn=this; btn.textContent='...'; btn.disabled=true;
+    var div=document.getElementById('tx-accept-result');
+    updatePipeline(0);
+    var payload={buyer_id:document.getElementById('tx-buyer').value.trim(),seller_id:document.getElementById('tx-seller').value.trim(),capability_id:document.getElementById('tx-cap-id').value.trim(),price_oas:parseFloat(document.getElementById('tx-price').value)||10};
+    await new Promise(function(r){setTimeout(r,200);});
+    updatePipeline(1);
+    await new Promise(function(r){setTimeout(r,200);});
+    var d=await postApi('/ahrp/v1/accept',payload);
+    if(d&&!d.error){
+      var txId=d.tx_id||d.transaction_id||'';
+      document.getElementById('tx-deliver-id').value=txId;
+      document.getElementById('tx-confirm-id').value=txId;
+      updatePipeline(2);
+      div.innerHTML='<div class="result-box"><div class="kv-row"><span class="kv-key">TX</span><span class="kv-val">'+esc(txId)+'</span></div></div>';
+    } else { div.innerHTML='<p class="err">'+esc(d?d.error:'Failed')+'</p>'; updatePipeline(0); }
+    btn.textContent='Accept & Create'; btn.disabled=false;
   });
 
-  // ── Deliver ────────────────────────────────────────────────
   document.getElementById('tx-deliver-btn').addEventListener('click', async function() {
-    var btn = this; btn.textContent = 'Delivering...'; btn.disabled = true;
-    var div = document.getElementById('tx-deliver-result');
-    var txId = document.getElementById('tx-deliver-id').value.trim();
-    var hash = document.getElementById('tx-content-hash').value.trim();
-    var d = await postApi('/ahrp/v1/deliver', {tx_id: txId, content_hash: hash});
-    if (d && !d.error) {
-      updatePipeline(3); // deliver done
-      div.innerHTML = '<div class="trace-result" style="border-color:#22c55e;margin-top:12px;">' +
-        '<div class="trace-row"><span class="trace-key">State</span><span class="trace-val ok">Delivered</span></div>' +
-        '<div class="trace-row"><span class="trace-key">Content hash</span><span class="trace-val">' + esc(trunc(hash, 24)) + '</span></div>' +
-        '</div>';
-    } else {
-      div.innerHTML = '<p class="err">' + esc(d ? d.error : 'Failed') + '</p>';
-    }
-    btn.textContent = 'Deliver'; btn.disabled = false;
+    var btn=this; btn.textContent='...'; btn.disabled=true;
+    var div=document.getElementById('tx-deliver-result');
+    var d=await postApi('/ahrp/v1/deliver',{tx_id:document.getElementById('tx-deliver-id').value.trim(),content_hash:document.getElementById('tx-content-hash').value.trim()});
+    if(d&&!d.error){ updatePipeline(3); div.innerHTML='<div class="result-box"><div class="kv-row"><span class="kv-key">Status</span><span class="kv-val ok">Delivered</span></div></div>'; }
+    else { div.innerHTML='<p class="err">'+esc(d?d.error:'Failed')+'</p>'; }
+    btn.textContent='Deliver'; btn.disabled=false;
   });
 
-  // ── Confirm ────────────────────────────────────────────────
   document.getElementById('tx-confirm-btn').addEventListener('click', async function() {
-    var btn = this; btn.textContent = 'Confirming...'; btn.disabled = true;
-    var div = document.getElementById('tx-confirm-result');
-    var txId = document.getElementById('tx-confirm-id').value.trim();
-    var d = await postApi('/ahrp/v1/confirm', {tx_id: txId, rating: _selectedRating});
-    if (d && !d.error) {
-      updatePipeline(4); // all done
-      div.innerHTML = '<div class="trace-result" style="border-color:#f59e0b;margin-top:12px;">' +
-        '<div class="trace-row"><span class="trace-key">State</span><span class="trace-val ok">' + esc(d.state || 'confirmed') + '</span></div>' +
-        '<div class="trace-row"><span class="trace-key">Rating</span><span class="trace-val" style="color:#f59e0b;">' + _selectedRating + ' / 5</span></div>' +
-        (d.settled_at ? '<div class="trace-row"><span class="trace-key">Settled at</span><span class="trace-val">' + esc(d.settled_at) + '</span></div>' : '') +
-        '</div>';
-      loadAhrpStats();
-    } else {
-      div.innerHTML = '<p class="err">' + esc(d ? d.error : 'Failed') + '</p>';
-    }
-    btn.textContent = 'Confirm & Settle'; btn.disabled = false;
+    var btn=this; btn.textContent='...'; btn.disabled=true;
+    var div=document.getElementById('tx-confirm-result');
+    var d=await postApi('/ahrp/v1/confirm',{tx_id:document.getElementById('tx-confirm-id').value.trim(),rating:_selectedRating});
+    if(d&&!d.error){ updatePipeline(4); div.innerHTML='<div class="result-box"><div class="kv-row"><span class="kv-key">Status</span><span class="kv-val ok">Settled</span></div><div class="kv-row"><span class="kv-key">Rating</span><span class="kv-val">'+_selectedRating+'/5</span></div></div>'; toast('Transaction settled'); }
+    else { div.innerHTML='<p class="err">'+esc(d?d.error:'Failed')+'</p>'; }
+    btn.textContent='Confirm & Settle'; btn.disabled=false;
   });
 
-  // Initialize pipeline at step 0
   updatePipeline(0);
 
-  // ── Auto refresh ────────────────────────────────────────────
+  /* ── Init ────────────────────────────────────────────── */
+  loadStatus(); loadAssets(); loadStakes(); loadPortfolio();
   setInterval(loadStatus, 30000);
-  setInterval(loadAhrpStats, 30000);
-
-  // ── Init ─────────────────────────────────────────────────────
-  loadStatus();
-  loadAssets();
-  loadPortfolio();
-  loadTransactions();
-  loadStakes();
-  loadAhrpStats();
 
 })();
 </script>
 </body>
-</html>
-"""
+</html>"""
 
 
 # ── GUI class ────────────────────────────────────────────────────────
