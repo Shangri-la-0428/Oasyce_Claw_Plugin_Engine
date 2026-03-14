@@ -1145,15 +1145,18 @@ def cmd_start(args):
     core_thread.start()
     time.sleep(1)  # let core start first
 
-    # Start Dashboard in background, then open browser after it's ready
+    # Start Dashboard — open browser after server binds
     from oasyce_plugin.gui.app import OasyceGUI
     import threading, webbrowser
     gui = OasyceGUI(port=gui_port)
-    gui_thread = threading.Thread(target=gui.run, daemon=True)
-    gui_thread.start()
-    time.sleep(0.5)  # wait for HTTP server to bind
-    webbrowser.open(f"http://localhost:{gui_port}")
-    gui_thread.join()
+
+    def _open_browser():
+        import time
+        time.sleep(1.5)
+        webbrowser.open(f"http://localhost:{gui_port}")
+
+    threading.Thread(target=_open_browser, daemon=True).start()
+    gui.run()  # blocks in main thread
 
 
 def cmd_verify(args):
@@ -1532,14 +1535,14 @@ def main():
     gui_parser = subparsers.add_parser("gui", help="Launch web dashboard (port 8420)")
     gui_parser.add_argument("--port", type=int, default=8420, help="Port (default: 8420)")
     def _run_gui(args):
-        import threading, time, webbrowser
+        import threading, webbrowser
         from oasyce_plugin.gui.app import OasyceGUI
         gui = OasyceGUI(port=args.port)
-        t = threading.Thread(target=gui.run, daemon=True)
-        t.start()
-        time.sleep(0.5)
-        webbrowser.open(f'http://localhost:{args.port}')
-        t.join()
+        def _open():
+            import time; time.sleep(1.5)
+            webbrowser.open(f'http://localhost:{args.port}')
+        threading.Thread(target=_open, daemon=True).start()
+        gui.run()
     gui_parser.set_defaults(func=_run_gui)
 
     # Start command — one command to rule them all
