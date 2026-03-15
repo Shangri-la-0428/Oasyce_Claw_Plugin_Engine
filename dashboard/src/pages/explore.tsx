@@ -68,6 +68,12 @@ export default function Explore() {
   /* 过滤 + 排序 */
   const allTags = [...new Set(allAssets.flatMap(a => a.tags ?? []))];
 
+  /* 分类统计 */
+  const tagCounts = allAssets.reduce<Record<string, number>>((acc, a) => {
+    (a.tags ?? []).forEach(tag => { acc[tag] = (acc[tag] || 0) + 1; });
+    return acc;
+  }, {});
+
   const filtered = allAssets.filter(a => {
     if (tagFilter && !(a.tags ?? []).includes(tagFilter)) return false;
     if (!q) return true;
@@ -138,18 +144,20 @@ export default function Explore() {
       <div style="height:24px" />
 
       {/* 搜索框 */}
-      <input
-        class="explore-search"
-        value={q}
-        onInput={e => onSearch((e.target as HTMLInputElement).value)}
-        placeholder={_['explore-search']}
-      />
+      <div class="search-box-wrap">
+        <input
+          class="search-box"
+          value={q}
+          onInput={e => onSearch((e.target as HTMLInputElement).value)}
+          placeholder={_['explore-search']}
+        />
+      </div>
 
       {/* 24px */}
       <div style="height:24px" />
 
-      {/* Tag 过滤 */}
-      {allTags.length > 0 && (
+      {/* Tag 过滤 (only when searching) */}
+      {q && allTags.length > 0 && (
         <div class="tag-chips mb-24">
           <button class={`tag-chip ${tagFilter === null ? 'tag-chip-active' : ''}`} onClick={() => setTagFilter(null)}>{_['all']}</button>
           {allTags.map(tag => (
@@ -158,16 +166,28 @@ export default function Explore() {
         </div>
       )}
 
-      {/* 排序按钮 */}
-      {filtered.length > 0 && (
+      {/* 排序按钮 (only when searching) */}
+      {q && filtered.length > 0 && (
         <div class="row gap-8 mb-24">
           <button class={`btn btn-sm ${sortBy === 'time' ? 'btn-active' : 'btn-ghost'}`} onClick={() => setSortBy('time')}>{_['sort-time']}</button>
           <button class={`btn btn-sm ${sortBy === 'value' ? 'btn-active' : 'btn-ghost'}`} onClick={() => setSortBy('value')}>{_['sort-value']}</button>
         </div>
       )}
 
-      {/* 结果列表 / 空状态 */}
-      {!q && filtered.length === 0 ? (
+      {/* 结果列表 / 分类浏览 / 空状态 */}
+      {!q && allTags.length > 0 ? (
+        <div>
+          <div class="label">{_['categories']}</div>
+          <div class="category-grid">
+            {Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).map(([tag, count]) => (
+              <button key={tag} class="category-card" onClick={() => { setQ(tag); onSearch(tag); }}>
+                <span class="category-name">{tag}</span>
+                <span class="category-count">{count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : !q && allTags.length === 0 ? (
         <div class="center" style="padding:64px 0">
           <div class="caption">{_['explore-empty']}</div>
         </div>

@@ -88,7 +88,9 @@ export default function MyData() {
       {/* 搜索框 + 排序按钮 */}
       {assets.value.length > 0 && (
         <div class="row gap-8 mb-24">
-          <input class="input grow" value={q} onInput={e => setQ((e.target as HTMLInputElement).value)} placeholder={_['search']} />
+          <div class="search-box-wrap">
+            <input class="search-box" value={q} onInput={e => setQ((e.target as HTMLInputElement).value)} placeholder={_['search']} />
+          </div>
           <button class={`btn btn-sm ${sortBy === 'time' ? 'btn-active' : 'btn-ghost'}`} onClick={() => setSortBy('time')}>{_['sort-time']}</button>
           <button class={`btn btn-sm ${sortBy === 'value' ? 'btn-active' : 'btn-ghost'}`} onClick={() => setSortBy('value')}>{_['sort-value']}</button>
         </div>
