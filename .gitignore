@@ -49,3 +49,4 @@ htmlcov/
 genesis_vault/
 node_modules/
 dashboard/dist
+dashboard/src/assets/
