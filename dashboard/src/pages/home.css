@@ -2,6 +2,14 @@
 .home-hero { margin-bottom: 0; }
 .home-title-light { color: var(--fg-0); }
 
+.home-grid-wrap {
+  margin-bottom: 48px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 1px 0;
+  overflow: hidden;
+}
+
 .dropzone-done { border-style: solid; border-color: var(--green); }
 .dropzone-done .dropzone-text strong { color: var(--fg-0); }
 

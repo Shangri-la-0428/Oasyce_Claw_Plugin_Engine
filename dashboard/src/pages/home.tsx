@@ -6,6 +6,7 @@ import { useState, useRef } from 'preact/hooks';
 import { post } from '../api/client';
 import { showToast, i18n } from '../store/ui';
 import { loadAssets } from '../store/assets';
+import NetworkGrid from '../components/network-grid';
 import type { Page } from '../app';
 import './home.css';
 
@@ -83,6 +84,11 @@ export default function Home({ go }: Props) {
 
       {/* 48px 间距 */}
       <div class="spacer-48" />
+
+      {/* 网络可视化 */}
+      <div class="home-grid-wrap">
+        <NetworkGrid />
+      </div>
 
       {/* 注册区 */}
       <div class="home-register">
