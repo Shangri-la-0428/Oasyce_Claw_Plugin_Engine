@@ -47,3 +47,5 @@ htmlcov/
 
 # Data (user-specific)
 genesis_vault/
+node_modules/
+dashboard/dist

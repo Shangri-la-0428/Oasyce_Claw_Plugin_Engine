@@ -1,0 +1,41 @@
+/* Nav — 一条线 */
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center;
+  height: var(--nav-h);
+  padding: 0 var(--gap);
+  background: var(--bg-0);
+  border-bottom: 1px solid var(--border);
+}
+.nav-brand {
+  font-size: 14px; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--fg-0); background: none; border: none;
+  cursor: pointer; font-family: var(--sans);
+  margin-right: 32px;
+}
+.nav-tabs { display: flex; gap: 0; flex: 1; }
+.nav-tab {
+  padding: 0 14px; height: var(--nav-h);
+  display: flex; align-items: center;
+  font-family: var(--sans); font-size: 13px;
+  color: var(--fg-2); background: none; border: none;
+  border-bottom: 1.5px solid transparent;
+  cursor: pointer; transition: color 0.12s;
+}
+.nav-tab:hover { color: var(--fg-1); }
+.nav-tab.active { color: var(--fg-0); border-bottom-color: var(--fg-0); }
+.nav-end { display: flex; gap: 2px; margin-left: auto; }
+.nav-tool {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--fg-2);
+  background: none; border: none; border-radius: var(--r-s);
+  cursor: pointer; transition: color 0.12s;
+  font-family: var(--sans);
+}
+.nav-tool:hover { color: var(--fg-0); }
+
+@media (max-width: 600px) {
+  .nav-brand { margin-right: 16px; }
+  .nav-tab { padding: 0 10px; font-size: 12px; }
+}

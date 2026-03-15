@@ -8,6 +8,8 @@ Reads chain data from the local Ledger database.
 from __future__ import annotations
 
 import json
+import mimetypes
+import os
 import re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, Dict, Optional
@@ -21,6 +23,8 @@ from oasyce_plugin.fingerprint import FingerprintRegistry
 
 
 # ── Shared state (set by OasyceGUI before server starts) ─────────────
+DASHBOARD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'dashboard', 'dist')
+
 _ledger: Optional[Ledger] = None
 _config: Optional[Config] = None
 _settlement: Any = None
@@ -68,6 +72,24 @@ def _html_response(handler: BaseHTTPRequestHandler, html: str) -> None:
     handler.send_header("Content-Length", str(len(body)))
     handler.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
     handler.send_header("Pragma", "no-cache")
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def _serve_static(handler, file_path):
+    """Serve a static file from dashboard/dist/"""
+    if not os.path.isfile(file_path):
+        handler.send_error(404)
+        return
+    mime, _ = mimetypes.guess_type(file_path)
+    if mime is None:
+        mime = 'application/octet-stream'
+    with open(file_path, 'rb') as f:
+        body = f.read()
+    handler.send_response(200)
+    handler.send_header('Content-Type', mime)
+    handler.send_header('Content-Length', str(len(body)))
+    handler.send_header('Cache-Control', 'public, max-age=31536000, immutable')
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -317,7 +339,31 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/ahrp/"):
             return _proxy_ahrp(self, "GET", self.path)
 
-        # ── SPA ──────────────────────────────────────────────────
+        # ── Config ───────────────────────────────────────────────
+        if path == "/api/config":
+            assert _config
+            return _json_response(self, {
+                "public_key": _config.public_key,
+                "owner": _config.owner,
+                "node_host": _config.node_host,
+                "node_port": _config.node_port,
+            })
+
+        # ── Static files from dashboard/dist/ ────────────────────
+        if path.startswith('/assets/'):
+            file_path = os.path.join(DASHBOARD_DIR, path.lstrip('/'))
+            return _serve_static(self, file_path)
+
+        if path == '/favicon.svg' or path == '/icons.svg':
+            file_path = os.path.join(DASHBOARD_DIR, path.lstrip('/'))
+            return _serve_static(self, file_path)
+
+        # ── SPA fallback — serve index.html for all routes ───────
+        index_path = os.path.join(DASHBOARD_DIR, 'index.html')
+        if os.path.isfile(index_path):
+            return _serve_static(self, index_path)
+
+        # Fallback to legacy embedded HTML if dist/ not built
         return _html_response(self, _INDEX_HTML)
 
     def do_POST(self):
@@ -1517,8 +1563,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
     // Field labels
     var labels = document.querySelectorAll('.field-label');
-    // Store lang
-    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
+
+
   }
 
   // Lang toggle
@@ -1548,7 +1594,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     document.body.appendChild(overlay);
   });
 
-  // Restore lang from localStorage or detect system
+
   try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
   applyLang();
 
@@ -1865,8 +1911,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
     // Field labels
     var labels = document.querySelectorAll('.field-label');
-    // Store lang
-    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
+
+
   }
 
   // Lang toggle
@@ -1896,7 +1942,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     document.body.appendChild(overlay);
   });
 
-  // Restore lang from localStorage or detect system
+
   try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
   applyLang();
 
@@ -2236,8 +2282,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
     // Field labels
     var labels = document.querySelectorAll('.field-label');
-    // Store lang
-    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
+
+
   }
 
   // Lang toggle
@@ -2267,7 +2313,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     document.body.appendChild(overlay);
   });
 
-  // Restore lang from localStorage or detect system
+
   try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
   applyLang();
 
@@ -2571,8 +2617,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
     // Field labels
     var labels = document.querySelectorAll('.field-label');
-    // Store lang
-    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
+
+
   }
 
   // Lang toggle
@@ -2602,7 +2648,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     document.body.appendChild(overlay);
   });
 
-  // Restore lang from localStorage or detect system
+
   try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
   applyLang();
 
@@ -2911,8 +2957,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
     // Field labels
     var labels = document.querySelectorAll('.field-label');
-    // Store lang
-    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
+
+
   }
 
   // Lang toggle
@@ -2942,7 +2988,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     document.body.appendChild(overlay);
   });
 
-  // Restore lang from localStorage or detect system
+
   try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
   applyLang();
 
