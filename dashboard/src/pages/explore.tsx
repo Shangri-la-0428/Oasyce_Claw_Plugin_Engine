@@ -1,5 +1,5 @@
 /**
- * Explore — 搜索网络上的数据，查看报价，获取访问权
+ * Explore — 搜索网络上的资产（数据 + 服务），查看报价，获取访问权/调用
  */
 import { useEffect, useState, useRef } from 'preact/hooks';
 import { get, post } from '../api/client';
@@ -7,30 +7,27 @@ import { showToast, i18n } from '../store/ui';
 import type { Asset } from '../store/assets';
 import './explore.css';
 
-/** 遮罩 asset_id：列表里前 8 位 + •••• */
 function maskIdShort(id: string) {
   if (!id || id.length <= 8) return id;
   return id.slice(0, 8) + '••••';
 }
 
-/** 遮罩 asset_id：详情里前 16 位 + •••• */
 function maskIdLong(id: string) {
   if (!id || id.length <= 16) return id;
   return id.slice(0, 16) + '••••';
 }
 
-/** 遮罩 owner：如果是长哈希，截断为前6位 */
 function maskOwner(owner: string) {
   if (!owner || owner.length <= 12) return owner;
   return owner.slice(0, 6) + '••••';
 }
 
-/** 格式化价格：>= 1 显示 2 位，< 1 显示 4 位 */
 function fmtPrice(p: number | undefined | null): string {
   if (p == null) return '--';
   return p >= 1 ? p.toFixed(2) : p.toFixed(4);
 }
 
+type AssetFilter = 'all' | 'data' | 'capability';
 type SortBy = 'time' | 'value';
 
 export default function Explore() {
@@ -39,22 +36,32 @@ export default function Explore() {
   const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState<SortBy>('time');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<AssetFilter>('all');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [buyAmt, setBuyAmt] = useState('10');
   const [quote, setQuote] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [invokeResult, setInvokeResult] = useState<any>(null);
   const debounceRef = useRef<number>(0);
 
   const _ = i18n.value;
 
-  /* 加载所有资产 */
+  /* 加载数据资产 + capability 资产 */
   useEffect(() => {
-    get<Asset[]>('/assets').then(res => {
-      if (res.success && res.data) setAllAssets(res.data);
+    Promise.all([
+      get<Asset[]>('/assets'),
+      get<Asset[]>('/capabilities'),
+    ]).then(([dataRes, capRes]) => {
+      const dataAssets = (dataRes.success && dataRes.data ? dataRes.data : []).map(a => ({
+        ...a, asset_type: 'data' as const,
+      }));
+      const capAssets = (capRes.success && capRes.data ? capRes.data : []).map(a => ({
+        ...a, asset_type: 'capability' as const,
+      }));
+      setAllAssets([...dataAssets, ...capAssets]);
     });
   }, []);
 
-  /* 搜索 debounce */
   const onSearch = (val: string) => {
     setQ(val);
     clearTimeout(debounceRef.current);
@@ -62,24 +69,30 @@ export default function Explore() {
       setPageSize(20);
       setActiveId(null);
       setQuote(null);
+      setInvokeResult(null);
     }, 300);
   };
 
   /* 过滤 + 排序 */
   const allTags = [...new Set(allAssets.flatMap(a => a.tags ?? []))];
 
-  /* 分类统计 */
   const tagCounts = allAssets.reduce<Record<string, number>>((acc, a) => {
     (a.tags ?? []).forEach(tag => { acc[tag] = (acc[tag] || 0) + 1; });
     return acc;
   }, {});
 
   const filtered = allAssets.filter(a => {
+    // Type filter
+    if (typeFilter !== 'all' && (a.asset_type || 'data') !== typeFilter) return false;
+    // Tag filter
     if (tagFilter && !(a.tags ?? []).includes(tagFilter)) return false;
     if (!q) return true;
     const s = q.toLowerCase();
     return a.asset_id.toLowerCase().includes(s)
       || a.owner?.toLowerCase().includes(s)
+      || a.name?.toLowerCase().includes(s)
+      || a.description?.toLowerCase().includes(s)
+      || a.provider?.toLowerCase().includes(s)
       || a.tags?.some(tag => tag.toLowerCase().includes(s));
   });
 
@@ -96,7 +109,7 @@ export default function Explore() {
     showToast(_['copied'], 'success');
   };
 
-  /* 报价 */
+  /* 报价 (data assets) */
   const onQuote = async (assetId: string) => {
     setLoading(true);
     const res = await get(`/quote?asset_id=${assetId}&amount=${buyAmt}`);
@@ -105,7 +118,7 @@ export default function Explore() {
     setLoading(false);
   };
 
-  /* 购买 */
+  /* 购买 (data assets) */
   const onBuy = async (assetId: string) => {
     setLoading(true);
     const res = await post('/buy', { asset_id: assetId, buyer: 'gui_user', amount: parseFloat(buyAmt) });
@@ -113,11 +126,33 @@ export default function Explore() {
       showToast('✓', 'success');
       setQuote(null);
       setActiveId(null);
-      // 刷新列表
       const r = await get<Asset[]>('/assets');
-      if (r.success && r.data) setAllAssets(r.data);
+      if (r.success && r.data) {
+        const dataAssets = r.data.map(a => ({ ...a, asset_type: 'data' as const }));
+        setAllAssets(prev => [...dataAssets, ...prev.filter(a => a.asset_type === 'capability')]);
+      }
     } else {
       showToast(res.error || 'Failed', 'error');
+    }
+    setLoading(false);
+  };
+
+  /* 调用 (capability assets) */
+  const onInvoke = async (capId: string) => {
+    setLoading(true);
+    setInvokeResult(null);
+    const res = await post<any>('/capability/invoke', {
+      capability_id: capId,
+      consumer: 'gui_user',
+      amount: parseFloat(buyAmt),
+      max_price: 100.0,
+      input: { text: 'Dashboard invocation test' },
+    });
+    if (res.success && res.data?.ok) {
+      setInvokeResult(res.data);
+      showToast(_['invoke-success'], 'success');
+    } else {
+      showToast(res.data?.error || res.error || 'Failed', 'error');
     }
     setLoading(false);
   };
@@ -126,22 +161,37 @@ export default function Explore() {
     if (activeId === id) {
       setActiveId(null);
       setQuote(null);
+      setInvokeResult(null);
       setBuyAmt('10');
     } else {
       setActiveId(id);
       setQuote(null);
+      setInvokeResult(null);
       setBuyAmt('10');
     }
   };
 
+  const isCapability = (a: Asset) => (a.asset_type || 'data') === 'capability';
+
   return (
     <div class="page">
-      {/* 标题 + 描述 */}
       <h1 class="heading" style="margin:0 0 4px 0">{_['explore-title']}</h1>
       <p class="caption" style="margin:0">{_['explore-desc']}</p>
 
-      {/* 24px */}
       <div style="height:24px" />
+
+      {/* Asset type filter */}
+      <div class="row gap-8 mb-16">
+        {(['all', 'data', 'capability'] as AssetFilter[]).map(t => (
+          <button
+            key={t}
+            class={`btn btn-sm ${typeFilter === t ? 'btn-active' : 'btn-ghost'}`}
+            onClick={() => { setTypeFilter(t); setTagFilter(null); setActiveId(null); }}
+          >
+            {_[`type-${t}`]}
+          </button>
+        ))}
+      </div>
 
       {/* 搜索框 */}
       <div class="search-box-wrap">
@@ -153,10 +203,9 @@ export default function Explore() {
         />
       </div>
 
-      {/* 24px */}
       <div style="height:24px" />
 
-      {/* Tag 过滤 (only when searching) */}
+      {/* Tag 过滤 */}
       {q && allTags.length > 0 && (
         <div class="tag-chips mb-24">
           <button class={`tag-chip ${tagFilter === null ? 'tag-chip-active' : ''}`} onClick={() => setTagFilter(null)}>{_['all']}</button>
@@ -166,7 +215,7 @@ export default function Explore() {
         </div>
       )}
 
-      {/* 排序按钮 (only when searching) */}
+      {/* 排序 */}
       {q && filtered.length > 0 && (
         <div class="row gap-8 mb-24">
           <button class={`btn btn-sm ${sortBy === 'time' ? 'btn-active' : 'btn-ghost'}`} onClick={() => setSortBy('time')}>{_['sort-time']}</button>
@@ -199,54 +248,97 @@ export default function Explore() {
         <div class="explore-list">
           {list.map(a => {
             const isActive = activeId === a.asset_id;
+            const isCap = isCapability(a);
             return (
               <div key={a.asset_id} class="explore-item">
                 <button class="explore-row" onClick={() => toggleItem(a.asset_id)}>
                   <div class="grow">
-                    <div class="explore-name">{a.tags?.length ? a.tags.join(' · ') : maskIdShort(a.asset_id)}</div>
+                    <div class="explore-name">
+                      {isCap && <span class="type-badge cap-badge">⚡</span>}
+                      {isCap ? (a.name || maskIdShort(a.asset_id)) : (a.tags?.length ? a.tags.join(' · ') : maskIdShort(a.asset_id))}
+                      {isCap && a.version && <span class="version-tag">v{a.version}</span>}
+                    </div>
                     <div class="explore-meta">
                       <span class="mono explore-id-inline">{maskIdShort(a.asset_id)}</span>
-                      {a.owner && <span class="explore-owner-inline">{maskOwner(a.owner)}</span>}
+                      {isCap && a.provider && <span class="explore-owner-inline">{maskOwner(a.provider)}</span>}
+                      {!isCap && a.owner && <span class="explore-owner-inline">{maskOwner(a.owner)}</span>}
                     </div>
                   </div>
                   <span class="mono explore-price-prominent">{fmtPrice(a.spot_price)}</span>
-                  <span class="btn btn-sm btn-ghost">{_['get-access']}</span>
+                  <span class="btn btn-sm btn-ghost">{isCap ? _['invoke'] : _['get-access']}</span>
                 </button>
 
-                {/* 内联报价流程 */}
+                {/* 内联操作区 */}
                 {isActive && (
                   <div class="explore-inline">
-                    {!quote ? (
-                      <div class="col gap-16">
-                        <div class="kv">
-                          <span class="kv-key">{_['id']}</span>
-                          <span class="kv-val">
-                            <span class="masked">
-                              <span>{maskIdLong(a.asset_id)}</span>
-                              <button class="btn-copy" onClick={() => copyText(a.asset_id)}>{_['copy']}</button>
+                    {isCap ? (
+                      /* ── Capability invoke flow ── */
+                      !invokeResult ? (
+                        <div class="col gap-16">
+                          <div class="kv">
+                            <span class="kv-key">{_['id']}</span>
+                            <span class="kv-val">
+                              <span class="masked">
+                                <span>{maskIdLong(a.asset_id)}</span>
+                                <button class="btn-copy" onClick={() => copyText(a.asset_id)}>{_['copy']}</button>
+                              </span>
                             </span>
-                          </span>
-                        </div>
-                        <div>
-                          <label class="label">{_['amount']}</label>
-                          <input class="input" type="number" value={buyAmt} onInput={e => setBuyAmt((e.target as HTMLInputElement).value)} min="1" />
-                        </div>
-                        <button class="btn btn-primary btn-full" onClick={() => onQuote(a.asset_id)} disabled={loading}>
-                          {loading ? _['quoting'] : _['quote']}
-                        </button>
-                      </div>
-                    ) : (
-                      <div>
-                        <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val">{quote.payment}</span></div>
-                        <div class="kv"><span class="kv-key">{_['receive']}</span><span class="kv-val">{quote.tokens}</span></div>
-                        {quote.impact_pct != null && <div class="kv"><span class="kv-key">{_['impact']}</span><span class="kv-val">{quote.impact_pct}%</span></div>}
-                        <div class="row gap-16" style="margin-top:24px">
-                          <button class="btn btn-ghost grow" onClick={() => setQuote(null)}>{_['back']}</button>
-                          <button class="btn btn-primary grow" onClick={() => onBuy(a.asset_id)} disabled={loading}>
-                            {loading ? _['buying'] : _['confirm-buy']}
+                          </div>
+                          {a.description && (
+                            <div class="kv">
+                              <span class="kv-key">{_['describe']}</span>
+                              <span class="kv-val">{a.description}</span>
+                            </div>
+                          )}
+                          <div>
+                            <label class="label">{_['amount']}</label>
+                            <input class="input" type="number" value={buyAmt} onInput={e => setBuyAmt((e.target as HTMLInputElement).value)} min="1" />
+                          </div>
+                          <button class="btn btn-primary btn-full" onClick={() => onInvoke(a.asset_id)} disabled={loading}>
+                            {loading ? _['invoking'] : _['invoke']}
                           </button>
                         </div>
-                      </div>
+                      ) : (
+                        <div class="col gap-8">
+                          <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val">{invokeResult.price} OAS</span></div>
+                          <div class="kv"><span class="kv-key">{_['shares-minted']}</span><span class="kv-val">{invokeResult.shares_minted}</span></div>
+                          <button class="btn btn-ghost btn-full" onClick={() => { setInvokeResult(null); setActiveId(null); }}>{_['back']}</button>
+                        </div>
+                      )
+                    ) : (
+                      /* ── Data asset buy flow (unchanged) ── */
+                      !quote ? (
+                        <div class="col gap-16">
+                          <div class="kv">
+                            <span class="kv-key">{_['id']}</span>
+                            <span class="kv-val">
+                              <span class="masked">
+                                <span>{maskIdLong(a.asset_id)}</span>
+                                <button class="btn-copy" onClick={() => copyText(a.asset_id)}>{_['copy']}</button>
+                              </span>
+                            </span>
+                          </div>
+                          <div>
+                            <label class="label">{_['amount']}</label>
+                            <input class="input" type="number" value={buyAmt} onInput={e => setBuyAmt((e.target as HTMLInputElement).value)} min="1" />
+                          </div>
+                          <button class="btn btn-primary btn-full" onClick={() => onQuote(a.asset_id)} disabled={loading}>
+                            {loading ? _['quoting'] : _['quote']}
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val">{quote.payment}</span></div>
+                          <div class="kv"><span class="kv-key">{_['receive']}</span><span class="kv-val">{quote.tokens}</span></div>
+                          {quote.impact_pct != null && <div class="kv"><span class="kv-key">{_['impact']}</span><span class="kv-val">{quote.impact_pct}%</span></div>}
+                          <div class="row gap-16" style="margin-top:24px">
+                            <button class="btn btn-ghost grow" onClick={() => setQuote(null)}>{_['back']}</button>
+                            <button class="btn btn-primary grow" onClick={() => onBuy(a.asset_id)} disabled={loading}>
+                              {loading ? _['buying'] : _['confirm-buy']}
+                            </button>
+                          </div>
+                        </div>
+                      )
                     )}
                   </div>
                 )}
@@ -256,7 +348,6 @@ export default function Explore() {
         </div>
       )}
 
-      {/* 加载更多 / 没有更多 */}
       {list.length > 0 && (
         <div class="center" style="padding:24px 0">
           {hasMore ? (

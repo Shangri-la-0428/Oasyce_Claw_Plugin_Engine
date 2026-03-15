@@ -147,8 +147,8 @@ export default function MyData() {
                       <span class="kv-key">{_['owner']}</span>
                       <span class="kv-val">
                         <span class="masked">
-                          <span>{maskOwner(a.owner)}</span>
-                          <button class="btn-copy" onClick={() => copyText(a.owner)}>{_['copy']}</button>
+                          <span>{maskOwner(a.owner || '')}</span>
+                          <button class="btn-copy" onClick={() => copyText(a.owner || '')}>{_['copy']}</button>
                         </span>
                       </span>
                     </div>

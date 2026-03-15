@@ -30,6 +30,10 @@ _config: Optional[Config] = None
 _settlement: Any = None
 _staking: Any = None
 _skills: Any = None
+_cap_registry: Any = None
+_cap_escrow: Any = None
+_cap_shares: Any = None
+_cap_engine: Any = None
 
 
 def _get_settlement():
@@ -46,6 +50,25 @@ def _get_staking():
         from oasyce_plugin.services.staking import StakingEngine
         _staking = StakingEngine()
     return _staking
+
+
+def _get_cap_stack():
+    """Lazy-init capability stack (registry + escrow + shares + engine)."""
+    global _cap_registry, _cap_escrow, _cap_shares, _cap_engine
+    if _cap_registry is None:
+        from oasyce_core.capabilities.registry import CapabilityRegistry
+        from oasyce_core.capabilities.escrow import EscrowManager
+        from oasyce_core.capabilities.shares import ShareLedger
+        from oasyce_core.capabilities.invocation import CapabilityInvocationEngine
+        _cap_registry = CapabilityRegistry()
+        _cap_escrow = EscrowManager()
+        _cap_shares = ShareLedger()
+        _cap_engine = CapabilityInvocationEngine(
+            registry=_cap_registry,
+            escrow=_cap_escrow,
+            shares=_cap_shares,
+        )
+    return _cap_registry, _cap_escrow, _cap_shares, _cap_engine
 
 
 def _get_skills():
@@ -189,6 +212,160 @@ def _api_stakes() -> list:
     return [{"validator_id": r["validator_id"], "total": r["total"]} for r in rows]
 
 
+# ── Capability API helpers ───────────────────────────────────────────
+
+def _api_capabilities() -> list:
+    """List all registered capabilities."""
+    registry, _, shares, _ = _get_cap_stack()
+    results = []
+    for m in registry.list_all():
+        spot = 0.0
+        reserve = shares.pool_reserve(m.capability_id)
+        supply = shares.total_supply(m.capability_id)
+        if supply > 0 and m.pricing.reserve_ratio > 0:
+            spot = round(reserve / (supply * m.pricing.reserve_ratio), 6)
+        results.append({
+            "asset_type": "capability",
+            "asset_id": m.capability_id,
+            "name": m.name,
+            "description": m.description,
+            "version": m.version,
+            "provider": m.provider,
+            "tags": m.tags,
+            "status": m.status,
+            "spot_price": spot,
+            "created_at": m.created_at,
+            "input_schema": m.input_schema,
+            "output_schema": m.output_schema,
+        })
+    return results
+
+
+def _api_capability_detail(cap_id: str) -> Optional[Dict[str, Any]]:
+    """Get capability detail by ID."""
+    registry, _, shares, _ = _get_cap_stack()
+    m = registry.get(cap_id)
+    if m is None:
+        return None
+    reserve = shares.pool_reserve(cap_id)
+    supply = shares.total_supply(cap_id)
+    spot = round(reserve / (supply * m.pricing.reserve_ratio), 6) if supply > 0 and m.pricing.reserve_ratio > 0 else 0.0
+    return {
+        "asset_type": "capability",
+        "asset_id": m.capability_id,
+        "name": m.name,
+        "description": m.description,
+        "version": m.version,
+        "provider": m.provider,
+        "tags": m.tags,
+        "status": m.status,
+        "spot_price": spot,
+        "total_supply": round(supply, 4),
+        "reserve": round(reserve, 4),
+        "created_at": m.created_at,
+        "input_schema": m.input_schema,
+        "output_schema": m.output_schema,
+        "pricing": {"base_price": m.pricing.base_price, "reserve_ratio": m.pricing.reserve_ratio},
+        "staking": {"min_bond": m.staking.min_bond},
+        "quality": {"verification_type": m.quality.verification_type},
+    }
+
+
+def _api_capability_register(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Register a new capability."""
+    from oasyce_core.capabilities.manifest import (
+        CapabilityManifest, PricingConfig, StakingConfig, QualityPolicy, ExecutionLimits,
+    )
+    registry, _, _, _ = _get_cap_stack()
+
+    name = body.get("name", "")
+    provider = body.get("provider", "")
+    if not name or not provider:
+        return {"error": "name and provider required"}
+
+    manifest = CapabilityManifest(
+        name=name,
+        description=body.get("description", ""),
+        version=body.get("version", "1.0.0"),
+        provider=provider,
+        tags=body.get("tags", []),
+        input_schema=body.get("input_schema", {"type": "object"}),
+        output_schema=body.get("output_schema", {"type": "object"}),
+        pricing=PricingConfig(
+            base_price=body.get("base_price", 1.0),
+            reserve_ratio=body.get("reserve_ratio", 0.35),
+        ),
+        staking=StakingConfig(min_bond=body.get("min_bond", 100.0)),
+        quality=QualityPolicy(verification_type=body.get("verification_type", "optimistic")),
+    )
+
+    errors = manifest.validate()
+    if errors:
+        return {"error": "; ".join(errors)}
+
+    try:
+        cap_id = registry.register(manifest)
+        return {"ok": True, "capability_id": cap_id, "name": name}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _api_capability_invoke(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Invoke a capability (deposit → invoke → submit mock result → settle)."""
+    _, escrow, shares, engine = _get_cap_stack()
+
+    cap_id = body.get("capability_id", "")
+    consumer = body.get("consumer", "gui_user")
+    input_payload = body.get("input", {})
+    max_price = float(body.get("max_price", 100.0))
+    amount = float(body.get("amount", 10.0))
+
+    if not cap_id:
+        return {"error": "capability_id required"}
+
+    # Auto-deposit if needed
+    if escrow.balance(consumer) < max_price:
+        escrow.deposit(consumer, amount)
+
+    try:
+        handle = engine.invoke(consumer, cap_id, input_payload, max_price)
+        # For GUI demo: auto-settle with a mock result
+        result = engine.submit_result(handle.invocation_id, {
+            "result": "Executed successfully",
+            "execution_time_ms": 150,
+        })
+        return {
+            "ok": True,
+            "invocation_id": handle.invocation_id,
+            "price": round(handle.price, 6),
+            "shares_minted": round(result.mint_result.shares_minted, 4) if result.mint_result else 0,
+            "protocol_fee": round(result.protocol_fee, 6),
+            "net_to_curve": round(result.net_to_curve, 6),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _api_capability_shares(holder: str) -> list:
+    """List capability shares held by a user."""
+    registry, _, shares, _ = _get_cap_stack()
+    holdings = []
+    for m in registry.list_all():
+        bal = shares.balance(m.capability_id, holder)
+        if bal > 0:
+            reserve = shares.pool_reserve(m.capability_id)
+            supply = shares.total_supply(m.capability_id)
+            spot = round(reserve / (supply * m.pricing.reserve_ratio), 6) if supply > 0 and m.pricing.reserve_ratio > 0 else 0.0
+            holdings.append({
+                "capability_id": m.capability_id,
+                "name": m.name,
+                "shares": round(bal, 4),
+                "spot_price": spot,
+                "value_oas": round(bal * spot, 4),
+            })
+    return holdings
+
+
 _AHRP_CORE_BASE = "http://localhost:8000"
 _AHRP_UNREACHABLE = json.dumps(
     {"ok": False, "error": "AHRP node not running. Start with: oasyce serve"}
@@ -261,6 +438,22 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/api/stakes":
             return _json_response(self, _api_stakes())
+
+        # ── Capability routes (GET) ──────────────────────────────
+        if path == "/api/capabilities":
+            return _json_response(self, _api_capabilities())
+
+        m = re.match(r"^/api/capability/shares$", path)
+        if m:
+            holder = qs.get("holder", ["gui_user"])[0]
+            return _json_response(self, _api_capability_shares(holder))
+
+        m = re.match(r"^/api/capability/(.+)$", path)
+        if m:
+            detail = _api_capability_detail(m.group(1))
+            if detail is None:
+                return _json_response(self, {"error": "not found"}, 404)
+            return _json_response(self, detail)
 
         # Asset detail
         m = re.match(r"^/api/asset/(.+)$", path)
@@ -428,6 +621,17 @@ class _Handler(BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
+
+        # ── Capability routes (POST) ─────────────────────────────
+        if path == "/api/capability/register":
+            result = _api_capability_register(body)
+            status = 200 if result.get("ok") else 400
+            return _json_response(self, result, status)
+
+        if path == "/api/capability/invoke":
+            result = _api_capability_invoke(body)
+            status = 200 if result.get("ok") else 400
+            return _json_response(self, result, status)
 
         if path == "/api/fingerprint/embed":
             try:

@@ -64,6 +64,11 @@ const dict: Record<string, Record<string, string>> = {
     'sort-time': '最新', 'sort-value': '价值',
     'load-more': '加载更多', 'no-more': '没有更多了',
     'view-mydata': '查看我的数据',
+    'type-all': '全部', 'type-data': '数据', 'type-capability': '服务',
+    'invoke': '调用', 'invoking': '调用中...',
+    'invoke-success': '调用成功',
+    'provider': '提供者', 'version': '版本',
+    'shares-minted': '获得份额',
   },
   en: {
     home: 'Home', mydata: 'My Data', explore: 'Explore', network: 'Network',
@@ -99,6 +104,11 @@ const dict: Record<string, Record<string, string>> = {
     'sort-time': 'Latest', 'sort-value': 'Value',
     'load-more': 'Load more', 'no-more': "That's all",
     'view-mydata': 'View my data',
+    'type-all': 'All', 'type-data': 'Data', 'type-capability': 'Services',
+    'invoke': 'Invoke', 'invoking': 'Invoking...',
+    'invoke-success': 'Invoked successfully',
+    'provider': 'Provider', 'version': 'Version',
+    'shares-minted': 'Shares minted',
   },
 };
 

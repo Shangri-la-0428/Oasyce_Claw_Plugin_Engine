@@ -68,3 +68,16 @@
   animation: field-in 0.2s var(--ease);
 }
 @keyframes field-in { from { opacity: 0; transform: translateY(6px); } }
+
+/* ── Capability badges ── */
+.type-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; margin-right: 4px;
+}
+.version-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-3);
+  margin-left: 6px;
+}
+.mb-16 { margin-bottom: 16px; }

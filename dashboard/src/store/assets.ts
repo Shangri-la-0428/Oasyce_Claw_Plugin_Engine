@@ -6,10 +6,17 @@ import { get, del } from '../api/client';
 
 export interface Asset {
   asset_id: string;
-  owner: string;
+  asset_type?: 'data' | 'capability';
+  owner?: string;
+  provider?: string;
+  name?: string;
+  description?: string;
+  version?: string;
   tags?: string[];
   created_at?: number;
   spot_price?: number;
+  input_schema?: any;
+  output_schema?: any;
 }
 
 export const assets = signal<Asset[]>([]);
