@@ -2,42 +2,49 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.9.0] - 2026-03-13
+Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-### Architecture (Phases 1-9)
-- **Phase 1:** Ed25519 cryptographic key management and digital signatures
-- **Phase 2:** SQLite persistent ledger with blockchain-structured storage
-- **Phase 3:** Block mining with Merkle trees and hash chaining
-- **Phase 4:** P2P TCP+JSON networking with peer discovery (port 9527)
-- **Phase 5:** Block synchronization with 3-way validation and fork detection
-- **Phase 6:** Consensus engine — longest chain rule, reorganization, rate limiting
-- **Phase 7:** Multi-node demo (`oasyce demo-network --nodes N`)
-- **Phase 8:** Staking economy — PoS validators, slashing, halving block rewards
-- **Phase 9:** Fingerprint watermarking — steganographic embedding and leak tracing
+## [1.4.0] - 2026-03-16
 
-### Settlement & Economics
-- Bancor bonding curve pricing engine
-- Dual-layer fee structure (settlement + network)
-- Deflationary tokenomics with multi-source burns
+### Added
+- CLAUDE.md for Claude Code integration
+- OpenClaw Skill v3.0.0 (unified 4-in-1)
+- Capability assets in Dashboard Explore view
+- Testnet onboarding (`oasyce testnet onboard/faucet`)
 
-### Tools & Interface
-- Full CLI: register, search, quote, buy, stake, shares, verify, node, fingerprint, demo, gui
-- Web dashboard (`oasyce gui` on port 8420) — zero-dependency SPA
-- Agent Skills API for programmatic access
-- Privacy filter for sensitive file detection
-- IPFS-compatible pluggable storage
+### Changed
+- README rewritten for accessibility (role-based guide, collapsible tech details)
 
-### Documentation
-- `README.md` — project overview with full CLI reference
-- `docs/ECONOMICS.md` — complete economic model with formulas and game theory
-- `docs/OASYCE_PROTOCOL_OVERVIEW.md` — protocol brief for investors and researchers
+## [1.3.0] - 2026-03-16
 
-### Testing
-- 220 tests passing across 15 test files
-- Coverage: crypto, ledger, blockchain, P2P, consensus, sync, staking, settlement, fingerprint, privacy, integration
+### Added
+- Phase 2: Capability Assets (register → invoke → escrow → settle → dispute → rating → shares → pipeline)
+- Oracle Feed framework (weather, price, time, random, DataAssetFeed, AggregatorFeed)
+- OAS unified standard for data + capability + oracle + identity
 
-## [0.3.0] - 2026-03-12
+### Changed
+- Dashboard unified explore view (data + capability)
+- PyPI package updated
 
-- Initial CLI + config system + PoPC certificates
-- Privacy filter + IPFS storage
-- Core engine architecture
+## [1.2.0] - 2026-03-15
+
+### Added
+- Dashboard Vite + Preact rewrite
+- Cloudflare Worker seed discovery
+- P2P networking with peer scoring and PEX
+
+## [1.1.0] - 2026-03-14
+
+### Added
+- AHRP v0.1 (Agent Handshake & Routing Protocol)
+- OAS-DAS origin_type (HUMAN/SENSOR/CURATED/SYNTHETIC)
+- Two-repo restructure (Core = protocol, PE = thin adapter)
+
+## [1.0.0] - 2026-03-13
+
+### Added
+- Initial release
+- Data asset registration, Bonding Curve pricing, settlement
+- Ed25519 signing, Merkle proofs
+- CLI + basic Dashboard
+- 499 tests

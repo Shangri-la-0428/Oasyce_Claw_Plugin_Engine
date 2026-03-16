@@ -1,5 +1,9 @@
 # Oasyce
 
+[![CI](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions)
+[![PyPI](https://img.shields.io/pypi/v/oasyce)](https://pypi.org/project/oasyce/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **数据有了主人，能力有了价格。**
 
 Oasyce 是一个去中心化的**权利清算网络**——让 AI Agent 之间的数据访问和能力调用，每一笔都有定价、有担保、有结算。
