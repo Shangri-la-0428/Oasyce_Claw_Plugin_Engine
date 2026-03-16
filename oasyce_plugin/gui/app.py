@@ -542,6 +542,40 @@ class _Handler(BaseHTTPRequestHandler):
                 "node_port": _config.node_port,
             })
 
+        # ── Inbox API (GET) ──────────────────────────────────────
+        if path == "/api/inbox":
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            inbox = ConfirmationInbox()
+            items = inbox.list_all()
+            return _json_response(self, {
+                "items": [
+                    {
+                        "item_id": i.item_id,
+                        "item_type": i.item_type,
+                        "status": i.status,
+                        "file_path": i.file_path,
+                        "suggested_name": i.suggested_name,
+                        "suggested_tags": i.suggested_tags,
+                        "suggested_description": i.suggested_description,
+                        "sensitivity": i.sensitivity,
+                        "confidence": i.confidence,
+                        "asset_id": i.asset_id,
+                        "price": i.price,
+                        "reason": i.reason,
+                        "created_at": i.created_at,
+                    }
+                    for i in items
+                ],
+            })
+
+        if path == "/api/inbox/trust":
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            inbox = ConfirmationInbox()
+            return _json_response(self, {
+                "trust_level": inbox.get_trust_level(),
+                "auto_threshold": inbox.get_auto_threshold(),
+            })
+
         # ── Static files from dashboard/dist/ ────────────────────
         if path.startswith('/assets/'):
             file_path = os.path.join(DASHBOARD_DIR, path.lstrip('/'))
@@ -672,6 +706,137 @@ class _Handler(BaseHTTPRequestHandler):
             )
             _ledger._conn.commit()
             return _json_response(self, {"ok": True, "asset_id": aid, "tags": new_tags})
+
+        # ── Inbox API (POST) ─────────────────────────────────────
+        if path.startswith("/api/inbox/") and path.endswith("/approve"):
+            item_id = path.split("/")[-2]
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            inbox = ConfirmationInbox()
+            try:
+                item = inbox.approve(item_id)
+                return _json_response(self, {"ok": True, "item_id": item.item_id, "status": item.status})
+            except (KeyError, ValueError) as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path.startswith("/api/inbox/") and path.endswith("/reject"):
+            item_id = path.split("/")[-2]
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            inbox = ConfirmationInbox()
+            try:
+                item = inbox.reject(item_id)
+                return _json_response(self, {"ok": True, "item_id": item.item_id, "status": item.status})
+            except (KeyError, ValueError) as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path.startswith("/api/inbox/") and path.endswith("/edit"):
+            item_id = path.split("/")[-2]
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            inbox = ConfirmationInbox()
+            try:
+                changes = body or {}
+                item = inbox.edit(item_id, changes)
+                return _json_response(self, {"ok": True, "item_id": item.item_id, "status": item.status})
+            except (KeyError, ValueError) as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path == "/api/inbox/trust":
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            inbox = ConfirmationInbox()
+            level = body.get("trust_level") if body else None
+            threshold = body.get("auto_threshold") if body else None
+            if level is not None:
+                inbox.set_trust_level(int(level))
+            if threshold is not None:
+                inbox.set_auto_threshold(float(threshold))
+            return _json_response(self, {"ok": True, "trust_level": inbox.get_trust_level()})
+
+        if path == "/api/scan":
+            from oasyce_plugin.services.scanner import AssetScanner
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            scan_path = body.get("path", ".") if body else "."
+            scanner = AssetScanner()
+            results = scanner.scan_directory(scan_path)
+            inbox = ConfirmationInbox()
+            added = []
+            for r in results:
+                if r.sensitivity != "sensitive":
+                    item = inbox.add_pending_register(
+                        file_path=r.file_path,
+                        suggested_name=r.suggested_name,
+                        suggested_tags=r.suggested_tags,
+                        suggested_description=r.suggested_description,
+                        sensitivity=r.sensitivity,
+                        confidence=r.confidence,
+                    )
+                    added.append(item.item_id)
+            return _json_response(self, {"ok": True, "scanned": len(results), "added_to_inbox": len(added)})
+
+        # ── Inbox API (POST) ──────────────────────────────────────
+        if path.startswith("/api/inbox/") and path.endswith("/approve"):
+            item_id = path.split("/")[-2]
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            inbox = ConfirmationInbox()
+            try:
+                item = inbox.approve(item_id)
+                return _json_response(self, {"ok": True, "item_id": item_id, "status": "approved"})
+            except (KeyError, ValueError) as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path.startswith("/api/inbox/") and path.endswith("/reject"):
+            item_id = path.split("/")[-2]
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            inbox = ConfirmationInbox()
+            try:
+                item = inbox.reject(item_id)
+                return _json_response(self, {"ok": True, "item_id": item_id, "status": "rejected"})
+            except (KeyError, ValueError) as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path.startswith("/api/inbox/") and path.endswith("/edit"):
+            item_id = path.split("/")[-2]
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            inbox = ConfirmationInbox()
+            try:
+                item = inbox.edit(item_id, body or {})
+                return _json_response(self, {"ok": True, "item_id": item_id, "status": "approved"})
+            except (KeyError, ValueError) as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path == "/api/inbox/trust":
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            inbox = ConfirmationInbox()
+            level = body.get("trust_level") if body else None
+            threshold = body.get("auto_threshold") if body else None
+            if level is not None:
+                inbox.set_trust_level(int(level))
+            if threshold is not None:
+                inbox.set_auto_threshold(float(threshold))
+            return _json_response(self, {
+                "ok": True,
+                "trust_level": inbox.get_trust_level(),
+                "auto_threshold": inbox.get_auto_threshold(),
+            })
+
+        if path == "/api/scan":
+            scan_path = body.get("path", ".") if body else "."
+            from oasyce_plugin.services.scanner import AssetScanner
+            from oasyce_plugin.services.inbox import ConfirmationInbox
+            scanner = AssetScanner()
+            results = scanner.scan_directory(scan_path)
+            inbox = ConfirmationInbox()
+            added = []
+            for r in results:
+                if r.sensitivity != "sensitive":
+                    item = inbox.add_pending_register(
+                        file_path=r.file_path,
+                        suggested_name=r.suggested_name,
+                        suggested_tags=r.suggested_tags,
+                        suggested_description=r.suggested_description,
+                        sensitivity=r.sensitivity,
+                        confidence=r.confidence,
+                    )
+                    added.append(item.item_id)
+            return _json_response(self, {"ok": True, "scanned": len(results), "added": len(added)})
 
         # ── AHRP proxy (POST) ────────────────────────────────────
         if path.startswith("/ahrp/"):

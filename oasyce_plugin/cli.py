@@ -1187,6 +1187,128 @@ def cmd_verify(args):
         sys.exit(1)
 
 
+def cmd_scan(args):
+    """Scan a directory for candidate data assets."""
+    from oasyce_plugin.services.scanner import AssetScanner
+
+    scanner = AssetScanner()
+    target = args.path or "."
+    try:
+        results = scanner.scan_directory(target)
+    except FileNotFoundError as e:
+        print(f"❌ {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if getattr(args, "json", False):
+        from dataclasses import asdict
+        print(json.dumps([asdict(r) for r in results], indent=2))
+        return
+
+    if not results:
+        print("No candidate assets found.")
+        return
+
+    print(f"\n📂 Found {len(results)} candidate asset(s) in {target}\n")
+    for r in results:
+        sens_icon = {"public": "🟢", "internal": "🟡", "sensitive": "🔴"}.get(r.sensitivity, "⚪")
+        print(f"  {sens_icon} {r.suggested_name}")
+        print(f"     Path: {r.file_path}")
+        print(f"     Type: {r.file_type}  Size: {r.size_bytes} bytes  Sensitivity: {r.sensitivity}")
+        print(f"     Tags: {', '.join(r.suggested_tags)}  Confidence: {r.confidence}")
+        print()
+
+
+def cmd_inbox_list(args):
+    """List pending inbox items."""
+    from oasyce_plugin.services.scanner import ConfirmationInbox
+
+    inbox = ConfirmationInbox()
+    filter_type = getattr(args, "type", "all") or "all"
+    items = inbox.list_pending(filter_type)
+
+    if getattr(args, "json", False):
+        print(json.dumps([i.to_dict() for i in items], indent=2))
+        return
+
+    if not items:
+        print("No pending items in inbox.")
+        return
+
+    print(f"\n📥 {len(items)} pending item(s)\n")
+    for item in items:
+        if item.item_type == "register":
+            print(f"  [{item.item_id}] REGISTER  {item.suggested_name}")
+            print(f"     File: {item.file_path}  Sensitivity: {item.sensitivity}")
+        else:
+            print(f"  [{item.item_id}] PURCHASE  asset={item.asset_id}  price={item.price} OAS")
+            if item.reason:
+                print(f"     Reason: {item.reason}")
+        print()
+
+
+def cmd_inbox_approve(args):
+    """Approve an inbox item."""
+    from oasyce_plugin.services.scanner import ConfirmationInbox
+
+    inbox = ConfirmationInbox()
+    item = inbox.approve(args.item_id)
+    if item is None:
+        print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
+        sys.exit(1)
+    print(f"✅ Approved: {args.item_id}")
+
+
+def cmd_inbox_reject(args):
+    """Reject an inbox item."""
+    from oasyce_plugin.services.scanner import ConfirmationInbox
+
+    inbox = ConfirmationInbox()
+    item = inbox.reject(args.item_id)
+    if item is None:
+        print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
+        sys.exit(1)
+    print(f"🚫 Rejected: {args.item_id}")
+
+
+def cmd_inbox_edit(args):
+    """Edit and approve an inbox item."""
+    from oasyce_plugin.services.scanner import ConfirmationInbox
+
+    inbox = ConfirmationInbox()
+    changes = {}
+    if args.name:
+        changes["suggested_name"] = args.name
+    if args.tags:
+        changes["suggested_tags"] = [t.strip() for t in args.tags.split(",")]
+    if args.description:
+        changes["suggested_description"] = args.description
+
+    item = inbox.edit(args.item_id, changes)
+    if item is None:
+        print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
+        sys.exit(1)
+    print(f"✅ Edited and approved: {args.item_id}")
+
+
+def cmd_trust(args):
+    """View or set the trust level."""
+    from oasyce_plugin.services.scanner import ConfirmationInbox
+
+    inbox = ConfirmationInbox()
+    if args.level is not None:
+        try:
+            inbox.set_trust_level(args.level)
+        except ValueError as e:
+            print(f"❌ {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"✅ Trust level set to {args.level}")
+    else:
+        level = inbox.get_trust_level()
+        labels = {0: "manual", 1: "low-value auto", 2: "full auto"}
+        print(f"Trust level: {level} ({labels.get(level, 'unknown')})")
+        print(f"Auto-approve threshold: {inbox.get_auto_threshold()} OAS")
+
+
 def cmd_doctor(args):
     """Run security and readiness checks for the Oasyce node."""
     import platform
@@ -1563,6 +1685,43 @@ def main():
     pf_parser.add_argument("--days", type=float, default=0, help="Days since creation (default: 0)")
     pf_parser.add_argument("--json", action="store_true", help="Output as JSON")
     pf_parser.set_defaults(func=cmd_price_factors)
+
+    # ── scan ─────────────────────────────────────────────────────────
+    scan_parser = subparsers.add_parser("scan", help="Scan a directory for candidate assets")
+    scan_parser.add_argument("path", nargs="?", default=".", help="Directory to scan (default: .)")
+    scan_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    scan_parser.set_defaults(func=cmd_scan)
+
+    # ── inbox ────────────────────────────────────────────────────────
+    inbox_parser = subparsers.add_parser("inbox", help="Confirmation inbox")
+    inbox_sub = inbox_parser.add_subparsers(dest="inbox_command", help="Inbox sub-commands")
+
+    inbox_list_parser = inbox_sub.add_parser("list", help="List pending items")
+    inbox_list_parser.add_argument("--type", choices=["register", "purchase", "all"],
+                                   default="all", help="Filter by type")
+    inbox_list_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    inbox_list_parser.set_defaults(func=cmd_inbox_list)
+
+    inbox_approve_parser = inbox_sub.add_parser("approve", help="Approve an item")
+    inbox_approve_parser.add_argument("item_id", help="Item ID to approve")
+    inbox_approve_parser.set_defaults(func=cmd_inbox_approve)
+
+    inbox_reject_parser = inbox_sub.add_parser("reject", help="Reject an item")
+    inbox_reject_parser.add_argument("item_id", help="Item ID to reject")
+    inbox_reject_parser.set_defaults(func=cmd_inbox_reject)
+
+    inbox_edit_parser = inbox_sub.add_parser("edit", help="Edit and approve an item")
+    inbox_edit_parser.add_argument("item_id", help="Item ID to edit")
+    inbox_edit_parser.add_argument("--name", default=None, help="New name")
+    inbox_edit_parser.add_argument("--tags", default=None, help="New tags (comma-separated)")
+    inbox_edit_parser.add_argument("--description", default=None, help="New description")
+    inbox_edit_parser.set_defaults(func=cmd_inbox_edit)
+
+    # ── trust ────────────────────────────────────────────────────────
+    trust_parser = subparsers.add_parser("trust", help="View or set trust level (0/1/2)")
+    trust_parser.add_argument("level", nargs="?", type=int, default=None,
+                              help="Trust level: 0=manual, 1=low-auto, 2=full-auto")
+    trust_parser.set_defaults(func=cmd_trust)
 
     # ── testnet ──────────────────────────────────────────────────────
     testnet_parser = subparsers.add_parser("testnet", help="Testnet management")
