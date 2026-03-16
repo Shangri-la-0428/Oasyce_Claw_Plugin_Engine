@@ -59,7 +59,7 @@ Oasyce_Project/oasyce_core/    ← 协议核心（单独仓库）
 ## 💬 交流
 
 - GitHub Issues（Bug 报告、功能建议）
-- [Discord](https://discord.gg/oasyce)（闲聊、提问）
+- [Discord](https://discord.gg/dPP5eZKs)（闲聊、提问）
 
 ## License
 

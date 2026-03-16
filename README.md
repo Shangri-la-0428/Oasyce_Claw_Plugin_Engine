@@ -246,3 +246,8 @@ cd oasyce-claw-plugin-engine && pytest      # 499 tests
 ## License
 
 MIT
+
+## Community
+
+- [Discord](https://discord.gg/dPP5eZKs) — 提问、反馈、闲聊
+- [GitHub Issues](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues) — Bug 报告、功能建议
