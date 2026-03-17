@@ -128,8 +128,10 @@ class TestOnboarding:
         assert result["stake_result"]["staked"] is True
         assert result["stake_result"]["amount"] == TESTNET_ECONOMICS["min_stake"]
 
-        # Summary should have 3 steps
-        assert len(result["summary"]) == 3
+        # Summary: 1 simulation label + 3 steps
+        assert len(result["summary"]) == 4
+        assert "LOCAL SIMULATION" in result["summary"][0]
+        assert result["mode"] == "LOCAL_SIMULATION"
 
     def test_onboarding_faucet_cooldown(self, tmp_dir):
         """Second onboarding skips faucet but still registers + stakes."""

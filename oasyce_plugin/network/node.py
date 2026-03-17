@@ -136,6 +136,7 @@ class OasyceNode:
         """Try connecting to bootstrap nodes to discover peers."""
         from oasyce_plugin.config import BOOTSTRAP_NODES
 
+        connected = False
         for entry in BOOTSTRAP_NODES:
             host = str(entry["host"])
             port = int(entry["port"])  # type: ignore[arg-type]
@@ -144,6 +145,7 @@ class OasyceNode:
                     self.connect_to_peer(host, port), timeout=5.0,
                 )
                 logger.info("Connected to bootstrap %s:%s → %s", host, port, resp.get("node_id"))
+                connected = True
                 # Ask bootstrap for more peers
                 try:
                     peers_resp = await asyncio.wait_for(
@@ -161,6 +163,13 @@ class OasyceNode:
                     pass
             except Exception:
                 logger.debug("Bootstrap %s:%s unreachable", host, port)
+
+        if not connected:
+            logger.warning(
+                "Could not connect to any bootstrap node. "
+                "Running as isolated local node. "
+                "Use 'oasyce node ping <host:port>' to connect to a known peer."
+            )
 
     async def _reconnect_saved_peers(self) -> None:
         """Try reconnecting to previously saved peers."""

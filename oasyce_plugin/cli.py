@@ -177,11 +177,13 @@ def cmd_quote(args):
     try:
         quote = skills.trade_data_skill(args.asset_id)
         if args.json:
+            quote["pricing_mode"] = "local_estimate"
             print(json.dumps(quote, indent=2))
         else:
-            print(f"📈 Quote for {args.asset_id}:")
+            print(f"📈 Quote for {args.asset_id} [LOCAL ESTIMATE]:")
             print(f"   Current Price: {quote.get('current_price_oas', 'N/A')} OAS")
             print(f"   Price Impact: {quote.get('price_impact', 0):.2%}")
+            print(f"   Note: Use --use-core for Bancor curve pricing.")
     except RuntimeError as e:
         print(f"❌ Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -1221,9 +1223,12 @@ def cmd_testnet_start(args):
 
     async def _run():
         await node.start(bootstrap=True)
-        print(f"[TESTNET] Oasyce node {node_id_short} listening on {host}:{port}")
+        print(f"[TESTNET · LOCAL SIMULATION] Oasyce node {node_id_short} listening on {host}:{port}")
         if node.peers:
-            print(f"  Known peers: {len(node.peers)}")
+            print(f"  Connected peers: {len(node.peers)}")
+        else:
+            print("  ⚠️  No peers connected — running as isolated local node.")
+        print("  Note: Testnet runs locally for testing. No real tokens or network.")
         print("Press Ctrl+C to stop.")
         try:
             while True:
@@ -1253,14 +1258,16 @@ def cmd_testnet_faucet(args):
     result = faucet.claim(node_id_short)
 
     if args.json:
+        result["mode"] = "LOCAL_SIMULATION"
         print(json.dumps(result, indent=2))
     elif result["success"]:
-        print(f"Claimed {result['amount']:.0f} OAS")
-        print(f"  Balance: {result['balance']:.0f} OAS")
+        print(f"[LOCAL SIMULATION] Claimed {result['amount']:.0f} test OAS")
+        print(f"  Balance: {result['balance']:.0f} test OAS")
         print(f"  Next claim available in 24h")
+        print(f"  Note: These are simulated tokens for local testing only.")
     else:
         print(f"Faucet: {result['error']}")
-        print(f"  Balance: {result['balance']:.0f} OAS")
+        print(f"  Balance: {result['balance']:.0f} test OAS")
 
 
 def cmd_testnet_status(args):
@@ -1315,15 +1322,15 @@ def cmd_testnet_status(args):
     if args.json:
         print(json.dumps(info, indent=2))
     else:
-        print(f"── Testnet Status ──")
+        print(f"── Testnet Status [LOCAL SIMULATION] ──")
         print(f"  Node ID:      {node_id_short}")
         print(f"  Port:         {TESTNET_NETWORK_CONFIG.listen_port}")
         print(f"  Data dir:     {data_dir}")
         print(f"  Chain height: {height}")
         print(f"  Known peers:  {peers_count}")
-        print(f"  Balance:      {balance:.0f} OAS")
-        print(f"  Min stake:    {economics['min_stake']:.0f} OAS")
-        print(f"  Block reward: {economics['block_reward']:.0f} OAS")
+        print(f"  Balance:      {balance:.0f} test OAS")
+        print(f"  Min stake:    {economics['min_stake']:.0f} test OAS")
+        print(f"  Block reward: {economics['block_reward']:.0f} test OAS")
 
 
 def cmd_testnet_onboard(args):
@@ -1341,7 +1348,7 @@ def cmd_testnet_onboard(args):
     if args.json:
         print(json.dumps(result, indent=2))
     else:
-        print(f"── Testnet Onboarding ──")
+        print(f"── Testnet Onboarding [LOCAL SIMULATION] ──")
         for step in result["summary"]:
             print(f"  {step}")
 
@@ -1375,34 +1382,46 @@ def cmd_start(args):
     core_port = args.core_port
     gui_port = args.port
 
+    # Check if oasyce-core is available
+    has_core = False
+    try:
+        import oasyce_core  # noqa: F401
+        has_core = True
+    except ImportError:
+        pass
+
+    core_line = f"http://localhost:{core_port}" if has_core else "(not installed — local mode)"
     print(f"""
 ╔══════════════════════════════════════════════╗
 ║            Oasyce — Starting Up              ║
 ╠══════════════════════════════════════════════╣
-║  Core Node:   http://localhost:{core_port:<14}║
 ║  Dashboard:   http://localhost:{gui_port:<14}║
+║  Core Node:   {core_line:<31}║
 ╠══════════════════════════════════════════════╣
 ║  Open Dashboard in your browser to begin.    ║
 ║  Press Ctrl+C to stop.                       ║
 ╚══════════════════════════════════════════════╝
 """)
 
-    # Start Core node in background thread
-    def run_core():
-        try:
-            from oasyce_core.server import create_app
-            import uvicorn
-            app = create_app(node_id="oasyce-node-0", testnet=True)
-            uvicorn.run(app, host="0.0.0.0", port=core_port, log_level="warning")
-        except ImportError:
-            print("⚠️  oasyce-core not installed. AHRP features disabled.")
-            print("   Install with: pip install oasyce-core")
-        except Exception as e:
-            print(f"⚠️  Core node failed: {e}")
+    if not has_core:
+        print("ℹ️  oasyce-core not installed — running in local mode.")
+        print("   Local features work: register, search, dashboard, scan.")
+        print("   For AHRP/Bancor features: pip install oasyce-core\n")
 
-    core_thread = threading.Thread(target=run_core, daemon=True)
-    core_thread.start()
-    time.sleep(1)  # let core start first
+    # Start Core node in background thread (only if available)
+    if has_core:
+        def run_core():
+            try:
+                from oasyce_core.server import create_app
+                import uvicorn
+                app = create_app(node_id="oasyce-node-0", testnet=True)
+                uvicorn.run(app, host="0.0.0.0", port=core_port, log_level="warning")
+            except Exception as e:
+                print(f"⚠️  Core node failed: {e}")
+
+        core_thread = threading.Thread(target=run_core, daemon=True)
+        core_thread.start()
+        time.sleep(1)  # let core start first
 
     # Start Dashboard in main thread
     from oasyce_plugin.gui.app import OasyceGUI
@@ -1603,23 +1622,47 @@ def cmd_doctor(args):
         errors += 1
         print("\u274c Protocol port 9527    Already in use")
 
-    # 3. Core Node
+    # 3. Core Node (optional — local features work without it)
     try:
         import oasyce_core  # noqa: F401
         ver = getattr(oasyce_core, "__version__", "unknown")
         print(f"\u2705 oasyce-core           Installed (v{ver})")
     except ImportError:
-        errors += 1
-        print("\u274c oasyce-core           Not installed (pip install oasyce-core)")
+        warnings += 1
+        print("\u26a0\ufe0f  oasyce-core           Not installed (optional — local features work without it)")
+        print("                        Install for Bancor pricing: pip install oasyce-core")
 
-    # 4. Seed Node Connectivity
+    # 4. Dashboard port
     try:
-        s = socket.create_connection(("seed1.oasyce.com", 9527), timeout=5)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 8420))
+        s.close()
+        print("\u2705 Dashboard port 8420   Available")
+    except OSError:
+        warnings += 1
+        print("\u26a0\ufe0f  Dashboard port 8420   In use (will auto-select alternative)")
+
+    # 5. Required dependencies
+    dep_ok = True
+    for dep_name in ["cryptography", "dotenv", "aiohttp"]:
+        mod = dep_name if dep_name != "dotenv" else "dotenv"
+        try:
+            __import__(mod)
+        except ImportError:
+            dep_ok = False
+            errors += 1
+            print(f"\u274c {dep_name:<22s} Not installed")
+    if dep_ok:
+        print("\u2705 Dependencies          All required packages installed")
+
+    # 6. Seed Node Connectivity
+    try:
+        s = socket.create_connection(("seed1.oasyce.com", 9527), timeout=3)
         s.close()
         print("\u2705 Seed node             seed1.oasyce.com reachable")
     except (OSError, socket.timeout):
         warnings += 1
-        print("\u26a0\ufe0f  Seed node             seed1.oasyce.com unreachable (offline mode OK)")
+        print("\u26a0\ufe0f  Seed node             Unreachable (local mode — this is normal for now)")
 
     # 5. Local Firewall
     system = platform.system()
@@ -2057,6 +2100,20 @@ def main():
     args = parser.parse_args()
     
     if args.command is None:
+        # First-run welcome
+        oasyce_dir = Path.home() / ".oasyce"
+        if not oasyce_dir.exists():
+            print()
+            print("  Welcome to Oasyce! Looks like this is your first time.")
+            print()
+            print("  Quick start:")
+            print("    oasyce doctor    — check your setup")
+            print("    oasyce demo      — run a full demo (register → quote → buy)")
+            print("    oasyce start     — launch Dashboard at http://localhost:8420")
+            print()
+            print("  For more: oasyce info")
+            print()
+            sys.exit(0)
         parser.print_help()
         sys.exit(0)
 

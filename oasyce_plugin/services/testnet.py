@@ -37,10 +37,11 @@ class TestnetOnboarding:
         """
         now = now if now is not None else time.time()
         result: dict = {
+            "mode": "LOCAL_SIMULATION",
             "faucet_result": None,
             "sample_asset": None,
             "stake_result": None,
-            "summary": [],
+            "summary": ["[LOCAL SIMULATION] All testnet operations run locally — no real network or tokens."],
         }
 
         # 1. 领取水龙头代币

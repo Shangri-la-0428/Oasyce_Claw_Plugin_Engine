@@ -3,28 +3,37 @@ Bridge between oasyce_plugin CLI and oasyce_core protocol.
 
 Converts plugin-side signed metadata into CapturePack for oasyce_core,
 and exposes quote/buy/stake via OasyceProtocol.
+
+If oasyce_core is not installed, all bridge functions raise RuntimeError
+with a clear message.
 """
 
 from __future__ import annotations
 
 import asyncio
-import sys
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
-# Add oasyce_core to sys.path
-_CORE_PATH = str(Path.home() / "Desktop" / "Oasyce_Project" / "oasyce_core")
-if _CORE_PATH not in sys.path:
-    sys.path.insert(0, str(Path(_CORE_PATH).parent))
 
-from oasyce_core.protocol import OasyceProtocol
-from oasyce_core.models.capture_pack import CapturePack
+def _check_core():
+    """Verify oasyce_core is importable. Raise RuntimeError if not."""
+    try:
+        import oasyce_core  # noqa: F401
+    except ImportError:
+        raise RuntimeError(
+            "oasyce-core is not installed. "
+            "Install with: pip install oasyce-core\n"
+            "Without it, local features (register, search, dashboard) still work.\n"
+            "Core bridge features (quote via Bancor, buy, stake) require oasyce-core."
+        )
 
 
-def _get_protocol() -> OasyceProtocol:
+def _get_protocol():
     """Return a singleton-like OasyceProtocol (local/mock mode, no P2P node)."""
+    _check_core()
+    from oasyce_core.protocol import OasyceProtocol
+
     if not hasattr(_get_protocol, "_instance"):
         _get_protocol._instance = OasyceProtocol()
     return _get_protocol._instance
@@ -40,8 +49,11 @@ def reset_protocol() -> None:
 reset_engine = reset_protocol
 
 
-def metadata_to_capture_pack(signed_metadata: dict) -> CapturePack:
+def metadata_to_capture_pack(signed_metadata: dict):
     """Convert plugin signed metadata dict into a CapturePack for oasyce_core."""
+    _check_core()
+    from oasyce_core.models.capture_pack import CapturePack
+
     file_hash = signed_metadata.get("file_hash", "0" * 64)
     signature = signed_metadata.get("popc_signature", "deadbeef")
 
@@ -65,21 +77,14 @@ def metadata_to_capture_pack(signed_metadata: dict) -> CapturePack:
 # Async helpers (bridge runs locally; P2P node not required)
 # ---------------------------------------------------------------------------
 
-async def _async_register(pack: CapturePack, creator: str) -> dict:
-    """Verify and register a CapturePack through the protocol (local path).
-
-    Uses the protocol's verifier and registry directly so the bridge works
-    without a live P2P network.  This is the correct mode for a single-node
-    plugin engine that submits to the protocol layer.
-    """
+async def _async_register(pack, creator: str) -> dict:
+    """Verify and register a CapturePack through the protocol (local path)."""
     protocol = _get_protocol()
 
-    # Run local verification (same check submit_data does before P2P)
     result = protocol._verifier.verify(pack)
     if not result.valid:
         return {"valid": False, "reason": result.reason, "core_asset_id": None}
 
-    # Register asset directly into the protocol registry
     asset_id = protocol._register_asset(pack.media_hash, creator, uuid.uuid4().hex)
     return {"valid": True, "reason": result.reason, "core_asset_id": asset_id}
 

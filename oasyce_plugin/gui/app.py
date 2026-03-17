@@ -4381,8 +4381,27 @@ class OasyceGUI:
                     pass
                 super().server_bind()
 
-        server = _ReusableHTTPServer((self._host, self._port), _Handler)
-        print(f"Oasyce Dashboard running on http://127.0.0.1:{self._port}")
+        # Try binding to the requested port, fall back to alternatives
+        server = None
+        bound_port = self._port
+        for attempt_port in [self._port] + list(range(self._port + 1, self._port + 10)):
+            try:
+                server = _ReusableHTTPServer((self._host, attempt_port), _Handler)
+                bound_port = attempt_port
+                break
+            except OSError:
+                if attempt_port == self._port:
+                    print(f"⚠️  Port {self._port} is busy, trying alternatives...")
+                continue
+
+        if server is None:
+            print(f"❌ Could not bind to any port in range {self._port}-{self._port + 9}.")
+            print(f"   Try: oasyce gui --port <available_port>")
+            return
+
+        if bound_port != self._port:
+            print(f"⚠️  Port {self._port} was busy, using {bound_port} instead.")
+        print(f"Oasyce Dashboard running on http://127.0.0.1:{bound_port}")
         try:
             server.serve_forever()
         except KeyboardInterrupt:
