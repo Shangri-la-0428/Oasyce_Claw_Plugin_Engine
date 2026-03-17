@@ -51,9 +51,9 @@ function makeSatellites(seed: number): Array<{ dx: number; dy: number; dist: num
   const count = 4 + Math.floor(hash(seed, 0, 1) * 3); // 4-6 satellites
   for (let i = 0; i < count; i++) {
     const ring = i < 2 ? 1 : 2;
-    const baseR = ring === 1 ? 7 : 15;
+    const baseR = ring === 1 ? 10 : 20;
     const angle = (i / count) * Math.PI * 2 + hash(seed, i, 2) * 0.9;
-    const r = baseR + (hash(seed, i, 3) - 0.5) * 5;
+    const r = baseR + (hash(seed, i, 3) - 0.5) * 6;
     sats.push({ dx: Math.round(Math.cos(angle) * r), dy: Math.round(Math.sin(angle) * r), dist: r });
   }
   return sats;
@@ -335,8 +335,8 @@ export default function NetworkGrid() {
 
         // Center dot
         const centerSize = n.isValidator
-          ? (n.energy > 0.3 ? 4 : 3)
-          : (n.energy > 0.4 ? 3 : 2);
+          ? (n.energy > 0.3 ? 6 : 5)
+          : (n.energy > 0.4 ? 5 : 3);
         const centerShade = n.energy > 0.5 ? sBright : (n.energy > 0.25 ? sMid : sDim);
 
         drawBlock(px, cx, cy, centerSize, centerShade);
@@ -357,8 +357,8 @@ export default function NetworkGrid() {
             const sy = cy + sat.dy;
             if (sx < 0 || sx >= imgW || sy < 0 || sy >= imgH) continue;
 
-            const shade = sat.dist < 10 ? sMid : sDim;
-            drawBlock(px, sx, sy, 1, shade);
+            const shade = sat.dist < 12 ? sMid : sDim;
+            drawBlock(px, sx, sy, 2, shade);
           }
         }
       }
@@ -381,8 +381,8 @@ export default function NetworkGrid() {
           const by = Math.round(r.cy + Math.sin(angle) * ringR);
           if (bx < 0 || bx >= imgW || by < 0 || by >= imgH) continue;
 
-          // Wavefront: 2px bright particles
-          const frontSize = r.strength > 0.35 ? 2 : 1;
+          // Wavefront: bright particles
+          const frontSize = r.strength > 0.35 ? 3 : 2;
           drawBlock(px, bx, by, frontSize, r.strength > 0.3 ? sBright : sMid);
 
           // Trailing scatter: 1px dim particles behind the wavefront
@@ -392,7 +392,7 @@ export default function NetworkGrid() {
               const tx = Math.round(r.cx + Math.cos(angle) * trailR);
               const ty = Math.round(r.cy + Math.sin(angle) * trailR);
               if (tx >= 0 && tx < imgW && ty >= 0 && ty < imgH) {
-                drawBlock(px, tx, ty, 1, sDim);
+                drawBlock(px, tx, ty, 2, sDim);
               }
             }
           }

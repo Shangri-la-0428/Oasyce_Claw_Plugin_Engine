@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import sqlite3
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -28,16 +29,68 @@ class FeedbackStore:
     DECAY_HALF_LIFE_DAYS: int = 30
     MAX_RECORDS_PER_SKILL: int = 200
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: Optional[str] = None) -> None:
         self._records: Dict[str, List[ExecutionRecord]] = defaultdict(list)
+        self._db: Optional[sqlite3.Connection] = None
+
+        if db_path is not None:
+            self._db = sqlite3.connect(db_path, check_same_thread=False)
+            self._db.execute(
+                "CREATE TABLE IF NOT EXISTS feedback_records ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "skill_id TEXT, "
+                "success INTEGER, "
+                "latency_ms INTEGER, "
+                "caller_rating REAL, "
+                "timestamp INTEGER)"
+            )
+            self._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_feedback_skill_id "
+                "ON feedback_records (skill_id)"
+            )
+            self._db.commit()
+            # Load existing records into memory
+            cursor = self._db.execute(
+                "SELECT skill_id, success, latency_ms, caller_rating, timestamp "
+                "FROM feedback_records ORDER BY id"
+            )
+            for row in cursor:
+                rec = ExecutionRecord(
+                    skill_id=row[0],
+                    success=bool(row[1]),
+                    latency_ms=row[2],
+                    caller_rating=row[3],
+                    timestamp=row[4],
+                )
+                self._records[rec.skill_id].append(rec)
 
     def record(self, rec: ExecutionRecord) -> None:
         """Record an execution outcome."""
         records = self._records[rec.skill_id]
         records.append(rec)
+
+        if self._db is not None:
+            self._db.execute(
+                "INSERT INTO feedback_records (skill_id, success, latency_ms, caller_rating, timestamp) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (rec.skill_id, int(rec.success), rec.latency_ms, rec.caller_rating, rec.timestamp),
+            )
+            self._db.commit()
+
         # Evict oldest if over limit
         if len(records) > self.MAX_RECORDS_PER_SKILL:
+            evicted = records[: len(records) - self.MAX_RECORDS_PER_SKILL]
             self._records[rec.skill_id] = records[-self.MAX_RECORDS_PER_SKILL:]
+            if self._db is not None:
+                # Delete the oldest rows for this skill_id that match evicted timestamps
+                self._db.execute(
+                    "DELETE FROM feedback_records WHERE id IN ("
+                    "  SELECT id FROM feedback_records WHERE skill_id = ? "
+                    "  ORDER BY id LIMIT ?"
+                    ")",
+                    (rec.skill_id, len(evicted)),
+                )
+                self._db.commit()
 
     def learned_trust(self, skill_id: str) -> Optional[float]:
         """Compute time-decayed trust score for a skill.

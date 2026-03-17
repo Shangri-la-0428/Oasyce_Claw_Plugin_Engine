@@ -150,7 +150,9 @@ export default function Home({ go }: Props) {
 
   return (
     <div class="page">
-      <div class="spacer-64" />
+      <div class="home-grid-wrap home-grid-top">
+        <NetworkGrid />
+      </div>
 
       {/* Hero */}
       <div class="home-hero">
@@ -163,10 +165,6 @@ export default function Home({ go }: Props) {
       </div>
 
       <div class="spacer-48" />
-
-      <div class="home-grid-wrap">
-        <NetworkGrid />
-      </div>
 
       {/* 注册区 */}
       <div class="home-register">

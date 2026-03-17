@@ -15,6 +15,7 @@ from oasyce_plugin.config import (
     NetworkMode,
     get_data_dir,
 )
+from oasyce_plugin.consensus.core.types import from_units
 from oasyce_plugin.services.faucet import Faucet
 
 
@@ -65,7 +66,7 @@ class TestnetOnboarding:
 
         # 3. 尝试质押成为 validator
         balance = self._faucet.balance(node_id)
-        min_stake = TESTNET_ECONOMICS["min_stake"]
+        min_stake = from_units(TESTNET_ECONOMICS["min_stake"])
         if balance >= min_stake:
             stake_result = {
                 "staked": True,

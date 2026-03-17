@@ -38,7 +38,8 @@ def test_create_certificate_and_upload(dummy_file, tmp_path):
     )
     assert res_cert.ok is True
     assert "popc_signature" in res_cert.data
-    assert res_cert.data["certificate_issuer"] == "Oasyce_Hardware_Node_001"
+    assert res_cert.data["certificate_issuer"] == "oasyce_node_test_key"
+    assert res_cert.data["certificate_type"] == "digital_signature"
     
     vault_path = str(tmp_path / "vault")
     res_upload = UploadEngine.register_asset(res_cert.data, vault_path)

@@ -3,9 +3,12 @@
 .home-title-light { color: var(--fg-1); }
 
 .home-grid-wrap {
-  margin-bottom: 48px;
   position: relative;
   overflow: visible;
+}
+.home-grid-top {
+  margin-top: 0;
+  margin-bottom: 8px;
 }
 .home-grid-wrap::after {
   content: '';

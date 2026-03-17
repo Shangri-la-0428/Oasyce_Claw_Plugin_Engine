@@ -271,6 +271,7 @@ class CertificateEngine:
             payload = dict(metadata)
             payload.pop("popc_signature", None)
             payload.pop("certificate_issuer", None)
+            payload.pop("certificate_type", None)
             payload.pop("signature_alg", None)
             payload.pop("signature_key_id", None)
 
@@ -281,7 +282,8 @@ class CertificateEngine:
             metadata["popc_signature"] = signature
             metadata["signature_alg"] = "Ed25519"
             metadata["signature_key_id"] = key_id
-            metadata["certificate_issuer"] = "Oasyce_Hardware_Node_001"
+            metadata["certificate_issuer"] = f"oasyce_node_{key_id[:8]}"
+            metadata["certificate_type"] = "digital_signature"
             return ok(metadata)
         except Exception as e:
             return err(str(e), code="CERTIFICATE_FAILED")
@@ -305,6 +307,7 @@ class CertificateEngine:
             payload = dict(metadata)
             payload.pop("popc_signature", None)
             payload.pop("certificate_issuer", None)
+            payload.pop("certificate_type", None)
             payload.pop("signature_alg", None)
             payload.pop("signature_key_id", None)
 

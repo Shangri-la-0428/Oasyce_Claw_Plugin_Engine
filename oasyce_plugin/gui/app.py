@@ -56,6 +56,18 @@ _buy_cooldowns: Dict[tuple, float] = {}
 BUY_COOLDOWN_SECONDS = 30  # minimum seconds between same buyer+asset purchases
 
 
+def _save_api_key(data_dir: str, api_key: str) -> None:
+    """Save AI API key to a separate, chmod-protected file."""
+    from pathlib import Path as _P
+    key_file = _P(data_dir) / "ai_api_key"
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    key_file.write_text(api_key)
+    try:
+        key_file.chmod(0o600)
+    except OSError:
+        pass
+
+
 def _check_rate_limit(client_ip: str) -> bool:
     """Return True if request is within rate limit, False if exceeded."""
     now = time.time()
@@ -705,6 +717,66 @@ class _Handler(BaseHTTPRequestHandler):
                 "created_at": created_at,
             })
 
+        # ── Node role ─────────────────────────────────────────────
+        if path == "/api/node/role":
+            from oasyce_plugin.config import load_node_role, load_or_create_node_identity
+            if not _config:
+                return _json_response(self, {"error": "not initialized"}, 503)
+            _priv, node_id = load_or_create_node_identity(_config.data_dir)
+            role = load_node_role(_config.data_dir)
+            height = _ledger.get_chain_height() if _ledger else 0
+
+            # Peer count
+            from pathlib import Path as _Path
+            peers_path = _Path(_config.data_dir) / "peers.json"
+            peers_count = 0
+            if peers_path.exists():
+                try:
+                    peers_count = len(json.loads(peers_path.read_text()))
+                except Exception:
+                    pass
+
+            return _json_response(self, {
+                "node_id": node_id[:16],
+                "public_key": _config.public_key or node_id,
+                "roles": role.get("roles", []),
+                "validator_stake": role.get("validator_stake", 0),
+                "arbitrator_tags": role.get("arbitrator_tags", []),
+                "api_provider": role.get("api_provider", ""),
+                "api_key_set": role.get("api_key_set", False),
+                "api_endpoint": role.get("api_endpoint", ""),
+                "chain_height": height,
+                "peers": peers_count,
+            })
+
+        # ── Work tasks (GET) ─────────────────────────────────────
+        if path == "/api/work/tasks":
+            if not _config:
+                return _json_response(self, {"error": "not initialized"}, 503)
+            from oasyce_plugin.services.work_value import WorkValueEngine
+            db_path = os.path.join(_config.data_dir, "work.db")
+            engine = WorkValueEngine(db_path=db_path)
+            status_filter = qs.get("status", [None])[0]
+            task_type = qs.get("type", [None])[0]
+            limit = int(qs.get("limit", ["20"])[0])
+            tasks = engine.list_tasks(status=status_filter, task_type=task_type, limit=limit)
+            engine.close()
+            return _json_response(self, {"tasks": [t.to_dict() for t in tasks]})
+
+        if path == "/api/work/stats":
+            if not _config:
+                return _json_response(self, {"error": "not initialized"}, 503)
+            from oasyce_plugin.services.work_value import WorkValueEngine
+            from oasyce_plugin.config import load_or_create_node_identity
+            db_path = os.path.join(_config.data_dir, "work.db")
+            engine = WorkValueEngine(db_path=db_path)
+            _priv, node_id = load_or_create_node_identity(_config.data_dir)
+            node_id_short = node_id[:16]
+            global_s = engine.global_stats()
+            worker_s = engine.worker_stats(node_id_short)
+            engine.close()
+            return _json_response(self, {"global": global_s, "worker": worker_s})
+
         # ── Auth token (localhost only) ──────────────────────────
         if path == "/api/auth/token":
             client_ip = self.client_address[0]
@@ -755,6 +827,73 @@ class _Handler(BaseHTTPRequestHandler):
                 "trust_level": inbox.get_trust_level(),
                 "auto_threshold": inbox.get_auto_threshold(),
             })
+
+        # ── Consensus API (GET) ─────────────────────────────────
+        if path == "/api/consensus/status":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                status = engine.status()
+                return _json_response(self, status)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
+
+        if path == "/api/consensus/validators":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                include_all = qs.get("all", ["false"])[0] == "true"
+                validators = engine.get_validators(include_inactive=include_all)
+                return _json_response(self, validators)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
+
+        if path == "/api/consensus/rewards":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                epoch = qs.get("epoch", [None])[0]
+                epoch_num = int(epoch) if epoch else None
+                rewards = engine.get_rewards(epoch_number=epoch_num)
+                return _json_response(self, rewards)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
 
         # ── Static files from dashboard/dist/ ────────────────────
         if path.startswith('/assets/'):
@@ -1146,6 +1285,156 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
+        # ── Become validator ──────────────────────────────────────
+        if path == "/api/node/become-validator":
+            from oasyce_plugin.config import load_or_create_node_identity, load_node_role, save_node_role, get_economics
+            if not _config:
+                return _json_response(self, {"error": "not initialized"}, 503)
+            try:
+                _priv, node_id = load_or_create_node_identity(_config.data_dir)
+                node_id_short = node_id[:16]
+                economics = get_economics()
+                min_stake = economics["min_stake"]
+                from oasyce_plugin.consensus.core.types import from_units
+                amount = float(body.get("amount", from_units(min_stake)))
+                if amount < from_units(min_stake):
+                    return _json_response(self, {"error": f"Minimum stake is {from_units(min_stake):.0f} OAS"}, 400)
+
+                sk = _get_staking()
+                pub_key = _config.public_key or node_id
+                v = sk.stake(node_id_short, pub_key, amount)
+
+                role = load_node_role(_config.data_dir)
+                if "validator" not in role.get("roles", []):
+                    role.setdefault("roles", []).append("validator")
+                role["validator_stake"] = v.stake
+                # Save AI provider config if provided
+                api_provider = body.get("api_provider", "")
+                api_key = body.get("api_key", "")
+                api_endpoint = body.get("api_endpoint", "")
+                if api_provider:
+                    role["api_provider"] = api_provider
+                if api_key:
+                    role["api_key_set"] = True  # never store raw key in role file
+                    # Store key securely in separate file
+                    _save_api_key(_config.data_dir, api_key)
+                if api_endpoint:
+                    role["api_endpoint"] = api_endpoint
+                save_node_role(_config.data_dir, role)
+
+                return _json_response(self, {
+                    "ok": True, "node_id": node_id_short,
+                    "role": "validator", "staked": v.stake,
+                    "status": v.status.value, "min_stake": min_stake,
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        # ── Become arbitrator ────────────────────────────────────
+        if path == "/api/node/become-arbitrator":
+            from oasyce_plugin.config import load_or_create_node_identity, load_node_role, save_node_role
+            if not _config:
+                return _json_response(self, {"error": "not initialized"}, 503)
+            try:
+                _priv, node_id = load_or_create_node_identity(_config.data_dir)
+                node_id_short = node_id[:16]
+
+                tags = ["arbitration", "dispute"]
+                extra = body.get("tags", [])
+                if isinstance(extra, str):
+                    extra = [t.strip() for t in extra.split(",") if t.strip()]
+                tags.extend(extra)
+                desc = body.get("description", "Dispute arbitration service")
+
+                # Try registering capability
+                try:
+                    from oasyce_core.capabilities.registry import CapabilityRegistry
+                    from oasyce_core.capabilities.models import CapabilityMetadata, PricingConfig
+                    registry = CapabilityRegistry()
+                    cap = CapabilityMetadata(
+                        capability_id=f"arb_{node_id_short}",
+                        name=f"Arbitrator {node_id_short}",
+                        provider=node_id_short,
+                        description=desc,
+                        tags=tags,
+                        intents=["dispute_arbitrate"],
+                        pricing=PricingConfig(base_price=0.0),
+                    )
+                    registry.register(cap)
+                except ImportError:
+                    pass
+
+                role = load_node_role(_config.data_dir)
+                if "arbitrator" not in role.get("roles", []):
+                    role.setdefault("roles", []).append("arbitrator")
+                role["arbitrator_tags"] = tags
+                # Save AI provider config if provided
+                api_provider = body.get("api_provider", "")
+                api_key = body.get("api_key", "")
+                api_endpoint = body.get("api_endpoint", "")
+                if api_provider:
+                    role["api_provider"] = api_provider
+                if api_key:
+                    role["api_key_set"] = True
+                    _save_api_key(_config.data_dir, api_key)
+                if api_endpoint:
+                    role["api_endpoint"] = api_endpoint
+                save_node_role(_config.data_dir, role)
+
+                return _json_response(self, {
+                    "ok": True, "node_id": node_id_short,
+                    "role": "arbitrator", "tags": tags,
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        # ── Save AI API key (standalone) ─────────────────────────
+        if path == "/api/node/api-key":
+            from oasyce_plugin.config import load_node_role, save_node_role
+            if not _config:
+                return _json_response(self, {"error": "not initialized"}, 503)
+            try:
+                api_provider = body.get("api_provider", "")
+                api_key = body.get("api_key", "")
+                api_endpoint = body.get("api_endpoint", "")
+                if not api_provider:
+                    return _json_response(self, {"error": "api_provider required"}, 400)
+
+                role = load_node_role(_config.data_dir)
+                role["api_provider"] = api_provider
+                if api_endpoint:
+                    role["api_endpoint"] = api_endpoint
+                if api_key:
+                    role["api_key_set"] = True
+                    _save_api_key(_config.data_dir, api_key)
+                save_node_role(_config.data_dir, role)
+                return _json_response(self, {"ok": True, "api_provider": api_provider})
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        # ── Work evaluate (POST) ──────────────────────────────────
+        if path == "/api/work/evaluate":
+            if not _config:
+                return _json_response(self, {"error": "not initialized"}, 503)
+            from oasyce_plugin.services.work_value import WorkValueEngine
+            db_path = os.path.join(_config.data_dir, "work.db")
+            engine = WorkValueEngine(db_path=db_path)
+            task_id = body.get("task_id", "")
+            quality = float(body.get("quality_score", 0.8))
+            rep_bonus = float(body.get("reputation_bonus", 0.0))
+            if not task_id:
+                engine.close()
+                return _json_response(self, {"error": "task_id required"}, 400)
+            result = engine.evaluate_task(task_id, quality_score=quality, reputation_bonus=rep_bonus)
+            if result is None:
+                engine.close()
+                return _json_response(self, {"error": "task not found or not in completed state"}, 400)
+            # Auto-settle after evaluation
+            engine.settle_task(task_id)
+            settled = engine.get_task(task_id)
+            engine.close()
+            return _json_response(self, {"ok": True, "task": settled.to_dict() if settled else result.to_dict()})
+
         # ── Capability routes (POST) ─────────────────────────────
         if path == "/api/capability/register":
             result = _api_capability_register(body)
@@ -1156,6 +1445,63 @@ class _Handler(BaseHTTPRequestHandler):
             result = _api_capability_invoke(body)
             status = 200 if result.get("ok") else 400
             return _json_response(self, result, status)
+
+        # ── Consensus POST routes ──────────────────────────────────
+        if path == "/api/consensus/delegate":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode, load_or_create_node_identity
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                _priv, pubkey = load_or_create_node_identity(_config.data_dir)
+                from oasyce_plugin.consensus.core.types import to_units
+                validator_id = body.get("validator_id", "")
+                amount = float(body.get("amount", 0))
+                if not validator_id or amount <= 0:
+                    return _json_response(self, {"error": "validator_id and amount required"}, 400)
+                result = engine.delegate(pubkey, validator_id, to_units(amount))
+                status_code = 200 if result.get("ok") else 400
+                return _json_response(self, result, status_code)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
+
+        if path == "/api/consensus/undelegate":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode, load_or_create_node_identity
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                _priv, pubkey = load_or_create_node_identity(_config.data_dir)
+                from oasyce_plugin.consensus.core.types import to_units
+                validator_id = body.get("validator_id", "")
+                amount = float(body.get("amount", 0))
+                if not validator_id or amount <= 0:
+                    return _json_response(self, {"error": "validator_id and amount required"}, 400)
+                result = engine.undelegate(pubkey, validator_id, to_units(amount))
+                status_code = 200 if result.get("ok") else 400
+                return _json_response(self, result, status_code)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
 
         if path == "/api/fingerprint/embed":
             try:

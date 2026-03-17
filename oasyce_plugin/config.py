@@ -50,19 +50,52 @@ TESTNET_NETWORK_CONFIG = NetworkConfig(
 
 
 # ── Testnet 经济参数（加速体验）────────────────────────────────────
+# All monetary values in integer units (1 OAS = 10^8 units)
+_OAS = 10 ** 8  # units per OAS
+
 TESTNET_ECONOMICS = {
-    "block_reward": 40.0,        # 10x mainnet（快速积累）
-    "min_stake": 100.0,          # 1/100 mainnet（低门槛）
-    "agent_stake": 1.0,          # 极低门槛
-    "halving_interval": 10000,   # 更快减半（测试用）
+    "block_reward": 40 * _OAS,          # 10x mainnet（快速积累）
+    "min_stake": 100 * _OAS,            # 1/100 mainnet（低门槛）
+    "agent_stake": 1 * _OAS,            # 极低门槛
+    "halving_interval": 10000,          # blocks, not money
 }
 
 MAINNET_ECONOMICS = {
-    "block_reward": 4.0,
-    "min_stake": 10000.0,
-    "agent_stake": 100.0,
+    "block_reward": 4 * _OAS,
+    "min_stake": 10000 * _OAS,
+    "agent_stake": 100 * _OAS,
     "halving_interval": 1_051_200,
 }
+
+
+# ── Consensus parameters ─────────────────────────────────────────
+TESTNET_CONSENSUS = {
+    "epoch_duration": 300,       # 5 minutes (wall-clock fallback)
+    "slots_per_epoch": 10,
+    "slot_duration": 30,         # 30 seconds (wall-clock fallback)
+    "unbonding_period": 600,     # 10 minutes (wall-clock fallback)
+    "jail_duration": 120,        # 2 minutes (wall-clock fallback)
+    "blocks_per_epoch": 10,      # block-height based epoch
+    "unbonding_blocks": 20,      # unbonding in blocks
+    "chain_id": "oasyce-testnet-1",
+}
+
+MAINNET_CONSENSUS = {
+    "epoch_duration": 3600,      # 1 hour (wall-clock fallback)
+    "slots_per_epoch": 60,
+    "slot_duration": 60,         # 60 seconds (wall-clock fallback)
+    "unbonding_period": 604800,  # 7 days (wall-clock fallback)
+    "jail_duration": 86400,      # 1 day (wall-clock fallback)
+    "blocks_per_epoch": 60,      # block-height based epoch
+    "unbonding_blocks": 10080,   # ~7 days at 1 block/min
+    "chain_id": "oasyce-mainnet-1",
+}
+
+
+def get_consensus_params(mode: NetworkMode = NetworkMode.MAINNET) -> dict:
+    if mode == NetworkMode.TESTNET:
+        return dict(TESTNET_CONSENSUS)
+    return dict(MAINNET_CONSENSUS)
 
 
 # ── Node identity persistence ───────────────────────────────────────
@@ -90,6 +123,24 @@ def load_or_create_node_identity(data_dir: str) -> Tuple[str, str]:
         "created_at": time.time(),
     }, indent=2))
     return private_hex, public_hex
+
+
+def load_node_role(data_dir: str) -> dict:
+    """Load node role from disk. Returns {"roles": [], ...}."""
+    role_path = Path(data_dir) / "node_role.json"
+    if role_path.exists():
+        try:
+            return json.loads(role_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"roles": []}
+
+
+def save_node_role(data_dir: str, role_data: dict) -> None:
+    """Save node role to disk."""
+    role_path = Path(data_dir) / "node_role.json"
+    role_path.parent.mkdir(parents=True, exist_ok=True)
+    role_path.write_text(json.dumps(role_data, indent=2))
 
 
 def reset_node_identity(data_dir: str) -> Tuple[str, str]:

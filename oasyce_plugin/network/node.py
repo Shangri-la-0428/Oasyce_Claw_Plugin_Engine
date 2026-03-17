@@ -8,6 +8,7 @@ Supports persistent peer lists and bootstrap node connections.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -30,6 +31,7 @@ class PeerInfo:
 class OasyceNode:
     """Async TCP node that speaks JSON-newline protocol."""
 
+    MAX_MESSAGE_SIZE = 1_048_576  # 1 MB
     RATE_LIMIT_WINDOW = 10.0  # seconds
     RATE_LIMIT_MAX = 5  # max new_block messages per peer per window
 
@@ -40,15 +42,21 @@ class OasyceNode:
         node_id: Optional[str] = None,
         ledger: Any = None,
         data_dir: Optional[str] = None,
+        consensus_engine: Any = None,
+        validator_key: Optional[str] = None,
     ):
         self.host = host
         self.port = port
         self.node_id = node_id or "node_unknown"
         self.ledger = ledger
         self.data_dir = data_dir
+        self.consensus_engine = consensus_engine
+        self.validator_key = validator_key  # Ed25519 private key for block signing
         self.peers: Dict[str, PeerInfo] = {}
         self._server: Optional[asyncio.AbstractServer] = None
         self._started = False
+        self._consensus_task: Optional[asyncio.Task] = None
+        self._last_processed_epoch: Optional[int] = None
         self._block_rate: Dict[str, List[float]] = defaultdict(list)
 
         # Load persisted peers
@@ -117,11 +125,22 @@ class OasyceNode:
         self._started = True
         logger.info("Oasyce node %s listening on %s:%s", self.node_id, self.host, self.port)
 
+        if self.consensus_engine is not None:
+            self._consensus_task = asyncio.create_task(self._consensus_tick())
+            logger.info("Consensus tick started for node %s", self.node_id)
+
         if bootstrap:
             await self._connect_bootstrap()
             await self._reconnect_saved_peers()
 
     async def stop(self) -> None:
+        if self._consensus_task is not None:
+            self._consensus_task.cancel()
+            try:
+                await self._consensus_task
+            except asyncio.CancelledError:
+                pass
+            self._consensus_task = None
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
@@ -182,6 +201,71 @@ class OasyceNode:
             except Exception:
                 logger.debug("Saved peer %s:%s unreachable", peer.host, peer.port)
 
+    # ── consensus tick ─────────────────────────────────────────────
+
+    async def _consensus_tick(self) -> None:
+        """Background loop: propose blocks when we are the slot leader."""
+        ce = self.consensus_engine
+        slot_duration = ce.epoch_manager.slot_duration
+        try:
+            while True:
+                try:
+                    now = int(time.time())
+                    current_epoch = ce.epoch_manager.current_epoch(now)
+                    current_slot = ce.epoch_manager.current_slot(now)
+
+                    # Epoch boundary check
+                    if self._last_processed_epoch is None or current_epoch > self._last_processed_epoch:
+                        prev_block_hash = ""
+                        current_height = 0
+                        if self.ledger is not None:
+                            current_height = self.ledger.get_chain_height()
+                            if current_height > 0:
+                                tip = self.ledger.get_block(current_height - 1)
+                                if tip:
+                                    prev_block_hash = tip.get("block_hash", "")
+                        validator_metrics = {}
+                        active = ce.state.get_active_validators(min_stake=0)
+                        for v in active:
+                            vid = v if isinstance(v, str) else v.get("validator_id", v)
+                            proposed = ce.state.count_proposed_slots(current_epoch - 1, vid)
+                            assigned = ce.state.count_assigned_slots(current_epoch - 1, vid)
+                            validator_metrics[vid] = {
+                                "validator_id": vid,
+                                "blocks_proposed": proposed,
+                                "work_value": 0,
+                            }
+                        ce.on_epoch_boundary(
+                            current_epoch,
+                            prev_block_hash,
+                            current_height,
+                            list(validator_metrics.values()),
+                        )
+                        self._last_processed_epoch = current_epoch
+                        logger.info("Epoch boundary processed: epoch %d", current_epoch)
+
+                    # Check if we are the proposer for the current slot
+                    if ce.verify_proposer(current_epoch, current_slot, self.node_id):
+                        if self.ledger is not None:
+                            block = self.ledger.create_block(
+                                validator_key=self.validator_key,
+                                validator_pubkey=self.node_id,
+                            )
+                            if block:
+                                await self.broadcast_block(block)
+                                logger.info(
+                                    "Proposed block at epoch=%d slot=%d", current_epoch, current_slot,
+                                )
+                        ce.state.mark_slot_proposed(current_epoch, current_slot)
+
+                except Exception:
+                    logger.exception("Error in consensus tick")
+
+                await asyncio.sleep(slot_duration)
+        except asyncio.CancelledError:
+            logger.info("Consensus tick cancelled for node %s", self.node_id)
+            raise
+
     # ── connection handler ───────────────────────────────────────────
 
     async def _handle_connection(
@@ -192,7 +276,16 @@ class OasyceNode:
         logger.debug("Connection from %s", addr)
         try:
             while True:
-                line = await reader.readline()
+                try:
+                    line = await reader.readuntil(b'\n')
+                    if len(line) > self.MAX_MESSAGE_SIZE:
+                        logger.warning("Oversized message from %s (%d bytes), dropping", peer_key, len(line))
+                        continue
+                except asyncio.LimitOverrunError:
+                    logger.warning("Message from %s exceeded buffer limit, closing", peer_key)
+                    break
+                except asyncio.IncompleteReadError:
+                    break
                 if not line:
                     break
                 try:
@@ -238,6 +331,7 @@ class OasyceNode:
             "get_height": self._handle_get_height,
             "new_block": self._handle_new_block,
             "get_chain": self._handle_get_chain,
+            "get_epoch_info": self._handle_get_epoch_info,
         }.get(msg_type)
         if handler is None:
             return {"type": "error", "message": f"unknown type: {msg_type}"}
@@ -280,15 +374,86 @@ class OasyceNode:
             logger.info("Received new_block broadcast but no block data or ledger")
             return {"type": "ack", "status": "ignored"}
 
-        bn = block_data.get("block_number")
-        bh = block_data.get("block_hash")
+        # Validate required fields
+        required_fields = ("block_number", "block_hash", "prev_hash", "merkle_root", "timestamp")
+        for f in required_fields:
+            if f not in block_data:
+                logger.warning("new_block missing required field: %s", f)
+                return {"type": "ack", "status": "rejected"}
 
-        # Check for fork: same height but different hash
-        if bn is not None:
-            existing = self.ledger.get_block(bn)
-            if existing is not None and existing["block_hash"] != bh:
-                logger.info("Fork detected at height %d, marking for reorg", bn)
-                return {"type": "ack", "status": "fork_detected"}
+        bn = block_data["block_number"]
+        bh = block_data["block_hash"]
+
+        # Check for fork FIRST: same height but different hash
+        existing = self.ledger.get_block(bn)
+        if existing is not None and existing["block_hash"] != bh:
+            logger.info("Fork detected at height %d, marking for reorg", bn)
+            return {"type": "ack", "status": "fork_detected"}
+
+        # Verify proposer via consensus engine — use block timestamp, not current time
+        if self.consensus_engine is not None:
+            ce = self.consensus_engine
+            if "validator_pubkey" not in block_data:
+                logger.warning("Block missing validator_pubkey, rejected")
+                return {"type": "ack", "status": "rejected"}
+            # Parse block timestamp to derive epoch/slot the block claims
+            try:
+                from datetime import datetime, timezone
+                block_ts = block_data["timestamp"]
+                if isinstance(block_ts, str):
+                    dt = datetime.fromisoformat(block_ts.replace("Z", "+00:00"))
+                    block_unix = int(dt.timestamp())
+                else:
+                    block_unix = int(block_ts)
+            except (ValueError, TypeError):
+                logger.warning("Block has unparseable timestamp: %s", block_data["timestamp"])
+                return {"type": "ack", "status": "rejected"}
+            # Reject future blocks (>1 slot tolerance)
+            now_unix = int(time.time())
+            if block_unix > now_unix + ce.epoch_manager.slot_duration:
+                logger.warning("Block timestamp %d is in the future (now=%d)", block_unix, now_unix)
+                return {"type": "ack", "status": "rejected"}
+            epoch = ce.epoch_manager.current_epoch(block_unix)
+            slot = ce.epoch_manager.current_slot(block_unix)
+            if not ce.verify_proposer(epoch, slot, block_data["validator_pubkey"]):
+                logger.warning(
+                    "Block proposer %s is not the expected leader for epoch=%d slot=%d",
+                    block_data["validator_pubkey"], epoch, slot,
+                )
+                return {"type": "ack", "status": "rejected"}
+
+        # Mandatory signature verification when consensus is enabled
+        if self.consensus_engine is not None:
+            if "validator_signature" not in block_data:
+                logger.warning("Block missing signature, rejected (consensus requires signed blocks)")
+                return {"type": "ack", "status": "rejected"}
+
+        # Verify validator signature if present
+        if "validator_signature" in block_data and "validator_pubkey" in block_data:
+            from oasyce_plugin.crypto.keys import verify
+            # Recompute expected hash for signature verification (includes chain_id)
+            chain_id = ""
+            if self.consensus_engine is not None:
+                chain_id = getattr(self.consensus_engine, "chain_id", "")
+            if chain_id:
+                from oasyce_plugin.consensus.execution.engine import compute_block_hash
+                expected_hash = compute_block_hash(
+                    chain_id, bn, block_data['prev_hash'],
+                    block_data['merkle_root'], int(block_data['timestamp']) if isinstance(block_data['timestamp'], (int, float)) else 0,
+                )
+            else:
+                hash_input = f"{bn}{block_data['prev_hash']}{block_data['merkle_root']}{block_data['timestamp']}"
+                expected_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+            if bh != expected_hash:
+                logger.warning("Signed block hash mismatch: expected %s, got %s", expected_hash, bh)
+                return {"type": "ack", "status": "rejected"}
+            if not verify(
+                expected_hash.encode(),
+                block_data["validator_signature"],
+                block_data["validator_pubkey"],
+            ):
+                logger.warning("new_block has invalid validator signature")
+                return {"type": "ack", "status": "rejected"}
 
         ok = self.ledger.insert_remote_block(block_data)
         if ok:
@@ -304,6 +469,12 @@ class OasyceNode:
             return {"type": "chain", "blocks": []}
         blocks = self.ledger.get_chain_from(int(start))
         return {"type": "chain", "blocks": blocks}
+
+    def _handle_get_epoch_info(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        if self.consensus_engine is None:
+            return {"type": "epoch_info", "error": "consensus not enabled"}
+        now = int(time.time())
+        return {"type": "epoch_info", **self.consensus_engine.status(now)}
 
     # ── outbound ─────────────────────────────────────────────────────
 
@@ -374,6 +545,18 @@ class OasyceNode:
         remote_chain = resp.get("blocks", [])
         if not remote_chain:
             return False
+
+        # Validate chain linkage: each block's prev_hash must match the previous block's block_hash
+        for i in range(1, len(remote_chain)):
+            prev_block = remote_chain[i - 1]
+            curr_block = remote_chain[i]
+            if curr_block.get("prev_hash") != prev_block.get("block_hash"):
+                logger.warning(
+                    "Remote chain broken at index %d: prev_hash %s != previous block_hash %s",
+                    i, curr_block.get("prev_hash"), prev_block.get("block_hash"),
+                )
+                return False
+
         return self.ledger.attempt_reorg(remote_chain)
 
     async def broadcast_block(self, block_data: Dict[str, Any]) -> None:

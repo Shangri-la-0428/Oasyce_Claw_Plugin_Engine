@@ -17,6 +17,7 @@ from oasyce_plugin.config import (
     get_data_dir,
     get_economics,
 )
+from oasyce_plugin.consensus.core.types import to_units
 from oasyce_plugin.services.faucet import Faucet
 from oasyce_plugin.services.testnet import TestnetOnboarding
 
@@ -126,7 +127,7 @@ class TestOnboarding:
 
         # Should have enough to stake (10000 >= 100)
         assert result["stake_result"]["staked"] is True
-        assert result["stake_result"]["amount"] == TESTNET_ECONOMICS["min_stake"]
+        assert result["stake_result"]["amount"] == 100.0  # display OAS (from_units applied in onboarding)
 
         # Summary: 1 simulation label + 3 steps
         assert len(result["summary"]) == 4
@@ -151,9 +152,9 @@ class TestOnboarding:
 class TestTestnetConfig:
     def test_testnet_config(self):
         """Testnet economics parameters are correct."""
-        assert TESTNET_ECONOMICS["block_reward"] == 40.0
-        assert TESTNET_ECONOMICS["min_stake"] == 100.0
-        assert TESTNET_ECONOMICS["agent_stake"] == 1.0
+        assert TESTNET_ECONOMICS["block_reward"] == to_units(40)
+        assert TESTNET_ECONOMICS["min_stake"] == to_units(100)
+        assert TESTNET_ECONOMICS["agent_stake"] == to_units(1)
         assert TESTNET_ECONOMICS["halving_interval"] == 10000
 
     def test_testnet_economics_differ_from_mainnet(self):
@@ -188,5 +189,5 @@ class TestTestnetConfig:
         """get_economics returns correct params for each mode."""
         main_econ = get_economics(NetworkMode.MAINNET)
         test_econ = get_economics(NetworkMode.TESTNET)
-        assert main_econ["min_stake"] == 10000.0
-        assert test_econ["min_stake"] == 100.0
+        assert main_econ["min_stake"] == to_units(10000)
+        assert test_econ["min_stake"] == to_units(100)

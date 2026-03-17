@@ -732,6 +732,159 @@ def cmd_node_peers(args):
             print(f"  {p.get('node_id', '?')[:16]}  {p['host']}:{p['port']}")
 
 
+def cmd_node_become_validator(args):
+    """Register this node as a validator by staking OAS."""
+    from oasyce_plugin.config import load_or_create_node_identity, load_node_role, save_node_role, get_economics
+
+    config = Config.from_env()
+    priv_key, node_id = load_or_create_node_identity(config.data_dir)
+    node_id_short = node_id[:16]
+
+    from oasyce_plugin.consensus.core.types import from_units
+    economics = get_economics()
+    min_stake = economics["min_stake"]
+    amount_oas = args.amount or from_units(min_stake)
+
+    if amount_oas < from_units(min_stake):
+        print(f"Minimum stake is {from_units(min_stake):.0f} OAS")
+        return
+    amount = amount_oas  # bridge_stake uses OAS float
+
+    try:
+        from oasyce_plugin.bridge.core_bridge import bridge_stake
+        total = bridge_stake(node_id_short, amount)
+    except Exception as e:
+        print(f"Staking failed: {e}")
+        return
+
+    # Save role
+    role = load_node_role(config.data_dir)
+    if "validator" not in role.get("roles", []):
+        role.setdefault("roles", []).append("validator")
+    role["validator_stake"] = total
+
+    # Save API key if provided
+    api_key = getattr(args, "api_key", None)
+    api_provider = getattr(args, "api_provider", None)
+    api_endpoint = getattr(args, "api_endpoint", None)
+    if api_key:
+        from pathlib import Path as _P
+        key_file = _P(config.data_dir) / "ai_api_key"
+        key_file.parent.mkdir(parents=True, exist_ok=True)
+        key_file.write_text(api_key)
+        try:
+            key_file.chmod(0o600)
+        except OSError:
+            pass
+        role["api_key_set"] = True
+    if api_provider:
+        role["api_provider"] = api_provider
+    if api_endpoint:
+        role["api_endpoint"] = api_endpoint
+    save_node_role(config.data_dir, role)
+
+    if args.json:
+        print(json.dumps({"ok": True, "node_id": node_id_short, "role": "validator", "staked": total}, indent=2))
+    else:
+        print(f"Node {node_id_short} is now a validator")
+        print(f"  Staked: {total} OAS")
+        print(f"  Min stake: {from_units(min_stake):.0f} OAS")
+        if api_key:
+            print(f"  AI API key: configured ({api_provider or 'claude'})")
+
+
+def cmd_node_become_arbitrator(args):
+    """Register this node as an arbitrator by publishing arbitration capability."""
+    from oasyce_plugin.config import load_or_create_node_identity, load_node_role, save_node_role
+
+    config = Config.from_env()
+    _priv, node_id = load_or_create_node_identity(config.data_dir)
+    node_id_short = node_id[:16]
+
+    tags = ["arbitration", "dispute"]
+    if args.tags:
+        tags.extend(t.strip() for t in args.tags.split(",") if t.strip())
+
+    # Register arbitration capability
+    try:
+        from oasyce_core.capabilities.registry import CapabilityRegistry
+        registry = CapabilityRegistry()
+        from oasyce_core.capabilities.models import CapabilityMetadata, PricingConfig
+        cap = CapabilityMetadata(
+            capability_id=f"arb_{node_id_short}",
+            name=f"Arbitrator {node_id_short}",
+            provider=node_id_short,
+            description=args.description or "Dispute arbitration service",
+            tags=tags,
+            intents=["dispute_arbitrate"],
+            pricing=PricingConfig(base_price=0.0),
+        )
+        registry.register(cap)
+    except ImportError:
+        # Fallback: just save role locally without oasyce_core
+        pass
+
+    # Save role
+    role = load_node_role(config.data_dir)
+    if "arbitrator" not in role.get("roles", []):
+        role.setdefault("roles", []).append("arbitrator")
+    role["arbitrator_tags"] = tags
+
+    # Save API key if provided
+    api_key = getattr(args, "api_key", None)
+    api_provider = getattr(args, "api_provider", None)
+    api_endpoint = getattr(args, "api_endpoint", None)
+    if api_key:
+        from pathlib import Path as _P
+        key_file = _P(config.data_dir) / "ai_api_key"
+        key_file.parent.mkdir(parents=True, exist_ok=True)
+        key_file.write_text(api_key)
+        try:
+            key_file.chmod(0o600)
+        except OSError:
+            pass
+        role["api_key_set"] = True
+    if api_provider:
+        role["api_provider"] = api_provider
+    if api_endpoint:
+        role["api_endpoint"] = api_endpoint
+    save_node_role(config.data_dir, role)
+
+    if args.json:
+        print(json.dumps({"ok": True, "node_id": node_id_short, "role": "arbitrator", "tags": tags}, indent=2))
+    else:
+        print(f"Node {node_id_short} is now an arbitrator")
+        print(f"  Tags: {', '.join(tags)}")
+        print(f"  Discoverable via: oasyce discover --intents dispute_arbitrate")
+        if api_key:
+            print(f"  AI API key: configured ({api_provider or 'claude'})")
+
+
+def cmd_node_role(args):
+    """Show current node role."""
+    from oasyce_plugin.config import load_or_create_node_identity, load_node_role
+
+    config = Config.from_env()
+    _priv, node_id = load_or_create_node_identity(config.data_dir)
+    node_id_short = node_id[:16]
+    role = load_node_role(config.data_dir)
+
+    roles = role.get("roles", [])
+    if args.json:
+        print(json.dumps({"node_id": node_id_short, **role}, indent=2))
+    else:
+        if not roles:
+            print(f"Node {node_id_short}: no special role (standard peer)")
+            print(f"  Use 'oasyce node become-validator' or 'oasyce node become-arbitrator'")
+        else:
+            print(f"Node {node_id_short}")
+            for r in roles:
+                if r == "validator":
+                    print(f"  Validator — staked: {role.get('validator_stake', 0)} OAS")
+                elif r == "arbitrator":
+                    print(f"  Arbitrator — tags: {', '.join(role.get('arbitrator_tags', []))}")
+
+
 def cmd_node_ping(args):
     """Ping another Oasyce node."""
     import asyncio
@@ -1329,8 +1482,9 @@ def cmd_testnet_status(args):
         print(f"  Chain height: {height}")
         print(f"  Known peers:  {peers_count}")
         print(f"  Balance:      {balance:.0f} test OAS")
-        print(f"  Min stake:    {economics['min_stake']:.0f} test OAS")
-        print(f"  Block reward: {economics['block_reward']:.0f} test OAS")
+        from oasyce_plugin.consensus.core.types import from_units
+        print(f"  Min stake:    {from_units(economics['min_stake']):.0f} test OAS")
+        print(f"  Block reward: {from_units(economics['block_reward']):.0f} test OAS")
 
 
 def cmd_testnet_onboard(args):
@@ -1744,6 +1898,446 @@ def cmd_doctor(args):
     print()
 
 
+def cmd_work_list(args):
+    """List work tasks."""
+    from oasyce_plugin.services.work_value import WorkValueEngine
+
+    config = Config.from_env()
+    db_path = os.path.join(config.data_dir, "work.db")
+    engine = WorkValueEngine(db_path=db_path)
+
+    status = getattr(args, "status", None)
+    task_type = getattr(args, "type", None)
+    tasks = engine.list_tasks(status=status, task_type=task_type, limit=args.limit)
+    engine.close()
+
+    if args.json:
+        print(json.dumps([t.to_dict() for t in tasks], indent=2))
+    else:
+        if not tasks:
+            print("No tasks found.")
+            return
+        print(f"Tasks ({len(tasks)}):")
+        for t in tasks:
+            worker = t.assigned_to or "-"
+            val = f"{t.final_value:.2f}" if t.final_value else "-"
+            print(f"  {t.task_id}  {t.task_type:<14s}  {t.status:<10s}  worker={worker}  value={val} OAS")
+
+
+def cmd_work_stats(args):
+    """Show work system stats."""
+    from oasyce_plugin.services.work_value import WorkValueEngine
+    from oasyce_plugin.config import load_or_create_node_identity
+
+    config = Config.from_env()
+    db_path = os.path.join(config.data_dir, "work.db")
+    engine = WorkValueEngine(db_path=db_path)
+    _priv, node_id = load_or_create_node_identity(config.data_dir)
+    node_id_short = node_id[:16]
+
+    global_s = engine.global_stats()
+    worker_s = engine.worker_stats(node_id_short)
+    engine.close()
+
+    if args.json:
+        print(json.dumps({"global": global_s, "worker": worker_s}, indent=2))
+    else:
+        print("Global:")
+        print(f"  Total tasks:    {global_s['total_tasks']}")
+        for st, cnt in global_s.get("by_status", {}).items():
+            print(f"    {st}: {cnt}")
+        print(f"  Total settled:  {global_s['total_value_settled']:.4f} OAS")
+        print()
+        print(f"Your node ({node_id_short}):")
+        print(f"  Tasks done:     {worker_s['total_tasks']}")
+        print(f"  Settled:        {worker_s['settled']}")
+        print(f"  Failed:         {worker_s['failed']}")
+        print(f"  Total earned:   {worker_s['total_earned']:.4f} OAS")
+        print(f"  Avg quality:    {worker_s['avg_quality']:.4f}")
+
+
+def cmd_work_history(args):
+    """Show work history for this node."""
+    from oasyce_plugin.services.work_value import WorkValueEngine
+    from oasyce_plugin.config import load_or_create_node_identity
+
+    config = Config.from_env()
+    db_path = os.path.join(config.data_dir, "work.db")
+    engine = WorkValueEngine(db_path=db_path)
+    _priv, node_id = load_or_create_node_identity(config.data_dir)
+    node_id_short = node_id[:16]
+
+    tasks = engine.list_tasks(worker_id=node_id_short, limit=args.limit)
+    engine.close()
+
+    if args.json:
+        print(json.dumps([t.to_dict() for t in tasks], indent=2))
+    else:
+        if not tasks:
+            print("No work history.")
+            return
+        print(f"Work history ({len(tasks)}):")
+        for t in tasks:
+            val = f"{t.final_value:.2f}" if t.final_value else "-"
+            print(f"  {t.task_id}  {t.task_type:<14s}  {t.status:<10s}  value={val} OAS  trigger={t.trigger_tx}")
+
+
+def cmd_node_api_key(args):
+    """Set AI API key for this node."""
+    from oasyce_plugin.config import load_node_role, save_node_role
+
+    config = Config.from_env()
+    api_key = args.api_key
+    provider = getattr(args, "provider", "claude") or "claude"
+    endpoint = getattr(args, "endpoint", None)
+
+    # Save key to secure file
+    from pathlib import Path as _P
+    key_file = _P(config.data_dir) / "ai_api_key"
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    key_file.write_text(api_key)
+    try:
+        key_file.chmod(0o600)
+    except OSError:
+        pass
+
+    # Update role with provider info
+    role = load_node_role(config.data_dir)
+    role["api_provider"] = provider
+    role["api_key_set"] = True
+    if endpoint:
+        role["api_endpoint"] = endpoint
+    save_node_role(config.data_dir, role)
+
+    if args.json:
+        print(json.dumps({"ok": True, "provider": provider, "api_key_set": True}))
+    else:
+        print(f"AI API key saved ({provider})")
+        if endpoint:
+            print(f"  Endpoint: {endpoint}")
+
+
+# ── Consensus commands ─────────────────────────────────────────────
+
+
+def _get_consensus_engine(args):
+    """Create a ConsensusEngine from config."""
+    from oasyce_plugin.consensus import ConsensusEngine
+    from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode
+
+    config = Config.from_env()
+    mode = NetworkMode.TESTNET  # default to testnet for now
+    consensus_db = os.path.join(config.data_dir, "consensus.db")
+    return ConsensusEngine(
+        db_path=consensus_db,
+        consensus_params=get_consensus_params(mode),
+        economics=get_economics(mode),
+    )
+
+
+def cmd_consensus_status(args):
+    """Show current consensus status."""
+    engine = _get_consensus_engine(args)
+    try:
+        status = engine.status()
+        if args.json:
+            print(json.dumps(status, indent=2))
+        else:
+            print(f"Consensus Status:")
+            print(f"  Epoch:             {status['current_epoch']}")
+            print(f"  Slot:              {status['current_slot']} / {status['slots_per_epoch']}")
+            print(f"  Active validators: {status['active_validators']}")
+            from oasyce_plugin.consensus.core.types import from_units
+            print(f"  Total staked:      {from_units(status['total_staked']):.2f} OAS")
+            print(f"  Next epoch in:     {status['time_until_next_epoch']}s")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_validators(args):
+    """List validators."""
+    engine = _get_consensus_engine(args)
+    try:
+        include_inactive = getattr(args, "all", False)
+        validators = engine.get_validators(include_inactive=include_inactive)
+        if args.json:
+            print(json.dumps(validators, indent=2))
+        else:
+            if not validators:
+                print("No validators registered.")
+                return
+            print(f"Validators ({len(validators)}):")
+            for v in validators:
+                from oasyce_plugin.consensus.core.types import from_units
+                print(f"  {v['validator_id'][:16]}  stake={from_units(v['total_stake']):.2f}  "
+                      f"commission={v['commission_rate'] / 100:.0f}%  status={v['status']}  "
+                      f"blocks={v['blocks_proposed']}  rewards={from_units(v['total_rewards']):.2f}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_schedule(args):
+    """Show leader schedule for an epoch."""
+    engine = _get_consensus_engine(args)
+    try:
+        epoch = getattr(args, "epoch", None)
+        if epoch is None:
+            epoch = engine.epoch_manager.current_epoch()
+        schedule = engine.get_schedule(epoch)
+        if args.json:
+            print(json.dumps({"epoch": epoch, "schedule": schedule}, indent=2))
+        else:
+            if not schedule:
+                print(f"No schedule for epoch {epoch}.")
+                return
+            print(f"Leader schedule for epoch {epoch} ({len(schedule)} slots):")
+            for s in schedule:
+                mark = "*" if s.get("proposed") else " "
+                print(f"  [{mark}] slot {s['slot_index']:3d}  {s['validator_id'][:16]}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_register(args):
+    """Register as a validator."""
+    from oasyce_plugin.config import load_or_create_node_identity
+
+    config = Config.from_env()
+    _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    engine = _get_consensus_engine(args)
+    try:
+        from oasyce_plugin.consensus.core.types import to_units
+        commission_pct = getattr(args, "commission", 0.10) or 0.10
+        commission_bps = int(commission_pct * 10000)
+        stake_units = to_units(args.stake)
+        result = engine.register_validator(pubkey, stake_units, commission_bps)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            if result.get("ok"):
+                print(f"Registered as validator: {pubkey[:16]}")
+                print(f"  Self-stake: {args.stake:.2f} OAS")
+                print(f"  Commission: {commission_pct:.0%}")
+            else:
+                print(f"Registration failed: {result.get('error')}", file=sys.stderr)
+                sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_exit(args):
+    """Voluntary exit as validator."""
+    from oasyce_plugin.config import load_or_create_node_identity
+
+    config = Config.from_env()
+    _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    engine = _get_consensus_engine(args)
+    try:
+        result = engine.exit_validator(pubkey)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            if result.get("ok"):
+                print(f"Validator {pubkey[:16]} exited. Stake entering unbonding period.")
+            else:
+                print(f"Exit failed: {result.get('error')}", file=sys.stderr)
+                sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_unjail(args):
+    """Unjail validator."""
+    from oasyce_plugin.config import load_or_create_node_identity
+
+    config = Config.from_env()
+    _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    engine = _get_consensus_engine(args)
+    try:
+        result = engine.unjail_validator(pubkey)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            if result.get("ok"):
+                print(f"Validator {pubkey[:16]} unjailed.")
+            else:
+                print(f"Unjail failed: {result.get('error')}", file=sys.stderr)
+                sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_delegate(args):
+    """Delegate stake to a validator."""
+    from oasyce_plugin.config import load_or_create_node_identity
+
+    config = Config.from_env()
+    _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    engine = _get_consensus_engine(args)
+    try:
+        from oasyce_plugin.consensus.core.types import to_units
+        amount_units = to_units(args.amount)
+        result = engine.delegate(pubkey, args.validator_id, amount_units)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            if result.get("ok"):
+                print(f"Delegated {args.amount:.2f} OAS to {args.validator_id[:16]}")
+            else:
+                print(f"Delegation failed: {result.get('error')}", file=sys.stderr)
+                sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_undelegate(args):
+    """Undelegate stake from a validator."""
+    from oasyce_plugin.config import load_or_create_node_identity
+
+    config = Config.from_env()
+    _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    engine = _get_consensus_engine(args)
+    try:
+        from oasyce_plugin.consensus.core.types import to_units
+        amount_units = to_units(args.amount)
+        result = engine.undelegate(pubkey, args.validator_id, amount_units)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            if result.get("ok"):
+                print(f"Undelegated {args.amount:.2f} OAS from {args.validator_id[:16]}")
+                print(f"  Unbonding period: {result.get('unbonding_period', 0)}s")
+            else:
+                print(f"Undelegation failed: {result.get('error')}", file=sys.stderr)
+                sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_rewards(args):
+    """Show reward history."""
+    engine = _get_consensus_engine(args)
+    try:
+        epoch = getattr(args, "epoch", None)
+        rewards = engine.get_rewards(epoch_number=epoch)
+        if args.json:
+            print(json.dumps(rewards, indent=2))
+        else:
+            if not rewards:
+                print("No rewards found.")
+                return
+            print(f"Reward events ({len(rewards)}):")
+            for r in rewards:
+                from oasyce_plugin.consensus.core.types import from_units
+                print(f"  epoch={r['epoch_number']}  {r['recipient'][:16]}  "
+                      f"type={r['reward_type']}  amount={from_units(r['amount']):.4f} OAS")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_slashing(args):
+    """Show slashing history."""
+    engine = _get_consensus_engine(args)
+    try:
+        validator = getattr(args, "validator", None)
+        events = engine.get_slashing(validator_id=validator)
+        if args.json:
+            print(json.dumps(events, indent=2))
+        else:
+            if not events:
+                print("No slashing events.")
+                return
+            print(f"Slash events ({len(events)}):")
+            for e in events:
+                from oasyce_plugin.consensus.core.types import from_units
+                print(f"  epoch={e['epoch_number']}  {e['validator_id'][:16]}  "
+                      f"reason={e['reason']}  amount={from_units(e['amount']):.4f} OAS")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_delegations(args):
+    """Show your delegations."""
+    from oasyce_plugin.config import load_or_create_node_identity
+    config = Config.from_env()
+    _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    engine = _get_consensus_engine(args)
+    try:
+        delegations = engine.get_delegations(pubkey)
+        if args.json:
+            print(json.dumps(delegations, indent=2))
+        else:
+            if not delegations:
+                print("No active delegations.")
+                return
+            print(f"Your delegations ({len(delegations)}):")
+            for d in delegations:
+                from oasyce_plugin.consensus.core.types import from_units
+                print(f"  → {d['validator_id'][:16]}  amount={from_units(d['amount']):.2f} OAS")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_consensus_unbondings(args):
+    """Show your pending unbondings."""
+    from oasyce_plugin.config import load_or_create_node_identity
+    config = Config.from_env()
+    _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    engine = _get_consensus_engine(args)
+    try:
+        unbondings = engine.get_unbondings(pubkey)
+        if args.json:
+            print(json.dumps(unbondings, indent=2))
+        else:
+            if not unbondings:
+                print("No pending unbondings.")
+                return
+            print(f"Pending unbondings ({len(unbondings)}):")
+            for u in unbondings:
+                import time as _time
+                remaining = max(0, u['release_at'] - int(_time.time()))
+                from oasyce_plugin.consensus.core.types import from_units
+                print(f"  ← {u['validator_id'][:16]}  amount={from_units(u['amount']):.2f} OAS  releases in {remaining}s")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="oasyce",
@@ -1858,6 +2452,7 @@ def main():
     node_start_parser.set_defaults(func=cmd_node_start)
 
     node_info_parser = node_sub.add_parser("info", help="Show node information")
+    node_info_parser.add_argument("--json", action="store_true", help="Output as JSON")
     node_info_parser.set_defaults(func=cmd_node_info)
 
     node_ping_parser = node_sub.add_parser("ping", help="Ping another node")
@@ -1870,6 +2465,34 @@ def main():
     node_peers_parser = node_sub.add_parser("peers", help="Show known peer list")
     node_peers_parser.add_argument("--json", action="store_true", help="Output as JSON")
     node_peers_parser.set_defaults(func=cmd_node_peers)
+
+    node_role_parser = node_sub.add_parser("role", help="Show current node role")
+    node_role_parser.add_argument("--json", action="store_true")
+    node_role_parser.set_defaults(func=cmd_node_role)
+
+    node_val_parser = node_sub.add_parser("become-validator", help="Register as a validator node")
+    node_val_parser.add_argument("--amount", type=float, default=None, help="Stake amount (default: minimum)")
+    node_val_parser.add_argument("--api-key", default=None, help="AI API key for compute tasks")
+    node_val_parser.add_argument("--api-provider", default=None, help="AI provider (claude/openai/ollama/local/custom)")
+    node_val_parser.add_argument("--api-endpoint", default=None, help="Custom AI endpoint URL")
+    node_val_parser.add_argument("--json", action="store_true")
+    node_val_parser.set_defaults(func=cmd_node_become_validator)
+
+    node_arb_parser = node_sub.add_parser("become-arbitrator", help="Register as an arbitrator node")
+    node_arb_parser.add_argument("--tags", default=None, help="Extra expertise tags (comma-separated)")
+    node_arb_parser.add_argument("--description", default=None, help="Arbitrator description")
+    node_arb_parser.add_argument("--api-key", default=None, help="AI API key for compute tasks")
+    node_arb_parser.add_argument("--api-provider", default=None, help="AI provider (claude/openai/ollama/local/custom)")
+    node_arb_parser.add_argument("--api-endpoint", default=None, help="Custom AI endpoint URL")
+    node_arb_parser.add_argument("--json", action="store_true")
+    node_arb_parser.set_defaults(func=cmd_node_become_arbitrator)
+
+    node_apikey_parser = node_sub.add_parser("api-key", help="Set AI API key for this node")
+    node_apikey_parser.add_argument("api_key", help="API key value")
+    node_apikey_parser.add_argument("--provider", default="claude", help="AI provider (default: claude)")
+    node_apikey_parser.add_argument("--endpoint", default=None, help="Custom endpoint URL")
+    node_apikey_parser.add_argument("--json", action="store_true")
+    node_apikey_parser.set_defaults(func=cmd_node_api_key)
 
     # Fingerprint command group
     fp_parser = subparsers.add_parser("fingerprint", help="Fingerprint watermarking")
@@ -2093,6 +2716,88 @@ def main():
     info_parser.add_argument("--json", action="store_true", help="Output as JSON")
     info_parser.set_defaults(func=cmd_info)
 
+    # ── work ──────────────────────────────────────────────────────
+    work_parser = subparsers.add_parser("work", help="Work task management")
+    work_sub = work_parser.add_subparsers(dest="work_command", help="Work sub-commands")
+
+    work_list_parser = work_sub.add_parser("list", help="List work tasks")
+    work_list_parser.add_argument("--status", default=None, help="Filter by status")
+    work_list_parser.add_argument("--type", default=None, help="Filter by task type")
+    work_list_parser.add_argument("--limit", type=int, default=20, help="Max results")
+    work_list_parser.add_argument("--json", action="store_true")
+    work_list_parser.set_defaults(func=cmd_work_list)
+
+    work_stats_parser = work_sub.add_parser("stats", help="Show work system stats")
+    work_stats_parser.add_argument("--json", action="store_true")
+    work_stats_parser.set_defaults(func=cmd_work_stats)
+
+    work_history_parser = work_sub.add_parser("history", help="Show your work history")
+    work_history_parser.add_argument("--limit", type=int, default=20, help="Max results")
+    work_history_parser.add_argument("--json", action="store_true")
+    work_history_parser.set_defaults(func=cmd_work_history)
+
+    # ── consensus ─────────────────────────────────────────────────
+    consensus_parser = subparsers.add_parser("consensus", help="PoS consensus management")
+    consensus_sub = consensus_parser.add_subparsers(dest="consensus_command", help="Consensus sub-commands")
+
+    cs_status_parser = consensus_sub.add_parser("status", help="Show current epoch/slot/validators")
+    cs_status_parser.add_argument("--json", action="store_true")
+    cs_status_parser.set_defaults(func=cmd_consensus_status)
+
+    cs_val_parser = consensus_sub.add_parser("validators", help="List validators")
+    cs_val_parser.add_argument("--all", action="store_true", help="Include jailed/exited")
+    cs_val_parser.add_argument("--json", action="store_true")
+    cs_val_parser.set_defaults(func=cmd_consensus_validators)
+
+    cs_sched_parser = consensus_sub.add_parser("schedule", help="Show leader schedule")
+    cs_sched_parser.add_argument("--epoch", type=int, default=None)
+    cs_sched_parser.add_argument("--json", action="store_true")
+    cs_sched_parser.set_defaults(func=cmd_consensus_schedule)
+
+    cs_reg_parser = consensus_sub.add_parser("register", help="Register as a validator")
+    cs_reg_parser.add_argument("--stake", type=float, required=True, help="Self-stake amount")
+    cs_reg_parser.add_argument("--commission", type=float, default=0.10, help="Commission rate (0-0.50)")
+    cs_reg_parser.add_argument("--json", action="store_true")
+    cs_reg_parser.set_defaults(func=cmd_consensus_register)
+
+    cs_exit_parser = consensus_sub.add_parser("exit", help="Voluntary exit")
+    cs_exit_parser.add_argument("--json", action="store_true")
+    cs_exit_parser.set_defaults(func=cmd_consensus_exit)
+
+    cs_unjail_parser = consensus_sub.add_parser("unjail", help="Unjail validator")
+    cs_unjail_parser.add_argument("--json", action="store_true")
+    cs_unjail_parser.set_defaults(func=cmd_consensus_unjail)
+
+    cs_del_parser = consensus_sub.add_parser("delegate", help="Delegate stake to a validator")
+    cs_del_parser.add_argument("validator_id", help="Validator public key")
+    cs_del_parser.add_argument("--amount", type=float, required=True, help="Amount to delegate")
+    cs_del_parser.add_argument("--json", action="store_true")
+    cs_del_parser.set_defaults(func=cmd_consensus_delegate)
+
+    cs_undel_parser = consensus_sub.add_parser("undelegate", help="Undelegate stake")
+    cs_undel_parser.add_argument("validator_id", help="Validator public key")
+    cs_undel_parser.add_argument("--amount", type=float, required=True, help="Amount to undelegate")
+    cs_undel_parser.add_argument("--json", action="store_true")
+    cs_undel_parser.set_defaults(func=cmd_consensus_undelegate)
+
+    cs_rewards_parser = consensus_sub.add_parser("rewards", help="Show reward history")
+    cs_rewards_parser.add_argument("--epoch", type=int, default=None)
+    cs_rewards_parser.add_argument("--json", action="store_true")
+    cs_rewards_parser.set_defaults(func=cmd_consensus_rewards)
+
+    cs_slash_parser = consensus_sub.add_parser("slashing", help="Show slashing history")
+    cs_slash_parser.add_argument("--validator", default=None)
+    cs_slash_parser.add_argument("--json", action="store_true")
+    cs_slash_parser.set_defaults(func=cmd_consensus_slashing)
+
+    p = consensus_sub.add_parser("delegations", help="Show your active delegations")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_consensus_delegations)
+
+    p = consensus_sub.add_parser("unbondings", help="Show your pending unbondings")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_consensus_unbondings)
+
     # ── doctor ──────────────────────────────────────────────────────
     doctor_parser = subparsers.add_parser("doctor", help="Security and readiness check")
     doctor_parser.set_defaults(func=cmd_doctor)
@@ -2143,6 +2848,10 @@ def main():
 
     if args.command == "testnet" and getattr(args, "testnet_command", None) is None:
         testnet_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "consensus" and getattr(args, "consensus_command", None) is None:
+        consensus_parser.print_help()
         sys.exit(0)
 
     args.func(args)

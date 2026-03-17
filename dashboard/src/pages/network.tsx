@@ -1,6 +1,5 @@
 /**
- * Network — 身份 + 水印工具
- * 风格对齐首页：构成主义极简，留白、线条、块面
+ * Network — 节点身份、AI 算力配置、角色管理、水印工具
  */
 import { useEffect, useState } from 'preact/hooks';
 import { get, post } from '../api/client';
@@ -8,10 +7,59 @@ import { showToast, i18n } from '../store/ui';
 import './network.css';
 
 type WmTool = null | 'embed' | 'extract' | 'trace';
+type CsAction = null | 'delegate' | 'undelegate';
+
+interface ConsensusStatus {
+  current_epoch: number;
+  current_slot: number;
+  slots_per_epoch: number;
+  active_validators: number;
+  total_staked: number;
+  time_until_next_epoch: number;
+}
+
+interface NodeRole {
+  node_id: string;
+  public_key: string;
+  roles: string[];
+  validator_stake: number;
+  arbitrator_tags: string[];
+  api_provider: string;
+  api_key_set: boolean;
+  api_endpoint: string;
+  chain_height: number;
+  peers: number;
+}
 
 export default function Network() {
   const [identity, setIdentity] = useState<any>(null);
+  const [nodeRole, setNodeRole] = useState<NodeRole | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showPubkey, setShowPubkey] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+
+  // Role action state
+  const [rolePanel, setRolePanel] = useState<null | 'validator' | 'arbitrator'>(null);
+  const [roleAction, setRoleAction] = useState(false);
+  const [stakeAmount, setStakeAmount] = useState('');
+  const [arbTags, setArbTags] = useState('');
+
+  // AI provider config
+  const [apiProvider, setApiProvider] = useState('claude');
+  const [apiKey, setApiKey] = useState('');
+  const [apiEndpoint, setApiEndpoint] = useState('');
+  const [savingKey, setSavingKey] = useState(false);
+
+  // Work stats
+  const [workStats, setWorkStats] = useState<any>(null);
+  const [workTasks, setWorkTasks] = useState<any[]>([]);
+
+  // Consensus state
+  const [consensus, setConsensus] = useState<ConsensusStatus | null>(null);
+  const [csAction, setCsAction] = useState<CsAction>(null);
+  const [csValidatorId, setCsValidatorId] = useState('');
+  const [csAmount, setCsAmount] = useState('');
+  const [csSubmitting, setCsSubmitting] = useState(false);
 
   // Watermark tool state
   const [activeTool, setActiveTool] = useState<WmTool>(null);
@@ -23,68 +71,121 @@ export default function Network() {
 
   const _ = i18n.value;
 
-  useEffect(() => {
-    get('/identity').then(r => {
-      if (r.success && r.data) setIdentity(r.data);
-    }).finally(() => setLoading(false));
-  }, []);
+  const fetchData = async () => {
+    setLoading(true);
+    const [idRes, roleRes, statsRes, tasksRes, csRes] = await Promise.all([
+      get('/identity'),
+      get<NodeRole>('/node/role'),
+      get<any>('/work/stats'),
+      get<any>('/work/tasks?limit=5'),
+      get<ConsensusStatus>('/consensus/status'),
+    ]);
+    if (idRes.success && idRes.data) setIdentity(idRes.data);
+    if (roleRes.success && roleRes.data) {
+      setNodeRole(roleRes.data);
+      if (roleRes.data.api_provider) setApiProvider(roleRes.data.api_provider);
+      if (roleRes.data.api_endpoint) setApiEndpoint(roleRes.data.api_endpoint);
+    }
+    if (statsRes.success && statsRes.data) setWorkStats(statsRes.data);
+    if (tasksRes.success && tasksRes.data?.tasks) setWorkTasks(tasksRes.data.tasks);
+    if (csRes.success && csRes.data) setConsensus(csRes.data);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchData(); }, []);
 
   const copyText = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     showToast(label + ' ' + _['copied'], 'success');
   };
 
+  const isValidator = nodeRole?.roles?.includes('validator') ?? false;
+  const isArbitrator = nodeRole?.roles?.includes('arbitrator') ?? false;
+  const hasApiKey = nodeRole?.api_key_set ?? false;
+
+  const saveApiKey = async () => {
+    if (!apiKey.trim() && !apiEndpoint.trim()) return;
+    setSavingKey(true);
+    const res = await post<any>('/node/api-key', {
+      api_provider: apiProvider,
+      api_key: apiKey.trim() || undefined,
+      api_endpoint: apiEndpoint.trim() || undefined,
+    });
+    if (res.success && res.data?.ok) {
+      showToast(_['net-key-saved'], 'success');
+      setApiKey('');
+      fetchData();
+    } else {
+      showToast(res.error || res.data?.error || _['error-generic'], 'error');
+    }
+    setSavingKey(false);
+  };
+
+  const becomeValidator = async () => {
+    setRoleAction(true);
+    const body: any = {};
+    if (stakeAmount) body.amount = parseFloat(stakeAmount);
+    if (apiKey.trim()) { body.api_key = apiKey.trim(); body.api_provider = apiProvider; }
+    if (apiEndpoint.trim()) body.api_endpoint = apiEndpoint.trim();
+    const res = await post<any>('/node/become-validator', body);
+    if (res.success && res.data?.ok) {
+      showToast(_['net-role-validator-ok'], 'success');
+      setStakeAmount(''); setApiKey('');
+      fetchData();
+    } else {
+      showToast(res.error || res.data?.error || _['error-generic'], 'error');
+    }
+    setRoleAction(false);
+  };
+
+  const becomeArbitrator = async () => {
+    setRoleAction(true);
+    const body: any = {};
+    if (arbTags.trim()) body.tags = arbTags.trim();
+    if (apiKey.trim()) { body.api_key = apiKey.trim(); body.api_provider = apiProvider; }
+    if (apiEndpoint.trim()) body.api_endpoint = apiEndpoint.trim();
+    const res = await post<any>('/node/become-arbitrator', body);
+    if (res.success && res.data?.ok) {
+      showToast(_['net-role-arbitrator-ok'], 'success');
+      setArbTags(''); setApiKey('');
+      fetchData();
+    } else {
+      showToast(res.error || res.data?.error || _['error-generic'], 'error');
+    }
+    setRoleAction(false);
+  };
+
+  // Watermark handlers
   const onEmbed = async () => {
     if (!wmFilePath.trim()) return;
-    setWmLoading(true);
-    setWmResult(null);
-    const res = await post<any>('/fingerprint/embed', {
-      file_path: wmFilePath.trim(),
-      caller_id: wmCallerId.trim() || undefined,
-    });
-    if (res.success && res.data) {
-      setWmResult(res.data);
-      showToast(_['wm-embed-btn'] + ' ✓', 'success');
-    } else {
-      showToast(res.error || _['error-generic'], 'error');
-    }
+    setWmLoading(true); setWmResult(null);
+    const res = await post<any>('/fingerprint/embed', { file_path: wmFilePath.trim(), caller_id: wmCallerId.trim() || undefined });
+    if (res.success && res.data) { setWmResult(res.data); showToast(_['wm-embed-btn'] + ' ✓', 'success'); }
+    else showToast(res.error || _['error-generic'], 'error');
     setWmLoading(false);
   };
 
   const onExtract = async () => {
     if (!wmFilePath.trim()) return;
-    setWmLoading(true);
-    setWmResult(null);
-    const res = await post<any>('/fingerprint/extract', {
-      file_path: wmFilePath.trim(),
-    });
-    if (res.success && res.data) {
-      setWmResult(res.data);
-    } else {
-      showToast(res.error || _['error-generic'], 'error');
-    }
+    setWmLoading(true); setWmResult(null);
+    const res = await post<any>('/fingerprint/extract', { file_path: wmFilePath.trim() });
+    if (res.success && res.data) setWmResult(res.data);
+    else showToast(res.error || _['error-generic'], 'error');
     setWmLoading(false);
   };
 
   const onTrace = async () => {
     if (!wmAssetId.trim()) return;
-    setWmLoading(true);
-    setWmResult(null);
+    setWmLoading(true); setWmResult(null);
     const res = await get<any>(`/fingerprint/distributions?asset_id=${encodeURIComponent(wmAssetId.trim())}`);
-    if (res.success && res.data) {
-      setWmResult(res.data);
-    } else {
-      showToast(res.error || _['error-generic'], 'error');
-    }
+    if (res.success && res.data) setWmResult(res.data);
+    else showToast(res.error || _['error-generic'], 'error');
     setWmLoading(false);
   };
 
   const selectTool = (tool: WmTool) => {
     setActiveTool(activeTool === tool ? null : tool);
-    setWmResult(null);
-    setWmFilePath('');
-    setWmCallerId('');
-    setWmAssetId('');
+    setWmResult(null); setWmFilePath(''); setWmCallerId(''); setWmAssetId('');
   };
 
   if (loading) {
@@ -95,6 +196,37 @@ export default function Network() {
       </div>
     );
   }
+
+  const pubkey = identity?.public_key || nodeRole?.public_key || '';
+  const nodeId = identity?.node_id || nodeRole?.node_id || pubkey.slice(0, 16);
+
+  // Provider select helper
+  const providerSelect = (
+    <select class="input" value={apiProvider} onChange={e => setApiProvider((e.target as HTMLSelectElement).value)}>
+      <option value="claude">Anthropic Claude</option>
+      <option value="openai">OpenAI</option>
+      <option value="local">Local Model</option>
+      <option value="ollama">Ollama</option>
+      <option value="custom">Custom Endpoint</option>
+    </select>
+  );
+
+  const apiKeyInput = (
+    <div class="net-key-field">
+      <input class="input" type={showApiKey ? 'text' : 'password'} value={apiKey}
+        onInput={e => setApiKey((e.target as HTMLInputElement).value)}
+        placeholder={hasApiKey ? _['net-key-placeholder-set'] : _['net-key-placeholder']} />
+      <button class="btn-copy net-toggle" onClick={() => setShowApiKey(!showApiKey)}>
+        {showApiKey ? _['net-hide'] : _['net-show']}
+      </button>
+    </div>
+  );
+
+  const endpointInput = (apiProvider === 'local' || apiProvider === 'ollama' || apiProvider === 'custom') ? (
+    <input class="input" value={apiEndpoint}
+      onInput={e => setApiEndpoint((e.target as HTMLInputElement).value)}
+      placeholder={apiProvider === 'ollama' ? 'http://localhost:11434' : _['net-endpoint-placeholder']} />
+  ) : null;
 
   return (
     <div class="page">
@@ -113,50 +245,363 @@ export default function Network() {
       <div class="spacer-48" />
 
       {/* 身份卡片 */}
-      {identity?.public_key ? (
+      {pubkey ? (
         <div class="card mb-24">
           <div class="label">{_['net-identity']}</div>
 
           <div class="kv">
             <span class="kv-key">{_['net-node-id']}</span>
             <span class="kv-val mono row gap-8">
-              <span>{identity.node_id || identity.public_key.slice(0, 16)}</span>
-              <button class="btn-copy" onClick={() => copyText(identity.node_id || identity.public_key.slice(0, 16), 'Node ID')}>{_['copy']}</button>
+              <span>{nodeId}</span>
+              <button class="btn-copy" onClick={() => copyText(nodeId, 'Node ID')}>{_['copy']}</button>
             </span>
           </div>
 
           <div class="kv">
             <span class="kv-key">{_['net-pubkey']}</span>
             <span class="kv-val mono row gap-8">
-              <span>{'••••' + identity.public_key.slice(-8)}</span>
-              <button class="btn-copy" onClick={() => copyText(identity.public_key, _['net-pubkey'])}>{_['copy']}</button>
+              <span>{showPubkey ? pubkey : '••••' + pubkey.slice(-8)}</span>
+              <button class="btn-copy net-toggle" onClick={() => setShowPubkey(!showPubkey)}>
+                {showPubkey ? _['net-hide'] : _['net-show']}
+              </button>
+              <button class="btn-copy" onClick={() => copyText(pubkey, _['net-pubkey'])}>{_['copy']}</button>
             </span>
           </div>
 
-          {identity.created_at && (
+          {identity?.created_at && (
             <div class="kv">
               <span class="kv-key">{_['net-created']}</span>
               <span class="kv-val">{new Date(identity.created_at * 1000).toLocaleDateString()}</span>
             </div>
           )}
+
+          {nodeRole && (
+            <>
+              <div class="kv">
+                <span class="kv-key">{_['net-chain-height']}</span>
+                <span class="kv-val mono">{nodeRole.chain_height}</span>
+              </div>
+              <div class="kv">
+                <span class="kv-key">{_['net-peers']}</span>
+                <span class="kv-val mono">{nodeRole.peers}</span>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div class="card mb-24">
           <div class="label">{_['net-identity']}</div>
-          <p class="body-text" style="color:var(--fg-2)">
-            {_['net-no-identity']}
-          </p>
+          <p class="body-text" style="color:var(--fg-2)">{_['net-no-identity']}</p>
           <p class="caption mt-8">{_['net-init-hint']}</p>
-          <button class="btn btn-ghost btn-sm mt-12" onClick={() => {
-            setLoading(true);
-            get('/identity').then(r => {
-              if (r.success && r.data) setIdentity(r.data);
-            }).finally(() => setLoading(false));
-          }}>
-            {_['net-retry']}
-          </button>
+          <button class="btn btn-ghost btn-sm mt-12" onClick={fetchData}>{_['net-retry']}</button>
         </div>
       )}
+
+      {/* AI 算力配置 */}
+      <div class="card mb-24">
+        <div class="label">{_['net-ai']}</div>
+        <p class="caption mb-16">{_['net-ai-desc']}</p>
+
+        {/* 当前状态 */}
+        {hasApiKey && (
+          <div class="net-role-badge mb-16" style="border-color:var(--green)">
+            <span class="net-role-badge-icon" style="background:var(--green);color:var(--bg-0)">✓</span>
+            <div>
+              <div class="net-role-badge-title">{_['net-key-active']}</div>
+              <div class="caption">
+                {nodeRole?.api_provider === 'claude' && 'Anthropic Claude'}
+                {nodeRole?.api_provider === 'openai' && 'OpenAI'}
+                {nodeRole?.api_provider === 'local' && 'Local Model'}
+                {nodeRole?.api_provider === 'ollama' && 'Ollama'}
+                {nodeRole?.api_provider === 'custom' && 'Custom'}
+                {!nodeRole?.api_provider && '—'}
+                {nodeRole?.api_endpoint ? ` · ${nodeRole.api_endpoint}` : ''}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div class="net-explain mb-16">
+          <div class="net-explain-title">{_['net-ai-what']}</div>
+          <p class="caption">{_['net-ai-what-body']}</p>
+          <ul class="net-explain-list caption">
+            <li>{_['net-ai-use-1']}</li>
+            <li>{_['net-ai-use-2']}</li>
+            <li>{_['net-ai-use-3']}</li>
+          </ul>
+          <div class="net-explain-title mt-12">{_['net-ai-supported']}</div>
+          <p class="caption">{_['net-ai-supported-body']}</p>
+        </div>
+
+        <div class="net-tool-form" style="padding-left:0">
+          <label class="label">{_['net-ai-provider']}</label>
+          {providerSelect}
+          <label class="label">{_['net-ai-key']}</label>
+          {apiKeyInput}
+          {endpointInput && (
+            <>
+              <label class="label">{_['net-ai-endpoint']}</label>
+              {endpointInput}
+            </>
+          )}
+          <button class="btn btn-primary btn-full" onClick={saveApiKey} disabled={savingKey || (!apiKey.trim() && !apiEndpoint.trim())}>
+            {savingKey ? '...' : (hasApiKey ? _['net-key-update'] : _['net-key-save'])}
+          </button>
+        </div>
+      </div>
+
+      {/* 节点角色 */}
+      <div class="card mb-24">
+        <div class="label">{_['net-role']}</div>
+        <p class="caption mb-16">{_['net-role-desc']}</p>
+
+        {/* 当前角色 */}
+        {(isValidator || isArbitrator) && (
+          <div class="net-roles-current mb-16">
+            {isValidator && (
+              <div class="net-role-badge net-role-validator">
+                <span class="net-role-badge-icon">V</span>
+                <div>
+                  <div class="net-role-badge-title">{_['net-role-validator']}</div>
+                  <div class="caption">{_['net-staked']}: {nodeRole?.validator_stake ?? 0} OAS</div>
+                </div>
+              </div>
+            )}
+            {isArbitrator && (
+              <div class="net-role-badge net-role-arbitrator">
+                <span class="net-role-badge-icon">A</span>
+                <div>
+                  <div class="net-role-badge-title">{_['net-role-arbitrator']}</div>
+                  <div class="caption">{(nodeRole?.arbitrator_tags ?? []).join(', ')}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 成为验证者 */}
+        {!isValidator && (
+          <div class="net-tools">
+            <button class={`nav-item ${rolePanel === 'validator' ? 'nav-item-active' : ''}`}
+              onClick={() => setRolePanel(rolePanel === 'validator' ? null : 'validator')}>
+              <span class="nav-item-title">{_['net-become-validator']} {rolePanel === 'validator' ? '↓' : '→'}</span>
+              <span class="nav-item-desc">{_['net-become-validator-desc']}</span>
+            </button>
+            {rolePanel === 'validator' && (
+              <div class="net-tool-form">
+                <div class="net-explain">
+                  <div class="net-explain-title">{_['net-val-what']}</div>
+                  <p class="caption">{_['net-val-what-body']}</p>
+                  <div class="net-explain-title mt-12">{_['net-val-earn']}</div>
+                  <ul class="net-explain-list caption">
+                    <li>{_['net-val-earn-1']}</li>
+                    <li>{_['net-val-earn-2']}</li>
+                    <li>{_['net-val-earn-3']}</li>
+                  </ul>
+                  <div class="net-explain-title mt-12">{_['net-val-need']}</div>
+                  <ul class="net-explain-list caption">
+                    <li>{_['net-val-need-1']}</li>
+                    <li>{_['net-val-need-2']}</li>
+                    <li>{_['net-val-need-3']}</li>
+                  </ul>
+                </div>
+                {!hasApiKey && (
+                  <div class="net-warn caption">{_['net-key-required']}</div>
+                )}
+                <div class="caption">{_['net-validator-min']}: 10,000 OAS</div>
+                <input class="input" type="number" value={stakeAmount}
+                  onInput={e => setStakeAmount((e.target as HTMLInputElement).value)}
+                  placeholder={_['stake-amount']} />
+                <button class="btn btn-primary btn-full" onClick={becomeValidator} disabled={roleAction}>
+                  {roleAction ? _['staking'] : _['net-become-validator']}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 成为仲裁者 */}
+        {!isArbitrator && (
+          <div class="net-tools" style="margin-top:4px">
+            <button class={`nav-item ${rolePanel === 'arbitrator' ? 'nav-item-active' : ''}`}
+              onClick={() => setRolePanel(rolePanel === 'arbitrator' ? null : 'arbitrator')}>
+              <span class="nav-item-title">{_['net-become-arbitrator']} {rolePanel === 'arbitrator' ? '↓' : '→'}</span>
+              <span class="nav-item-desc">{_['net-become-arbitrator-desc']}</span>
+            </button>
+            {rolePanel === 'arbitrator' && (
+              <div class="net-tool-form">
+                <div class="net-explain">
+                  <div class="net-explain-title">{_['net-arb-what']}</div>
+                  <p class="caption">{_['net-arb-what-body']}</p>
+                  <div class="net-explain-title mt-12">{_['net-arb-earn']}</div>
+                  <ul class="net-explain-list caption">
+                    <li>{_['net-arb-earn-1']}</li>
+                    <li>{_['net-arb-earn-2']}</li>
+                  </ul>
+                  <div class="net-explain-title mt-12">{_['net-arb-need']}</div>
+                  <ul class="net-explain-list caption">
+                    <li>{_['net-arb-need-1']}</li>
+                    <li>{_['net-arb-need-2']}</li>
+                  </ul>
+                </div>
+                {!hasApiKey && (
+                  <div class="net-warn caption">{_['net-key-required']}</div>
+                )}
+                <input class="input" value={arbTags}
+                  onInput={e => setArbTags((e.target as HTMLInputElement).value)}
+                  placeholder={_['net-arb-tags-hint']} />
+                <button class="btn btn-primary btn-full" onClick={becomeArbitrator} disabled={roleAction}>
+                  {roleAction ? '...' : _['net-become-arbitrator']}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isValidator && !isArbitrator && rolePanel === null && (
+          <div class="caption" style="color:var(--fg-2);margin-top:8px">{_['net-role-none']}</div>
+        )}
+      </div>
+
+      {/* 工作收益 */}
+      {(isValidator || isArbitrator) && (
+        <div class="card mb-24">
+          <div class="label">{_['net-work']}</div>
+          <p class="caption mb-16">{_['net-work-desc']}</p>
+
+          {workStats?.worker ? (
+            <div>
+              <div class="kv">
+                <span class="kv-key">{_['net-work-total']}</span>
+                <span class="kv-val mono">{workStats.worker.total_tasks}</span>
+              </div>
+              <div class="kv">
+                <span class="kv-key">{_['net-work-settled']}</span>
+                <span class="kv-val mono">{workStats.worker.settled}</span>
+              </div>
+              <div class="kv">
+                <span class="kv-key">{_['net-work-earned']}</span>
+                <span class="kv-val mono" style="color:var(--green)">{workStats.worker.total_earned.toFixed(4)} OAS</span>
+              </div>
+              <div class="kv">
+                <span class="kv-key">{_['net-work-quality']}</span>
+                <span class="kv-val mono">{(workStats.worker.avg_quality * 100).toFixed(1)}%</span>
+              </div>
+              <div class="kv">
+                <span class="kv-key">{_['net-work-failed']}</span>
+                <span class="kv-val mono">{workStats.worker.failed}</span>
+              </div>
+            </div>
+          ) : (
+            <div class="caption" style="color:var(--fg-2)">{_['net-work-no-tasks']}</div>
+          )}
+
+          {workTasks.length > 0 && (
+            <div style="margin-top:16px">
+              <div class="label" style="font-size:11px;margin-bottom:8px">{_['net-work-recent']}</div>
+              {workTasks.map((t: any) => (
+                <div key={t.task_id} class="kv" style="font-size:12px">
+                  <span class="kv-key mono" style="font-size:11px">{t.task_id.slice(0, 12)}</span>
+                  <span class="kv-val">
+                    <span>{_[`net-work-type-${t.task_type}`] || t.task_type}</span>
+                    {' · '}
+                    <span style={t.status === 'settled' ? 'color:var(--green)' : ''}>{t.status}</span>
+                    {t.final_value > 0 && <span class="mono"> · {t.final_value.toFixed(2)} OAS</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 共识状态 */}
+      <div class="card mb-24">
+        <div class="label">{_['net-consensus']}</div>
+        <p class="caption mb-16">{_['net-consensus-desc']}</p>
+
+        {consensus ? (
+          <div>
+            <div class="kv">
+              <span class="kv-key">{_['net-consensus-epoch']}</span>
+              <span class="kv-val mono">{consensus.current_epoch}</span>
+            </div>
+            <div class="kv">
+              <span class="kv-key">{_['net-consensus-slot']}</span>
+              <span class="kv-val mono">{consensus.current_slot} / {consensus.slots_per_epoch}</span>
+            </div>
+            <div class="kv">
+              <span class="kv-key">{_['net-consensus-validators']}</span>
+              <span class="kv-val mono">{consensus.active_validators}</span>
+            </div>
+            <div class="kv">
+              <span class="kv-key">{_['net-consensus-staked']}</span>
+              <span class="kv-val mono">{(consensus.total_staked ?? 0).toFixed(2)} OAS</span>
+            </div>
+            <div class="kv">
+              <span class="kv-key">{_['net-consensus-next-epoch']}</span>
+              <span class="kv-val mono">{consensus.time_until_next_epoch}s</span>
+            </div>
+          </div>
+        ) : (
+          <div class="caption" style="color:var(--fg-2)">Loading consensus data...</div>
+        )}
+
+        {/* Delegate / Undelegate actions */}
+        <div class="net-tools" style="margin-top:12px">
+          <button class={`nav-item ${csAction === 'delegate' ? 'nav-item-active' : ''}`}
+            onClick={() => { setCsAction(csAction === 'delegate' ? null : 'delegate'); setCsValidatorId(''); setCsAmount(''); }}>
+            <span class="nav-item-title">{_['net-consensus-delegate']} {csAction === 'delegate' ? '↓' : '→'}</span>
+            <span class="nav-item-desc">{_['net-consensus-delegate-desc']}</span>
+          </button>
+          {csAction === 'delegate' && (
+            <div class="net-tool-form">
+              <input class="input" value={csValidatorId}
+                onInput={e => setCsValidatorId((e.target as HTMLInputElement).value)}
+                placeholder={_['net-consensus-validator-id']} />
+              <input class="input" type="number" value={csAmount}
+                onInput={e => setCsAmount((e.target as HTMLInputElement).value)}
+                placeholder={_['net-consensus-amount']} />
+              <button class="btn btn-primary btn-full" disabled={csSubmitting || !csValidatorId.trim() || !csAmount.trim()}
+                onClick={async () => {
+                  setCsSubmitting(true);
+                  const res = await post<any>('/consensus/delegate', { validator_id: csValidatorId.trim(), amount: parseFloat(csAmount) });
+                  if (res.success && res.data?.ok) { showToast(_['net-consensus-delegate'] + ' OK', 'success'); fetchData(); }
+                  else showToast(res.error || res.data?.error || 'Error', 'error');
+                  setCsSubmitting(false);
+                }}>
+                {csSubmitting ? _['net-consensus-submitting'] : _['net-consensus-submit']}
+              </button>
+            </div>
+          )}
+
+          <button class={`nav-item ${csAction === 'undelegate' ? 'nav-item-active' : ''}`}
+            onClick={() => { setCsAction(csAction === 'undelegate' ? null : 'undelegate'); setCsValidatorId(''); setCsAmount(''); }}>
+            <span class="nav-item-title">{_['net-consensus-undelegate']} {csAction === 'undelegate' ? '↓' : '→'}</span>
+            <span class="nav-item-desc">{_['net-consensus-undelegate-desc']}</span>
+          </button>
+          {csAction === 'undelegate' && (
+            <div class="net-tool-form">
+              <input class="input" value={csValidatorId}
+                onInput={e => setCsValidatorId((e.target as HTMLInputElement).value)}
+                placeholder={_['net-consensus-validator-id']} />
+              <input class="input" type="number" value={csAmount}
+                onInput={e => setCsAmount((e.target as HTMLInputElement).value)}
+                placeholder={_['net-consensus-amount']} />
+              <button class="btn btn-primary btn-full" disabled={csSubmitting || !csValidatorId.trim() || !csAmount.trim()}
+                onClick={async () => {
+                  setCsSubmitting(true);
+                  const res = await post<any>('/consensus/undelegate', { validator_id: csValidatorId.trim(), amount: parseFloat(csAmount) });
+                  if (res.success && res.data?.ok) { showToast(_['net-consensus-undelegate'] + ' OK', 'success'); fetchData(); }
+                  else showToast(res.error || res.data?.error || 'Error', 'error');
+                  setCsSubmitting(false);
+                }}>
+                {csSubmitting ? _['net-consensus-submitting'] : _['net-consensus-submit']}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* 水印工具 */}
       <div class="card mb-24">
