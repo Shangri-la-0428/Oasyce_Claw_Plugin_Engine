@@ -49,3 +49,8 @@
   padding: 24px 0;
   animation: field-in 0.2s var(--ease);
 }
+
+.mydata-reg-fields {
+  display: flex; flex-direction: column; gap: 16px;
+  animation: field-in 0.25s var(--ease);
+}

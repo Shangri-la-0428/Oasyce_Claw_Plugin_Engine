@@ -44,21 +44,21 @@
   --gap: 24px;
 }
 
-/* ── 明亮模式 ── */
+/* ── 明亮模式（手动 + 系统偏好）── */
 [data-theme='light'] {
-  --bg-0: #fafafa;
-  --bg-1: #f2f2f2;
-  --bg-2: #e8e8e8;
-  --bg-3: #d4d4d4;
-  --bg-hover: #eeeeee;
+  --bg-0: #faf9f6;
+  --bg-1: #f0efec;
+  --bg-2: #e5e4e1;
+  --bg-3: #d4d3d0;
+  --bg-hover: #edece9;
 
   --fg-0: #111111;
   --fg-1: #666666;
   --fg-2: #999999;
   --fg-3: #cccccc;
 
-  --border: #e0e0e0;
-  --border-hover: #cccccc;
+  --border: #e0dfdc;
+  --border-hover: #cccbc8;
   --border-active: #aaaaaa;
 
   --green: #16a34a;
@@ -68,6 +68,34 @@
 
   --shadow-s: 0 1px 2px rgba(0,0,0,0.05);
   --shadow-m: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+/* 系统偏好回退（JS 未加载时） */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg-0: #faf9f6;
+    --bg-1: #f0efec;
+    --bg-2: #e5e4e1;
+    --bg-3: #d4d3d0;
+    --bg-hover: #edece9;
+
+    --fg-0: #111111;
+    --fg-1: #666666;
+    --fg-2: #999999;
+    --fg-3: #cccccc;
+
+    --border: #e0dfdc;
+    --border-hover: #cccbc8;
+    --border-active: #aaaaaa;
+
+    --green: #16a34a;
+    --red: #dc2626;
+    --yellow: #ca8a04;
+    --blue: #2563eb;
+
+    --shadow-s: 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-m: 0 4px 12px rgba(0,0,0,0.08);
+  }
 }
 
 /* ── Reset ── */
@@ -81,6 +109,12 @@ html {
   color: var(--fg-0);
   background: var(--bg-0);
   -webkit-font-smoothing: antialiased;
+  transition: color 0.3s var(--ease), background 0.3s var(--ease);
+}
+
+/* 主题切换过渡 — 主要表面和文本 */
+.nav, .card, .toast, .dropzone, .input, .search-box, .btn-ghost, .data-detail, .explore-inline {
+  transition: background 0.3s var(--ease), color 0.3s var(--ease), border-color 0.3s var(--ease);
 }
 body { height: 100%; }
 

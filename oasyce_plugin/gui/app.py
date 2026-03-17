@@ -7,11 +7,15 @@ Reads chain data from the local Ledger database.
 
 from __future__ import annotations
 
+import cgi
+import hashlib
 import json
 import mimetypes
 import os
 import re
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
@@ -178,6 +182,8 @@ def _api_assets() -> list:
             "owner": r["owner"],
             "tags": meta.get("tags", []),
             "created_at": r["created_at"],
+            "file_path": meta.get("file_path"),
+            "file_hash": meta.get("file_hash"),
         })
     # Attach spot price from settlement engine where available
     se = _get_settlement()
@@ -189,6 +195,33 @@ def _api_assets() -> list:
                 r['spot_price'] = round(pool.reserve_balance / (pool.supply * pool.config.reserve_ratio), 6)
         if 'spot_price' not in r:
             r['spot_price'] = None
+
+    # Attach hash_status and version info
+    for r in results:
+        file_path = r.get("file_path")
+        file_hash = r.get("file_hash")
+        if not file_path or not file_hash:
+            r["hash_status"] = "ok"
+            continue
+        try:
+            h = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    h.update(chunk)
+            r["hash_status"] = "ok" if h.hexdigest() == file_hash else "changed"
+        except FileNotFoundError:
+            r["hash_status"] = "missing"
+
+    # Attach version info from metadata
+    for r in results:
+        aid = r["asset_id"]
+        row = _ledger._conn.execute(
+            "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
+        ).fetchone()
+        meta = json.loads(row["metadata"]) if row and row["metadata"] else {}
+        versions = meta.get("versions", [])
+        r["version"] = versions[-1]["version"] if versions else 1
+        r["versions_count"] = len(versions) if versions else 1
     return results
 
 
@@ -532,6 +565,20 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/ahrp/"):
             return _proxy_ahrp(self, "GET", self.path)
 
+        # ── Identity ────────────────────────────────────────────
+        if path == "/api/identity":
+            assert _config
+            key_dir = os.path.join(_config.data_dir, "keys")
+            created_at = None
+            pub_path = os.path.join(key_dir, "public.key")
+            if os.path.isfile(pub_path):
+                created_at = os.path.getctime(pub_path)
+            return _json_response(self, {
+                "public_key": _config.public_key,
+                "node_id": (_config.public_key or "unknown")[:16],
+                "created_at": created_at,
+            })
+
         # ── Config ───────────────────────────────────────────────
         if path == "/api/config":
             assert _config
@@ -596,19 +643,49 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
-        length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length)) if length else {}
+        content_type = self.headers.get("Content-Type", "")
 
         if path == "/api/register":
             try:
-                skills = _get_skills()
-                fp = body.get("file_path", "")
-                owner = body.get("owner", _config.owner if _config else "unknown")
-                tags = body.get("tags", [])
+                # ── multipart upload ──
+                if "multipart/form-data" in content_type:
+                    form = cgi.FieldStorage(
+                        fp=self.rfile,
+                        headers=self.headers,
+                        environ={
+                            "REQUEST_METHOD": "POST",
+                            "CONTENT_TYPE": content_type,
+                        },
+                    )
+                    file_item = form["file"] if "file" in form else None
+                    if file_item is None or not getattr(file_item, "filename", None):
+                        return _json_response(self, {"error": "file required"}, 400)
+
+                    upload_dir = os.path.join(os.path.expanduser("~"), ".oasyce", "uploads")
+                    os.makedirs(upload_dir, exist_ok=True)
+                    safe_name = re.sub(r"[^\w.\-]", "_", file_item.filename)
+                    dest = os.path.join(upload_dir, f"{int(time.time())}_{safe_name}")
+                    with open(dest, "wb") as f:
+                        f.write(file_item.file.read())
+
+                    fp = dest
+                    owner = form.getfirst("owner", _config.owner if _config else "unknown")
+                    tags_raw = form.getfirst("tags", "")
+                    tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+                else:
+                    # legacy JSON fallback
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json.loads(self.rfile.read(length)) if length else {}
+                    fp = body.get("file_path", "")
+                    owner = body.get("owner", _config.owner if _config else "unknown")
+                    tags = body.get("tags", [])
+
                 if not fp:
                     return _json_response(self, {"error": "file_path required"}, 400)
+                skills = _get_skills()
                 file_info = skills.scan_data_skill(fp)
                 metadata = skills.generate_metadata_skill(file_info, tags, owner)
+                metadata["file_path"] = os.path.abspath(fp)
                 signed = skills.create_certificate_skill(metadata)
                 result = skills.register_data_asset_skill(signed)
                 return _json_response(self, {
@@ -618,7 +695,53 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
+        if path == "/api/re-register":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            try:
+                aid = body.get("asset_id", "")
+                if not aid:
+                    return _json_response(self, {"error": "asset_id required"}, 400)
+                assert _ledger
+                row = _ledger._conn.execute(
+                    "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
+                ).fetchone()
+                if not row:
+                    return _json_response(self, {"error": "asset not found"}, 404)
+                meta = json.loads(row["metadata"]) if row["metadata"] else {}
+                file_path = meta.get("file_path")
+                if not file_path or not os.path.isfile(file_path):
+                    return _json_response(self, {"error": "file not found"}, 404)
+                # Compute current hash
+                h = hashlib.sha256()
+                with open(file_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        h.update(chunk)
+                new_hash = h.hexdigest()
+                old_hash = meta.get("file_hash", "")
+                if new_hash == old_hash:
+                    return _json_response(self, {"ok": False, "message": "no changes detected"})
+                # Build version chain
+                versions = meta.get("versions", [])
+                if not versions and old_hash:
+                    versions.append({"version": 1, "file_hash": old_hash, "timestamp": meta.get("created_at", "")})
+                new_version = (versions[-1]["version"] + 1) if versions else 2
+                from datetime import datetime, timezone
+                versions.append({"version": new_version, "file_hash": new_hash, "timestamp": datetime.now(timezone.utc).isoformat()})
+                meta["versions"] = versions
+                meta["file_hash"] = new_hash
+                _ledger._conn.execute(
+                    "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+                    (json.dumps(meta), aid),
+                )
+                _ledger._conn.commit()
+                return _json_response(self, {"ok": True, "version": new_version, "file_hash": new_hash})
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
         if path == "/api/buy":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
             try:
                 se = _get_settlement()
                 aid = body.get("asset_id", "")
@@ -626,6 +749,24 @@ class _Handler(BaseHTTPRequestHandler):
                 amount = float(body.get("amount", 10))
                 if not aid:
                     return _json_response(self, {"error": "asset_id required"}, 400)
+                # UNAVAILABLE check: verify file exists and hash matches
+                assert _ledger
+                asset_row = _ledger._conn.execute(
+                    "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
+                ).fetchone()
+                if asset_row:
+                    asset_meta = json.loads(asset_row["metadata"]) if asset_row["metadata"] else {}
+                    a_file_path = asset_meta.get("file_path")
+                    a_file_hash = asset_meta.get("file_hash")
+                    if a_file_path and a_file_hash:
+                        if not os.path.isfile(a_file_path):
+                            return _json_response(self, {"error": "UNAVAILABLE", "message": "Asset file is missing or modified"}, 409)
+                        hb = hashlib.sha256()
+                        with open(a_file_path, "rb") as fb:
+                            for chunk in iter(lambda: fb.read(8192), b""):
+                                hb.update(chunk)
+                        if hb.hexdigest() != a_file_hash:
+                            return _json_response(self, {"error": "UNAVAILABLE", "message": "Asset file is missing or modified"}, 409)
                 if aid not in se.pools:
                     se.register_asset(aid, "protocol")
                 receipt = se.execute(aid, buyer, amount)
@@ -748,7 +889,11 @@ class _Handler(BaseHTTPRequestHandler):
                 inbox.set_trust_level(int(level))
             if threshold is not None:
                 inbox.set_auto_threshold(float(threshold))
-            return _json_response(self, {"ok": True, "trust_level": inbox.get_trust_level()})
+            return _json_response(self, {
+                "ok": True,
+                "trust_level": inbox.get_trust_level(),
+                "auto_threshold": inbox.get_auto_threshold(),
+            })
 
         if path == "/api/scan":
             from oasyce_plugin.services.scanner import AssetScanner
@@ -3394,11 +3539,25 @@ class OasyceGUI:
         _ledger = self._ledger
         _config = self._config
 
+        # Fix sqlite3 for multi-threaded server
+        import sqlite3
+        if hasattr(_ledger, '_conn') and _ledger._conn:
+            db_path = _ledger.db_path
+            _ledger._conn.close()
+            _ledger._conn = sqlite3.connect(db_path, check_same_thread=False)
+            _ledger._conn.row_factory = sqlite3.Row
+            _ledger._conn.execute("PRAGMA journal_mode=WAL")
+
         import socket
-        class _ReusableHTTPServer(HTTPServer):
+        class _ReusableHTTPServer(ThreadingMixIn, HTTPServer):
             allow_reuse_address = True
+            daemon_threads = True
             def server_bind(self):
                 self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                try:
+                    self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                except (AttributeError, OSError):
+                    pass
                 super().server_bind()
 
         server = _ReusableHTTPServer((self._host, self._port), _Handler)

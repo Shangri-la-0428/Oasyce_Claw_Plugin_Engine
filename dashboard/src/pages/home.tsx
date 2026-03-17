@@ -3,7 +3,7 @@
  * 注册流程直接嵌入，渐进式披露
  */
 import { useState, useRef } from 'preact/hooks';
-import { post } from '../api/client';
+import { postFile } from '../api/client';
 import { showToast, i18n } from '../store/ui';
 import { loadAssets } from '../store/assets';
 import NetworkGrid from '../components/network-grid';
@@ -19,7 +19,7 @@ function maskId(id: string) {
 }
 
 export default function Home({ go }: Props) {
-  const [file, setFile] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [desc, setDesc] = useState('');
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState<any>(null);
@@ -28,9 +28,9 @@ export default function Home({ go }: Props) {
 
   const _ = i18n.value;
 
-  const onFile = (name: string) => {
-    setFile(name); setDone(null);
-    const ext = name.split('.').pop()?.toLowerCase() || '';
+  const onFile = (f: File) => {
+    setFile(f); setDone(null);
+    const ext = f.name.split('.').pop()?.toLowerCase() || '';
     const hint: Record<string, string> = {
       csv: 'dataset', json: 'structured data', jpg: 'image', png: 'image',
       pdf: 'document', mp4: 'video', mp3: 'audio', txt: 'text',
@@ -41,7 +41,7 @@ export default function Home({ go }: Props) {
   const onDrop = (e: DragEvent) => {
     e.preventDefault(); setDragging(false);
     const f = e.dataTransfer?.files[0];
-    if (f) onFile(f.name);
+    if (f) onFile(f);
   };
 
   const copyId = () => {
@@ -52,15 +52,15 @@ export default function Home({ go }: Props) {
   };
 
   const submit = async () => {
-    if (!file.trim()) return;
+    if (!file) return;
     setLoading(true);
-    const tags = desc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
-    const res = await post('/register', { file_path: file.trim(), tags });
+    const tags = desc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean).join(',');
+    const res = await postFile('/register', file, { tags });
     if (res.success) {
       setDone(res.data);
       showToast(_['protected'] + ' ✓', 'success');
       loadAssets();
-      setFile(''); setDesc('');
+      setFile(null); setDesc('');
     } else {
       showToast(res.error || 'Failed', 'error');
     }
@@ -102,7 +102,7 @@ export default function Home({ go }: Props) {
               onClick={() => ref.current?.click()}
             >
               {file ? (
-                <div class="dropzone-text"><strong>{file}</strong></div>
+                <div class="dropzone-text"><strong>{file.name}</strong></div>
               ) : (
                 <>
                   <div class="dropzone-icon">↑</div>
@@ -115,7 +115,7 @@ export default function Home({ go }: Props) {
               )}
               <input ref={ref} type="file" style="display:none" onChange={e => {
                 const f = (e.target as HTMLInputElement).files?.[0];
-                if (f) onFile(f.name);
+                if (f) onFile(f);
               }} />
             </div>
 
@@ -148,8 +148,8 @@ export default function Home({ go }: Props) {
         )}
       </div>
 
-      {/* 48px 间距 + section-rule + 48px 间距 */}
-      <hr class="section-rule" />
+      {/* 间距 */}
+      <div class="spacer-48" />
 
       {/* 底部导航 */}
       <div class="home-nav">

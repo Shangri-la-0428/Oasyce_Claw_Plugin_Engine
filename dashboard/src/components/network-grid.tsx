@@ -307,7 +307,12 @@ export default function NetworkGrid() {
 
       // --- Render ---
       const dark = isDark();
-      const bgV = dark ? 10 : 246;
+      // Read actual bg color from design system CSS variable
+      const rootStyle = getComputedStyle(document.documentElement);
+      const bgHex = rootStyle.getPropertyValue('--bg-0').trim();
+      const bgR = parseInt(bgHex.slice(1, 3), 16) || (dark ? 10 : 250);
+      const bgG = parseInt(bgHex.slice(3, 5), 16) || (dark ? 10 : 249);
+      const bgB = parseInt(bgHex.slice(5, 7), 16) || (dark ? 10 : 246);
       const sDim = dark ? 60 : 200;
       const sMid = dark ? 140 : 110;
       const sBright = dark ? 220 : 35;
@@ -315,7 +320,7 @@ export default function NetworkGrid() {
       const imgData = ctx.createImageData(imgW, imgH);
       const px = imgData.data;
       for (let i = 0; i < px.length; i += 4) {
-        px[i] = bgV; px[i + 1] = bgV; px[i + 2] = bgV; px[i + 3] = 255;
+        px[i] = bgR; px[i + 1] = bgG; px[i + 2] = bgB; px[i + 3] = 255;
       }
 
       const slowSeed = Math.floor(now / 220);

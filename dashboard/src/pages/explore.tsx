@@ -1,5 +1,6 @@
 /**
  * Explore — 搜索网络上的资产（数据 + 服务），查看报价，获取访问权/调用
+ * + Portfolio (持仓) + Stake (质押)
  */
 import { useEffect, useState, useRef } from 'preact/hooks';
 import { get, post } from '../api/client';
@@ -29,6 +30,34 @@ function fmtPrice(p: number | undefined | null): string {
 
 type AssetFilter = 'all' | 'data' | 'capability';
 type SortBy = 'time' | 'value';
+type BuyStep = 'form' | 'quoted' | 'success';
+
+interface QuoteData {
+  spot_price: number;
+  total_cost: number;
+  shares_received: number;
+  price_impact: number;
+  fee_breakdown?: { creator?: number; protocol?: number; router?: number };
+}
+
+interface BuyResult {
+  success: boolean;
+  shares: number;
+  cost: number;
+  new_price: number;
+}
+
+interface Holding {
+  asset_id: string;
+  shares: number;
+  avg_price: number;
+}
+
+interface ValidatorInfo {
+  id: string;
+  staked: number;
+  reputation: number;
+}
 
 export default function Explore() {
   const [q, setQ] = useState('');
@@ -39,10 +68,21 @@ export default function Explore() {
   const [typeFilter, setTypeFilter] = useState<AssetFilter>('all');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [buyAmt, setBuyAmt] = useState('10');
-  const [quote, setQuote] = useState<any>(null);
+  const [buyStep, setBuyStep] = useState<BuyStep>('form');
+  const [quote, setQuote] = useState<QuoteData | null>(null);
+  const [buyResult, setBuyResult] = useState<BuyResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [invokeResult, setInvokeResult] = useState<any>(null);
   const debounceRef = useRef<number>(0);
+
+  // Portfolio state
+  const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [holdingsLoading, setHoldingsLoading] = useState(false);
+
+  // Staking state
+  const [validators, setValidators] = useState<ValidatorInfo[]>([]);
+  const [stakeAmts, setStakeAmts] = useState<Record<string, string>>({});
+  const [stakingId, setStakingId] = useState<string | null>(null);
 
   const _ = i18n.value;
 
@@ -60,17 +100,40 @@ export default function Explore() {
       }));
       setAllAssets([...dataAssets, ...capAssets]);
     });
+
+    // Load portfolio
+    loadPortfolio();
+    // Load validators
+    loadValidators();
   }, []);
+
+  const loadPortfolio = async () => {
+    setHoldingsLoading(true);
+    const res = await get<Holding[]>('/shares?owner=gui_user');
+    if (res.success && res.data) setHoldings(res.data);
+    setHoldingsLoading(false);
+  };
+
+  const loadValidators = async () => {
+    const res = await get<{ validators: ValidatorInfo[] }>('/staking');
+    if (res.success && res.data?.validators) setValidators(res.data.validators);
+  };
 
   const onSearch = (val: string) => {
     setQ(val);
     clearTimeout(debounceRef.current);
     debounceRef.current = window.setTimeout(() => {
       setPageSize(20);
-      setActiveId(null);
-      setQuote(null);
-      setInvokeResult(null);
+      resetActive();
     }, 300);
+  };
+
+  const resetActive = () => {
+    setActiveId(null);
+    setQuote(null);
+    setBuyResult(null);
+    setBuyStep('form');
+    setInvokeResult(null);
   };
 
   /* 过滤 + 排序 */
@@ -82,9 +145,7 @@ export default function Explore() {
   }, {});
 
   const filtered = allAssets.filter(a => {
-    // Type filter
     if (typeFilter !== 'all' && (a.asset_type || 'data') !== typeFilter) return false;
-    // Tag filter
     if (tagFilter && !(a.tags ?? []).includes(tagFilter)) return false;
     if (!q) return true;
     const s = q.toLowerCase();
@@ -109,28 +170,34 @@ export default function Explore() {
     showToast(_['copied'], 'success');
   };
 
-  /* 报价 (data assets) */
+  /* 报价 — uses POST /api/quote */
   const onQuote = async (assetId: string) => {
     setLoading(true);
-    const res = await get(`/quote?asset_id=${assetId}&amount=${buyAmt}`);
-    if (res.success && res.data) setQuote(res.data);
-    else showToast(res.error || 'Failed', 'error');
+    const res = await post<QuoteData>('/quote', { asset_id: assetId, amount: parseFloat(buyAmt) });
+    if (res.success && res.data) {
+      setQuote(res.data);
+      setBuyStep('quoted');
+    } else {
+      showToast(res.error || 'Failed', 'error');
+    }
     setLoading(false);
   };
 
-  /* 购买 (data assets) */
+  /* 购买 — uses POST /api/buy */
   const onBuy = async (assetId: string) => {
     setLoading(true);
-    const res = await post('/buy', { asset_id: assetId, buyer: 'gui_user', amount: parseFloat(buyAmt) });
-    if (res.success) {
-      showToast('✓', 'success');
-      setQuote(null);
-      setActiveId(null);
+    const res = await post<BuyResult>('/buy', { asset_id: assetId, buyer_id: 'gui_user', amount: parseFloat(buyAmt) });
+    if (res.success && res.data) {
+      setBuyResult(res.data);
+      setBuyStep('success');
+      showToast(_['buy-success'], 'success');
+      // Refresh assets + portfolio
       const r = await get<Asset[]>('/assets');
       if (r.success && r.data) {
         const dataAssets = r.data.map(a => ({ ...a, asset_type: 'data' as const }));
         setAllAssets(prev => [...dataAssets, ...prev.filter(a => a.asset_type === 'capability')]);
       }
+      loadPortfolio();
     } else {
       showToast(res.error || 'Failed', 'error');
     }
@@ -157,21 +224,38 @@ export default function Explore() {
     setLoading(false);
   };
 
+  /* 质押 */
+  const onStake = async (validatorId: string) => {
+    const amt = parseFloat(stakeAmts[validatorId] || '10000');
+    if (!amt || amt <= 0) return;
+    setStakingId(validatorId);
+    const res = await post<{ success: boolean; staked: number }>('/stake', { validator_id: validatorId, amount: amt });
+    if (res.success && res.data?.success) {
+      showToast(_['stake-success'], 'success');
+      loadValidators();
+    } else {
+      showToast(res.error || 'Failed', 'error');
+    }
+    setStakingId(null);
+  };
+
   const toggleItem = (id: string) => {
     if (activeId === id) {
-      setActiveId(null);
-      setQuote(null);
-      setInvokeResult(null);
+      resetActive();
       setBuyAmt('10');
     } else {
       setActiveId(id);
       setQuote(null);
+      setBuyResult(null);
+      setBuyStep('form');
       setInvokeResult(null);
       setBuyAmt('10');
     }
   };
 
   const isCapability = (a: Asset) => (a.asset_type || 'data') === 'capability';
+
+  const _activeAsset = activeId ? allAssets.find(a => a.asset_id === activeId) : null; void _activeAsset;
 
   return (
     <div class="page">
@@ -186,7 +270,7 @@ export default function Explore() {
           <button
             key={t}
             class={`btn btn-sm ${typeFilter === t ? 'btn-active' : 'btn-ghost'}`}
-            onClick={() => { setTypeFilter(t); setTagFilter(null); setActiveId(null); }}
+            onClick={() => { setTypeFilter(t); setTagFilter(null); resetActive(); }}
           >
             {_[`type-${t}`]}
           </button>
@@ -302,13 +386,14 @@ export default function Explore() {
                         <div class="col gap-8">
                           <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val">{invokeResult.price} OAS</span></div>
                           <div class="kv"><span class="kv-key">{_['shares-minted']}</span><span class="kv-val">{invokeResult.shares_minted}</span></div>
-                          <button class="btn btn-ghost btn-full" onClick={() => { setInvokeResult(null); setActiveId(null); }}>{_['back']}</button>
+                          <button class="btn btn-ghost btn-full" onClick={() => { setInvokeResult(null); resetActive(); }}>{_['back']}</button>
                         </div>
                       )
                     ) : (
-                      /* ── Data asset buy flow (unchanged) ── */
-                      !quote ? (
+                      /* ── Data asset buy flow ── */
+                      buyStep === 'form' ? (
                         <div class="col gap-16">
+                          {/* Asset info */}
                           <div class="kv">
                             <span class="kv-key">{_['id']}</span>
                             <span class="kv-val">
@@ -318,6 +403,16 @@ export default function Explore() {
                               </span>
                             </span>
                           </div>
+                          {a.owner && (
+                            <div class="kv"><span class="kv-key">{_['owner']}</span><span class="kv-val">{maskOwner(a.owner)}</span></div>
+                          )}
+                          {a.tags && a.tags.length > 0 && (
+                            <div class="kv"><span class="kv-key">{_['tags']}</span><span class="kv-val">{a.tags.join(', ')}</span></div>
+                          )}
+                          <div class="kv"><span class="kv-key">{_['type']}</span><span class="kv-val">{_['asset-type-data']}</span></div>
+                          <div class="kv"><span class="kv-key">{_['spot-price']}</span><span class="kv-val">{fmtPrice(a.spot_price)} OAS</span></div>
+
+                          {/* Amount input */}
                           <div>
                             <label class="label">{_['amount']}</label>
                             <input class="input" type="number" value={buyAmt} onInput={e => setBuyAmt((e.target as HTMLInputElement).value)} min="1" />
@@ -326,19 +421,37 @@ export default function Explore() {
                             {loading ? _['quoting'] : _['quote']}
                           </button>
                         </div>
-                      ) : (
-                        <div>
-                          <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val">{quote.payment}</span></div>
-                          <div class="kv"><span class="kv-key">{_['receive']}</span><span class="kv-val">{quote.tokens}</span></div>
-                          {quote.impact_pct != null && <div class="kv"><span class="kv-key">{_['impact']}</span><span class="kv-val">{quote.impact_pct}%</span></div>}
+                      ) : buyStep === 'quoted' && quote ? (
+                        <div class="col gap-8">
+                          {/* Quote details */}
+                          <div class="kv"><span class="kv-key">{_['spot-price']}</span><span class="kv-val">{fmtPrice(quote.spot_price)} OAS</span></div>
+                          <div class="kv"><span class="kv-key">{_['total-cost']}</span><span class="kv-val">{fmtPrice(quote.total_cost)} OAS</span></div>
+                          <div class="kv"><span class="kv-key">{_['shares-received']}</span><span class="kv-val">{quote.shares_received}</span></div>
+                          <div class="kv"><span class="kv-key">{_['price-impact']}</span><span class="kv-val">{quote.price_impact}%</span></div>
+                          {quote.fee_breakdown && (
+                            <div class="quote-fees">
+                              <div class="label">{_['fees']}</div>
+                              {quote.fee_breakdown.creator != null && <div class="kv"><span class="kv-key">{_['creator-fee']}</span><span class="kv-val">{fmtPrice(quote.fee_breakdown.creator)} OAS</span></div>}
+                              {quote.fee_breakdown.protocol != null && <div class="kv"><span class="kv-key">{_['protocol-fee']}</span><span class="kv-val">{fmtPrice(quote.fee_breakdown.protocol)} OAS</span></div>}
+                              {quote.fee_breakdown.router != null && <div class="kv"><span class="kv-key">{_['router-fee']}</span><span class="kv-val">{fmtPrice(quote.fee_breakdown.router)} OAS</span></div>}
+                            </div>
+                          )}
                           <div class="row gap-16" style="margin-top:24px">
-                            <button class="btn btn-ghost grow" onClick={() => setQuote(null)}>{_['back']}</button>
+                            <button class="btn btn-ghost grow" onClick={() => { setQuote(null); setBuyStep('form'); }}>{_['back']}</button>
                             <button class="btn btn-primary grow" onClick={() => onBuy(a.asset_id)} disabled={loading}>
                               {loading ? _['buying'] : _['confirm-buy']}
                             </button>
                           </div>
                         </div>
-                      )
+                      ) : buyStep === 'success' && buyResult ? (
+                        <div class="col gap-8">
+                          <div class="buy-success-banner">{_['buy-success']}</div>
+                          <div class="kv"><span class="kv-key">{_['shares-bought']}</span><span class="kv-val">{buyResult.shares}</span></div>
+                          <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val">{fmtPrice(buyResult.cost)} OAS</span></div>
+                          <div class="kv"><span class="kv-key">{_['new-price']}</span><span class="kv-val">{fmtPrice(buyResult.new_price)} OAS</span></div>
+                          <button class="btn btn-ghost btn-full" style="margin-top:16px" onClick={() => { resetActive(); setBuyAmt('10'); }}>{_['back']}</button>
+                        </div>
+                      ) : null
                     )}
                   </div>
                 )}
@@ -355,6 +468,69 @@ export default function Explore() {
           ) : (
             <span class="caption">{_['no-more']}</span>
           )}
+        </div>
+      )}
+
+      {/* ── Portfolio Section ── */}
+      <hr class="section-rule" />
+      <h2 class="heading" style="margin:0 0 16px 0">{_['portfolio']}</h2>
+      {holdingsLoading ? (
+        <div class="skeleton" style="height:60px;margin-bottom:8px" />
+      ) : holdings.length === 0 ? (
+        <div class="center" style="padding:32px 0">
+          <span class="caption">{_['no-holdings']}</span>
+        </div>
+      ) : (
+        <div class="portfolio-list">
+          {holdings.map(h => (
+            <div key={h.asset_id} class="portfolio-row">
+              <div class="grow">
+                <span class="mono portfolio-id">{maskIdShort(h.asset_id)}</span>
+              </div>
+              <div class="portfolio-stats">
+                <div class="portfolio-stat">
+                  <span class="portfolio-stat-label">{_['shares']}</span>
+                  <span class="portfolio-stat-val">{h.shares}</span>
+                </div>
+                <div class="portfolio-stat">
+                  <span class="portfolio-stat-label">{_['avg-price']}</span>
+                  <span class="portfolio-stat-val">{fmtPrice(h.avg_price)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Stake Section ── */}
+      <hr class="section-rule" />
+      <h2 class="heading" style="margin:0 0 16px 0">{_['stake']}</h2>
+      {validators.length === 0 ? (
+        <div class="center" style="padding:32px 0">
+          <span class="caption">{_['no-validators']}</span>
+        </div>
+      ) : (
+        <div class="col gap-16">
+          {validators.map(v => (
+            <div key={v.id} class="card stake-card">
+              <div class="kv"><span class="kv-key">{_['validator']}</span><span class="kv-val">{maskIdShort(v.id)}</span></div>
+              <div class="kv"><span class="kv-key">{_['staked']}</span><span class="kv-val">{fmtPrice(v.staked)} OAS</span></div>
+              <div class="kv"><span class="kv-key">{_['reputation']}</span><span class="kv-val">{v.reputation}</span></div>
+              <div class="row gap-8" style="margin-top:12px">
+                <input
+                  class="input grow"
+                  type="number"
+                  placeholder={_['stake-amount']}
+                  value={stakeAmts[v.id] || ''}
+                  onInput={e => setStakeAmts(prev => ({ ...prev, [v.id]: (e.target as HTMLInputElement).value }))}
+                  min="1"
+                />
+                <button class="btn btn-primary" onClick={() => onStake(v.id)} disabled={stakingId === v.id}>
+                  {stakingId === v.id ? _['staking'] : _['stake']}
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

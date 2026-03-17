@@ -17,6 +17,7 @@ export interface Asset {
   spot_price?: number;
   input_schema?: any;
   output_schema?: any;
+  hash_status?: 'ok' | 'changed' | 'missing';
 }
 
 export const assets = signal<Asset[]>([]);

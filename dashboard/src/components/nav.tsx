@@ -5,7 +5,7 @@ import { theme, lang, toggleTheme, toggleLang, i18n } from '../store/ui';
 import type { Page } from '../app';
 import './nav.css';
 
-const tabs: Page[] = ['home', 'mydata', 'explore', 'network'];
+const tabs: Page[] = ['home', 'mydata', 'explore', 'auto', 'network'];
 
 interface Props { current: Page; go: (p: Page) => void; }
 

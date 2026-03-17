@@ -4,10 +4,16 @@
 
 .home-grid-wrap {
   margin-bottom: 48px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  padding: 1px 0;
-  overflow: hidden;
+  position: relative;
+  overflow: visible;
+}
+.home-grid-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(to right, var(--bg-0) 0%, transparent 15%, transparent 85%, var(--bg-0) 100%),
+              linear-gradient(to bottom, var(--bg-0) 0%, transparent 20%, transparent 80%, var(--bg-0) 100%);
 }
 
 .dropzone-done { border-style: solid; border-color: var(--green); }
@@ -31,7 +37,6 @@
 }
 .home-success-title { font-size: 18px; font-weight: 500; color: var(--fg-0); }
 
-/* 共享导航行 — home 和 mydata 都用 */
 .nav-row {
   display: flex; flex-direction: column; gap: 6px;
   padding: 20px 0; width: 100%;

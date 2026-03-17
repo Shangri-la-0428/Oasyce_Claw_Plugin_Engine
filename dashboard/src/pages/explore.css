@@ -81,3 +81,62 @@
   margin-left: 6px;
 }
 .mb-16 { margin-bottom: 16px; }
+
+/* ── Buy success banner ── */
+.buy-success-banner {
+  padding: 10px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--green);
+  letter-spacing: 0.04em;
+}
+
+/* ── Quote fees ── */
+.quote-fees {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+/* ── Portfolio ── */
+.portfolio-list {
+  border-top: 1px solid var(--bg-2);
+}
+.portfolio-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--bg-2);
+}
+.portfolio-id {
+  font-size: 13px;
+  color: var(--fg-1);
+}
+.portfolio-stats {
+  display: flex;
+  gap: 24px;
+}
+.portfolio-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.portfolio-stat-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+.portfolio-stat-val {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-0);
+}
+
+/* ── Stake card ── */
+.stake-card {
+  padding: 16px;
+}

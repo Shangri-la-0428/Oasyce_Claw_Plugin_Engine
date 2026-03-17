@@ -2,16 +2,12 @@
 Oasyce GUI - Web-based dashboard for Oasyce nodes.
 
 Usage:
-    from oasyce_plugin.gui import OasyceGUI, set_global_state
+    from oasyce_plugin.gui.app import OasyceGUI
 
     gui = OasyceGUI()
-    gui.start(open_browser=True)
+    gui.run()
 """
 
-from .server import OasyceGUI, set_global_state, OasyceHandler
+from .app import OasyceGUI
 
-__all__ = [
-    "OasyceGUI",
-    "set_global_state",
-    "OasyceHandler",
-]
+__all__ = ["OasyceGUI"]

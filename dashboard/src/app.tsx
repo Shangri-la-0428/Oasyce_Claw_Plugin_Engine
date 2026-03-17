@@ -1,6 +1,6 @@
 /**
- * App — 4 个核心页面
- * 首页（引导 + 注册）/ 我的数据 / 探索 / 网络
+ * App — 5 pages
+ * 首页 / 我的数据 / 探索 / 自动化 / 网络
  */
 import { useEffect, useState } from 'preact/hooks';
 import { initUI } from './store/ui';
@@ -10,8 +10,9 @@ import Home from './pages/home';
 import MyData from './pages/mydata';
 import Explore from './pages/explore';
 import Network from './pages/network';
+import Automation from './pages/automation';
 
-export type Page = 'home' | 'mydata' | 'explore' | 'network';
+export type Page = 'home' | 'mydata' | 'explore' | 'auto' | 'network';
 
 export default function App() {
   const [page, setPage] = useState<Page>('home');
@@ -20,7 +21,7 @@ export default function App() {
     initUI();
     const onPop = () => {
       const p = location.pathname.slice(1) || 'home';
-      if (['home', 'mydata', 'explore', 'network'].includes(p)) setPage(p as Page);
+      if (['home', 'mydata', 'explore', 'auto', 'network'].includes(p)) setPage(p as Page);
     };
     onPop();
     window.addEventListener('popstate', onPop);
@@ -41,6 +42,7 @@ export default function App() {
         {page === 'mydata' && <MyData />}
         {page === 'explore' && <Explore />}
         {page === 'network' && <Network />}
+        {page === 'auto' && <Automation />}
       </main>
       <ToastContainer />
     </div>

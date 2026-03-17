@@ -1,121 +1,113 @@
 /**
- * Network — 网络状态
- * 小白看到数字和身份，极客折叠看详情
+ * Network — 身份 + 水印工具
+ * 风格对齐首页：构成主义极简，留白、线条、块面
  */
 import { useEffect, useState } from 'preact/hooks';
 import { get } from '../api/client';
 import { showToast, i18n } from '../store/ui';
 import './network.css';
 
-/** 公钥：•••• + 后4位 */
-function maskKey(key: string) {
-  if (!key || key.length <= 4) return key;
-  return '••••' + key.slice(-4);
-}
-
-/** Node ID：遮罩显示前8位 + •••• */
-function maskNodeId(id: string) {
-  if (!id || id.length <= 8) return id;
-  return id.slice(0, 8) + '••••';
-}
-
 export default function Network() {
-  const [status, setStatus] = useState<any>(null);
-  const [config, setConfig] = useState<any>(null);
+  const [identity, setIdentity] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [showDetail, setShowDetail] = useState(false);
 
   const _ = i18n.value;
 
   useEffect(() => {
-    Promise.all([
-      get('/status').then(r => { if (r.success) setStatus(r.data); }),
-      get('/config').then(r => { if (r.success) setConfig(r.data); }),
-    ]).finally(() => setLoading(false));
+    get('/identity').then(r => {
+      if (r.success && r.data) setIdentity(r.data);
+    }).finally(() => setLoading(false));
   }, []);
 
-  const copyText = (text: string) => {
+  const copyText = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
-    showToast(_['copied'], 'success');
+    showToast(label + ' ' + (_['copied'] || '已复制'), 'success');
   };
 
   if (loading) {
     return (
       <div class="page">
         <h1 class="heading">{_['network']}</h1>
-        <div class="col gap-16">
-          <div class="skeleton" style="height:80px"></div>
-          <div class="skeleton" style="height:80px"></div>
-        </div>
+        <div class="skeleton" style="height:200px" />
       </div>
     );
   }
 
   return (
     <div class="page">
-      {/* Label 标题 */}
-      <h1 class="heading">{_['network']}</h1>
+      <div class="spacer-48" />
 
-      {/* 统计数字（水平排列，竖线分隔） */}
-      {status && (
-        <div class="net-stats mb-48">
-          <div class="stat">
-            <div class="stat-value">{status.total_assets}</div>
-            <div class="stat-label">assets</div>
-          </div>
-          <div class="net-line" />
-          <div class="stat">
-            <div class="stat-value">{status.total_blocks}</div>
-            <div class="stat-label">blocks</div>
-          </div>
-          <div class="net-line" />
-          <div class="stat">
-            <div class="stat-value">{status.total_distributions}</div>
-            <div class="stat-label">watermarks</div>
-          </div>
-        </div>
-      )}
+      {/* Hero */}
+      <div class="net-hero">
+        <h1 class="display">
+          <span style="color:var(--fg-1)">{_['net-hero-light'] || '你的'}</span>
+          <br />
+          <strong>{_['net-hero-bold'] || '网络身份'}</strong>
+        </h1>
+        <p class="body-text mt-16">{_['net-hero-sub'] || '所有注册与交易都用此身份签名'}</p>
+      </div>
 
-      {/* 身份区：遮罩公钥 + 复制按钮 + caption 说明 */}
-      <div class="label">{_['identity']}</div>
-      {config?.public_key ? (
-        <div class="mb-48">
-          <div class="row gap-8 mb-8">
-            <span class="masked">{maskKey(config.public_key)}</span>
-            <button class="btn-copy" onClick={() => copyText(config.public_key)}>{_['copy']}</button>
+      <div class="spacer-48" />
+
+      {/* 身份卡片 */}
+      {identity?.public_key ? (
+        <div class="card mb-24">
+          <div class="label">{_['net-identity'] || 'IDENTITY'}</div>
+
+          <div class="kv">
+            <span class="kv-key">{_['net-node-id'] || '节点 ID'}</span>
+            <span class="kv-val mono row gap-8">
+              <span>{identity.node_id || identity.public_key.slice(0, 16)}</span>
+              <button class="btn-copy" onClick={() => copyText(identity.node_id || identity.public_key.slice(0, 16), 'Node ID')}>{_['copy'] || '复制'}</button>
+            </span>
           </div>
-          <div class="caption">{_['identity-hint']}</div>
-        </div>
-      ) : (
-        <div class="mb-48 caption">{_['no-key']}</div>
-      )}
 
-      {/* 48px section-rule */}
-      <hr class="section-rule" />
+          <div class="kv">
+            <span class="kv-key">{_['net-pubkey'] || '公钥'}</span>
+            <span class="kv-val mono row gap-8">
+              <span>{'••••' + identity.public_key.slice(-8)}</span>
+              <button class="btn-copy" onClick={() => copyText(identity.public_key, _['net-pubkey'] || '公钥')}>{_['copy'] || '复制'}</button>
+            </span>
+          </div>
 
-      {/* 详细信息（折叠）: Node ID（遮罩）、Address */}
-      {status && (
-        <>
-          <button class="nav-row" onClick={() => setShowDetail(!showDetail)} style="border-bottom:none">
-            <span class="nav-row-title">{_['advanced']} {showDetail ? '↑' : '→'}</span>
-          </button>
-          {showDetail && (
-            <div style="animation:field-in 0.2s var(--ease)">
-              <div class="kv">
-                <span class="kv-key">Node ID</span>
-                <span class="kv-val">
-                  <span class="masked">
-                    <span>{maskNodeId(status.node_id)}</span>
-                    <button class="btn-copy" onClick={() => copyText(status.node_id)}>{_['copy']}</button>
-                  </span>
-                </span>
-              </div>
-              <div class="kv"><span class="kv-key">Address</span><span class="kv-val">{status.host}:{status.port}</span></div>
-              {status.chain_height != null && <div class="kv"><span class="kv-key">Chain Height</span><span class="kv-val">{status.chain_height}</span></div>}
+          {identity.created_at && (
+            <div class="kv">
+              <span class="kv-key">{_['net-created'] || '创建时间'}</span>
+              <span class="kv-val">{new Date(identity.created_at * 1000).toLocaleDateString()}</span>
             </div>
           )}
-        </>
+        </div>
+      ) : (
+        <div class="card mb-24">
+          <div class="label">{_['net-identity'] || 'IDENTITY'}</div>
+          <p class="body-text" style="color:var(--yellow)">
+            {_['net-no-identity'] || '尚未生成身份'}
+            <br />
+            <span class="caption">{_['net-init-hint'] || '运行 oasyce start 来初始化节点'}</span>
+          </p>
+        </div>
       )}
+
+      {/* 水印工具 */}
+      <div class="card mb-24">
+        <div class="label">{_['net-watermark'] || 'WATERMARK TOOLS'}</div>
+        <p class="caption mb-16">{_['net-watermark-desc'] || '追踪数据在网络中的流转'}</p>
+
+        <div class="net-tools">
+          <button class="nav-item">
+            <span class="nav-item-title">{_['net-embed'] || '嵌入水印'} →</span>
+            <span class="nav-item-desc">{_['net-embed-desc'] || '把身份信息刻进文件'}</span>
+          </button>
+          <button class="nav-item">
+            <span class="nav-item-title">{_['net-extract'] || '提取水印'} →</span>
+            <span class="nav-item-desc">{_['net-extract-desc'] || '读出文件的签名信息'}</span>
+          </button>
+          <button class="nav-item">
+            <span class="nav-item-title">{_['net-trace'] || '追踪分发'} →</span>
+            <span class="nav-item-desc">{_['net-trace-desc'] || '查看文件的流转记录'}</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

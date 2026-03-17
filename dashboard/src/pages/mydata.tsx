@@ -1,7 +1,8 @@
 /**
  * MyData — 我的数据
  */
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useState, useRef } from 'preact/hooks';
+import { post } from '../api/client';
 import { assets, loadAssets, deleteAsset } from '../store/assets';
 import { showToast, i18n } from '../store/ui';
 import './mydata.css';
@@ -41,9 +42,48 @@ export default function MyData() {
   const [sortBy, setSortBy] = useState<SortBy>('time');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
 
+  /* ── Registration state ── */
+  const [regFile, setRegFile] = useState('');
+  const [regDesc, setRegDesc] = useState('');
+  const [regLoading, setRegLoading] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [reregistering, setReregistering] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
   const _ = i18n.value;
 
   useEffect(() => { loadAssets(); }, []);
+
+  const onFile = (name: string) => {
+    setRegFile(name);
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    const hint: Record<string, string> = {
+      csv: 'dataset', json: 'structured data', jpg: 'image', png: 'image',
+      pdf: 'document', mp4: 'video', mp3: 'audio', txt: 'text',
+    };
+    if (hint[ext] && !regDesc) setRegDesc(hint[ext]);
+  };
+
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault(); setDragging(false);
+    const f = e.dataTransfer?.files[0];
+    if (f) onFile(f.name);
+  };
+
+  const submitReg = async () => {
+    if (!regFile.trim()) return;
+    setRegLoading(true);
+    const tags = regDesc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
+    const res = await post('/register', { file_path: regFile.trim(), tags });
+    if (res.success) {
+      showToast(_['protected'] + ' ✓', 'success');
+      loadAssets();
+      setRegFile(''); setRegDesc('');
+    } else {
+      showToast(res.error || 'Failed', 'error');
+    }
+    setRegLoading(false);
+  };
 
   const allTags = [...new Set(assets.value.flatMap(a => a.tags ?? []))];
 
@@ -77,6 +117,18 @@ export default function MyData() {
     setConfirmDel(null); setDeleting(false);
   };
 
+  const onReRegister = async (id: string) => {
+    setReregistering(id);
+    const res = await post<{ ok?: boolean; version?: number; message?: string }>('/re-register', { asset_id: id });
+    if (res.success && res.data?.ok) {
+      showToast(`v${res.data.version} ✓`, 'success');
+      loadAssets();
+    } else {
+      showToast(res.data?.message || res.error || 'Failed', 'error');
+    }
+    setReregistering(null);
+  };
+
   return (
     <div class="page">
       {/* Label 标题 + 计数 */}
@@ -84,6 +136,45 @@ export default function MyData() {
         <h1 class="heading" style="margin:0">{_['mydata']}</h1>
         <span class="mono" style="color:var(--fg-2)">{assets.value.length}</span>
       </div>
+
+      {/* ── 注册区：拖入文件 ── */}
+      <div
+        class={`dropzone ${dragging ? 'dropzone-active' : ''} ${regFile ? 'dropzone-done' : ''} mb-24`}
+        onDrop={onDrop}
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onClick={() => fileRef.current?.click()}
+      >
+        {regFile ? (
+          <div class="dropzone-text"><strong>{regFile}</strong></div>
+        ) : (
+          <>
+            <div class="dropzone-icon">↑</div>
+            <div class="dropzone-text">
+              {_['drop-hint']}
+              {' '}
+              <strong>{_['drop-browse']}</strong>
+            </div>
+          </>
+        )}
+        <input ref={fileRef} type="file" style="display:none" onChange={e => {
+          const f = (e.target as HTMLInputElement).files?.[0];
+          if (f) onFile(f.name);
+        }} />
+      </div>
+
+      {/* 选文件后出现描述 + 提交 */}
+      {regFile && (
+        <div class="mydata-reg-fields mb-24">
+          <div>
+            <label class="label">{_['describe']}</label>
+            <input class="input" value={regDesc} onInput={e => setRegDesc((e.target as HTMLInputElement).value)} placeholder={_['describe-hint']} />
+          </div>
+          <button class="btn btn-primary btn-full" onClick={submitReg} disabled={regLoading}>
+            {regLoading ? _['protecting'] : _['protect']}
+          </button>
+        </div>
+      )}
 
       {/* 搜索框 + 排序按钮 */}
       {assets.value.length > 0 && (
@@ -121,7 +212,16 @@ export default function MyData() {
               <div key={a.asset_id} class="data-item">
                 <button class="data-row" onClick={() => setExpanded(isOpen ? null : a.asset_id)}>
                   <div class="grow">
-                    <div class="data-name">{a.tags?.length ? a.tags.join(' · ') : maskIdShort(a.asset_id)}</div>
+                    <div class="data-name">
+                      {a.tags?.length ? a.tags.join(' · ') : maskIdShort(a.asset_id)}
+                      {a.hash_status === 'changed' && <>
+                        <span class="badge" style="color:var(--yellow);border-color:var(--yellow);margin-left:8px">已变更</span>
+                        <button class="btn btn-sm btn-ghost" style="margin-left:6px;font-size:12px" disabled={reregistering === a.asset_id} onClick={e => { e.stopPropagation(); onReRegister(a.asset_id); }}>
+                          {reregistering === a.asset_id ? '…' : '重新注册'}
+                        </button>
+                      </>}
+                      {a.hash_status === 'missing' && <span class="badge" style="color:var(--red);border-color:var(--red);margin-left:8px">文件丢失</span>}
+                    </div>
                     <div class="data-meta">
                       <span class="mono data-id-inline">{maskIdShort(a.asset_id)}</span>
                       {a.owner && <span class="data-owner-inline">{maskOwner(a.owner)}</span>}
