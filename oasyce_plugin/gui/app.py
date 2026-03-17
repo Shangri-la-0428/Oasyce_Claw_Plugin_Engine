@@ -817,12 +817,12 @@ class _Handler(BaseHTTPRequestHandler):
                 content = body.get("content", "")
                 if not all([aid, caller, content]):
                     return _json_response(self, {"error": "asset_id, caller_id, content required"}, 400)
-                import time
-                fp = engine.generate_fingerprint(aid, caller, int(time.time()))
+                import time as _time
+                fp = engine.generate_fingerprint(aid, caller, int(_time.time()))
                 watermarked = engine.embed_text(content, fp)
                 if _ledger:
                     registry = FingerprintRegistry(_ledger)
-                    registry.record_distribution(aid, caller, fp, int(time.time()))
+                    registry.record_distribution(aid, caller, fp, int(_time.time()))
                 return _json_response(self, {
                     "ok": True, "fingerprint": fp,
                     "watermarked_content": watermarked,
