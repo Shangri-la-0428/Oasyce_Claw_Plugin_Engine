@@ -21,10 +21,10 @@ interface AgentConfig {
 }
 
 const KNOWN_AGENTS: AgentConfig[] = [
-  { id: 'openclaw', name: 'OpenClaw', icon: '🐾', desc_zh: '本地 Agent Runtime，全功能', desc_en: 'Local agent runtime, full-featured', status: 'connected' },
-  { id: 'cursor', name: 'Cursor', icon: '▢', desc_zh: 'AI 代码编辑器，擅长代码类资产', desc_en: 'AI code editor, great for code assets', status: 'available' },
-  { id: 'claude-code', name: 'Claude Code', icon: '◉', desc_zh: 'Anthropic CLI Agent', desc_en: 'Anthropic CLI Agent', status: 'available' },
-  { id: 'custom', name: 'Custom', icon: '⬡', desc_zh: '自定义 Agent（通过 API 接入）', desc_en: 'Custom agent (via API)', status: 'available' },
+  { id: 'openclaw', name: 'OpenClaw', icon: 'O', desc_zh: '本地 Agent Runtime，全功能', desc_en: 'Local agent runtime, full-featured', status: 'connected' },
+  { id: 'cursor', name: 'Cursor', icon: 'C', desc_zh: 'AI 代码编辑器，擅长代码类资产', desc_en: 'AI code editor, great for code assets', status: 'available' },
+  { id: 'claude-code', name: 'Claude Code', icon: 'CC', desc_zh: 'Anthropic CLI Agent', desc_en: 'Anthropic CLI Agent', status: 'available' },
+  { id: 'custom', name: 'Custom', icon: '?', desc_zh: '自定义 Agent（通过 API 接入）', desc_en: 'Custom agent (via API)', status: 'available' },
 ];
 
 export default function Automation() {
@@ -48,19 +48,19 @@ export default function Automation() {
     if (!scanPath.trim()) return;
     const res = await scanDirectory(scanPath.trim());
     if (res.success) showToast(_['scan-done'], 'success');
-    else showToast(res.error || 'Failed', 'error');
+    else showToast(res.error || _['error-generic'], 'error');
   };
 
   const onApprove = async (id: string) => {
     const res = await approveItem(id);
     if (res.success) showToast(_['approved'], 'success');
-    else showToast(res.error || 'Failed', 'error');
+    else showToast(res.error || _['error-generic'], 'error');
   };
 
   const onReject = async (id: string) => {
     const res = await rejectItem(id);
     if (res.success) showToast(_['rejected'], 'success');
-    else showToast(res.error || 'Failed', 'error');
+    else showToast(res.error || _['error-generic'], 'error');
   };
 
   const startEdit = (item: typeof inboxItems.value[0]) => {
@@ -90,7 +90,7 @@ export default function Automation() {
   return (
     <div class="page">
       <div class="row between mb-8">
-        <h1 class="heading" style="margin:0">{_['automation']}</h1>
+        <h1 class="label" style="margin:0">{_['automation']}</h1>
         {pendingItems.length > 0 && <span class="auto-badge-pending">{pendingItems.length}</span>}
       </div>
       <p class="caption mb-24">{_['automation-desc']}</p>
@@ -167,7 +167,7 @@ export default function Automation() {
 
           {pendingItems.length === 0 && inboxItems.value.length === 0 && (
             <div class="auto-empty">
-              <div class="auto-empty-icon">⚡</div>
+              <div class="auto-empty-icon">—</div>
               <div>{_['queue-empty']}</div>
               <div class="caption">{_['queue-empty-hint']}</div>
             </div>
@@ -204,7 +204,7 @@ export default function Automation() {
             <div class="auto-trust-levels">
               {([0, 1, 2] as const).map(lv => (
                 <button key={lv} class={`auto-trust-card ${trustConfig.value.trust_level === lv ? 'active' : ''}`} onClick={() => setTrust(lv)}>
-                  <div class="auto-trust-icon">{['🔒', '⚡', '🤖'][lv]}</div>
+                  <div class="auto-trust-icon">{['I', 'II', 'III'][lv]}</div>
                   <div class="auto-trust-name">{_[`trust-${lv}`]}</div>
                   <div class="caption">{_[`trust-${lv}-desc`]}</div>
                 </button>
@@ -259,7 +259,7 @@ export default function Automation() {
                 { value: 0.5, key: 'threshold-permissive' as const },
               ]).map(tier => (
                 <button key={tier.key} class={`auto-trust-card ${Math.abs(trustConfig.value.auto_threshold - tier.value) < 0.05 ? 'active' : ''}`} onClick={() => setTrust(undefined, tier.value)}>
-                  <div class="auto-trust-icon">{tier.value === 0.9 ? '🛡' : tier.value === 0.7 ? '⚖' : '🚀'}</div>
+                  <div class="auto-trust-icon">{tier.value === 0.9 ? '90' : tier.value === 0.7 ? '70' : '50'}</div>
                   <div class="auto-trust-name">{_[tier.key]}</div>
                   <div class="caption">{_[`${tier.key}-desc`]}</div>
                   <div class="mono" style="margin-top:6px;font-size:11px;color:var(--fg-2)">≥ {(tier.value * 100).toFixed(0)}%</div>

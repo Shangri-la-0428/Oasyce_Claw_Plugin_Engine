@@ -52,7 +52,8 @@ class TestBasicPricing:
         result = curve.calculate_price("ASSET_001", base_price=1.0)
         expected_keys = {
             "final_price", "base_price", "demand_factor",
-            "scarcity_factor", "quality_factor", "freshness_factor", "breakdown",
+            "scarcity_factor", "quality_factor", "freshness_factor",
+            "rights_type_factor", "breakdown",
         }
         assert set(result.keys()) == expected_keys
         assert "query_count" in result["breakdown"]

@@ -1,36 +1,4 @@
 /* Explore */
-
-/* ── Categories ── */
-.category-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-.category-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--r-m);
-  cursor: pointer;
-  font-family: var(--sans);
-  transition: border-color 0.15s var(--ease);
-}
-.category-card:hover {
-  border-color: var(--border-active);
-}
-.category-name {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--fg-0);
-}
-.category-count {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--fg-2);
-}
 .explore-list { border-top: 1px solid var(--bg-2); }
 .explore-item { border-bottom: 1px solid var(--bg-2); }
 .explore-row {
@@ -38,27 +6,14 @@
   width: 100%; padding: 14px 0;
   background: none; border: none; cursor: pointer;
   text-align: left; font-family: var(--sans);
-  transition: padding-left 0.12s var(--ease);
+  transition: transform 0.12s var(--ease);
 }
-.explore-row:hover { padding-left: 4px; }
+.explore-row:hover { transform: translateX(4px); }
 .explore-name { font-size: 14px; font-weight: 500; color: var(--fg-0); margin-bottom: 2px; }
 .explore-meta { display: flex; align-items: center; gap: 8px; }
 .explore-id-inline { font-size: 12px; color: var(--fg-2); }
 .explore-owner-inline { font-size: 12px; color: var(--fg-3); }
-.explore-price { font-size: 13px; font-weight: 600; color: var(--fg-0); }
-.explore-price-prominent { font-size: 16px; font-weight: 600; color: var(--fg-0); white-space: nowrap; }
-
-.tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag-chip {
-  display: inline-flex; align-items: center;
-  height: 28px; padding: 0 10px;
-  font-family: var(--sans); font-size: 12px; font-weight: 500;
-  color: var(--fg-2); background: transparent;
-  border: 1px solid var(--border); border-radius: 14px;
-  cursor: pointer; transition: all 0.12s var(--ease);
-}
-.tag-chip:hover { border-color: var(--border-active); color: var(--fg-0); }
-.tag-chip-active { border-color: var(--fg-2); color: var(--fg-0); }
+.explore-price-prominent { font-size: 16px; font-weight: 500; color: var(--fg-0); white-space: nowrap; }
 
 .explore-inline {
   padding: 16px 0 16px 16px;
@@ -67,9 +22,9 @@
   margin-bottom: 4px;
   animation: field-in 0.2s var(--ease);
 }
-@keyframes field-in { from { opacity: 0; transform: translateY(6px); } }
 
-/* ── Capability badges ── */
+/* ── Capability distinction ── */
+.explore-item-cap { border-left: 2px solid var(--blue); padding-left: 12px; }
 .type-badge {
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; margin-right: 4px;
@@ -80,7 +35,6 @@
   color: var(--fg-3);
   margin-left: 6px;
 }
-.mb-16 { margin-bottom: 16px; }
 
 /* ── Buy success banner ── */
 .buy-success-banner {
@@ -139,4 +93,12 @@
 /* ── Stake card ── */
 .stake-card {
   padding: 16px;
+}
+
+@media (max-width: 600px) {
+  .explore-row { gap: 8px; }
+  .explore-price-prominent { font-size: 13px; }
+  .portfolio-stats { gap: 12px; }
+  .portfolio-row { flex-wrap: wrap; }
+  .explore-inline .masked { word-break: break-all; }
 }

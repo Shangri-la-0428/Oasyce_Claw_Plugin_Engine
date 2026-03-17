@@ -6,7 +6,7 @@
   padding: 10px 16px;
   font-family: var(--sans); font-size: 13px; font-weight: 500;
   color: var(--fg-2); background: none; border: none;
-  border-bottom: 1.5px solid transparent;
+  border-bottom: 1px solid transparent;
   cursor: pointer; transition: color 0.12s;
 }
 .auto-tab:hover { color: var(--fg-1); }
@@ -14,8 +14,9 @@
 .auto-tab-count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 18px; height: 18px; padding: 0 5px;
-  font-size: 11px; font-weight: 600;
-  background: var(--fg-0); color: var(--bg-0);
+  font-size: 11px; font-weight: 500;
+  background: var(--bg-2); color: var(--fg-1);
+  border: 1px solid var(--border);
   border-radius: 9px;
 }
 
@@ -50,7 +51,7 @@
 /* Action buttons — circular */
 .auto-item-actions { display: flex; gap: 4px; flex-shrink: 0; margin-top: 2px; }
 .auto-action-btn {
-  width: 32px; height: 32px;
+  width: 44px; height: 44px;
   display: flex; align-items: center; justify-content: center;
   font-size: 14px;
   border: 1px solid var(--border); border-radius: 50%;
@@ -70,7 +71,7 @@
 
 /* Empty state */
 .auto-empty { text-align: center; padding: 64px 0; }
-.auto-empty-icon { font-size: 32px; margin-bottom: 12px; }
+.auto-empty-icon { font-family: var(--mono); font-size: 24px; color: var(--fg-3); margin-bottom: 12px; }
 .auto-empty div:nth-child(2) { font-size: 15px; color: var(--fg-1); }
 
 /* Trust level cards */
@@ -84,14 +85,20 @@
 }
 .auto-trust-card:hover { border-color: var(--border-active); }
 .auto-trust-card.active { border-color: var(--fg-0); background: var(--bg-1); }
-.auto-trust-icon { font-size: 24px; margin-bottom: 8px; }
+.auto-trust-icon { font-family: var(--mono); font-size: 16px; font-weight: 700; color: var(--fg-1); margin-bottom: 8px; letter-spacing: 0.02em; }
 .auto-trust-name { font-size: 14px; font-weight: 600; color: var(--fg-0); margin-bottom: 4px; }
 .auto-trust-card .caption { font-size: 11px; }
 
+@media (max-width: 768px) {
+  .agent-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
 @media (max-width: 600px) {
+  .auto-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .auto-tab { padding: 8px 12px; font-size: 12px; flex-shrink: 0; }
   .auto-trust-levels { flex-direction: column; }
-  .auto-item-main { flex-direction: column; }
-  .auto-item-actions { flex-direction: row; }
+  .auto-item-main { flex-direction: column; gap: 8px; }
+  .auto-item-actions { flex-direction: row; width: 100%; }
   .agent-grid { grid-template-columns: 1fr 1fr; }
 }
 
@@ -117,7 +124,13 @@
   display: flex; align-items: center; justify-content: center;
   gap: 6px; margin-bottom: 8px;
 }
-.agent-icon { font-size: 22px; }
+.agent-icon {
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 50%;
+  color: var(--fg-1);
+}
 .agent-status-dot {
   width: 6px; height: 6px; border-radius: 50%;
 }
@@ -130,9 +143,9 @@
 
 .agent-connected-tag {
   display: inline-block;
-  margin-top: 6px; padding: 1px 6px;
-  font-size: 9px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
-  color: var(--green); border: 1px solid var(--green); border-radius: 3px;
+  margin-top: 6px; padding: 2px 6px;
+  font-size: 10px; font-weight: 400; letter-spacing: 0.03em;
+  color: var(--fg-2); border: 1px solid var(--border); border-radius: 3px;
 }
 
 /* Custom agent config */

@@ -32,12 +32,18 @@ export default function App() {
     setPage(p);
     history.pushState(null, '', p === 'home' ? '/' : '/' + p);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Move focus to main content for screen readers
+    requestAnimationFrame(() => {
+      const main = document.getElementById('main-content');
+      if (main) { main.focus({ preventScroll: true }); }
+    });
   };
 
   return (
     <div class="app">
+      <a href="#main-content" class="skip-link">Skip to content</a>
       <Nav current={page} go={go} />
-      <main class="main">
+      <main class="main" id="main-content" tabIndex={-1} style="outline:none">
         {page === 'home' && <Home go={go} />}
         {page === 'mydata' && <MyData />}
         {page === 'explore' && <Explore />}

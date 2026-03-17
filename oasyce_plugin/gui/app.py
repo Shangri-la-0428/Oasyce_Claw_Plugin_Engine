@@ -13,7 +13,10 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import time
+import zipfile
+from collections import defaultdict
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from typing import Any, Dict, Optional
@@ -38,6 +41,54 @@ _cap_registry: Any = None
 _cap_escrow: Any = None
 _cap_shares: Any = None
 _cap_engine: Any = None
+_discovery: Any = None
+
+# ── Security: API token + rate limiting ──────────────────────────────
+_api_token: str = ""
+
+# Rate limiter: {ip: [(timestamp, ...)] }
+_rate_limits: Dict[str, list] = defaultdict(list)
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX = 60     # max requests per window for mutating endpoints
+
+# Anti-wash-trading cooldown: {(buyer, asset_id): last_buy_timestamp}
+_buy_cooldowns: Dict[tuple, float] = {}
+BUY_COOLDOWN_SECONDS = 30  # minimum seconds between same buyer+asset purchases
+
+
+def _check_rate_limit(client_ip: str) -> bool:
+    """Return True if request is within rate limit, False if exceeded."""
+    now = time.time()
+    window = _rate_limits[client_ip]
+    # Prune old entries
+    _rate_limits[client_ip] = [t for t in window if now - t < RATE_LIMIT_WINDOW]
+    if len(_rate_limits[client_ip]) >= RATE_LIMIT_MAX:
+        return False
+    _rate_limits[client_ip].append(now)
+    return True
+
+
+def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
+    """Check authorization for mutating endpoints.
+
+    Accepts either:
+    - Authorization: Bearer <token> header
+    - Same-origin request (Origin/Referer matches localhost)
+    """
+    # Check Bearer token
+    auth = handler.headers.get("Authorization", "")
+    if auth == f"Bearer {_api_token}" and _api_token:
+        return True
+
+    # Check same-origin (Dashboard served from same server)
+    origin = handler.headers.get("Origin", "")
+    referer = handler.headers.get("Referer", "")
+    localhost_patterns = ("http://localhost:", "http://127.0.0.1:", "http://[::1]:")
+    for pattern in localhost_patterns:
+        if origin.startswith(pattern) or referer.startswith(pattern):
+            return True
+
+    return False
 
 
 def _get_settlement():
@@ -81,6 +132,34 @@ def _get_skills():
         from oasyce_plugin.skills.agent_skills import OasyceSkills
         _skills = OasyceSkills(_config)
     return _skills
+
+
+def _get_discovery():
+    global _discovery
+    if _discovery is None:
+        from oasyce_plugin.services.discovery import SkillDiscoveryEngine
+
+        def _list_capabilities():
+            try:
+                reg, _, _, _ = _get_cap_stack()
+                caps = reg.list_all()
+                return [
+                    {
+                        "capability_id": m.capability_id,
+                        "name": m.name,
+                        "provider": m.provider,
+                        "tags": m.tags,
+                        "intents": m.tags,  # use tags as intents for now
+                        "semantic_vector": m.semantic_vector,
+                        "base_price": m.pricing.base_price if m.pricing else 1.0,
+                    }
+                    for m in caps
+                ]
+            except Exception:
+                return []
+
+        _discovery = SkillDiscoveryEngine(get_capabilities=_list_capabilities)
+    return _discovery
 
 
 def _json_response(handler: BaseHTTPRequestHandler, data: Any, status: int = 200) -> None:
@@ -184,6 +263,15 @@ def _api_assets() -> list:
             "created_at": r["created_at"],
             "file_path": meta.get("file_path"),
             "file_hash": meta.get("file_hash"),
+            "rights_type": meta.get("rights_type", "original"),
+            "co_creators": meta.get("co_creators"),
+            "disputed": meta.get("disputed", False),
+            "dispute_reason": meta.get("dispute_reason"),
+            "dispute_time": meta.get("dispute_time"),
+            "arbitrator_candidates": meta.get("arbitrator_candidates"),
+            "dispute_status": meta.get("dispute_status"),
+            "dispute_resolution": meta.get("dispute_resolution"),
+            "delisted": meta.get("delisted", False),
         })
     # Attach spot price from settlement engine where available
     se = _get_settlement()
@@ -439,6 +527,11 @@ class _Handler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
 
         # ── API routes ───────────────────────────────────────────
+        if path == "/api/info":
+            from oasyce_plugin.info import get_info
+            lang = qs.get("lang", ["en"])[0]
+            return _json_response(self, get_info(lang))
+
         if path == "/api/status":
             return _json_response(self, _api_status())
 
@@ -452,6 +545,37 @@ class _Handler(BaseHTTPRequestHandler):
             if block is None:
                 return _json_response(self, {"error": "block not found"}, 404)
             return _json_response(self, block)
+
+        if path == "/api/discover":
+            intents = qs.get("intents", [""])[0]
+            tags = qs.get("tags", [""])[0]
+            limit = int(qs.get("limit", ["10"])[0])
+            try:
+                discovery = _get_discovery()
+                candidates = discovery.discover(
+                    intents=intents.split(",") if intents else None,
+                    query_tags=tags.split(",") if tags else None,
+                    limit=limit,
+                )
+                return _json_response(self, [
+                    {
+                        "capability_id": c.capability_id,
+                        "name": c.name,
+                        "provider": c.provider,
+                        "tags": c.tags,
+                        "intent_score": c.intent_score,
+                        "semantic_score": c.semantic_score,
+                        "trust_score": c.trust_score,
+                        "economic_score": c.economic_score,
+                        "final_score": c.final_score,
+                        "base_price": c.base_price,
+                        "success_rate": c.success_rate,
+                        "rating": c.rating,
+                    }
+                    for c in candidates
+                ])
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
 
         if path == "/api/assets":
             return _json_response(self, _api_assets())
@@ -492,7 +616,8 @@ class _Handler(BaseHTTPRequestHandler):
         m = re.match(r"^/api/asset/(.+)$", path)
         if m:
             aid = m.group(1)
-            assert _ledger
+            if not _ledger:
+                return _json_response(self, {"error": "ledger not initialized"}, 503)
             row = _ledger._conn.execute(
                 "SELECT * FROM assets WHERE asset_id = ?", (aid,)
             ).fetchone()
@@ -567,7 +692,8 @@ class _Handler(BaseHTTPRequestHandler):
 
         # ── Identity ────────────────────────────────────────────
         if path == "/api/identity":
-            assert _config
+            if not _config or not _config.public_key:
+                return _json_response(self, {"error": "identity not initialized"}, 503)
             key_dir = os.path.join(_config.data_dir, "keys")
             created_at = None
             pub_path = os.path.join(key_dir, "public.key")
@@ -575,9 +701,16 @@ class _Handler(BaseHTTPRequestHandler):
                 created_at = os.path.getctime(pub_path)
             return _json_response(self, {
                 "public_key": _config.public_key,
-                "node_id": (_config.public_key or "unknown")[:16],
+                "node_id": _config.public_key[:16],
                 "created_at": created_at,
             })
+
+        # ── Auth token (localhost only) ──────────────────────────
+        if path == "/api/auth/token":
+            client_ip = self.client_address[0]
+            if client_ip not in ("127.0.0.1", "::1", "localhost"):
+                return _json_response(self, {"error": "forbidden"}, 403)
+            return _json_response(self, {"token": _api_token})
 
         # ── Config ───────────────────────────────────────────────
         if path == "/api/config":
@@ -645,6 +778,24 @@ class _Handler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/")
         content_type = self.headers.get("Content-Type", "")
 
+        # ── Auth check for all POST endpoints ──
+        if not _check_auth(self):
+            return _json_response(self, {"error": "unauthorized"}, 401)
+
+        # ── Rate limit ──
+        client_ip = self.client_address[0]
+        if not _check_rate_limit(client_ip):
+            return _json_response(self, {"error": "rate limit exceeded"}, 429)
+
+        # Pre-parse JSON body for non-multipart routes
+        body: dict = {}
+        if "application/json" in content_type:
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length)) if length else {}
+            except (json.JSONDecodeError, ValueError):
+                return _json_response(self, {"error": "invalid JSON body"}, 400)
+
         if path == "/api/register":
             try:
                 # ── multipart upload ──
@@ -672,19 +823,45 @@ class _Handler(BaseHTTPRequestHandler):
                     owner = form.getfirst("owner", _config.owner if _config else "unknown")
                     tags_raw = form.getfirst("tags", "")
                     tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+                    rights_type = form.getfirst("rights_type", "original")
+                    co_creators_raw = form.getfirst("co_creators", "")
+                    co_creators = json.loads(co_creators_raw) if co_creators_raw else None
                 else:
-                    # legacy JSON fallback
-                    length = int(self.headers.get("Content-Length", 0))
-                    body = json.loads(self.rfile.read(length)) if length else {}
+                    # legacy JSON fallback — body already parsed at top of do_POST
                     fp = body.get("file_path", "")
                     owner = body.get("owner", _config.owner if _config else "unknown")
                     tags = body.get("tags", [])
+                    rights_type = body.get("rights_type", "original")
+                    co_creators = body.get("co_creators", None)
 
                 if not fp:
                     return _json_response(self, {"error": "file_path required"}, 400)
+
+                # Validate rights_type
+                from oasyce_plugin.models import VALID_RIGHTS_TYPES
+                if rights_type not in VALID_RIGHTS_TYPES:
+                    return _json_response(self, {"error": f"invalid rights_type: {rights_type}"}, 400)
+
+                # Validate co_creators shares sum to 100
+                if co_creators:
+                    total_share = sum(c.get("share", 0) for c in co_creators)
+                    if abs(total_share - 100) > 0.01:
+                        return _json_response(self, {"error": f"co_creators shares must sum to 100, got {total_share}"}, 400)
+
+                # Path traversal prevention: resolve and check against allowed dirs
+                resolved_fp = os.path.realpath(fp)
+                home_dir = os.path.expanduser("~")
+                if not resolved_fp.startswith(home_dir):
+                    return _json_response(self, {"error": "file path not allowed"}, 403)
+                if not os.path.isfile(resolved_fp):
+                    return _json_response(self, {"error": "file not found"}, 404)
+                fp = resolved_fp
                 skills = _get_skills()
                 file_info = skills.scan_data_skill(fp)
-                metadata = skills.generate_metadata_skill(file_info, tags, owner)
+                metadata = skills.generate_metadata_skill(
+                    file_info, tags, owner,
+                    rights_type=rights_type, co_creators=co_creators,
+                )
                 metadata["file_path"] = os.path.abspath(fp)
                 signed = skills.create_certificate_skill(metadata)
                 result = skills.register_data_asset_skill(signed)
@@ -695,9 +872,59 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
+        if path == "/api/register-bundle":
+            try:
+                if "multipart/form-data" not in content_type:
+                    return _json_response(self, {"error": "multipart/form-data required"}, 400)
+                form = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ={
+                        "REQUEST_METHOD": "POST",
+                        "CONTENT_TYPE": content_type,
+                    },
+                )
+                # Collect all files from multipart
+                file_items = form["files"] if "files" in form else []
+                if not isinstance(file_items, list):
+                    file_items = [file_items]
+                file_items = [f for f in file_items if getattr(f, "filename", None)]
+                if not file_items:
+                    return _json_response(self, {"error": "no files provided"}, 400)
+
+                bundle_name = form.getfirst("name", f"bundle_{int(time.time())}")
+                owner = form.getfirst("owner", _config.owner if _config else "unknown")
+                tags_raw = form.getfirst("tags", "")
+                tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+
+                upload_dir = os.path.join(os.path.expanduser("~"), ".oasyce", "uploads")
+                os.makedirs(upload_dir, exist_ok=True)
+                safe_name = re.sub(r"[^\w.\-]", "_", bundle_name)
+                zip_path = os.path.join(upload_dir, f"{int(time.time())}_{safe_name}.zip")
+
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for fi in file_items:
+                        fname = re.sub(r"[^\w./\-]", "_", fi.filename)
+                        zf.writestr(fname, fi.file.read())
+
+                skills = _get_skills()
+                file_info = skills.scan_data_skill(zip_path)
+                metadata = skills.generate_metadata_skill(file_info, tags, owner)
+                metadata["file_path"] = os.path.abspath(zip_path)
+                metadata["bundle"] = True
+                metadata["file_count"] = len(file_items)
+                signed = skills.create_certificate_skill(metadata)
+                result = skills.register_data_asset_skill(signed)
+                return _json_response(self, {
+                    "ok": True,
+                    "asset_id": signed.get("asset_id", ""),
+                    "file_hash": file_info.get("file_hash", ""),
+                    "file_count": len(file_items),
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
         if path == "/api/re-register":
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
             try:
                 aid = body.get("asset_id", "")
                 if not aid:
@@ -739,9 +966,118 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
+        if path == "/api/dispute":
+            try:
+                aid = body.get("asset_id", "")
+                reason = body.get("reason", "").strip()
+                if not aid:
+                    return _json_response(self, {"error": "asset_id required"}, 400)
+                if not reason:
+                    return _json_response(self, {"error": "reason required"}, 400)
+                assert _ledger
+                row = _ledger._conn.execute(
+                    "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
+                ).fetchone()
+                if not row:
+                    return _json_response(self, {"error": "asset not found"}, 404)
+                meta = json.loads(row["metadata"]) if row["metadata"] else {}
+                meta["disputed"] = True
+                meta["dispute_reason"] = reason
+                meta["dispute_time"] = int(time.time())
+                meta["dispute_status"] = "open"
+
+                # Auto-discover arbitrator capabilities
+                arbitrators = []
+                try:
+                    discovery = _get_discovery()
+                    tags = meta.get("tags", [])
+                    candidates = discovery.discover_arbitrators(
+                        dispute_tags=tags + ["arbitration"],
+                        limit=3,
+                    )
+                    arbitrators = [
+                        {
+                            "capability_id": c.capability_id,
+                            "name": c.name,
+                            "provider": c.provider,
+                            "score": c.final_score,
+                        }
+                        for c in candidates
+                    ]
+                    meta["arbitrator_candidates"] = arbitrators
+                except Exception:
+                    pass  # discovery is best-effort
+
+                _ledger._conn.execute(
+                    "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+                    (json.dumps(meta), aid),
+                )
+                _ledger._conn.commit()
+                return _json_response(self, {
+                    "ok": True, "asset_id": aid, "disputed": True,
+                    "arbitrators": arbitrators,
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path == "/api/dispute/resolve":
+            try:
+                from oasyce_plugin.models import VALID_REMEDY_TYPES
+                aid = body.get("asset_id", "")
+                remedy = body.get("remedy", "")
+                details = body.get("details", {})
+                if not aid:
+                    return _json_response(self, {"error": "asset_id required"}, 400)
+                if remedy not in VALID_REMEDY_TYPES:
+                    return _json_response(self, {"error": f"invalid remedy, must be one of: {', '.join(VALID_REMEDY_TYPES)}"}, 400)
+                if not _ledger:
+                    return _json_response(self, {"error": "ledger not initialized"}, 503)
+                row = _ledger._conn.execute(
+                    "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
+                ).fetchone()
+                if not row:
+                    return _json_response(self, {"error": "asset not found"}, 404)
+                meta = json.loads(row["metadata"]) if row["metadata"] else {}
+                if not meta.get("disputed"):
+                    return _json_response(self, {"error": "asset is not disputed"}, 400)
+                if meta.get("dispute_status") == "resolved":
+                    return _json_response(self, {"error": "dispute already resolved"}, 400)
+
+                # Apply remedy
+                resolution = {"remedy": remedy, "details": details, "resolved_at": int(time.time())}
+                meta["dispute_status"] = "resolved"
+                meta["dispute_resolution"] = resolution
+
+                if remedy == "delist":
+                    meta["delisted"] = True
+                elif remedy == "transfer":
+                    new_owner = details.get("new_owner", "")
+                    if new_owner:
+                        meta["owner"] = new_owner
+                        _ledger._conn.execute(
+                            "UPDATE assets SET owner = ? WHERE asset_id = ?",
+                            (new_owner, aid),
+                        )
+                elif remedy == "rights_correction":
+                    new_rights = details.get("new_rights_type", "collection")
+                    from oasyce_plugin.models import VALID_RIGHTS_TYPES
+                    if new_rights in VALID_RIGHTS_TYPES:
+                        meta["rights_type"] = new_rights
+                elif remedy == "share_adjustment":
+                    new_co_creators = details.get("co_creators")
+                    if new_co_creators:
+                        meta["co_creators"] = new_co_creators
+
+                _ledger._conn.execute(
+                    "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+                    (json.dumps(meta), aid),
+                )
+                _ledger._conn.commit()
+                return _json_response(self, {"ok": True, "asset_id": aid, "remedy": remedy, "resolution": resolution})
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
         if path == "/api/buy":
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
             try:
                 se = _get_settlement()
                 aid = body.get("asset_id", "")
@@ -749,6 +1085,17 @@ class _Handler(BaseHTTPRequestHandler):
                 amount = float(body.get("amount", 10))
                 if not aid:
                     return _json_response(self, {"error": "asset_id required"}, 400)
+                if amount <= 0:
+                    return _json_response(self, {"error": "amount must be positive"}, 400)
+                if amount > 1_000_000:
+                    return _json_response(self, {"error": "amount exceeds maximum"}, 400)
+
+                # Anti-wash-trading: cooldown per buyer+asset
+                cooldown_key = (buyer, aid)
+                last_buy = _buy_cooldowns.get(cooldown_key, 0)
+                if time.time() - last_buy < BUY_COOLDOWN_SECONDS:
+                    remaining = int(BUY_COOLDOWN_SECONDS - (time.time() - last_buy))
+                    return _json_response(self, {"error": f"cooldown: wait {remaining}s"}, 429)
                 # UNAVAILABLE check: verify file exists and hash matches
                 assert _ledger
                 asset_row = _ledger._conn.execute(
@@ -770,6 +1117,8 @@ class _Handler(BaseHTTPRequestHandler):
                 if aid not in se.pools:
                     se.register_asset(aid, "protocol")
                 receipt = se.execute(aid, buyer, amount)
+                if receipt.status.value == "SETTLED":
+                    _buy_cooldowns[cooldown_key] = time.time()
                 return _json_response(self, {
                     "ok": receipt.status.value == "SETTLED",
                     "receipt_id": receipt.receipt_id,
@@ -833,7 +1182,8 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/asset/update":
             aid = body.get("asset_id", "")
             new_tags = body.get("tags", [])
-            assert _ledger
+            if not _ledger:
+                return _json_response(self, {"error": "ledger not initialized"}, 503)
             row = _ledger._conn.execute(
                 "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
             ).fetchone()
@@ -898,6 +1248,8 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/scan":
             from oasyce_plugin.services.scanner import AssetScanner
             from oasyce_plugin.services.inbox import ConfirmationInbox
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
             scan_path = body.get("path", ".") if body else "."
             scanner = AssetScanner()
             results = scanner.scan_directory(scan_path)
@@ -963,6 +1315,8 @@ class _Handler(BaseHTTPRequestHandler):
             })
 
         if path == "/api/scan":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
             scan_path = body.get("path", ".") if body else "."
             from oasyce_plugin.services.scanner import AssetScanner
             from oasyce_plugin.services.inbox import ConfirmationInbox
@@ -991,12 +1345,20 @@ class _Handler(BaseHTTPRequestHandler):
         return _json_response(self, {"error": "not found"}, 404)
 
     def do_DELETE(self):
+        # ── Auth check ──
+        if not _check_auth(self):
+            return _json_response(self, {"error": "unauthorized"}, 401)
+        client_ip = self.client_address[0]
+        if not _check_rate_limit(client_ip):
+            return _json_response(self, {"error": "rate limit exceeded"}, 429)
+
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         m = re.match(r"^/api/asset/(.+)$", path)
         if m:
             aid = m.group(1)
-            assert _ledger
+            if not _ledger:
+                return _json_response(self, {"error": "ledger not initialized"}, 503)
             row = _ledger._conn.execute(
                 "SELECT * FROM assets WHERE asset_id = ?", (aid,)
             ).fetchone()
@@ -1160,6 +1522,14 @@ body{
 .about-close:hover{color:var(--text);}
 .about-contact{margin-top:24px;padding-top:20px;border-top:1px solid var(--border);font-size:13px;color:var(--text-t);}
 .about-contact a{color:var(--text-s);text-decoration:none;}
+.about-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto;}
+.about-tab{padding:8px 12px;font-size:12px;font-weight:500;color:var(--text-t);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;white-space:nowrap;font-family:inherit;transition:all .15s;}
+.about-tab:hover{color:var(--text);background:var(--hover);}
+.about-tab.active{color:var(--text);border-bottom-color:var(--text);}
+.about-section{display:none;animation:fadeIn .2s;}
+.about-section.active{display:block;}
+.about-section pre{font-size:12px;line-height:1.7;color:var(--text-s);white-space:pre-wrap;word-break:break-word;margin:0;font-family:inherit;}
+.about-version{display:inline-block;font-size:11px;color:var(--text-t);background:var(--hover);padding:2px 8px;border-radius:10px;margin-left:8px;}
 .about-contact a:hover{color:var(--text);}
 @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
 .about-overlay{position:fixed;inset:0;z-index:240;background:transparent;}
@@ -1573,6 +1943,15 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
         <div class="field"><label class="field-label">Owner</label><input type="text" id="reg-owner" placeholder="Your name or agent ID"></div>
         <div class="field"><label class="field-label">Tags</label><input type="text" id="reg-tags" placeholder="medical, imaging, dicom"></div>
       </div>
+      <div class="row">
+        <div class="field"><label class="field-label" data-i18n="lbl-rights-type">Rights type</label><select id="reg-rights-type"><option value="original">Original</option><option value="co_creation">Co-creation</option><option value="licensed">Licensed resale</option><option value="collection">Personal collection</option></select></div>
+      </div>
+      <div id="co-creators-section" style="display:none;">
+        <label class="field-label" data-i18n="lbl-co-creators">Co-creators</label>
+        <div class="field-hint" data-i18n="hint-co-creators">At least 2 co-creators, shares must total 100%</div>
+        <div id="co-creators-list"></div>
+        <button class="btn btn-ghost btn-sm" id="add-co-creator-btn" type="button">+ Add co-creator</button>
+      </div>
       <button class="btn btn-full" id="reg-btn">Register</button>
       <div id="reg-result"></div>
     </div>
@@ -1924,6 +2303,11 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'lbl-file': 'File path',
       'lbl-owner': 'Owner',
       'lbl-tags': 'Tags',
+      'lbl-rights-type': 'Rights type',
+      'lbl-co-creators': 'Co-creators',
+      'hint-co-creators': 'At least 2 co-creators, shares must total 100%',
+      'rights-original': 'Original', 'rights-co_creation': 'Co-creation', 'rights-licensed': 'Licensed', 'rights-collection': 'Collection',
+      'disputed': 'Disputed', 'dispute-btn': 'File dispute', 'dispute-reason-ph': 'Reason for dispute', 'dispute-submit': 'Submit', 'delisted': 'Delisted', 'dispute-resolved': 'Resolved', 'dispute-dismissed': 'Dismissed', 'remedy-delist': 'Delist', 'remedy-transfer': 'Transfer', 'remedy-rights_correction': 'Correct rights', 'remedy-share_adjustment': 'Adjust shares', 'drop-hint-unified': 'Drop file or folder, or click to select', 'pick-file': 'File', 'pick-folder': 'Folder', 'register-data': 'Register data', 'publish-cap': 'Publish capability', 'cap-name': 'Name', 'cap-provider': 'Provider', 'cap-base-price': 'Base price (OAS)', 'cap-published': 'Published',
       'lbl-asset-id': 'Asset ID',
       'lbl-amount': 'Amount (OAS)',
       'lbl-node-id': 'Node ID',
@@ -1941,15 +2325,31 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': 'auto',
       'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
+      'about-version': 'v1.5.0',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+      'tab-overview': 'Overview',
+      'tab-start': 'Quick Start',
+      'tab-arch': 'Architecture',
+      'tab-econ': 'Economics',
+      'tab-update': 'Maintain',
+      'tab-links': 'Links',
+      'about-how': 'Oasyce is a decentralized protocol where AI agents autonomously register, discover, license, and settle data rights. Data owners register files and receive a cryptographic proof-of-provenance certificate (PoPc). AI agents discover data via a Recall-Rank pipeline, negotiate prices through bonding curves, and settle transactions with escrow-protected OAS tokens.',
+      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # verify setup\n3. oasyce start           # launch node + dashboard\n4. Open http://localhost:8420',
+      'about-arch': 'Core Layers:\n\u2022 Schema Registry \u2014 unified validation for data/capability/oracle/identity\n\u2022 Engine Pipeline \u2014 Scan \u2192 Classify \u2192 Metadata \u2192 PoPc Certificate \u2192 Register\n\u2022 Discovery \u2014 Recall (broad retrieval) \u2192 Rank (trust + economics) + feedback loop\n\u2022 Settlement \u2014 bonding curve pricing, escrow, share distribution\n\u2022 Access Control \u2014 L0 metadata / L1 sample / L2 compute / L3 full\n\u2022 P2P Network \u2014 Ed25519 identity, gossip sync, PoS consensus\n\u2022 Risk Engine \u2014 auto-classification (public / internal / sensitive)',
+      'about-econ': 'Token: OAS\n\nPricing: Bonding curve (reserve ratio 0.35) \u2014 more buyers = higher price\nShares: Early buyers earn more (diminishing: 100% \u2192 80% \u2192 60% \u2192 40%)\nRights multiplier: original 1.0x / co_creation 0.9x / licensed 0.7x / collection 0.3x\nStaking: Validators stake OAS to produce blocks and earn rewards\nBlock reward: 4.0 OAS (mainnet), halving every ~1M blocks\nEscrow: Funds locked before execution, released after quality verification',
+      'about-update': 'Update:\n  pip install --upgrade oasyce\n\nBuild from source:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\nRun tests:\n  python -m pytest tests/ -v\n\nContribute: Fork \u2192 Branch \u2192 PR (see CONTRIBUTING.md)',
       'link-intro': 'Introduction',
       'link-intro-d': 'What is Oasyce and why it matters',
       'link-whitepaper': 'Whitepaper',
-      'link-whitepaper-d': 'Protocol design and economics',
-      'link-docs': 'Documentation',
-      'link-docs-d': 'Technical reference and API',
-      'link-github': 'GitHub',
-      'link-github-d': 'Source code and contributions',
+      'link-whitepaper-d': 'Full protocol design and economics paper',
+      'link-docs': 'Protocol Overview',
+      'link-docs-d': 'Technical reference, API, and architecture',
+      'link-github-project': 'GitHub (Project)',
+      'link-github-project-d': 'Specs, docs, and roadmap',
+      'link-github-engine': 'GitHub (Engine)',
+      'link-github-engine-d': 'Plugin engine source code',
+      'link-discord': 'Discord Community',
+      'link-discord-d': 'Chat, support, and governance',
       'link-contact': 'Contact',
     },
     zh: {
@@ -1972,6 +2372,11 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'optional': '可选',
       'reg-owner-ph': '所有者名称或代理 ID',
       'reg-tags-ph': '标签，用逗号分隔',
+      'lbl-rights-type': '权利类型',
+      'lbl-co-creators': '共创者',
+      'hint-co-creators': '至少2个共创者，份额合计100%',
+      'rights-original': '原创', 'rights-co_creation': '共创', 'rights-licensed': '授权转售', 'rights-collection': '个人收藏',
+      'disputed': '争议中', 'dispute-btn': '发起争议', 'dispute-reason-ph': '争议原因', 'dispute-submit': '提交', 'delisted': '已下架', 'dispute-resolved': '已裁决', 'dispute-dismissed': '已驳回', 'remedy-delist': '下架', 'remedy-transfer': '转移所有权', 'remedy-rights_correction': '更正权利', 'remedy-share_adjustment': '调整份额', 'drop-hint-unified': '拖入文件或文件夹，或点击选择', 'pick-file': '文件', 'pick-folder': '文件夹', 'register-data': '注册数据', 'publish-cap': '发布能力', 'cap-name': '名称', 'cap-provider': '提供者', 'cap-base-price': '基础价格 (OAS)', 'cap-published': '已发布',
       'reg-btn': '注册',
       'buy-asset-ph': '粘贴资产 ID',
       'quote-btn': '报价',
@@ -2018,15 +2423,31 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': '自动',
       'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
+      'about-version': 'v1.5.0',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+      'tab-overview': '概览',
+      'tab-start': '快速开始',
+      'tab-arch': '技术架构',
+      'tab-econ': '经济模型',
+      'tab-update': '维护更新',
+      'tab-links': '链接',
+      'about-how': 'Oasyce 是一个去中心化协议，AI 代理在其中自主注册、发现、许可和结算数据权利。数据所有者注册文件并获得加密来源证明证书 (PoPc)。AI 代理通过 Recall-Rank 管道发现数据，通过联合曲线协商价格，并使用托管保护的 OAS 代币进行结算。',
+      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # 验证安装\n3. oasyce start           # 启动节点 + 仪表盘\n4. 浏览器打开 http://localhost:8420',
+      'about-arch': '核心层级:\n\u2022 Schema Registry \u2014 统一验证 data/capability/oracle/identity 四种资产\n\u2022 引擎管道 \u2014 扫描 \u2192 分类 \u2192 元数据 \u2192 PoPc 证书 \u2192 注册\n\u2022 发现引擎 \u2014 Recall (广召回) \u2192 Rank (信任+经济) + 反馈循环\n\u2022 结算引擎 \u2014 联合曲线定价、托管、份额分配\n\u2022 访问控制 \u2014 L0 元数据 / L1 采样 / L2 计算 / L3 完整\n\u2022 P2P 网络 \u2014 Ed25519 身份、gossip 同步、PoS 共识\n\u2022 风险引擎 \u2014 自动分级 (public / internal / sensitive)',
+      'about-econ': '代币: OAS\n\n定价: 联合曲线 (储备率 0.35) \u2014 买家越多价格越高\n份额: 早期买家获利更多 (递减: 100% \u2192 80% \u2192 60% \u2192 40%)\n权利系数: 原创 1.0x / 共创 0.9x / 授权 0.7x / 收藏 0.3x\n质押: 验证者质押 OAS 出块并获得奖励\n区块奖励: 4.0 OAS (主网)，每约 100 万块减半\n托管: 执行前锁定资金，质量验证后释放',
+      'about-update': '更新:\n  pip install --upgrade oasyce\n\n从源码构建:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\n运行测试:\n  python -m pytest tests/ -v\n\n贡献: Fork \u2192 Branch \u2192 PR (详见 CONTRIBUTING.md)',
       'link-intro': '项目介绍',
       'link-intro-d': '什么是 Oasyce，为什么重要',
       'link-whitepaper': '白皮书',
-      'link-whitepaper-d': '协议设计与经济模型',
-      'link-docs': '技术文档',
-      'link-docs-d': '技术参考与 API',
-      'link-github': 'GitHub',
-      'link-github-d': '源代码与贡献',
+      'link-whitepaper-d': '完整协议设计与经济模型论文',
+      'link-docs': '协议概览',
+      'link-docs-d': '技术参考、API 与架构',
+      'link-github-project': 'GitHub (项目)',
+      'link-github-project-d': '规范、文档与路线图',
+      'link-github-engine': 'GitHub (引擎)',
+      'link-github-engine-d': '插件引擎源代码',
+      'link-discord': 'Discord 社区',
+      'link-discord-d': '聊天、支持与治理',
       'link-contact': '联系我们',
     }
   };
@@ -2087,7 +2508,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     applyLang();
   });
 
-  // About panel
+  // About panel — tabbed info hub for all audiences
   document.getElementById('about-btn').addEventListener('click', function(){
     var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
     var t = _t[_lang];
@@ -2095,17 +2516,54 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
       '<div class="about-panel">'+
       '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
-      '<h3>'+t['about-title']+'</h3>'+
+      '<h3>'+t['about-title']+'<span class="about-version">'+t['about-version']+'</span></h3>'+
       '<p>'+t['about-desc']+'</p>'+
-      '<ul class="about-links">'+
-        '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github']+'</div><div class="link-desc">'+t['link-github-d']+'</div></div></a></li>'+
-      '</ul>'+
-      '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '<div class="about-tabs">'+
+        '<button class="about-tab active" data-about-tab="overview">'+t['tab-overview']+'</button>'+
+        '<button class="about-tab" data-about-tab="start">'+t['tab-start']+'</button>'+
+        '<button class="about-tab" data-about-tab="arch">'+t['tab-arch']+'</button>'+
+        '<button class="about-tab" data-about-tab="econ">'+t['tab-econ']+'</button>'+
+        '<button class="about-tab" data-about-tab="update">'+t['tab-update']+'</button>'+
+        '<button class="about-tab" data-about-tab="links">'+t['tab-links']+'</button>'+
+      '</div>'+
+      '<div class="about-section active" data-about-section="overview">'+
+        '<p>'+t['about-how']+'</p>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="start">'+
+        '<pre>'+t['about-quickstart']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="arch">'+
+        '<pre>'+t['about-arch']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="econ">'+
+        '<pre>'+t['about-econ']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="update">'+
+        '<pre>'+t['about-update']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="links">'+
+        '<ul class="about-links">'+
+          '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github-project']+'</div><div class="link-desc">'+t['link-github-project-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank"><div><div class="link-label">'+t['link-github-engine']+'</div><div class="link-desc">'+t['link-github-engine-d']+'</div></div></a></li>'+
+          '<li><a href="https://discord.gg/oasyce" target="_blank"><div><div class="link-label">'+t['link-discord']+'</div><div class="link-desc">'+t['link-discord-d']+'</div></div></a></li>'+
+        '</ul>'+
+        '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '</div>'+
       '</div>';
     document.body.appendChild(overlay);
+    // Tab switching
+    overlay.querySelectorAll('.about-tab').forEach(function(tab){
+      tab.addEventListener('click',function(){
+        overlay.querySelectorAll('.about-tab').forEach(function(t){t.classList.remove('active');});
+        overlay.querySelectorAll('.about-section').forEach(function(s){s.classList.remove('active');});
+        tab.classList.add('active');
+        var sec=overlay.querySelector('[data-about-section="'+tab.dataset.aboutTab+'"]');
+        if(sec)sec.classList.add('active');
+      });
+    });
   });
 
 
@@ -2121,6 +2579,15 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     var ex=document.getElementById('modal-bg');if(ex)ex.remove();
     var o=document.createElement('div');o.id='modal-bg';o.className='modal-bg';
     var tags=(asset.tags||[]).map(function(t){return'<span class="tag">'+esc(t)+'</span>';}).join(' ');
+    var rightsLabels={original:'Original',co_creation:'Co-creation',licensed:'Licensed',collection:'Collection'};
+    var rightsColors={original:'#4ade80',co_creation:'#60a5fa',licensed:'#facc15',collection:'#888'};
+    var rt=asset.rights_type||'original';
+    var rightsHtml='<div class="kv"><span class="kv-k">Rights</span><span class="kv-v" style="color:'+rightsColors[rt]+'">'+(rightsLabels[rt]||rt)+'</span></div>';
+    var coHtml='';
+    if(asset.co_creators&&asset.co_creators.length){coHtml='<div class="kv"><span class="kv-k">Co-creators</span><span class="kv-v">';asset.co_creators.forEach(function(c){coHtml+=esc(c.address||'—')+' ('+c.share+'%) ';});coHtml+='</span></div>';}
+    var disputeHtml='';
+    if(asset.disputed){disputeHtml='<div style="margin-top:8px;padding:8px;border:1px solid #f87171;border-radius:6px;"><span style="color:#f87171;font-weight:600;">⚠ Disputed</span>';if(asset.dispute_reason)disputeHtml+='<div style="font-size:12px;margin-top:4px;">Reason: '+esc(asset.dispute_reason)+'</div>';if(asset.arbitrator_candidates&&asset.arbitrator_candidates.length){disputeHtml+='<div style="font-size:12px;margin-top:4px;">Arbitrators:';asset.arbitrator_candidates.forEach(function(a){disputeHtml+=' '+(a.name||a.capability_id.slice(0,8))+'('+Math.round(a.score*100)+'%)';});disputeHtml+='</div>';}disputeHtml+='</div>';}
+    else{disputeHtml='<div style="margin-top:8px;"><button class="btn btn-ghost btn-sm" onclick="showDisputeForm(\''+esc(asset.asset_id)+'\')">File dispute</button><div id="dispute-form-'+esc(asset.asset_id)+'" style="display:none;margin-top:6px;"><input type="text" id="dispute-reason-input" placeholder="Reason for dispute" style="margin-bottom:4px;"><button class="btn btn-danger btn-sm" onclick="submitDispute(\''+esc(asset.asset_id)+'\')">Submit</button></div></div>';}
     o.innerHTML='<div class="modal" onclick="event.stopPropagation()">'+
       '<button class="modal-x" onclick="document.getElementById(\'modal-bg\').remove()">&times;</button>'+
       '<h3>Asset Detail</h3>'+
@@ -2128,16 +2595,20 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       '<div class="kv"><span class="kv-k">Owner</span><span class="kv-v">'+esc(asset.owner)+'</span></div>'+
       '<div class="kv"><span class="kv-k">Created</span><span class="kv-v">'+timeAgo(asset.created_at)+'</span></div>'+
       '<div class="kv"><span class="kv-k">Price</span><span class="kv-v">'+(asset.spot_price!=null?asset.spot_price+' OAS':'&mdash;')+'</span></div>'+
+      rightsHtml+coHtml+
       '<div class="kv"><span class="kv-k">Tags</span><span class="kv-v">'+(tags||'&mdash;')+'</span></div>'+
       '<div style="margin-top:16px;display:flex;gap:8px;">'+
         '<input type="text" id="m-tags" value="'+(asset.tags||[]).join(', ')+'" placeholder="Edit tags...">'+
         '<button class="btn btn-ghost btn-sm" onclick="editTags(\''+esc(asset.asset_id)+'\')">Save</button>'+
       '</div>'+
+      disputeHtml+
       '<button class="btn btn-danger btn-full" style="margin-top:10px;" onclick="if(confirm(\'Delete this asset?\')){deleteAsset(\''+esc(asset.asset_id)+'\');document.getElementById(\'modal-bg\').remove();}">Delete</button>'+
     '</div>';
     o.addEventListener('click',function(e){if(e.target===o)o.remove();});
     document.body.appendChild(o);
   }
+  window.showDisputeForm=function(aid){var f=document.getElementById('dispute-form-'+aid);if(f)f.style.display='block';};
+  window.submitDispute=async function(aid){var input=document.getElementById('dispute-reason-input');var reason=(input?input.value:'').trim();if(!reason){toast('Please enter a reason','error');return;}var r=await postApi('/api/dispute',{asset_id:aid,reason:reason});if(r&&r.ok){toast('Dispute filed');document.getElementById('modal-bg').remove();loadAssets();}else{toast(r?r.error:'Failed','error');}};
 
   window.editTags=async function(aid){var input=document.getElementById('m-tags');var tags=input.value.split(',').map(function(t){return t.trim();}).filter(Boolean);var r=await postApi('/api/asset/update',{asset_id:aid,tags:tags});if(r&&r.ok){toast('Tags updated');loadAssets();}else{toast(r?r.error:'Failed','error');}};
   window.deleteAsset=async function(aid){if(!confirm('Delete permanently?'))return;try{var r=await fetch('/api/asset/'+aid,{method:'DELETE'});var d=await r.json();if(d.ok){toast('Deleted');loadAssets();// ── Drop Zone ──
@@ -2272,6 +2743,11 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'lbl-file': 'File path',
       'lbl-owner': 'Owner',
       'lbl-tags': 'Tags',
+      'lbl-rights-type': 'Rights type',
+      'lbl-co-creators': 'Co-creators',
+      'hint-co-creators': 'At least 2 co-creators, shares must total 100%',
+      'rights-original': 'Original', 'rights-co_creation': 'Co-creation', 'rights-licensed': 'Licensed', 'rights-collection': 'Collection',
+      'disputed': 'Disputed', 'dispute-btn': 'File dispute', 'dispute-reason-ph': 'Reason for dispute', 'dispute-submit': 'Submit', 'delisted': 'Delisted', 'dispute-resolved': 'Resolved', 'dispute-dismissed': 'Dismissed', 'remedy-delist': 'Delist', 'remedy-transfer': 'Transfer', 'remedy-rights_correction': 'Correct rights', 'remedy-share_adjustment': 'Adjust shares', 'drop-hint-unified': 'Drop file or folder, or click to select', 'pick-file': 'File', 'pick-folder': 'Folder', 'register-data': 'Register data', 'publish-cap': 'Publish capability', 'cap-name': 'Name', 'cap-provider': 'Provider', 'cap-base-price': 'Base price (OAS)', 'cap-published': 'Published',
       'lbl-asset-id': 'Asset ID',
       'lbl-amount': 'Amount (OAS)',
       'lbl-node-id': 'Node ID',
@@ -2289,15 +2765,31 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': 'auto',
       'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
+      'about-version': 'v1.5.0',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+      'tab-overview': 'Overview',
+      'tab-start': 'Quick Start',
+      'tab-arch': 'Architecture',
+      'tab-econ': 'Economics',
+      'tab-update': 'Maintain',
+      'tab-links': 'Links',
+      'about-how': 'Oasyce is a decentralized protocol where AI agents autonomously register, discover, license, and settle data rights. Data owners register files and receive a cryptographic proof-of-provenance certificate (PoPc). AI agents discover data via a Recall-Rank pipeline, negotiate prices through bonding curves, and settle transactions with escrow-protected OAS tokens.',
+      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # verify setup\n3. oasyce start           # launch node + dashboard\n4. Open http://localhost:8420',
+      'about-arch': 'Core Layers:\n\u2022 Schema Registry \u2014 unified validation for data/capability/oracle/identity\n\u2022 Engine Pipeline \u2014 Scan \u2192 Classify \u2192 Metadata \u2192 PoPc Certificate \u2192 Register\n\u2022 Discovery \u2014 Recall (broad retrieval) \u2192 Rank (trust + economics) + feedback loop\n\u2022 Settlement \u2014 bonding curve pricing, escrow, share distribution\n\u2022 Access Control \u2014 L0 metadata / L1 sample / L2 compute / L3 full\n\u2022 P2P Network \u2014 Ed25519 identity, gossip sync, PoS consensus\n\u2022 Risk Engine \u2014 auto-classification (public / internal / sensitive)',
+      'about-econ': 'Token: OAS\n\nPricing: Bonding curve (reserve ratio 0.35) \u2014 more buyers = higher price\nShares: Early buyers earn more (diminishing: 100% \u2192 80% \u2192 60% \u2192 40%)\nRights multiplier: original 1.0x / co_creation 0.9x / licensed 0.7x / collection 0.3x\nStaking: Validators stake OAS to produce blocks and earn rewards\nBlock reward: 4.0 OAS (mainnet), halving every ~1M blocks\nEscrow: Funds locked before execution, released after quality verification',
+      'about-update': 'Update:\n  pip install --upgrade oasyce\n\nBuild from source:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\nRun tests:\n  python -m pytest tests/ -v\n\nContribute: Fork \u2192 Branch \u2192 PR (see CONTRIBUTING.md)',
       'link-intro': 'Introduction',
       'link-intro-d': 'What is Oasyce and why it matters',
       'link-whitepaper': 'Whitepaper',
-      'link-whitepaper-d': 'Protocol design and economics',
-      'link-docs': 'Documentation',
-      'link-docs-d': 'Technical reference and API',
-      'link-github': 'GitHub',
-      'link-github-d': 'Source code and contributions',
+      'link-whitepaper-d': 'Full protocol design and economics paper',
+      'link-docs': 'Protocol Overview',
+      'link-docs-d': 'Technical reference, API, and architecture',
+      'link-github-project': 'GitHub (Project)',
+      'link-github-project-d': 'Specs, docs, and roadmap',
+      'link-github-engine': 'GitHub (Engine)',
+      'link-github-engine-d': 'Plugin engine source code',
+      'link-discord': 'Discord Community',
+      'link-discord-d': 'Chat, support, and governance',
       'link-contact': 'Contact',
     },
     zh: {
@@ -2320,6 +2812,11 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'optional': '可选',
       'reg-owner-ph': '所有者名称或代理 ID',
       'reg-tags-ph': '标签，用逗号分隔',
+      'lbl-rights-type': '权利类型',
+      'lbl-co-creators': '共创者',
+      'hint-co-creators': '至少2个共创者，份额合计100%',
+      'rights-original': '原创', 'rights-co_creation': '共创', 'rights-licensed': '授权转售', 'rights-collection': '个人收藏',
+      'disputed': '争议中', 'dispute-btn': '发起争议', 'dispute-reason-ph': '争议原因', 'dispute-submit': '提交', 'delisted': '已下架', 'dispute-resolved': '已裁决', 'dispute-dismissed': '已驳回', 'remedy-delist': '下架', 'remedy-transfer': '转移所有权', 'remedy-rights_correction': '更正权利', 'remedy-share_adjustment': '调整份额', 'drop-hint-unified': '拖入文件或文件夹，或点击选择', 'pick-file': '文件', 'pick-folder': '文件夹', 'register-data': '注册数据', 'publish-cap': '发布能力', 'cap-name': '名称', 'cap-provider': '提供者', 'cap-base-price': '基础价格 (OAS)', 'cap-published': '已发布',
       'reg-btn': '注册',
       'buy-asset-ph': '粘贴资产 ID',
       'quote-btn': '报价',
@@ -2366,15 +2863,31 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': '自动',
       'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
+      'about-version': 'v1.5.0',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+      'tab-overview': '概览',
+      'tab-start': '快速开始',
+      'tab-arch': '技术架构',
+      'tab-econ': '经济模型',
+      'tab-update': '维护更新',
+      'tab-links': '链接',
+      'about-how': 'Oasyce 是一个去中心化协议，AI 代理在其中自主注册、发现、许可和结算数据权利。数据所有者注册文件并获得加密来源证明证书 (PoPc)。AI 代理通过 Recall-Rank 管道发现数据，通过联合曲线协商价格，并使用托管保护的 OAS 代币进行结算。',
+      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # 验证安装\n3. oasyce start           # 启动节点 + 仪表盘\n4. 浏览器打开 http://localhost:8420',
+      'about-arch': '核心层级:\n\u2022 Schema Registry \u2014 统一验证 data/capability/oracle/identity 四种资产\n\u2022 引擎管道 \u2014 扫描 \u2192 分类 \u2192 元数据 \u2192 PoPc 证书 \u2192 注册\n\u2022 发现引擎 \u2014 Recall (广召回) \u2192 Rank (信任+经济) + 反馈循环\n\u2022 结算引擎 \u2014 联合曲线定价、托管、份额分配\n\u2022 访问控制 \u2014 L0 元数据 / L1 采样 / L2 计算 / L3 完整\n\u2022 P2P 网络 \u2014 Ed25519 身份、gossip 同步、PoS 共识\n\u2022 风险引擎 \u2014 自动分级 (public / internal / sensitive)',
+      'about-econ': '代币: OAS\n\n定价: 联合曲线 (储备率 0.35) \u2014 买家越多价格越高\n份额: 早期买家获利更多 (递减: 100% \u2192 80% \u2192 60% \u2192 40%)\n权利系数: 原创 1.0x / 共创 0.9x / 授权 0.7x / 收藏 0.3x\n质押: 验证者质押 OAS 出块并获得奖励\n区块奖励: 4.0 OAS (主网)，每约 100 万块减半\n托管: 执行前锁定资金，质量验证后释放',
+      'about-update': '更新:\n  pip install --upgrade oasyce\n\n从源码构建:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\n运行测试:\n  python -m pytest tests/ -v\n\n贡献: Fork \u2192 Branch \u2192 PR (详见 CONTRIBUTING.md)',
       'link-intro': '项目介绍',
       'link-intro-d': '什么是 Oasyce，为什么重要',
       'link-whitepaper': '白皮书',
-      'link-whitepaper-d': '协议设计与经济模型',
-      'link-docs': '技术文档',
-      'link-docs-d': '技术参考与 API',
-      'link-github': 'GitHub',
-      'link-github-d': '源代码与贡献',
+      'link-whitepaper-d': '完整协议设计与经济模型论文',
+      'link-docs': '协议概览',
+      'link-docs-d': '技术参考、API 与架构',
+      'link-github-project': 'GitHub (项目)',
+      'link-github-project-d': '规范、文档与路线图',
+      'link-github-engine': 'GitHub (引擎)',
+      'link-github-engine-d': '插件引擎源代码',
+      'link-discord': 'Discord 社区',
+      'link-discord-d': '聊天、支持与治理',
       'link-contact': '联系我们',
     }
   };
@@ -2435,7 +2948,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     applyLang();
   });
 
-  // About panel
+  // About panel — tabbed info hub for all audiences
   document.getElementById('about-btn').addEventListener('click', function(){
     var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
     var t = _t[_lang];
@@ -2443,17 +2956,54 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
       '<div class="about-panel">'+
       '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
-      '<h3>'+t['about-title']+'</h3>'+
+      '<h3>'+t['about-title']+'<span class="about-version">'+t['about-version']+'</span></h3>'+
       '<p>'+t['about-desc']+'</p>'+
-      '<ul class="about-links">'+
-        '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github']+'</div><div class="link-desc">'+t['link-github-d']+'</div></div></a></li>'+
-      '</ul>'+
-      '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '<div class="about-tabs">'+
+        '<button class="about-tab active" data-about-tab="overview">'+t['tab-overview']+'</button>'+
+        '<button class="about-tab" data-about-tab="start">'+t['tab-start']+'</button>'+
+        '<button class="about-tab" data-about-tab="arch">'+t['tab-arch']+'</button>'+
+        '<button class="about-tab" data-about-tab="econ">'+t['tab-econ']+'</button>'+
+        '<button class="about-tab" data-about-tab="update">'+t['tab-update']+'</button>'+
+        '<button class="about-tab" data-about-tab="links">'+t['tab-links']+'</button>'+
+      '</div>'+
+      '<div class="about-section active" data-about-section="overview">'+
+        '<p>'+t['about-how']+'</p>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="start">'+
+        '<pre>'+t['about-quickstart']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="arch">'+
+        '<pre>'+t['about-arch']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="econ">'+
+        '<pre>'+t['about-econ']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="update">'+
+        '<pre>'+t['about-update']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="links">'+
+        '<ul class="about-links">'+
+          '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github-project']+'</div><div class="link-desc">'+t['link-github-project-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank"><div><div class="link-label">'+t['link-github-engine']+'</div><div class="link-desc">'+t['link-github-engine-d']+'</div></div></a></li>'+
+          '<li><a href="https://discord.gg/oasyce" target="_blank"><div><div class="link-label">'+t['link-discord']+'</div><div class="link-desc">'+t['link-discord-d']+'</div></div></a></li>'+
+        '</ul>'+
+        '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '</div>'+
       '</div>';
     document.body.appendChild(overlay);
+    // Tab switching
+    overlay.querySelectorAll('.about-tab').forEach(function(tab){
+      tab.addEventListener('click',function(){
+        overlay.querySelectorAll('.about-tab').forEach(function(t){t.classList.remove('active');});
+        overlay.querySelectorAll('.about-section').forEach(function(s){s.classList.remove('active');});
+        tab.classList.add('active');
+        var sec=overlay.querySelector('[data-about-section="'+tab.dataset.aboutTab+'"]');
+        if(sec)sec.classList.add('active');
+      });
+    });
   });
 
 
@@ -2490,8 +3040,13 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     var h='';
     slice.forEach(function(a){
       var tags=(a.tags||[]).map(function(t){return'<span class="tag">'+esc(t)+'</span>';}).join('');
+      var rightsLabels={original:'Original',co_creation:'Co-creation',licensed:'Licensed',collection:'Collection'};
+      var rightsColors={original:'#4ade80',co_creation:'#60a5fa',licensed:'#facc15',collection:'#888'};
+      var rt=a.rights_type||'original';
+      var rBadge='<span class="tag" style="color:'+rightsColors[rt]+';border-color:'+rightsColors[rt]+'">'+(rightsLabels[rt]||rt)+'</span>';
+      var dBadge=a.disputed?'<span class="tag" style="color:#f87171;border-color:#f87171">Disputed</span>':'';
       h+='<div class="a-row" onclick=\'showD('+JSON.stringify(a).replace(/\x27/g,"&#39;")+')\'>'+
-        '<div class="a-info"><div class="a-id">'+esc(trunc(a.asset_id,32))+'</div><div class="a-meta">'+esc(a.owner)+' &middot; '+timeAgo(a.created_at)+(tags?' &middot; '+tags:'')+'</div></div>'+
+        '<div class="a-info"><div class="a-id">'+esc(trunc(a.asset_id,32))+' '+rBadge+dBadge+'</div><div class="a-meta">'+esc(a.owner)+' &middot; '+timeAgo(a.created_at)+(tags?' &middot; '+tags:'')+'</div></div>'+
         '<div class="a-side">'+(a.spot_price!=null?'<span class="a-price">'+a.spot_price+'</span>':'')+
         '<button class="a-del" title="Delete" onclick="event.stopPropagation();deleteAsset(\''+esc(a.asset_id)+'\')">&times;</button></div></div>';
     });
@@ -2511,7 +3066,28 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   document.getElementById('asset-search').addEventListener('input',function(){_page=1;renderPage();});
 
   /* ── Register ──────────── */
-  document.getElementById('reg-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Registering...';btn.disabled=true;var fp=document.getElementById('reg-path').value.trim();var owner=document.getElementById('reg-owner').value.trim();var tags=document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);var div=document.getElementById('reg-result');try{var r=await postApi('/api/register',{file_path:fp,owner:owner||undefined,tags:tags});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Asset ID</span><span class="kv-v" style="font-size:11px;">'+esc(r.asset_id)+'</span></div></div>';toast('Asset registered');_all=[];// ── Drop Zone ──
+  /* ── Rights type toggle ──────────── */
+  var rightsSelect=document.getElementById('reg-rights-type');
+  var coSection=document.getElementById('co-creators-section');
+  var coList=document.getElementById('co-creators-list');
+  if(rightsSelect){
+    rightsSelect.addEventListener('change',function(){
+      coSection.style.display=this.value==='co_creation'?'block':'none';
+      if(this.value==='co_creation'&&coList.children.length===0){addCoCreatorRow();addCoCreatorRow();}
+    });
+  }
+  function addCoCreatorRow(){
+    var row=document.createElement('div');row.className='row';row.style.marginBottom='4px';
+    row.innerHTML='<input type="text" class="cc-addr" placeholder="Address" style="flex:2;">'+
+      '<input type="number" class="cc-share" placeholder="%" style="flex:1;max-width:80px;" value="50">'+
+      '<button class="btn btn-ghost btn-sm cc-remove" type="button">&times;</button>';
+    row.querySelector('.cc-remove').addEventListener('click',function(){row.remove();});
+    coList.appendChild(row);
+  }
+  var addCCBtn=document.getElementById('add-co-creator-btn');
+  if(addCCBtn)addCCBtn.addEventListener('click',function(){addCoCreatorRow();});
+
+  document.getElementById('reg-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Registering...';btn.disabled=true;var fp=document.getElementById('reg-path').value.trim();var owner=document.getElementById('reg-owner').value.trim();var tags=document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);var rightsType=(document.getElementById('reg-rights-type')||{}).value||'original';var coCreators=null;if(rightsType==='co_creation'){coCreators=[];var rows=document.querySelectorAll('#co-creators-list .row');rows.forEach(function(r){var addr=r.querySelector('.cc-addr').value.trim();var share=parseFloat(r.querySelector('.cc-share').value)||0;if(addr)coCreators.push({address:addr,share:share});});}var div=document.getElementById('reg-result');try{var r=await postApi('/api/register',{file_path:fp,owner:owner||undefined,tags:tags,rights_type:rightsType,co_creators:coCreators});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Asset ID</span><span class="kv-v" style="font-size:11px;">'+esc(r.asset_id)+'</span></div></div>';toast('Asset registered');_all=[];// ── Drop Zone ──
   var dropZone = document.getElementById('drop-zone');
   var filePick = document.getElementById('file-pick');
   var regFields = document.getElementById('reg-fields');
@@ -2643,6 +3219,11 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'lbl-file': 'File path',
       'lbl-owner': 'Owner',
       'lbl-tags': 'Tags',
+      'lbl-rights-type': 'Rights type',
+      'lbl-co-creators': 'Co-creators',
+      'hint-co-creators': 'At least 2 co-creators, shares must total 100%',
+      'rights-original': 'Original', 'rights-co_creation': 'Co-creation', 'rights-licensed': 'Licensed', 'rights-collection': 'Collection',
+      'disputed': 'Disputed', 'dispute-btn': 'File dispute', 'dispute-reason-ph': 'Reason for dispute', 'dispute-submit': 'Submit', 'delisted': 'Delisted', 'dispute-resolved': 'Resolved', 'dispute-dismissed': 'Dismissed', 'remedy-delist': 'Delist', 'remedy-transfer': 'Transfer', 'remedy-rights_correction': 'Correct rights', 'remedy-share_adjustment': 'Adjust shares', 'drop-hint-unified': 'Drop file or folder, or click to select', 'pick-file': 'File', 'pick-folder': 'Folder', 'register-data': 'Register data', 'publish-cap': 'Publish capability', 'cap-name': 'Name', 'cap-provider': 'Provider', 'cap-base-price': 'Base price (OAS)', 'cap-published': 'Published',
       'lbl-asset-id': 'Asset ID',
       'lbl-amount': 'Amount (OAS)',
       'lbl-node-id': 'Node ID',
@@ -2660,15 +3241,31 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': 'auto',
       'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
+      'about-version': 'v1.5.0',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+      'tab-overview': 'Overview',
+      'tab-start': 'Quick Start',
+      'tab-arch': 'Architecture',
+      'tab-econ': 'Economics',
+      'tab-update': 'Maintain',
+      'tab-links': 'Links',
+      'about-how': 'Oasyce is a decentralized protocol where AI agents autonomously register, discover, license, and settle data rights. Data owners register files and receive a cryptographic proof-of-provenance certificate (PoPc). AI agents discover data via a Recall-Rank pipeline, negotiate prices through bonding curves, and settle transactions with escrow-protected OAS tokens.',
+      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # verify setup\n3. oasyce start           # launch node + dashboard\n4. Open http://localhost:8420',
+      'about-arch': 'Core Layers:\n\u2022 Schema Registry \u2014 unified validation for data/capability/oracle/identity\n\u2022 Engine Pipeline \u2014 Scan \u2192 Classify \u2192 Metadata \u2192 PoPc Certificate \u2192 Register\n\u2022 Discovery \u2014 Recall (broad retrieval) \u2192 Rank (trust + economics) + feedback loop\n\u2022 Settlement \u2014 bonding curve pricing, escrow, share distribution\n\u2022 Access Control \u2014 L0 metadata / L1 sample / L2 compute / L3 full\n\u2022 P2P Network \u2014 Ed25519 identity, gossip sync, PoS consensus\n\u2022 Risk Engine \u2014 auto-classification (public / internal / sensitive)',
+      'about-econ': 'Token: OAS\n\nPricing: Bonding curve (reserve ratio 0.35) \u2014 more buyers = higher price\nShares: Early buyers earn more (diminishing: 100% \u2192 80% \u2192 60% \u2192 40%)\nRights multiplier: original 1.0x / co_creation 0.9x / licensed 0.7x / collection 0.3x\nStaking: Validators stake OAS to produce blocks and earn rewards\nBlock reward: 4.0 OAS (mainnet), halving every ~1M blocks\nEscrow: Funds locked before execution, released after quality verification',
+      'about-update': 'Update:\n  pip install --upgrade oasyce\n\nBuild from source:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\nRun tests:\n  python -m pytest tests/ -v\n\nContribute: Fork \u2192 Branch \u2192 PR (see CONTRIBUTING.md)',
       'link-intro': 'Introduction',
       'link-intro-d': 'What is Oasyce and why it matters',
       'link-whitepaper': 'Whitepaper',
-      'link-whitepaper-d': 'Protocol design and economics',
-      'link-docs': 'Documentation',
-      'link-docs-d': 'Technical reference and API',
-      'link-github': 'GitHub',
-      'link-github-d': 'Source code and contributions',
+      'link-whitepaper-d': 'Full protocol design and economics paper',
+      'link-docs': 'Protocol Overview',
+      'link-docs-d': 'Technical reference, API, and architecture',
+      'link-github-project': 'GitHub (Project)',
+      'link-github-project-d': 'Specs, docs, and roadmap',
+      'link-github-engine': 'GitHub (Engine)',
+      'link-github-engine-d': 'Plugin engine source code',
+      'link-discord': 'Discord Community',
+      'link-discord-d': 'Chat, support, and governance',
       'link-contact': 'Contact',
     },
     zh: {
@@ -2691,6 +3288,11 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'optional': '可选',
       'reg-owner-ph': '所有者名称或代理 ID',
       'reg-tags-ph': '标签，用逗号分隔',
+      'lbl-rights-type': '权利类型',
+      'lbl-co-creators': '共创者',
+      'hint-co-creators': '至少2个共创者，份额合计100%',
+      'rights-original': '原创', 'rights-co_creation': '共创', 'rights-licensed': '授权转售', 'rights-collection': '个人收藏',
+      'disputed': '争议中', 'dispute-btn': '发起争议', 'dispute-reason-ph': '争议原因', 'dispute-submit': '提交', 'delisted': '已下架', 'dispute-resolved': '已裁决', 'dispute-dismissed': '已驳回', 'remedy-delist': '下架', 'remedy-transfer': '转移所有权', 'remedy-rights_correction': '更正权利', 'remedy-share_adjustment': '调整份额', 'drop-hint-unified': '拖入文件或文件夹，或点击选择', 'pick-file': '文件', 'pick-folder': '文件夹', 'register-data': '注册数据', 'publish-cap': '发布能力', 'cap-name': '名称', 'cap-provider': '提供者', 'cap-base-price': '基础价格 (OAS)', 'cap-published': '已发布',
       'reg-btn': '注册',
       'buy-asset-ph': '粘贴资产 ID',
       'quote-btn': '报价',
@@ -2737,15 +3339,31 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': '自动',
       'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
+      'about-version': 'v1.5.0',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+      'tab-overview': '概览',
+      'tab-start': '快速开始',
+      'tab-arch': '技术架构',
+      'tab-econ': '经济模型',
+      'tab-update': '维护更新',
+      'tab-links': '链接',
+      'about-how': 'Oasyce 是一个去中心化协议，AI 代理在其中自主注册、发现、许可和结算数据权利。数据所有者注册文件并获得加密来源证明证书 (PoPc)。AI 代理通过 Recall-Rank 管道发现数据，通过联合曲线协商价格，并使用托管保护的 OAS 代币进行结算。',
+      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # 验证安装\n3. oasyce start           # 启动节点 + 仪表盘\n4. 浏览器打开 http://localhost:8420',
+      'about-arch': '核心层级:\n\u2022 Schema Registry \u2014 统一验证 data/capability/oracle/identity 四种资产\n\u2022 引擎管道 \u2014 扫描 \u2192 分类 \u2192 元数据 \u2192 PoPc 证书 \u2192 注册\n\u2022 发现引擎 \u2014 Recall (广召回) \u2192 Rank (信任+经济) + 反馈循环\n\u2022 结算引擎 \u2014 联合曲线定价、托管、份额分配\n\u2022 访问控制 \u2014 L0 元数据 / L1 采样 / L2 计算 / L3 完整\n\u2022 P2P 网络 \u2014 Ed25519 身份、gossip 同步、PoS 共识\n\u2022 风险引擎 \u2014 自动分级 (public / internal / sensitive)',
+      'about-econ': '代币: OAS\n\n定价: 联合曲线 (储备率 0.35) \u2014 买家越多价格越高\n份额: 早期买家获利更多 (递减: 100% \u2192 80% \u2192 60% \u2192 40%)\n权利系数: 原创 1.0x / 共创 0.9x / 授权 0.7x / 收藏 0.3x\n质押: 验证者质押 OAS 出块并获得奖励\n区块奖励: 4.0 OAS (主网)，每约 100 万块减半\n托管: 执行前锁定资金，质量验证后释放',
+      'about-update': '更新:\n  pip install --upgrade oasyce\n\n从源码构建:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\n运行测试:\n  python -m pytest tests/ -v\n\n贡献: Fork \u2192 Branch \u2192 PR (详见 CONTRIBUTING.md)',
       'link-intro': '项目介绍',
       'link-intro-d': '什么是 Oasyce，为什么重要',
       'link-whitepaper': '白皮书',
-      'link-whitepaper-d': '协议设计与经济模型',
-      'link-docs': '技术文档',
-      'link-docs-d': '技术参考与 API',
-      'link-github': 'GitHub',
-      'link-github-d': '源代码与贡献',
+      'link-whitepaper-d': '完整协议设计与经济模型论文',
+      'link-docs': '协议概览',
+      'link-docs-d': '技术参考、API 与架构',
+      'link-github-project': 'GitHub (项目)',
+      'link-github-project-d': '规范、文档与路线图',
+      'link-github-engine': 'GitHub (引擎)',
+      'link-github-engine-d': '插件引擎源代码',
+      'link-discord': 'Discord 社区',
+      'link-discord-d': '聊天、支持与治理',
       'link-contact': '联系我们',
     }
   };
@@ -2806,7 +3424,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     applyLang();
   });
 
-  // About panel
+  // About panel — tabbed info hub for all audiences
   document.getElementById('about-btn').addEventListener('click', function(){
     var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
     var t = _t[_lang];
@@ -2814,17 +3432,54 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
       '<div class="about-panel">'+
       '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
-      '<h3>'+t['about-title']+'</h3>'+
+      '<h3>'+t['about-title']+'<span class="about-version">'+t['about-version']+'</span></h3>'+
       '<p>'+t['about-desc']+'</p>'+
-      '<ul class="about-links">'+
-        '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github']+'</div><div class="link-desc">'+t['link-github-d']+'</div></div></a></li>'+
-      '</ul>'+
-      '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '<div class="about-tabs">'+
+        '<button class="about-tab active" data-about-tab="overview">'+t['tab-overview']+'</button>'+
+        '<button class="about-tab" data-about-tab="start">'+t['tab-start']+'</button>'+
+        '<button class="about-tab" data-about-tab="arch">'+t['tab-arch']+'</button>'+
+        '<button class="about-tab" data-about-tab="econ">'+t['tab-econ']+'</button>'+
+        '<button class="about-tab" data-about-tab="update">'+t['tab-update']+'</button>'+
+        '<button class="about-tab" data-about-tab="links">'+t['tab-links']+'</button>'+
+      '</div>'+
+      '<div class="about-section active" data-about-section="overview">'+
+        '<p>'+t['about-how']+'</p>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="start">'+
+        '<pre>'+t['about-quickstart']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="arch">'+
+        '<pre>'+t['about-arch']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="econ">'+
+        '<pre>'+t['about-econ']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="update">'+
+        '<pre>'+t['about-update']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="links">'+
+        '<ul class="about-links">'+
+          '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github-project']+'</div><div class="link-desc">'+t['link-github-project-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank"><div><div class="link-label">'+t['link-github-engine']+'</div><div class="link-desc">'+t['link-github-engine-d']+'</div></div></a></li>'+
+          '<li><a href="https://discord.gg/oasyce" target="_blank"><div><div class="link-label">'+t['link-discord']+'</div><div class="link-desc">'+t['link-discord-d']+'</div></div></a></li>'+
+        '</ul>'+
+        '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '</div>'+
       '</div>';
     document.body.appendChild(overlay);
+    // Tab switching
+    overlay.querySelectorAll('.about-tab').forEach(function(tab){
+      tab.addEventListener('click',function(){
+        overlay.querySelectorAll('.about-tab').forEach(function(t){t.classList.remove('active');});
+        overlay.querySelectorAll('.about-section').forEach(function(s){s.classList.remove('active');});
+        tab.classList.add('active');
+        var sec=overlay.querySelector('[data-about-section="'+tab.dataset.aboutTab+'"]');
+        if(sec)sec.classList.add('active');
+      });
+    });
   });
 
 
@@ -2978,6 +3633,11 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'lbl-file': 'File path',
       'lbl-owner': 'Owner',
       'lbl-tags': 'Tags',
+      'lbl-rights-type': 'Rights type',
+      'lbl-co-creators': 'Co-creators',
+      'hint-co-creators': 'At least 2 co-creators, shares must total 100%',
+      'rights-original': 'Original', 'rights-co_creation': 'Co-creation', 'rights-licensed': 'Licensed', 'rights-collection': 'Collection',
+      'disputed': 'Disputed', 'dispute-btn': 'File dispute', 'dispute-reason-ph': 'Reason for dispute', 'dispute-submit': 'Submit', 'delisted': 'Delisted', 'dispute-resolved': 'Resolved', 'dispute-dismissed': 'Dismissed', 'remedy-delist': 'Delist', 'remedy-transfer': 'Transfer', 'remedy-rights_correction': 'Correct rights', 'remedy-share_adjustment': 'Adjust shares', 'drop-hint-unified': 'Drop file or folder, or click to select', 'pick-file': 'File', 'pick-folder': 'Folder', 'register-data': 'Register data', 'publish-cap': 'Publish capability', 'cap-name': 'Name', 'cap-provider': 'Provider', 'cap-base-price': 'Base price (OAS)', 'cap-published': 'Published',
       'lbl-asset-id': 'Asset ID',
       'lbl-amount': 'Amount (OAS)',
       'lbl-node-id': 'Node ID',
@@ -2995,15 +3655,31 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': 'auto',
       'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
+      'about-version': 'v1.5.0',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+      'tab-overview': 'Overview',
+      'tab-start': 'Quick Start',
+      'tab-arch': 'Architecture',
+      'tab-econ': 'Economics',
+      'tab-update': 'Maintain',
+      'tab-links': 'Links',
+      'about-how': 'Oasyce is a decentralized protocol where AI agents autonomously register, discover, license, and settle data rights. Data owners register files and receive a cryptographic proof-of-provenance certificate (PoPc). AI agents discover data via a Recall-Rank pipeline, negotiate prices through bonding curves, and settle transactions with escrow-protected OAS tokens.',
+      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # verify setup\n3. oasyce start           # launch node + dashboard\n4. Open http://localhost:8420',
+      'about-arch': 'Core Layers:\n\u2022 Schema Registry \u2014 unified validation for data/capability/oracle/identity\n\u2022 Engine Pipeline \u2014 Scan \u2192 Classify \u2192 Metadata \u2192 PoPc Certificate \u2192 Register\n\u2022 Discovery \u2014 Recall (broad retrieval) \u2192 Rank (trust + economics) + feedback loop\n\u2022 Settlement \u2014 bonding curve pricing, escrow, share distribution\n\u2022 Access Control \u2014 L0 metadata / L1 sample / L2 compute / L3 full\n\u2022 P2P Network \u2014 Ed25519 identity, gossip sync, PoS consensus\n\u2022 Risk Engine \u2014 auto-classification (public / internal / sensitive)',
+      'about-econ': 'Token: OAS\n\nPricing: Bonding curve (reserve ratio 0.35) \u2014 more buyers = higher price\nShares: Early buyers earn more (diminishing: 100% \u2192 80% \u2192 60% \u2192 40%)\nRights multiplier: original 1.0x / co_creation 0.9x / licensed 0.7x / collection 0.3x\nStaking: Validators stake OAS to produce blocks and earn rewards\nBlock reward: 4.0 OAS (mainnet), halving every ~1M blocks\nEscrow: Funds locked before execution, released after quality verification',
+      'about-update': 'Update:\n  pip install --upgrade oasyce\n\nBuild from source:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\nRun tests:\n  python -m pytest tests/ -v\n\nContribute: Fork \u2192 Branch \u2192 PR (see CONTRIBUTING.md)',
       'link-intro': 'Introduction',
       'link-intro-d': 'What is Oasyce and why it matters',
       'link-whitepaper': 'Whitepaper',
-      'link-whitepaper-d': 'Protocol design and economics',
-      'link-docs': 'Documentation',
-      'link-docs-d': 'Technical reference and API',
-      'link-github': 'GitHub',
-      'link-github-d': 'Source code and contributions',
+      'link-whitepaper-d': 'Full protocol design and economics paper',
+      'link-docs': 'Protocol Overview',
+      'link-docs-d': 'Technical reference, API, and architecture',
+      'link-github-project': 'GitHub (Project)',
+      'link-github-project-d': 'Specs, docs, and roadmap',
+      'link-github-engine': 'GitHub (Engine)',
+      'link-github-engine-d': 'Plugin engine source code',
+      'link-discord': 'Discord Community',
+      'link-discord-d': 'Chat, support, and governance',
       'link-contact': 'Contact',
     },
     zh: {
@@ -3026,6 +3702,11 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'optional': '可选',
       'reg-owner-ph': '所有者名称或代理 ID',
       'reg-tags-ph': '标签，用逗号分隔',
+      'lbl-rights-type': '权利类型',
+      'lbl-co-creators': '共创者',
+      'hint-co-creators': '至少2个共创者，份额合计100%',
+      'rights-original': '原创', 'rights-co_creation': '共创', 'rights-licensed': '授权转售', 'rights-collection': '个人收藏',
+      'disputed': '争议中', 'dispute-btn': '发起争议', 'dispute-reason-ph': '争议原因', 'dispute-submit': '提交', 'delisted': '已下架', 'dispute-resolved': '已裁决', 'dispute-dismissed': '已驳回', 'remedy-delist': '下架', 'remedy-transfer': '转移所有权', 'remedy-rights_correction': '更正权利', 'remedy-share_adjustment': '调整份额', 'drop-hint-unified': '拖入文件或文件夹，或点击选择', 'pick-file': '文件', 'pick-folder': '文件夹', 'register-data': '注册数据', 'publish-cap': '发布能力', 'cap-name': '名称', 'cap-provider': '提供者', 'cap-base-price': '基础价格 (OAS)', 'cap-published': '已发布',
       'reg-btn': '注册',
       'buy-asset-ph': '粘贴资产 ID',
       'quote-btn': '报价',
@@ -3072,15 +3753,31 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': '自动',
       'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
+      'about-version': 'v1.5.0',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+      'tab-overview': '概览',
+      'tab-start': '快速开始',
+      'tab-arch': '技术架构',
+      'tab-econ': '经济模型',
+      'tab-update': '维护更新',
+      'tab-links': '链接',
+      'about-how': 'Oasyce 是一个去中心化协议，AI 代理在其中自主注册、发现、许可和结算数据权利。数据所有者注册文件并获得加密来源证明证书 (PoPc)。AI 代理通过 Recall-Rank 管道发现数据，通过联合曲线协商价格，并使用托管保护的 OAS 代币进行结算。',
+      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # 验证安装\n3. oasyce start           # 启动节点 + 仪表盘\n4. 浏览器打开 http://localhost:8420',
+      'about-arch': '核心层级:\n\u2022 Schema Registry \u2014 统一验证 data/capability/oracle/identity 四种资产\n\u2022 引擎管道 \u2014 扫描 \u2192 分类 \u2192 元数据 \u2192 PoPc 证书 \u2192 注册\n\u2022 发现引擎 \u2014 Recall (广召回) \u2192 Rank (信任+经济) + 反馈循环\n\u2022 结算引擎 \u2014 联合曲线定价、托管、份额分配\n\u2022 访问控制 \u2014 L0 元数据 / L1 采样 / L2 计算 / L3 完整\n\u2022 P2P 网络 \u2014 Ed25519 身份、gossip 同步、PoS 共识\n\u2022 风险引擎 \u2014 自动分级 (public / internal / sensitive)',
+      'about-econ': '代币: OAS\n\n定价: 联合曲线 (储备率 0.35) \u2014 买家越多价格越高\n份额: 早期买家获利更多 (递减: 100% \u2192 80% \u2192 60% \u2192 40%)\n权利系数: 原创 1.0x / 共创 0.9x / 授权 0.7x / 收藏 0.3x\n质押: 验证者质押 OAS 出块并获得奖励\n区块奖励: 4.0 OAS (主网)，每约 100 万块减半\n托管: 执行前锁定资金，质量验证后释放',
+      'about-update': '更新:\n  pip install --upgrade oasyce\n\n从源码构建:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\n运行测试:\n  python -m pytest tests/ -v\n\n贡献: Fork \u2192 Branch \u2192 PR (详见 CONTRIBUTING.md)',
       'link-intro': '项目介绍',
       'link-intro-d': '什么是 Oasyce，为什么重要',
       'link-whitepaper': '白皮书',
-      'link-whitepaper-d': '协议设计与经济模型',
-      'link-docs': '技术文档',
-      'link-docs-d': '技术参考与 API',
-      'link-github': 'GitHub',
-      'link-github-d': '源代码与贡献',
+      'link-whitepaper-d': '完整协议设计与经济模型论文',
+      'link-docs': '协议概览',
+      'link-docs-d': '技术参考、API 与架构',
+      'link-github-project': 'GitHub (项目)',
+      'link-github-project-d': '规范、文档与路线图',
+      'link-github-engine': 'GitHub (引擎)',
+      'link-github-engine-d': '插件引擎源代码',
+      'link-discord': 'Discord 社区',
+      'link-discord-d': '聊天、支持与治理',
       'link-contact': '联系我们',
     }
   };
@@ -3141,7 +3838,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     applyLang();
   });
 
-  // About panel
+  // About panel — tabbed info hub for all audiences
   document.getElementById('about-btn').addEventListener('click', function(){
     var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
     var t = _t[_lang];
@@ -3149,17 +3846,54 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
       '<div class="about-panel">'+
       '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
-      '<h3>'+t['about-title']+'</h3>'+
+      '<h3>'+t['about-title']+'<span class="about-version">'+t['about-version']+'</span></h3>'+
       '<p>'+t['about-desc']+'</p>'+
-      '<ul class="about-links">'+
-        '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github']+'</div><div class="link-desc">'+t['link-github-d']+'</div></div></a></li>'+
-      '</ul>'+
-      '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '<div class="about-tabs">'+
+        '<button class="about-tab active" data-about-tab="overview">'+t['tab-overview']+'</button>'+
+        '<button class="about-tab" data-about-tab="start">'+t['tab-start']+'</button>'+
+        '<button class="about-tab" data-about-tab="arch">'+t['tab-arch']+'</button>'+
+        '<button class="about-tab" data-about-tab="econ">'+t['tab-econ']+'</button>'+
+        '<button class="about-tab" data-about-tab="update">'+t['tab-update']+'</button>'+
+        '<button class="about-tab" data-about-tab="links">'+t['tab-links']+'</button>'+
+      '</div>'+
+      '<div class="about-section active" data-about-section="overview">'+
+        '<p>'+t['about-how']+'</p>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="start">'+
+        '<pre>'+t['about-quickstart']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="arch">'+
+        '<pre>'+t['about-arch']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="econ">'+
+        '<pre>'+t['about-econ']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="update">'+
+        '<pre>'+t['about-update']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="links">'+
+        '<ul class="about-links">'+
+          '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github-project']+'</div><div class="link-desc">'+t['link-github-project-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank"><div><div class="link-label">'+t['link-github-engine']+'</div><div class="link-desc">'+t['link-github-engine-d']+'</div></div></a></li>'+
+          '<li><a href="https://discord.gg/oasyce" target="_blank"><div><div class="link-label">'+t['link-discord']+'</div><div class="link-desc">'+t['link-discord-d']+'</div></div></a></li>'+
+        '</ul>'+
+        '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '</div>'+
       '</div>';
     document.body.appendChild(overlay);
+    // Tab switching
+    overlay.querySelectorAll('.about-tab').forEach(function(tab){
+      tab.addEventListener('click',function(){
+        overlay.querySelectorAll('.about-tab').forEach(function(t){t.classList.remove('active');});
+        overlay.querySelectorAll('.about-section').forEach(function(s){s.classList.remove('active');});
+        tab.classList.add('active');
+        var sec=overlay.querySelector('[data-about-section="'+tab.dataset.aboutTab+'"]');
+        if(sec)sec.classList.add('active');
+      });
+    });
   });
 
 
@@ -3318,6 +4052,11 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'lbl-file': 'File path',
       'lbl-owner': 'Owner',
       'lbl-tags': 'Tags',
+      'lbl-rights-type': 'Rights type',
+      'lbl-co-creators': 'Co-creators',
+      'hint-co-creators': 'At least 2 co-creators, shares must total 100%',
+      'rights-original': 'Original', 'rights-co_creation': 'Co-creation', 'rights-licensed': 'Licensed', 'rights-collection': 'Collection',
+      'disputed': 'Disputed', 'dispute-btn': 'File dispute', 'dispute-reason-ph': 'Reason for dispute', 'dispute-submit': 'Submit', 'delisted': 'Delisted', 'dispute-resolved': 'Resolved', 'dispute-dismissed': 'Dismissed', 'remedy-delist': 'Delist', 'remedy-transfer': 'Transfer', 'remedy-rights_correction': 'Correct rights', 'remedy-share_adjustment': 'Adjust shares', 'drop-hint-unified': 'Drop file or folder, or click to select', 'pick-file': 'File', 'pick-folder': 'Folder', 'register-data': 'Register data', 'publish-cap': 'Publish capability', 'cap-name': 'Name', 'cap-provider': 'Provider', 'cap-base-price': 'Base price (OAS)', 'cap-published': 'Published',
       'lbl-asset-id': 'Asset ID',
       'lbl-amount': 'Amount (OAS)',
       'lbl-node-id': 'Node ID',
@@ -3335,15 +4074,31 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': 'auto',
       'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
+      'about-version': 'v1.5.0',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+      'tab-overview': 'Overview',
+      'tab-start': 'Quick Start',
+      'tab-arch': 'Architecture',
+      'tab-econ': 'Economics',
+      'tab-update': 'Maintain',
+      'tab-links': 'Links',
+      'about-how': 'Oasyce is a decentralized protocol where AI agents autonomously register, discover, license, and settle data rights. Data owners register files and receive a cryptographic proof-of-provenance certificate (PoPc). AI agents discover data via a Recall-Rank pipeline, negotiate prices through bonding curves, and settle transactions with escrow-protected OAS tokens.',
+      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # verify setup\n3. oasyce start           # launch node + dashboard\n4. Open http://localhost:8420',
+      'about-arch': 'Core Layers:\n\u2022 Schema Registry \u2014 unified validation for data/capability/oracle/identity\n\u2022 Engine Pipeline \u2014 Scan \u2192 Classify \u2192 Metadata \u2192 PoPc Certificate \u2192 Register\n\u2022 Discovery \u2014 Recall (broad retrieval) \u2192 Rank (trust + economics) + feedback loop\n\u2022 Settlement \u2014 bonding curve pricing, escrow, share distribution\n\u2022 Access Control \u2014 L0 metadata / L1 sample / L2 compute / L3 full\n\u2022 P2P Network \u2014 Ed25519 identity, gossip sync, PoS consensus\n\u2022 Risk Engine \u2014 auto-classification (public / internal / sensitive)',
+      'about-econ': 'Token: OAS\n\nPricing: Bonding curve (reserve ratio 0.35) \u2014 more buyers = higher price\nShares: Early buyers earn more (diminishing: 100% \u2192 80% \u2192 60% \u2192 40%)\nRights multiplier: original 1.0x / co_creation 0.9x / licensed 0.7x / collection 0.3x\nStaking: Validators stake OAS to produce blocks and earn rewards\nBlock reward: 4.0 OAS (mainnet), halving every ~1M blocks\nEscrow: Funds locked before execution, released after quality verification',
+      'about-update': 'Update:\n  pip install --upgrade oasyce\n\nBuild from source:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\nRun tests:\n  python -m pytest tests/ -v\n\nContribute: Fork \u2192 Branch \u2192 PR (see CONTRIBUTING.md)',
       'link-intro': 'Introduction',
       'link-intro-d': 'What is Oasyce and why it matters',
       'link-whitepaper': 'Whitepaper',
-      'link-whitepaper-d': 'Protocol design and economics',
-      'link-docs': 'Documentation',
-      'link-docs-d': 'Technical reference and API',
-      'link-github': 'GitHub',
-      'link-github-d': 'Source code and contributions',
+      'link-whitepaper-d': 'Full protocol design and economics paper',
+      'link-docs': 'Protocol Overview',
+      'link-docs-d': 'Technical reference, API, and architecture',
+      'link-github-project': 'GitHub (Project)',
+      'link-github-project-d': 'Specs, docs, and roadmap',
+      'link-github-engine': 'GitHub (Engine)',
+      'link-github-engine-d': 'Plugin engine source code',
+      'link-discord': 'Discord Community',
+      'link-discord-d': 'Chat, support, and governance',
       'link-contact': 'Contact',
     },
     zh: {
@@ -3366,6 +4121,11 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'optional': '可选',
       'reg-owner-ph': '所有者名称或代理 ID',
       'reg-tags-ph': '标签，用逗号分隔',
+      'lbl-rights-type': '权利类型',
+      'lbl-co-creators': '共创者',
+      'hint-co-creators': '至少2个共创者，份额合计100%',
+      'rights-original': '原创', 'rights-co_creation': '共创', 'rights-licensed': '授权转售', 'rights-collection': '个人收藏',
+      'disputed': '争议中', 'dispute-btn': '发起争议', 'dispute-reason-ph': '争议原因', 'dispute-submit': '提交', 'delisted': '已下架', 'dispute-resolved': '已裁决', 'dispute-dismissed': '已驳回', 'remedy-delist': '下架', 'remedy-transfer': '转移所有权', 'remedy-rights_correction': '更正权利', 'remedy-share_adjustment': '调整份额', 'drop-hint-unified': '拖入文件或文件夹，或点击选择', 'pick-file': '文件', 'pick-folder': '文件夹', 'register-data': '注册数据', 'publish-cap': '发布能力', 'cap-name': '名称', 'cap-provider': '提供者', 'cap-base-price': '基础价格 (OAS)', 'cap-published': '已发布',
       'reg-btn': '注册',
       'buy-asset-ph': '粘贴资产 ID',
       'quote-btn': '报价',
@@ -3412,15 +4172,31 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': '自动',
       'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
+      'about-version': 'v1.5.0',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+      'tab-overview': '概览',
+      'tab-start': '快速开始',
+      'tab-arch': '技术架构',
+      'tab-econ': '经济模型',
+      'tab-update': '维护更新',
+      'tab-links': '链接',
+      'about-how': 'Oasyce 是一个去中心化协议，AI 代理在其中自主注册、发现、许可和结算数据权利。数据所有者注册文件并获得加密来源证明证书 (PoPc)。AI 代理通过 Recall-Rank 管道发现数据，通过联合曲线协商价格，并使用托管保护的 OAS 代币进行结算。',
+      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # 验证安装\n3. oasyce start           # 启动节点 + 仪表盘\n4. 浏览器打开 http://localhost:8420',
+      'about-arch': '核心层级:\n\u2022 Schema Registry \u2014 统一验证 data/capability/oracle/identity 四种资产\n\u2022 引擎管道 \u2014 扫描 \u2192 分类 \u2192 元数据 \u2192 PoPc 证书 \u2192 注册\n\u2022 发现引擎 \u2014 Recall (广召回) \u2192 Rank (信任+经济) + 反馈循环\n\u2022 结算引擎 \u2014 联合曲线定价、托管、份额分配\n\u2022 访问控制 \u2014 L0 元数据 / L1 采样 / L2 计算 / L3 完整\n\u2022 P2P 网络 \u2014 Ed25519 身份、gossip 同步、PoS 共识\n\u2022 风险引擎 \u2014 自动分级 (public / internal / sensitive)',
+      'about-econ': '代币: OAS\n\n定价: 联合曲线 (储备率 0.35) \u2014 买家越多价格越高\n份额: 早期买家获利更多 (递减: 100% \u2192 80% \u2192 60% \u2192 40%)\n权利系数: 原创 1.0x / 共创 0.9x / 授权 0.7x / 收藏 0.3x\n质押: 验证者质押 OAS 出块并获得奖励\n区块奖励: 4.0 OAS (主网)，每约 100 万块减半\n托管: 执行前锁定资金，质量验证后释放',
+      'about-update': '更新:\n  pip install --upgrade oasyce\n\n从源码构建:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\n运行测试:\n  python -m pytest tests/ -v\n\n贡献: Fork \u2192 Branch \u2192 PR (详见 CONTRIBUTING.md)',
       'link-intro': '项目介绍',
       'link-intro-d': '什么是 Oasyce，为什么重要',
       'link-whitepaper': '白皮书',
-      'link-whitepaper-d': '协议设计与经济模型',
-      'link-docs': '技术文档',
-      'link-docs-d': '技术参考与 API',
-      'link-github': 'GitHub',
-      'link-github-d': '源代码与贡献',
+      'link-whitepaper-d': '完整协议设计与经济模型论文',
+      'link-docs': '协议概览',
+      'link-docs-d': '技术参考、API 与架构',
+      'link-github-project': 'GitHub (项目)',
+      'link-github-project-d': '规范、文档与路线图',
+      'link-github-engine': 'GitHub (引擎)',
+      'link-github-engine-d': '插件引擎源代码',
+      'link-discord': 'Discord 社区',
+      'link-discord-d': '聊天、支持与治理',
       'link-contact': '联系我们',
     }
   };
@@ -3481,7 +4257,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     applyLang();
   });
 
-  // About panel
+  // About panel — tabbed info hub for all audiences
   document.getElementById('about-btn').addEventListener('click', function(){
     var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
     var t = _t[_lang];
@@ -3489,17 +4265,54 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
       '<div class="about-panel">'+
       '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
-      '<h3>'+t['about-title']+'</h3>'+
+      '<h3>'+t['about-title']+'<span class="about-version">'+t['about-version']+'</span></h3>'+
       '<p>'+t['about-desc']+'</p>'+
-      '<ul class="about-links">'+
-        '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
-        '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github']+'</div><div class="link-desc">'+t['link-github-d']+'</div></div></a></li>'+
-      '</ul>'+
-      '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '<div class="about-tabs">'+
+        '<button class="about-tab active" data-about-tab="overview">'+t['tab-overview']+'</button>'+
+        '<button class="about-tab" data-about-tab="start">'+t['tab-start']+'</button>'+
+        '<button class="about-tab" data-about-tab="arch">'+t['tab-arch']+'</button>'+
+        '<button class="about-tab" data-about-tab="econ">'+t['tab-econ']+'</button>'+
+        '<button class="about-tab" data-about-tab="update">'+t['tab-update']+'</button>'+
+        '<button class="about-tab" data-about-tab="links">'+t['tab-links']+'</button>'+
+      '</div>'+
+      '<div class="about-section active" data-about-section="overview">'+
+        '<p>'+t['about-how']+'</p>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="start">'+
+        '<pre>'+t['about-quickstart']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="arch">'+
+        '<pre>'+t['about-arch']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="econ">'+
+        '<pre>'+t['about-econ']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="update">'+
+        '<pre>'+t['about-update']+'</pre>'+
+      '</div>'+
+      '<div class="about-section" data-about-section="links">'+
+        '<ul class="about-links">'+
+          '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github-project']+'</div><div class="link-desc">'+t['link-github-project-d']+'</div></div></a></li>'+
+          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank"><div><div class="link-label">'+t['link-github-engine']+'</div><div class="link-desc">'+t['link-github-engine-d']+'</div></div></a></li>'+
+          '<li><a href="https://discord.gg/oasyce" target="_blank"><div><div class="link-label">'+t['link-discord']+'</div><div class="link-desc">'+t['link-discord-d']+'</div></div></a></li>'+
+        '</ul>'+
+        '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
+      '</div>'+
       '</div>';
     document.body.appendChild(overlay);
+    // Tab switching
+    overlay.querySelectorAll('.about-tab').forEach(function(tab){
+      tab.addEventListener('click',function(){
+        overlay.querySelectorAll('.about-tab').forEach(function(t){t.classList.remove('active');});
+        overlay.querySelectorAll('.about-section').forEach(function(s){s.classList.remove('active');});
+        tab.classList.add('active');
+        var sec=overlay.querySelector('[data-about-section="'+tab.dataset.aboutTab+'"]');
+        if(sec)sec.classList.add('active');
+      });
+    });
   });
 
 
@@ -3523,7 +4336,7 @@ class OasyceGUI:
         self,
         config: Optional[Config] = None,
         ledger: Optional[Ledger] = None,
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 8420,
     ):
         self._config = config or Config.from_env()
@@ -3535,9 +4348,17 @@ class OasyceGUI:
         self._port = port
 
     def run(self) -> None:
-        global _ledger, _config
+        global _ledger, _config, _api_token
         _ledger = self._ledger
         _config = self._config
+
+        # Generate API token for this session
+        _api_token = secrets.token_urlsafe(32)
+        token_path = os.path.join(self._config.data_dir, "api_token")
+        os.makedirs(self._config.data_dir, exist_ok=True)
+        with open(token_path, "w") as f:
+            f.write(_api_token)
+        os.chmod(token_path, 0o600)
 
         # Fix sqlite3 for multi-threaded server
         import sqlite3

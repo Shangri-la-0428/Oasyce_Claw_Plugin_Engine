@@ -6,27 +6,8 @@ import { useEffect, useState, useRef } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { showToast, i18n } from '../store/ui';
 import type { Asset } from '../store/assets';
+import { maskIdShort, maskIdLong, maskOwner, fmtPrice } from '../utils';
 import './explore.css';
-
-function maskIdShort(id: string) {
-  if (!id || id.length <= 8) return id;
-  return id.slice(0, 8) + '••••';
-}
-
-function maskIdLong(id: string) {
-  if (!id || id.length <= 16) return id;
-  return id.slice(0, 16) + '••••';
-}
-
-function maskOwner(owner: string) {
-  if (!owner || owner.length <= 12) return owner;
-  return owner.slice(0, 6) + '••••';
-}
-
-function fmtPrice(p: number | undefined | null): string {
-  if (p == null) return '--';
-  return p >= 1 ? p.toFixed(2) : p.toFixed(4);
-}
 
 type AssetFilter = 'all' | 'data' | 'capability';
 type SortBy = 'time' | 'value';
@@ -59,7 +40,10 @@ interface ValidatorInfo {
   reputation: number;
 }
 
+type ExploreTab = 'browse' | 'portfolio' | 'stake';
+
 export default function Explore() {
+  const [exploreTab, setExploreTab] = useState<ExploreTab>('browse');
   const [q, setQ] = useState('');
   const [allAssets, setAllAssets] = useState<Asset[]>([]);
   const [pageSize, setPageSize] = useState(20);
@@ -72,6 +56,7 @@ export default function Explore() {
   const [quote, setQuote] = useState<QuoteData | null>(null);
   const [buyResult, setBuyResult] = useState<BuyResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [invokeResult, setInvokeResult] = useState<any>(null);
   const debounceRef = useRef<number>(0);
 
@@ -99,12 +84,13 @@ export default function Explore() {
         ...a, asset_type: 'capability' as const,
       }));
       setAllAssets([...dataAssets, ...capAssets]);
-    });
+    }).finally(() => setInitialLoading(false));
 
     // Load portfolio
     loadPortfolio();
     // Load validators
     loadValidators();
+    return () => clearTimeout(debounceRef.current);
   }, []);
 
   const loadPortfolio = async () => {
@@ -178,7 +164,7 @@ export default function Explore() {
       setQuote(res.data);
       setBuyStep('quoted');
     } else {
-      showToast(res.error || 'Failed', 'error');
+      showToast(res.error || _['error-generic'], 'error');
     }
     setLoading(false);
   };
@@ -199,7 +185,7 @@ export default function Explore() {
       }
       loadPortfolio();
     } else {
-      showToast(res.error || 'Failed', 'error');
+      showToast(res.error || _['error-generic'], 'error');
     }
     setLoading(false);
   };
@@ -219,7 +205,7 @@ export default function Explore() {
       setInvokeResult(res.data);
       showToast(_['invoke-success'], 'success');
     } else {
-      showToast(res.data?.error || res.error || 'Failed', 'error');
+      showToast(res.data?.error || res.error || _['error-generic'], 'error');
     }
     setLoading(false);
   };
@@ -234,7 +220,7 @@ export default function Explore() {
       showToast(_['stake-success'], 'success');
       loadValidators();
     } else {
-      showToast(res.error || 'Failed', 'error');
+      showToast(res.error || _['error-generic'], 'error');
     }
     setStakingId(null);
   };
@@ -255,14 +241,28 @@ export default function Explore() {
 
   const isCapability = (a: Asset) => (a.asset_type || 'data') === 'capability';
 
-  const _activeAsset = activeId ? allAssets.find(a => a.asset_id === activeId) : null; void _activeAsset;
-
   return (
     <div class="page">
-      <h1 class="heading" style="margin:0 0 4px 0">{_['explore-title']}</h1>
+      <h1 class="label" style="margin:0 0 4px 0">{_['explore-title']}</h1>
       <p class="caption" style="margin:0">{_['explore-desc']}</p>
 
-      <div style="height:24px" />
+      <div class="mb-16" />
+
+      {/* Section tabs */}
+      <div class="auto-tabs mb-24">
+        <button class={`auto-tab ${exploreTab === 'browse' ? 'active' : ''}`} onClick={() => setExploreTab('browse')}>
+          {_['browse-all']}
+        </button>
+        <button class={`auto-tab ${exploreTab === 'portfolio' ? 'active' : ''}`} onClick={() => setExploreTab('portfolio')}>
+          {_['portfolio']}
+          {holdings.length > 0 && <span class="auto-tab-count">{holdings.length}</span>}
+        </button>
+        <button class={`auto-tab ${exploreTab === 'stake' ? 'active' : ''}`} onClick={() => setExploreTab('stake')}>
+          {_['stake']}
+        </button>
+      </div>
+
+      {exploreTab === 'browse' && <>
 
       {/* Asset type filter */}
       <div class="row gap-8 mb-16">
@@ -287,46 +287,39 @@ export default function Explore() {
         />
       </div>
 
-      <div style="height:24px" />
+      <div class="mb-24" />
 
-      {/* Tag 过滤 */}
-      {q && allTags.length > 0 && (
-        <div class="tag-chips mb-24">
-          <button class={`tag-chip ${tagFilter === null ? 'tag-chip-active' : ''}`} onClick={() => setTagFilter(null)}>{_['all']}</button>
-          {allTags.map(tag => (
-            <button key={tag} class={`tag-chip ${tagFilter === tag ? 'tag-chip-active' : ''}`} onClick={() => setTagFilter(tagFilter === tag ? null : tag)}>{tag}</button>
-          ))}
-        </div>
-      )}
-
-      {/* 排序 */}
-      {q && filtered.length > 0 && (
-        <div class="row gap-8 mb-24">
-          <button class={`btn btn-sm ${sortBy === 'time' ? 'btn-active' : 'btn-ghost'}`} onClick={() => setSortBy('time')}>{_['sort-time']}</button>
-          <button class={`btn btn-sm ${sortBy === 'value' ? 'btn-active' : 'btn-ghost'}`} onClick={() => setSortBy('value')}>{_['sort-value']}</button>
-        </div>
-      )}
-
-      {/* 结果列表 / 分类浏览 / 空状态 */}
-      {!q && allTags.length > 0 ? (
-        <div>
-          <div class="label">{_['categories']}</div>
-          <div class="category-grid">
-            {Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).map(([tag, count]) => (
-              <button key={tag} class="category-card" onClick={() => { setQ(tag); onSearch(tag); }}>
-                <span class="category-name">{tag}</span>
-                <span class="category-count">{count}</span>
-              </button>
+      {/* Tag 过滤 + 排序 */}
+      {allTags.length > 0 && (
+        <div class="row between mb-24" style="flex-wrap:wrap;gap:12px">
+          <div class="tag-chips">
+            <button class={`tag-chip ${tagFilter === null ? 'tag-chip-active' : ''}`} onClick={() => setTagFilter(null)}>{_['all']}</button>
+            {allTags.map(tag => (
+              <button key={tag} class={`tag-chip ${tagFilter === tag ? 'tag-chip-active' : ''}`} onClick={() => setTagFilter(tagFilter === tag ? null : tag)}>{tag}</button>
             ))}
           </div>
+          <div class="row gap-8">
+            <button class={`btn btn-sm ${sortBy === 'time' ? 'btn-active' : 'btn-ghost'}`} onClick={() => setSortBy('time')}>{_['sort-time']}</button>
+            <button class={`btn btn-sm ${sortBy === 'value' ? 'btn-active' : 'btn-ghost'}`} onClick={() => setSortBy('value')}>{_['sort-value']}</button>
+          </div>
         </div>
-      ) : !q && allTags.length === 0 ? (
-        <div class="center" style="padding:64px 0">
-          <div class="caption">{_['explore-empty']}</div>
+      )}
+
+      {/* 结果列表 / 空状态 */}
+      {initialLoading ? (
+        <div>
+          <div class="skeleton" style="height:48px;margin-bottom:8px" />
+          <div class="skeleton" style="height:48px;margin-bottom:8px" />
+          <div class="skeleton" style="height:48px;margin-bottom:8px" />
+        </div>
+      ) : list.length === 0 && allAssets.length === 0 ? (
+        <div class="center p-0-64">
+          <div style="font-size:15px;color:var(--fg-2);margin-bottom:8px">{_['explore-empty']}</div>
+          <div class="caption">{_['explore-browse']}</div>
         </div>
       ) : list.length === 0 ? (
-        <div class="center" style="padding:64px 0">
-          <div style="font-size:14px;color:var(--fg-2)">No match</div>
+        <div class="center p-0-64">
+          <div style="font-size:14px;color:var(--fg-2)">{q ? _['inbox-no-match'] : _['explore-empty']}</div>
         </div>
       ) : (
         <div class="explore-list">
@@ -334,7 +327,7 @@ export default function Explore() {
             const isActive = activeId === a.asset_id;
             const isCap = isCapability(a);
             return (
-              <div key={a.asset_id} class="explore-item">
+              <div key={a.asset_id} class={`explore-item ${isCap ? 'explore-item-cap' : ''}`}>
                 <button class="explore-row" onClick={() => toggleItem(a.asset_id)}>
                   <div class="grow">
                     <div class="explore-name">
@@ -348,7 +341,7 @@ export default function Explore() {
                       {!isCap && a.owner && <span class="explore-owner-inline">{maskOwner(a.owner)}</span>}
                     </div>
                   </div>
-                  <span class="mono explore-price-prominent">{fmtPrice(a.spot_price)}</span>
+                  <span class="mono explore-price-prominent">{fmtPrice(a.spot_price)} <span style="font-weight:400;font-size:11px">OAS</span></span>
                   <span class="btn btn-sm btn-ghost">{isCap ? _['invoke'] : _['get-access']}</span>
                 </button>
 
@@ -436,7 +429,7 @@ export default function Explore() {
                               {quote.fee_breakdown.router != null && <div class="kv"><span class="kv-key">{_['router-fee']}</span><span class="kv-val">{fmtPrice(quote.fee_breakdown.router)} OAS</span></div>}
                             </div>
                           )}
-                          <div class="row gap-16" style="margin-top:24px">
+                          <div class="row gap-16 mt-24">
                             <button class="btn btn-ghost grow" onClick={() => { setQuote(null); setBuyStep('form'); }}>{_['back']}</button>
                             <button class="btn btn-primary grow" onClick={() => onBuy(a.asset_id)} disabled={loading}>
                               {loading ? _['buying'] : _['confirm-buy']}
@@ -462,7 +455,7 @@ export default function Explore() {
       )}
 
       {list.length > 0 && (
-        <div class="center" style="padding:24px 0">
+        <div class="center p-0-24">
           {hasMore ? (
             <button class="btn btn-ghost btn-sm" onClick={() => setPageSize(s => s + 20)}>{_['load-more']}</button>
           ) : (
@@ -471,14 +464,17 @@ export default function Explore() {
         </div>
       )}
 
+      </>}
+
       {/* ── Portfolio Section ── */}
-      <hr class="section-rule" />
-      <h2 class="heading" style="margin:0 0 16px 0">{_['portfolio']}</h2>
+      {exploreTab === 'portfolio' && <>
+      <h2 class="label" style="margin:0 0 16px 0">{_['portfolio']}</h2>
       {holdingsLoading ? (
         <div class="skeleton" style="height:60px;margin-bottom:8px" />
       ) : holdings.length === 0 ? (
-        <div class="center" style="padding:32px 0">
-          <span class="caption">{_['no-holdings']}</span>
+        <div class="center p-0-64">
+          <div class="caption mb-8">{_['no-holdings']}</div>
+          <div class="caption" style="color:var(--fg-2)">{_['portfolio-hint']}</div>
         </div>
       ) : (
         <div class="portfolio-list">
@@ -502,12 +498,15 @@ export default function Explore() {
         </div>
       )}
 
+      </>}
+
       {/* ── Stake Section ── */}
-      <hr class="section-rule" />
-      <h2 class="heading" style="margin:0 0 16px 0">{_['stake']}</h2>
+      {exploreTab === 'stake' && <>
+      <h2 class="label" style="margin:0 0 16px 0">{_['stake']}</h2>
       {validators.length === 0 ? (
-        <div class="center" style="padding:32px 0">
-          <span class="caption">{_['no-validators']}</span>
+        <div class="center p-0-64">
+          <div class="caption mb-8">{_['no-validators']}</div>
+          <div class="caption" style="color:var(--fg-2)">{_['stake-hint']}</div>
         </div>
       ) : (
         <div class="col gap-16">
@@ -533,6 +532,7 @@ export default function Explore() {
           ))}
         </div>
       )}
+      </>}
     </div>
   );
 }

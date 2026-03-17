@@ -1,4 +1,6 @@
-"""Re-exported from oasyce_core. Do not add logic here."""
+"""Re-exported from oasyce_core + schema_registry."""
+from oasyce_plugin.schema_registry import AssetType as SchemaAssetType  # noqa: F401
+
 from oasyce_core.standards.oas_das import (
     IdentityLayer, MetadataLayer, AccessPolicyLayer,
     ComputeInterfaceLayer, ProvenanceLayer, OasDasAsset,
@@ -31,4 +33,6 @@ __all__ = [
     "IdentityType", "TrustTier", "TRUST_TIER_THRESHOLDS", "TRUST_TIER_ACCESS",
     "CredentialBinding", "ReputationBinding", "CapabilityDeclaration",
     "IdentityExtLayer", "sybil_attack_cost", "time_to_trust",
+    # Schema Registry
+    "SchemaAssetType",
 ]

@@ -67,11 +67,14 @@ class OasyceSkills:
         file_info: Dict[str, Any],
         tags: List[str],
         owner: str = None,
-        classification: Dict[str, Any] = None
+        classification: Dict[str, Any] = None,
+        rights_type: str = "original",
+        co_creators: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """生成数据元信息"""
         return self._unwrap(MetadataEngine.generate_metadata(
-            file_info, tags, owner or self.config.owner, classification
+            file_info, tags, owner or self.config.owner, classification,
+            rights_type=rights_type, co_creators=co_creators,
         ))
 
     def create_certificate_skill(self, metadata: Dict[str, Any]) -> Dict[str, Any]:

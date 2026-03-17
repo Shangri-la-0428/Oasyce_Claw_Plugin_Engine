@@ -188,9 +188,32 @@ class MetadataEngine:
         tags: List[str],
         owner: str,
         classification: Optional[Dict[str, Any]] = None,
+        rights_type: str = "original",
+        co_creators: Optional[List[Dict[str, Any]]] = None,
     ) -> Result[Dict[str, Any]]:
+        from oasyce_plugin.models import VALID_RIGHTS_TYPES
+
         if not file_info.get("file_hash"):
             return err("Missing file hash in file_info", code="MISSING_FILE_HASH")
+
+        if rights_type not in VALID_RIGHTS_TYPES:
+            return err(
+                f"Invalid rights_type '{rights_type}'. Must be one of: {', '.join(sorted(VALID_RIGHTS_TYPES))}",
+                code="INVALID_RIGHTS_TYPE",
+            )
+
+        if rights_type == "co_creation":
+            if not co_creators or len(co_creators) < 2:
+                return err(
+                    "co_creation requires at least 2 co-creators",
+                    code="INVALID_CO_CREATORS",
+                )
+            total_share = sum(c.get("share", 0) for c in co_creators)
+            if abs(total_share - 100) > 0.01:
+                return err(
+                    f"Co-creator shares must sum to 100%, got {total_share}%",
+                    code="INVALID_SHARES",
+                )
 
         asset_id = f"OAS_{file_info.get('file_hash', 'UNKNOWN')[:8].upper()}"
         metadata: Dict[str, Any] = {
@@ -204,10 +227,26 @@ class MetadataEngine:
             "file_size_bytes": file_info.get("size"),
             "file_hash": file_info.get("file_hash"),
             "hash_algo": file_info.get("hash_algo"),
+            "rights_type": rights_type,
         }
+
+        if co_creators:
+            metadata["co_creators"] = co_creators
+
+        metadata["disputed"] = False
 
         if classification:
             metadata["classification"] = classification
+
+        # Auto-classify risk level
+        from oasyce_plugin.engines.risk import auto_classify_risk, RISK_TO_ACCESS
+
+        metadata["risk_level"] = auto_classify_risk(
+            file_path=file_info.get("path", ""),
+            rights_type=rights_type,
+            file_size_bytes=file_info.get("size", 0),
+        )
+        metadata["max_access_level"] = RISK_TO_ACCESS[metadata["risk_level"]]
 
         return ok(metadata)
 

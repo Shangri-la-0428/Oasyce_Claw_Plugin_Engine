@@ -62,6 +62,12 @@ class DatasetPricingCurve:
             return 1.0
         return math.pow(0.5, days_since_creation / halflife) + 0.5
 
+    @staticmethod
+    def _rights_type_factor(rights_type: str) -> float:
+        """Look up the pricing multiplier for a given rights type."""
+        from oasyce_plugin.models import RIGHTS_TYPE_MULTIPLIER
+        return RIGHTS_TYPE_MULTIPLIER.get(rights_type, 1.0)
+
     # ─── Core pricing ────────────────────────────────────
 
     def calculate_price(
@@ -72,12 +78,14 @@ class DatasetPricingCurve:
         similar_count: int = 0,
         contribution_score: float = 1.0,
         days_since_creation: float = 0,
+        rights_type: str = "original",
     ) -> dict:
         """
         计算最终价格。
 
         price = base_price × demand_factor × scarcity_factor
                             × quality_factor × freshness_factor
+                            × rights_type_factor
 
         Returns:
             dict with final_price, base_price, and each factor value + breakdown.
@@ -86,8 +94,9 @@ class DatasetPricingCurve:
         scarcity = self._scarcity_factor(similar_count)
         quality = self._quality_factor(contribution_score)
         freshness = self._freshness_factor(days_since_creation)
+        rights = self._rights_type_factor(rights_type)
 
-        raw_price = base_price * demand * scarcity * quality * freshness
+        raw_price = base_price * demand * scarcity * quality * freshness * rights
         final_price = max(raw_price, self.config.min_price)
 
         result = {
@@ -97,11 +106,13 @@ class DatasetPricingCurve:
             "scarcity_factor": round(scarcity, 6),
             "quality_factor": round(quality, 6),
             "freshness_factor": round(freshness, 6),
+            "rights_type_factor": round(rights, 6),
             "breakdown": {
                 "query_count": query_count,
                 "similar_count": similar_count,
                 "contribution_score": round(contribution_score, 6),
                 "days_since_creation": round(days_since_creation, 2),
+                "rights_type": rights_type,
             },
         }
 
@@ -115,6 +126,7 @@ class DatasetPricingCurve:
             "scarcity_factor": result["scarcity_factor"],
             "quality_factor": result["quality_factor"],
             "freshness_factor": result["freshness_factor"],
+            "rights_type_factor": result["rights_type_factor"],
         })
 
         return result

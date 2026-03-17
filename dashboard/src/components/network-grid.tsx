@@ -68,6 +68,7 @@ export default function NetworkGrid() {
     if (!canvas) return;
 
     let imgW = 0, imgH = 0;
+    let visible = true;
     const nodes: Node[] = [];
     const ripples: Ripple[] = [];
     let lastSpawn = 0;
@@ -196,7 +197,7 @@ export default function NetworkGrid() {
 
     function frame(now: number) {
       const ctx = canvas!.getContext('2d');
-      if (!ctx) { rafRef.current = requestAnimationFrame(frame); return; }
+      if (!ctx) { if (visible) rafRef.current = requestAnimationFrame(frame); return; }
 
       // --- Spawn new nodes ---
       if (now - lastSpawn > SPAWN_INTERVAL + Math.random() * 2000) {
@@ -399,16 +400,27 @@ export default function NetworkGrid() {
       }
 
       ctx.putImageData(imgData, 0, 0);
-      rafRef.current = requestAnimationFrame(frame);
+      if (visible) rafRef.current = requestAnimationFrame(frame);
+      else rafRef.current = 0;
     }
 
-    rafRef.current = requestAnimationFrame(frame);
+    const startLoop = () => { if (!rafRef.current) rafRef.current = requestAnimationFrame(frame); };
+    const stopLoop = () => { cancelAnimationFrame(rafRef.current); rafRef.current = 0; };
+
+    // Only animate when visible
+    const observer = new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      if (visible) startLoop(); else stopLoop();
+    }, { threshold: 0 });
+    observer.observe(canvas);
+
+    startLoop();
 
     let rt = 0;
     const onResize = () => { clearTimeout(rt); rt = window.setTimeout(init, 300); };
     window.addEventListener('resize', onResize);
-    return () => { cancelAnimationFrame(rafRef.current); clearTimeout(rt); window.removeEventListener('resize', onResize); };
+    return () => { stopLoop(); clearTimeout(rt); window.removeEventListener('resize', onResize); observer.disconnect(); };
   }, []);
 
-  return <canvas ref={canvasRef} class="network-grid" />;
+  return <canvas ref={canvasRef} class="network-grid" aria-hidden="true" />;
 }

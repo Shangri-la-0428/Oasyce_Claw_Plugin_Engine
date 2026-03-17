@@ -1,35 +1,20 @@
 /**
  * MyData — 我的数据
  */
-import { useEffect, useState, useRef } from 'preact/hooks';
-import { post } from '../api/client';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { post, postFile, postBundle } from '../api/client';
 import { assets, loadAssets, deleteAsset } from '../store/assets';
+// scanDirectory/lastScan/scanning available from '../store/scanner' if needed
 import { showToast, i18n } from '../store/ui';
+import { readEntryFiles, maskIdShort, maskIdLong, maskOwner, fmtPrice } from '../utils';
 import './mydata.css';
 
-/** 遮罩 asset_id：列表里前 8 位 + •••• */
-function maskIdShort(id: string) {
-  if (!id || id.length <= 8) return id;
-  return id.slice(0, 8) + '••••';
-}
-
-/** 遮罩 asset_id：详情里前 16 位 + •••• */
-function maskIdLong(id: string) {
-  if (!id || id.length <= 16) return id;
-  return id.slice(0, 16) + '••••';
-}
-
-/** 遮罩 owner：如果是长哈希，截断为前6位 */
-function maskOwner(owner: string) {
-  if (!owner || owner.length <= 12) return owner;
-  return owner.slice(0, 6) + '••••';
-}
-
-/** 格式化价格：>= 1 显示 2 位，< 1 显示 4 位 */
-function fmtPrice(p: number | undefined | null): string {
-  if (p == null) return '--';
-  return p >= 1 ? p.toFixed(2) : p.toFixed(4);
-}
+const RIGHTS_COLORS: Record<string, string> = {
+  original: 'var(--green, #4ade80)',
+  co_creation: 'var(--blue, #60a5fa)',
+  licensed: 'var(--yellow, #facc15)',
+  collection: 'var(--fg-2, #888)',
+};
 
 type SortBy = 'time' | 'value';
 
@@ -44,43 +29,84 @@ export default function MyData() {
 
   /* ── Registration state ── */
   const [regFile, setRegFile] = useState('');
+  const [regFileObj, setRegFileObj] = useState<File | null>(null);
   const [regDesc, setRegDesc] = useState('');
   const [regLoading, setRegLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [reregistering, setReregistering] = useState<string | null>(null);
+  const [disputeTarget, setDisputeTarget] = useState<string | null>(null);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputing, setDisputing] = useState(false);
+  const [droppedFolder, setDroppedFolder] = useState<string | null>(null);
+  const [folderFiles, setFolderFiles] = useState<File[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const _ = i18n.value;
 
   useEffect(() => { loadAssets(); }, []);
 
-  const onFile = (name: string) => {
-    setRegFile(name);
-    const ext = name.split('.').pop()?.toLowerCase() || '';
-    const hint: Record<string, string> = {
-      csv: 'dataset', json: 'structured data', jpg: 'image', png: 'image',
-      pdf: 'document', mp4: 'video', mp3: 'audio', txt: 'text',
-    };
-    if (hint[ext] && !regDesc) setRegDesc(hint[ext]);
+  const hasSelection = !!(regFile || droppedFolder);
+
+  const clearSelection = () => {
+    setRegFile(''); setRegFileObj(null); setRegDesc('');
+    setDroppedFolder(null); setFolderFiles([]);
   };
 
-  const onDrop = (e: DragEvent) => {
+  const onFile = (name: string, fileObj?: File) => {
+    setRegFile(name);
+    setRegFileObj(fileObj ?? null);
+    setDroppedFolder(null); setFolderFiles([]);
+    if (!regDesc) {
+      const dot = name.lastIndexOf('.');
+      setRegDesc(dot > 0 ? name.slice(0, dot) : name);
+    }
+  };
+
+  const onDrop = async (e: DragEvent) => {
     e.preventDefault(); setDragging(false);
+    const items = e.dataTransfer?.items;
+    if (items && items.length > 0) {
+      const entry = (items[0] as any).webkitGetAsEntry?.();
+      if (entry?.isDirectory) {
+        const name = entry.name || 'folder';
+        const files = await readEntryFiles(entry);
+        setDroppedFolder(name); setFolderFiles(files);
+        setRegFile(''); setRegFileObj(null);
+        if (!regDesc) setRegDesc(name);
+        return;
+      }
+    }
+    setDroppedFolder(null); setFolderFiles([]);
     const f = e.dataTransfer?.files[0];
-    if (f) onFile(f.name);
+    if (f) onFile(f.name, f);
+  };
+
+  const submitBundle = async () => {
+    if (folderFiles.length === 0) return;
+    setRegLoading(true);
+    const tags = regDesc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean).join(',');
+    const res = await postBundle(folderFiles, { name: droppedFolder || 'bundle', tags });
+    if (res.success) {
+      showToast(_['protected'] + ' ✓', 'success');
+      loadAssets(); clearSelection();
+    } else {
+      showToast(res.error || _['error-generic'], 'error');
+    }
+    setRegLoading(false);
   };
 
   const submitReg = async () => {
     if (!regFile.trim()) return;
     setRegLoading(true);
     const tags = regDesc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
-    const res = await post('/register', { file_path: regFile.trim(), tags });
+    const res = regFileObj
+      ? await postFile('/register', regFileObj, { tags: tags.join(',') })
+      : await post('/register', { file_path: regFile.trim(), tags });
     if (res.success) {
       showToast(_['protected'] + ' ✓', 'success');
-      loadAssets();
-      setRegFile(''); setRegDesc('');
+      loadAssets(); clearSelection();
     } else {
-      showToast(res.error || 'Failed', 'error');
+      showToast(res.error || _['error-generic'], 'error');
     }
     setRegLoading(false);
   };
@@ -112,8 +138,8 @@ export default function MyData() {
   const onDelete = async (id: string) => {
     setDeleting(true);
     const res = await deleteAsset(id);
-    if (res.success) { showToast(_['protected'] ? '已移除' : 'Removed', 'success'); loadAssets(); }
-    else showToast(res.error || 'Failed', 'error');
+    if (res.success) { showToast(_['removed'], 'success'); loadAssets(); }
+    else showToast(res.error || _['error-generic'], 'error');
     setConfirmDel(null); setDeleting(false);
   };
 
@@ -124,46 +150,82 @@ export default function MyData() {
       showToast(`v${res.data.version} ✓`, 'success');
       loadAssets();
     } else {
-      showToast(res.data?.message || res.error || 'Failed', 'error');
+      showToast(res.data?.message || res.error || _['error-generic'], 'error');
     }
     setReregistering(null);
+  };
+
+  const onDispute = async (assetId: string) => {
+    if (!disputeReason.trim()) return;
+    setDisputing(true);
+    const res = await post<{ ok?: boolean }>('/dispute', { asset_id: assetId, reason: disputeReason.trim() });
+    if (res.success && res.data?.ok) {
+      showToast(_['dispute-success'] || 'Dispute submitted', 'success');
+      loadAssets();
+      setDisputeTarget(null); setDisputeReason('');
+    } else {
+      showToast(res.error || _['error-generic'], 'error');
+    }
+    setDisputing(false);
   };
 
   return (
     <div class="page">
       {/* Label 标题 + 计数 */}
       <div class="row between mb-24">
-        <h1 class="heading" style="margin:0">{_['mydata']}</h1>
+        <h1 class="label" style="margin:0">{_['mydata']}</h1>
         <span class="mono" style="color:var(--fg-2)">{assets.value.length}</span>
       </div>
 
-      {/* ── 注册区：拖入文件 ── */}
+      {/* ── 注册区 ── */}
       <div
-        class={`dropzone ${dragging ? 'dropzone-active' : ''} ${regFile ? 'dropzone-done' : ''} mb-24`}
+        class={`dropzone ${dragging ? 'dropzone-active' : ''} ${hasSelection ? 'dropzone-done' : ''} mb-24`}
         onDrop={onDrop}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onClick={() => fileRef.current?.click()}
+        onClick={() => { if (!hasSelection) fileRef.current?.click(); }}
       >
-        {regFile ? (
-          <div class="dropzone-text"><strong>{regFile}</strong></div>
+        {hasSelection ? (
+          <div class="dropzone-selected">
+            <span class="dropzone-selected-name">
+              {droppedFolder ? `${droppedFolder}/` : regFile}
+            </span>
+            {droppedFolder && (
+              <span class="caption">{folderFiles.length} {_['files'] || '个文件'}</span>
+            )}
+            <button class="dropzone-clear" onClick={e => { e.stopPropagation(); clearSelection(); }} aria-label="clear">×</button>
+          </div>
         ) : (
           <>
             <div class="dropzone-icon">↑</div>
             <div class="dropzone-text">
-              {_['drop-hint']}
-              {' '}
-              <strong>{_['drop-browse']}</strong>
+              <strong>{_['drop-browse'] || '选择文件'}</strong>
+            </div>
+            <div class="caption" style="margin-top:6px">
+              {_['drop-folder-hint'] || '支持拖入文件夹'}
             </div>
           </>
         )}
         <input ref={fileRef} type="file" style="display:none" onChange={e => {
           const f = (e.target as HTMLInputElement).files?.[0];
-          if (f) onFile(f.name);
+          if (f) onFile(f.name, f);
         }} />
       </div>
 
-      {/* 选文件后出现描述 + 提交 */}
+      {/* 文件夹 → 打包注册 */}
+      {droppedFolder && (
+        <div class="mydata-reg-fields mb-24">
+          <div>
+            <label class="label">{_['describe']}</label>
+            <input class="input" value={regDesc} onInput={e => setRegDesc((e.target as HTMLInputElement).value)} placeholder={droppedFolder} />
+          </div>
+          <button class="btn btn-primary btn-full" onClick={submitBundle} disabled={regLoading}>
+            {regLoading ? _['protecting'] : _['protect']}
+          </button>
+        </div>
+      )}
+
+      {/* 单文件注册 */}
       {regFile && (
         <div class="mydata-reg-fields mb-24">
           <div>
@@ -199,8 +261,8 @@ export default function MyData() {
 
       {/* 数据列表 */}
       {list.length === 0 ? (
-        <div class="center" style="padding:64px 0">
-          <div style="font-size:14px;color:var(--fg-2);margin-bottom:8px">{q ? 'No match' : _['no-data']}</div>
+        <div class="center p-0-64">
+          <div style="font-size:14px;color:var(--fg-2);margin-bottom:8px">{q ? _['inbox-no-match'] : _['no-data']}</div>
           {!q && <div class="caption">{_['first-data']}</div>}
         </div>
       ) : (
@@ -214,20 +276,28 @@ export default function MyData() {
                   <div class="grow">
                     <div class="data-name">
                       {a.tags?.length ? a.tags.join(' · ') : maskIdShort(a.asset_id)}
+                      {a.rights_type && (
+                        <span class="badge" style={`color:${RIGHTS_COLORS[a.rights_type] || 'var(--fg-2)'};border-color:${RIGHTS_COLORS[a.rights_type] || 'var(--fg-2)'};margin-left:8px`}>
+                          {_[`rights-${a.rights_type}`] || a.rights_type}
+                        </span>
+                      )}
+                      {a.disputed && (
+                        <span class="badge" style="color:var(--red, #f87171);border-color:var(--red, #f87171);margin-left:8px">{_['disputed']}</span>
+                      )}
                       {a.hash_status === 'changed' && <>
-                        <span class="badge" style="color:var(--yellow);border-color:var(--yellow);margin-left:8px">已变更</span>
+                        <span class="badge" style="color:var(--yellow);border-color:var(--yellow);margin-left:8px">{_['hash-changed']}</span>
                         <button class="btn btn-sm btn-ghost" style="margin-left:6px;font-size:12px" disabled={reregistering === a.asset_id} onClick={e => { e.stopPropagation(); onReRegister(a.asset_id); }}>
-                          {reregistering === a.asset_id ? '…' : '重新注册'}
+                          {reregistering === a.asset_id ? '…' : _['re-register']}
                         </button>
                       </>}
-                      {a.hash_status === 'missing' && <span class="badge" style="color:var(--red);border-color:var(--red);margin-left:8px">文件丢失</span>}
+                      {a.hash_status === 'missing' && <span class="badge" style="color:var(--red);border-color:var(--red);margin-left:8px">{_['file-missing']}</span>}
                     </div>
                     <div class="data-meta">
                       <span class="mono data-id-inline">{maskIdShort(a.asset_id)}</span>
                       {a.owner && <span class="data-owner-inline">{maskOwner(a.owner)}</span>}
                     </div>
                   </div>
-                  <span class="mono data-price-prominent">{fmtPrice(a.spot_price)}</span>
+                  <span class="mono data-price-prominent">{fmtPrice(a.spot_price)} <span style="font-weight:400;font-size:11px">OAS</span></span>
                   <span class={`data-chevron ${isOpen ? 'open' : ''}`}>›</span>
                 </button>
 
@@ -253,6 +323,83 @@ export default function MyData() {
                       </span>
                     </div>
                     <div class="kv"><span class="kv-key">{_['value']}</span><span class="kv-val">{fmtPrice(a.spot_price)}</span></div>
+                    {a.rights_type && (
+                      <div class="kv"><span class="kv-key">{_['rights-type']}</span><span class="kv-val">{_[`rights-${a.rights_type}`] || a.rights_type}</span></div>
+                    )}
+                    {a.co_creators && a.co_creators.length > 0 && (
+                      <div style="margin-top:8px">
+                        <span class="kv-key">{_['co-creators']}</span>
+                        <div style="margin-top:4px">
+                          {a.co_creators.map((c: any, i: number) => (
+                            <div key={i} class="caption" style="margin-left:12px">
+                              {c.address || '—'} <span class="mono">{c.share}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Delisted badge */}
+                    {a.delisted && (
+                      <div class="caption" style="margin-top:8px;padding:6px 10px;border:1px solid var(--red);color:var(--red);border-radius:var(--r-m);display:inline-block">
+                        {_['delisted']}
+                      </div>
+                    )}
+
+                    {/* Dispute section */}
+                    {a.disputed && (
+                      <div style="margin-top:8px;padding:8px;border:1px solid var(--red, #f87171);border-radius:8px">
+                        <div class="caption" style="color:var(--red, #f87171);margin-bottom:4px">
+                          {_['dispute-status']}:{' '}
+                          {a.dispute_status === 'resolved'
+                            ? _['dispute-resolved']
+                            : a.dispute_status === 'dismissed'
+                              ? _['dispute-dismissed']
+                              : _['dispute-pending']}
+                        </div>
+                        {a.dispute_reason && (
+                          <div class="caption" style="margin-bottom:4px">{_['dispute-reason']}: {a.dispute_reason}</div>
+                        )}
+                        {a.dispute_resolution && (
+                          <div class="caption" style="margin-bottom:4px;color:var(--green, #4ade80)">
+                            {_[`remedy-${a.dispute_resolution.remedy}`] || a.dispute_resolution.remedy}
+                          </div>
+                        )}
+                        {a.dispute_status === 'open' && a.arbitrator_candidates && a.arbitrator_candidates.length > 0 && (
+                          <div style="margin-top:6px">
+                            <div class="caption" style="font-weight:600;margin-bottom:4px">{_['arbitrators']}</div>
+                            {a.arbitrator_candidates.map((arb: any, i: number) => (
+                              <div key={i} class="caption" style="margin-left:8px;margin-bottom:2px">
+                                {arb.name || arb.capability_id.slice(0, 8) + '…'}
+                                <span class="mono" style="margin-left:8px;color:var(--fg-2)">{_['arbitrator-score']}: {(arb.score * 100).toFixed(0)}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {a.dispute_status === 'open' && (!a.arbitrator_candidates || a.arbitrator_candidates.length === 0) && (
+                          <div class="caption" style="color:var(--fg-2)">{_['no-arbitrators']}</div>
+                        )}
+                      </div>
+                    )}
+                    {!a.disputed && disputeTarget !== a.asset_id && (
+                      <button class="btn btn-ghost btn-sm" style="margin-top:8px" onClick={e => { e.stopPropagation(); setDisputeTarget(a.asset_id); setDisputeReason(''); }}>
+                        {_['dispute']}
+                      </button>
+                    )}
+                    {disputeTarget === a.asset_id && (
+                      <div style="margin-top:8px">
+                        <input class="input" style="margin-bottom:6px" value={disputeReason}
+                          onInput={e => setDisputeReason((e.target as HTMLInputElement).value)}
+                          placeholder={_['dispute-reason-hint']} />
+                        <div class="caption" style="margin-bottom:6px;color:var(--fg-2)">{_['arbitrator-auto']}</div>
+                        <div class="row gap-8">
+                          <button class="btn btn-ghost btn-sm" onClick={() => { setDisputeTarget(null); setDisputeReason(''); }}>{_['cancel']}</button>
+                          <button class="btn btn-danger btn-sm" onClick={() => onDispute(a.asset_id)} disabled={disputing || !disputeReason.trim()}>
+                            {disputing ? (_['dispute-submitting']) : (_['dispute-confirm'])}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {!isDel ? (
                       <button class="btn btn-danger" style="margin-top:12px" onClick={e => { e.stopPropagation(); setConfirmDel(a.asset_id); }}>{_['delete']}</button>
@@ -277,7 +424,7 @@ export default function MyData() {
 
       {/* 加载更多 / 没有更多 */}
       {list.length > 0 && (
-        <div class="center" style="padding:24px 0">
+        <div class="center p-0-24">
           {hasMore ? (
             <button class="btn btn-ghost btn-sm" onClick={() => setPageSize(s => s + 20)}>{_['load-more']}</button>
           ) : (

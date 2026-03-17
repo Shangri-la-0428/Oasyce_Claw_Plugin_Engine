@@ -1,3 +1,14 @@
 /* Network — minimal overrides */
 .net-hero { max-width: var(--max-w); }
 .net-tools { display: flex; flex-direction: column; }
+.nav-item-active { background: var(--bg-1); border-radius: var(--r-m); padding-left: 12px; }
+.net-tool-form {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px 0 16px 12px;
+  animation: field-in 0.2s var(--ease);
+}
+.net-tool-result {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  animation: field-in 0.15s var(--ease);
+}

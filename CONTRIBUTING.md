@@ -61,6 +61,44 @@ Oasyce_Project/oasyce_core/    ← 协议核心（单独仓库）
 - GitHub Issues（Bug 报告、功能建议）
 - [Discord](https://discord.gg/dPP5eZKs)（闲聊、提问）
 
+## 📦 发布流程
+
+### PyPI
+
+```bash
+# 1. 更新 pyproject.toml 中的 version
+# 2. 构建
+python -m build
+# 3. 上传
+twine upload dist/*
+```
+
+包名 `oasyce`，发布到 https://pypi.org/project/oasyce/
+
+### ClawHub（OpenClaw Skill 市场）
+
+```bash
+# Oasyce Skill 已内置，不需要单独发布
+# 如果你修改了 Skill 接口，确保兼容 OpenClaw ≥ 0.5.0
+```
+
+### Git 提交与 PR
+
+```bash
+# 1. 确保测试通过
+pytest
+
+# 2. 提交（遵循 type: description 格式）
+git add .
+git commit -m "feat: add rights declaration system"
+
+# 3. 推送到你的 fork
+git push origin feat/your-feature
+
+# 4. 在 GitHub 上创建 PR
+# 5. CI 会自动跑测试（Python 3.9-3.12）
+```
+
 ## License
 
 贡献的代码遵循 MIT 协议。

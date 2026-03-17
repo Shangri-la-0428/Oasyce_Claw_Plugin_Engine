@@ -15,6 +15,65 @@ from oasyce_plugin.config import Config
 from oasyce_plugin.skills.agent_skills import OasyceSkills
 
 
+def cmd_info(args):
+    """Show comprehensive project information."""
+    from oasyce_plugin.info import get_info, LINKS
+
+    use_json = getattr(args, "json", False)
+
+    if use_json:
+        print(json.dumps(get_info("en"), indent=2, ensure_ascii=False))
+        return
+
+    info = get_info("en")
+    print(f"\n  {info['project']} v{info['version']}")
+    print(f"  {info['tagline']}")
+    print(f"  License: {info['license']}\n")
+
+    section = getattr(args, "section", None)
+
+    if section is None or section == "links":
+        print("  Links:")
+        print(f"    Homepage         {LINKS['homepage']}")
+        print(f"    GitHub (Project) {LINKS['github_project']}")
+        print(f"    GitHub (Engine)  {LINKS['github_engine']}")
+        print(f"    Whitepaper       {LINKS['whitepaper']}")
+        print(f"    Discord          {LINKS['discord']}")
+        print(f"    Email            {LINKS['email']}")
+        print()
+
+    if section == "quickstart":
+        print("  Quick Start:")
+        for line in info["quick_start"].split("\n"):
+            print(f"    {line}")
+        print()
+
+    if section == "architecture":
+        print("  Architecture:")
+        for line in info["architecture"].split("\n"):
+            print(f"    {line}")
+        print()
+
+    if section == "economics":
+        print("  Economics:")
+        for line in info["economics"].split("\n"):
+            print(f"    {line}")
+        print()
+
+    if section == "update":
+        print("  Maintenance & Update:")
+        for line in info["update_guide"].split("\n"):
+            print(f"    {line}")
+        print()
+
+    if section is None:
+        print("  Asset types: data, capability, oracle, identity")
+        print(f"  Schema version: {info['schema_version']}")
+        print()
+        print("  For details: oasyce info --section <quickstart|architecture|economics|update|links>")
+        print()
+
+
 def cmd_register(args):
     """Register a file as an Oasyce asset."""
     config = Config.from_env(
@@ -26,8 +85,17 @@ def cmd_register(args):
     skills = OasyceSkills(config)
 
     try:
+        # Parse co-creators if provided
+        co_creators = None
+        if getattr(args, "co_creators", None):
+            co_creators = json.loads(args.co_creators)
+
         file_info = skills.scan_data_skill(args.file)
-        metadata = skills.generate_metadata_skill(file_info, config.tags, config.owner)
+        metadata = skills.generate_metadata_skill(
+            file_info, config.tags, config.owner,
+            rights_type=getattr(args, "rights_type", "original"),
+            co_creators=co_creators,
+        )
         signed = skills.create_certificate_skill(metadata)
         result = skills.register_data_asset_skill(signed)
 
@@ -50,6 +118,10 @@ def cmd_register(args):
             print(f"   Owner: {signed['owner']}")
             print(f"   File: {signed['filename']}")
             print(f"   Tags: {', '.join(signed['tags'])}")
+            print(f"   Rights: {signed.get('rights_type', 'original')}")
+            if signed.get('co_creators'):
+                for c in signed['co_creators']:
+                    print(f"   Co-creator: {c['address']} ({c['share']}%)")
             print(f"   Price: {'Free (attribution only)' if price_model == 'free' else 'Bonding Curve'}")
             print(f"   Vault: {result['vault_path']}")
             if core_result:
@@ -162,6 +234,193 @@ def cmd_price_factors(args):
         print(f"   Freshness factor:  {result['freshness_factor']:.6f}  (days={args.days})")
         print(f"   ─────────────────────────────")
         print(f"   Final price:       {result['final_price']:.6f} OAS")
+
+
+def cmd_dispute(args):
+    """File a dispute against an asset."""
+    config = Config.from_env()
+    from oasyce_plugin.storage.ledger import Ledger
+    ledger = Ledger(config.db_path) if config.db_path else None
+    if not ledger:
+        print("❌ Ledger not available", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        row = ledger._conn.execute(
+            "SELECT metadata FROM assets WHERE asset_id = ?", (args.asset_id,)
+        ).fetchone()
+        if not row:
+            print(f"❌ Asset not found: {args.asset_id}", file=sys.stderr)
+            sys.exit(1)
+
+        import time as _time
+        meta = json.loads(row["metadata"]) if row["metadata"] else {}
+        meta["disputed"] = True
+        meta["dispute_reason"] = args.reason
+        meta["dispute_time"] = int(_time.time())
+
+        # Attempt arbitrator discovery
+        arbitrators = []
+        try:
+            from oasyce_plugin.services.discovery import SkillDiscoveryEngine
+            discovery = SkillDiscoveryEngine(get_capabilities=lambda: [])
+            candidates = discovery.discover_arbitrators(
+                dispute_tags=meta.get("tags", []), limit=3,
+            )
+            arbitrators = [
+                {"capability_id": c.capability_id, "name": c.name, "score": c.final_score}
+                for c in candidates
+            ]
+            meta["arbitrator_candidates"] = arbitrators
+        except Exception:
+            pass
+
+        ledger._conn.execute(
+            "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+            (json.dumps(meta), args.asset_id),
+        )
+        ledger._conn.commit()
+
+        if args.json:
+            print(json.dumps({"ok": True, "asset_id": args.asset_id,
+                              "disputed": True, "arbitrators": arbitrators}, indent=2))
+        else:
+            print(f"⚠️  Dispute filed for {args.asset_id}")
+            print(f"   Reason: {args.reason}")
+            if arbitrators:
+                print(f"   Arbitrator candidates: {len(arbitrators)}")
+                for a in arbitrators:
+                    print(f"     - {a['name'] or a['capability_id'][:12]} (score: {a['score']:.2f})")
+            else:
+                print(f"   No arbitrators found (will be assigned later)")
+    except Exception as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_resolve(args):
+    """Resolve a dispute with a remedy."""
+    from oasyce_plugin.models import VALID_REMEDY_TYPES
+    config = Config.from_env()
+    from oasyce_plugin.storage.ledger import Ledger
+    ledger = Ledger(config.db_path) if config.db_path else None
+    if not ledger:
+        print("❌ Ledger not available", file=sys.stderr)
+        sys.exit(1)
+
+    if args.remedy not in VALID_REMEDY_TYPES:
+        print(f"❌ Invalid remedy. Must be one of: {', '.join(VALID_REMEDY_TYPES)}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        row = ledger._conn.execute(
+            "SELECT metadata FROM assets WHERE asset_id = ?", (args.asset_id,)
+        ).fetchone()
+        if not row:
+            print(f"❌ Asset not found: {args.asset_id}", file=sys.stderr)
+            sys.exit(1)
+
+        import time as _time
+        meta = json.loads(row["metadata"]) if row["metadata"] else {}
+        if not meta.get("disputed"):
+            print(f"❌ Asset is not disputed", file=sys.stderr)
+            sys.exit(1)
+
+        details = json.loads(args.details) if args.details else {}
+        resolution = {"remedy": args.remedy, "details": details, "resolved_at": int(_time.time())}
+        meta["dispute_status"] = "resolved"
+        meta["dispute_resolution"] = resolution
+
+        if args.remedy == "delist":
+            meta["delisted"] = True
+        elif args.remedy == "transfer":
+            new_owner = details.get("new_owner", "")
+            if new_owner:
+                meta["owner"] = new_owner
+                ledger._conn.execute(
+                    "UPDATE assets SET owner = ? WHERE asset_id = ?",
+                    (new_owner, args.asset_id),
+                )
+        elif args.remedy == "rights_correction":
+            from oasyce_plugin.models import VALID_RIGHTS_TYPES
+            new_rights = details.get("new_rights_type", "collection")
+            if new_rights in VALID_RIGHTS_TYPES:
+                meta["rights_type"] = new_rights
+        elif args.remedy == "share_adjustment":
+            new_co_creators = details.get("co_creators")
+            if new_co_creators:
+                meta["co_creators"] = new_co_creators
+
+        ledger._conn.execute(
+            "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+            (json.dumps(meta), args.asset_id),
+        )
+        ledger._conn.commit()
+
+        if args.json:
+            print(json.dumps({"ok": True, "asset_id": args.asset_id, "remedy": args.remedy, "resolution": resolution}, indent=2))
+        else:
+            print(f"✅ Dispute resolved: {args.asset_id}")
+            print(f"   Remedy: {args.remedy}")
+            if details:
+                print(f"   Details: {json.dumps(details)}")
+    except Exception as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_discover(args):
+    """Discover capabilities/skills using four-layer search."""
+    from oasyce_plugin.services.discovery import SkillDiscoveryEngine
+
+    def _list_capabilities():
+        try:
+            from oasyce_core.capabilities.registry import CapabilityRegistry
+            reg = CapabilityRegistry()
+            return [
+                {
+                    "capability_id": m.capability_id,
+                    "name": m.name,
+                    "provider": m.provider,
+                    "tags": m.tags,
+                    "intents": m.tags,
+                    "semantic_vector": m.semantic_vector,
+                    "base_price": m.pricing.base_price if m.pricing else 1.0,
+                }
+                for m in reg.list_all()
+            ]
+        except Exception:
+            return []
+
+    discovery = SkillDiscoveryEngine(get_capabilities=_list_capabilities)
+
+    intents = args.intents.split(",") if args.intents else None
+    tags = args.tags.split(",") if args.tags else None
+
+    candidates = discovery.discover(intents=intents, query_tags=tags, limit=args.limit)
+
+    if args.json:
+        print(json.dumps([
+            {
+                "capability_id": c.capability_id, "name": c.name,
+                "provider": c.provider, "tags": c.tags,
+                "final_score": c.final_score,
+                "intent_score": c.intent_score,
+                "trust_score": c.trust_score,
+                "economic_score": c.economic_score,
+                "base_price": c.base_price,
+            }
+            for c in candidates
+        ], indent=2))
+    else:
+        if not candidates:
+            print("No capabilities found.")
+            return
+        print(f"Found {len(candidates)} capability(ies):")
+        for c in candidates:
+            print(f"  {c.name or c.capability_id[:16]}")
+            print(f"    Score: {c.final_score:.4f}  (intent={c.intent_score:.2f} trust={c.trust_score:.2f} econ={c.economic_score:.2f})")
+            print(f"    Price: {c.base_price:.4f} OAS  Tags: {', '.join(c.tags)}")
 
 
 def cmd_buy(args):
@@ -1461,9 +1720,40 @@ def main():
     reg_parser.add_argument("--signing-key", help="Signing key (or OASYCE_SIGNING_KEY env)")
     reg_parser.add_argument("--signing-key-id", help="Signing key ID")
     reg_parser.add_argument("--free", action="store_true", help="Register as free asset (attribution only, no Bonding Curve)")
+    reg_parser.add_argument("--rights-type", default="original",
+                            choices=["original", "co_creation", "licensed", "collection"],
+                            help="Rights type (default: original)")
+    reg_parser.add_argument("--co-creators",
+                            help='Co-creators JSON, e.g. \'[{"address":"A","share":60},{"address":"B","share":40}]\'')
     reg_parser.add_argument("--json", action="store_true", help="Output as JSON")
     reg_parser.set_defaults(func=cmd_register)
     
+    # Dispute command
+    dispute_parser = subparsers.add_parser("dispute", help="File a dispute against an asset")
+    dispute_parser.add_argument("asset_id", help="Asset ID to dispute")
+    dispute_parser.add_argument("--reason", required=True, help="Reason for dispute")
+    dispute_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    dispute_parser.set_defaults(func=cmd_dispute)
+
+    # Resolve command
+    resolve_parser = subparsers.add_parser("resolve", help="Resolve a dispute with a remedy")
+    resolve_parser.add_argument("asset_id", help="Asset ID to resolve")
+    resolve_parser.add_argument("--remedy", required=True,
+                                choices=["delist", "transfer", "rights_correction", "share_adjustment"],
+                                help="Remedy type")
+    resolve_parser.add_argument("--details",
+                                help='Details JSON, e.g. \'{"new_owner":"0x..."}\'')
+    resolve_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    resolve_parser.set_defaults(func=cmd_resolve)
+
+    # Discover command
+    discover_parser = subparsers.add_parser("discover", help="Discover capabilities via four-layer search")
+    discover_parser.add_argument("--intents", help="Comma-separated intents (e.g. generate_quest,dispute_arbitrate)")
+    discover_parser.add_argument("--tags", help="Comma-separated tags to filter")
+    discover_parser.add_argument("--limit", type=int, default=10, help="Max results (default 10)")
+    discover_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    discover_parser.set_defaults(func=cmd_discover)
+
     # Search command
     search_parser = subparsers.add_parser("search", help="Search assets by tag")
     search_parser.add_argument("tag", help="Tag to search for")
@@ -1751,6 +2041,14 @@ def main():
     )
     demo_net_parser.add_argument("--nodes", type=int, default=3, help="Number of nodes (default: 3)")
     demo_net_parser.set_defaults(func=cmd_demo_network)
+
+    # ── info ───────────────────────────────────────────────────────
+    info_parser = subparsers.add_parser("info", help="Show project information, links, architecture, economics")
+    info_parser.add_argument("--section",
+                             choices=["quickstart", "architecture", "economics", "update", "links"],
+                             help="Show a specific section")
+    info_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    info_parser.set_defaults(func=cmd_info)
 
     # ── doctor ──────────────────────────────────────────────────────
     doctor_parser = subparsers.add_parser("doctor", help="Security and readiness check")
