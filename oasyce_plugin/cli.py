@@ -1717,12 +1717,15 @@ def cmd_testnet_faucet_serve(args):
 
 
 def cmd_start(args):
-    """Start Core node + Dashboard in one command."""
+    """Start Core node + Dashboard + SyncServer + BlockProducer."""
     import threading
     import time
 
     core_port = args.core_port
     gui_port = args.port
+    sync_port = getattr(args, "sync_port", 9528)
+    no_produce = getattr(args, "no_produce", False)
+    block_interval = getattr(args, "block_interval", 5.0)
 
     # Check if oasyce-core is available
     has_core = False
@@ -1733,12 +1736,15 @@ def cmd_start(args):
         pass
 
     core_line = f"http://localhost:{core_port}" if has_core else "(not installed — local mode)"
+    produce_line = f"every {block_interval}s" if not no_produce else "disabled"
     print(f"""
 ╔══════════════════════════════════════════════╗
 ║            Oasyce — Starting Up              ║
 ╠══════════════════════════════════════════════╣
 ║  Dashboard:   http://localhost:{gui_port:<14}║
 ║  Core Node:   {core_line:<31}║
+║  Block Sync:  http://localhost:{sync_port:<14}║
+║  Producer:    {produce_line:<31}║
 ╠══════════════════════════════════════════════╣
 ║  Open Dashboard in your browser to begin.    ║
 ║  Press Ctrl+C to stop.                       ║
@@ -1765,10 +1771,39 @@ def cmd_start(args):
         core_thread.start()
         time.sleep(1)  # let core start first
 
+    # Initialize consensus engine
+    from oasyce_plugin.consensus import ConsensusEngine
+    engine = ConsensusEngine(db_path=":memory:")
+
+    # Start SyncServer for P2P block distribution
+    from oasyce_plugin.consensus.network.http_transport import SyncServer
+    sync_server = SyncServer(engine, host="0.0.0.0", port=sync_port)
+    sync_server.start()
+    print(f"  ✓ SyncServer listening on port {sync_port}")
+
+    # Start BlockProducer
+    producer = None
+    if not no_produce:
+        from oasyce_plugin.consensus.execution.producer import Mempool, BlockProducer
+        mempool = Mempool()
+        producer = BlockProducer(
+            engine, mempool, sync_server=sync_server,
+            proposer_id=engine.chain_id,
+        )
+        producer.start(interval=block_interval, empty_blocks=False)
+        print(f"  ✓ BlockProducer started (interval={block_interval}s, empty_blocks=False)")
+
     # Start Dashboard in main thread
-    from oasyce_plugin.gui.app import OasyceGUI
-    gui = OasyceGUI(port=gui_port)
-    gui.run()
+    try:
+        from oasyce_plugin.gui.app import OasyceGUI
+        gui = OasyceGUI(port=gui_port)
+        gui.run()
+    finally:
+        # Clean shutdown
+        if producer:
+            producer.stop()
+        sync_server.stop()
+        print("\n  Oasyce stopped.")
 
 
 def cmd_verify(args):
@@ -3869,6 +3904,9 @@ def main():
     start_parser = subparsers.add_parser("start", help="Start everything: Core node + Dashboard (recommended)")
     start_parser.add_argument("--port", type=int, default=8420, help="Dashboard port (default: 8420)")
     start_parser.add_argument("--core-port", type=int, default=8000, help="Core node port (default: 8000)")
+    start_parser.add_argument("--sync-port", type=int, default=9528, help="Block sync port (default: 9528)")
+    start_parser.add_argument("--no-produce", action="store_true", help="Disable block production")
+    start_parser.add_argument("--block-interval", type=float, default=5.0, help="Block production interval in seconds (default: 5.0)")
     start_parser.set_defaults(func=cmd_start)
 
     # Explorer command
