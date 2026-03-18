@@ -3240,32 +3240,72 @@ def cmd_sync(args):
                 print(f"  Blocks behind: {info.blocks_behind}")
             return
 
-        # --peers: sync from specified peers
+        # --peers: sync from specified peers via HTTP
         if peers_arg:
-            from oasyce_plugin.consensus.network.block_sync import (
-                InMemoryPeer, sync_from_network,
-            )
-            # peers_arg is comma-separated host:port list
-            # In standalone mode, we can't connect to real peers yet
-            # but the CLI interface is ready for P2P integration
-            if use_json:
-                print(json.dumps({
-                    "chain_id": engine.chain_id,
-                    "genesis_hash": genesis_hash,
-                    "local_height": local_height,
-                    "peers": peers_arg.split(","),
-                    "status": "peer_sync_pending",
-                    "message": "Peer sync requires running P2P nodes. Use 'oasyce start' first.",
-                }, indent=2))
-            else:
-                peer_list = peers_arg.split(",")
-                print("Block Sync (peer mode)")
+            from oasyce_plugin.consensus.network.http_transport import HTTPPeerTransport
+            from oasyce_plugin.consensus.network.block_sync import sync_from_network
+
+            peer_urls = peers_arg.split(",")
+            peers = []
+            for url in peer_urls:
+                url = url.strip()
+                if not url.startswith("http"):
+                    url = f"http://{url}"
+                peers.append(HTTPPeerTransport(url, timeout=10.0))
+
+            if not use_json:
+                print("Block Sync (HTTP peer mode)")
                 print(f"  Chain ID:      {engine.chain_id}")
                 print(f"  Genesis hash:  {genesis_hash[:16]}...")
                 print(f"  Local height:  {local_height}")
-                print(f"  Target peers:  {', '.join(peer_list)}")
+                print(f"  Peers:         {', '.join(peer_urls)}")
                 print()
-                print("  Peer sync requires running P2P nodes. Use 'oasyce start' first.")
+
+            result = sync_from_network(
+                peers, engine, local_height, genesis_hash,
+            )
+
+            if use_json:
+                print(json.dumps(result.to_dict(), indent=2))
+            else:
+                if result.ok:
+                    print(f"  Synced {result.blocks_synced} blocks "
+                          f"(height {result.from_height} → {result.to_height})")
+                    print(f"  Peer: {result.peer}")
+                else:
+                    print(f"  Sync failed: {result.error or result.status.value}")
+            return
+
+        # --serve: start HTTP sync server
+        serve = getattr(args, "serve", False)
+        if serve:
+            from oasyce_plugin.consensus.network.http_transport import SyncServer
+            sync_port = getattr(args, "sync_port", 9528)
+            server = SyncServer(engine, host="0.0.0.0", port=sync_port)
+            server.start()
+            print(f"Sync server running on http://0.0.0.0:{sync_port}")
+            print(f"  Chain ID:      {engine.chain_id}")
+            print(f"  Genesis hash:  {genesis_hash[:16]}...")
+            print(f"  Endpoints:")
+            print(f"    GET  /sync/info    — peer info")
+            print(f"    POST /sync/blocks  — fetch blocks")
+            print(f"    GET  /sync/health  — health check")
+            print()
+            print("Press Ctrl+C to stop.")
+            try:
+                import signal
+                signal.pause()
+            except (KeyboardInterrupt, AttributeError):
+                # AttributeError: signal.pause not available on Windows
+                try:
+                    while True:
+                        import time as _t
+                        _t.sleep(1)
+                except KeyboardInterrupt:
+                    pass
+            finally:
+                server.stop()
+                print("\nSync server stopped.")
             return
 
         # --auto or default: report status
@@ -4117,9 +4157,11 @@ def main():
     # ── sync ───────────────────────────────────────────────────────
     sync_parser = subparsers.add_parser("sync", help="Sync blocks from network peers")
     sync_parser.add_argument("--from-height", type=int, default=None, help="Local chain height")
-    sync_parser.add_argument("--peers", type=str, default=None, help="Comma-separated peer list (host:port)")
+    sync_parser.add_argument("--peers", type=str, default=None, help="Comma-separated peer URLs (http://host:port)")
     sync_parser.add_argument("--auto", action="store_true", help="Auto-sync from known peers")
     sync_parser.add_argument("--status", action="store_true", help="Show sync status")
+    sync_parser.add_argument("--serve", action="store_true", help="Start HTTP sync server")
+    sync_parser.add_argument("--sync-port", type=int, default=9528, help="Sync server port (default: 9528)")
     sync_parser.add_argument("--json", action="store_true")
     sync_parser.set_defaults(func=cmd_sync)
 

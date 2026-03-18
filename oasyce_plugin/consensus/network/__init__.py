@@ -37,6 +37,10 @@ from oasyce_plugin.consensus.network.protocol import (
 )
 
 from oasyce_plugin.consensus.network.offline_detector import OfflineDetector
+from oasyce_plugin.consensus.network.http_transport import (
+    HTTPPeerTransport,
+    SyncServer,
+)
 
 __all__ = [
     "Block",
@@ -62,4 +66,6 @@ __all__ = [
     "SyncState",
     "SyncInfo",
     "OfflineDetector",
+    "HTTPPeerTransport",
+    "SyncServer",
 ]
