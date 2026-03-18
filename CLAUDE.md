@@ -65,6 +65,32 @@ oasyce consensus unbondings                         # Show your pending unbondin
 ```bash
 oasyce testnet onboard          # Join testnet
 oasyce testnet faucet           # Get free test OAS
+oasyce testnet init --validators 4 --output ./testnet  # Initialize multi-node testnet
+oasyce testnet genesis --config config.json --output genesis.json  # Create genesis
+oasyce testnet join --genesis genesis.json              # Join existing testnet
+oasyce testnet faucet-serve --port 8080                 # Start faucet HTTP server
+```
+
+### Governance
+```bash
+oasyce governance propose --title "..." --description "..." --changes '[...]' --deposit 1000
+oasyce governance vote <proposal_id> --option yes|no|abstain
+oasyce governance tally <proposal_id>                    # Tally votes
+oasyce governance list [--status voting|passed|rejected] # List proposals
+oasyce governance params [--module consensus]            # List governable params
+```
+
+### Block Sync
+```bash
+oasyce sync --status                                    # Show sync status
+oasyce sync --peers http://host:9528                    # Sync from HTTP peers
+oasyce sync --serve --sync-port 9528                    # Start sync server
+```
+
+### Keys
+```bash
+oasyce keys generate            # Generate Ed25519 keypair
+oasyce keys show                # Show public key
 ```
 
 ### Project Info
@@ -102,6 +128,13 @@ oasyce demo                     # Run full pipeline demo
 - **Delegation**: Stake OAS to validators. Undelegation enters unbonding queue. Commission in basis points (1000 = 10%). All changes recorded as events.
 - **Slashing**: Offline (100 bps + jail), double-sign (500 bps + 3x jail), low-quality (50 bps). Integer arithmetic, no float.
 - **Operation**: Frozen dataclass with `op_type`, `validator_id`, `amount` (int units), `asset_type` (default "OAS"). Immutable once created.
+- **Multi-Asset**: Asset registry (OAS, USDC, DATA_CREDIT, CAPABILITY_TOKEN). Per-address per-asset SQLite balances. Transfer/register via apply_operation.
+- **Governance**: Stake-weighted on-chain voting. Proposals with parameter changes. 40% quorum, 2/3 pass threshold. Auto-execution on approval.
+- **Fork Choice**: Longest-chain with stake-weighted tiebreaker. Reorg support via event-sourced rollback. Max reorg depth limit.
+- **Block Sync**: HTTP JSON transport (`SyncServer` port 9528 + `HTTPPeerTransport`). Genesis hash validation. Batch block download with verification.
+- **Offline Mode**: Feature tiers (CRITICAL/DEGRADED/UNAVAILABLE). Provider cache for offline browsing.
+- **Enforcement**: Content fingerprinting, infringement detection, bounty hunter system.
+- **Chain ID**: Operations include `chain_id` for replay protection. Validated during apply_operation.
 
 ## Dashboard
 
@@ -109,6 +142,9 @@ After `oasyce start`, the web Dashboard is at `http://localhost:8420`.
 - `/explore` — Browse all data assets and capabilities
 - `/register` — Register new assets (drag & drop)
 - Supports both data assets and AI capabilities in unified view.
+- API: `/api/consensus/status`, `/api/consensus/validators`, `/api/consensus/rewards`, `/api/consensus/slashing`, `/api/consensus/sync`
+- API: `/api/governance/proposals`, `/api/governance/proposal/:id`, `/api/governance/params`
+- API: POST `/api/governance/propose`, `/api/governance/vote`, `/api/consensus/delegate`, `/api/consensus/undelegate`
 
 ## Architecture (v2.0.0)
 
@@ -129,6 +165,25 @@ oasyce_plugin/
 │   ├── validator_registry.py  # Registration/delegation/exit (event-sourced)
 │   ├── slashing.py       # Three penalty conditions (basis points)
 │   ├── rewards.py        # Reward distribution (integer units)
+│   ├── assets/
+│   │   ├── registry.py   # Asset type registry (OAS, USDC, custom)
+│   │   └── balances.py   # Multi-asset per-address balance tracking
+│   ├── governance/
+│   │   ├── engine.py     # Proposal lifecycle, stake-weighted voting
+│   │   ├── registry.py   # Governable parameter registry
+│   │   └── types.py      # Proposal, Vote, VoteOption, ParameterChange
+│   ├── network/
+│   │   ├── http_transport.py  # HTTP JSON sync (SyncServer + HTTPPeerTransport)
+│   │   ├── sync_protocol.py   # Block, BlockHeader, wire types
+│   │   ├── block_sync.py      # PeerTransport protocol, sync logic
+│   │   ├── sync.py            # BlockSyncProtocol async coordinator
+│   │   └── protocol.py        # Extended messages (height, headers, status)
+│   ├── genesis.py        # Genesis state creation, validation, import/export
+│   ├── node.py           # ConsensusNode lifecycle (join, sync, produce)
+│   ├── offline_mode.py   # Graceful degradation (CRITICAL/DEGRADED/UNAVAILABLE)
+│   ├── provider_cache.py # SQLite-backed offline browsing cache
+│   ├── testnet_config.py # TestnetConfig with devnet/testnet profiles
+│   ├── enforcement/      # Content fingerprinting, infringement detection, bounty
 │   └── __init__.py       # ConsensusEngine facade + apply()
 ├── schema_registry/      # Unified schema validation (data/capability/oracle/identity)
 ├── engines/

@@ -55,6 +55,11 @@ def validate_operation(engine: ConsensusEngine, op: Operation,
     sig_ok, sig_err = _validate_signature(op)
     if not sig_ok:
         return False, sig_err
+
+    # Chain ID replay protection: if op specifies a chain_id, it must match
+    if op.chain_id and hasattr(engine, "chain_id") and op.chain_id != engine.chain_id:
+        return False, f"chain_id mismatch: op={op.chain_id}, engine={engine.chain_id}"
+
     if op.op_type == OperationType.REGISTER:
         return _validate_register(engine, op)
     elif op.op_type == OperationType.DELEGATE:
