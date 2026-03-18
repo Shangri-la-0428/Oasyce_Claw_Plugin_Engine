@@ -284,7 +284,7 @@ const dict: Record<string, Record<string, string>> = {
     'invoke-result': '返回结果',
     'net-consensus-loading': '加载共识数据...',
     // About panel
-    'about-version': 'v1.5.0',
+    'about-version': 'v1.11.0',
     'about-desc': '去中心化 AI 能力自由市场。代理自主注册数据、上架能力、定价交易、结算清分。',
     'about-tab-overview': '概览',
     'about-tab-start': '快速开始',
@@ -564,7 +564,7 @@ const dict: Record<string, Record<string, string>> = {
     'invoke-result': 'Result',
     'net-consensus-loading': 'Loading consensus data...',
     // About panel
-    'about-version': 'v1.5.0',
+    'about-version': 'v1.11.0',
     'about-desc': 'Decentralized AI capability marketplace. Agents register data, list capabilities, price, trade, and settle autonomously.',
     'about-tab-overview': 'Overview',
     'about-tab-start': 'Quick Start',

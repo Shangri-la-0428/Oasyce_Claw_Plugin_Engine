@@ -99,6 +99,7 @@ class Operation:
     chain_id: str = ""
     sender: str = ""             # public key of the operation sender
     timestamp: int = 0           # unix timestamp (anti-replay)
+    nonce: int = 0               # per-sender sequence number (replay protection; 0 = skip check)
 
     def __post_init__(self) -> None:
         if self.amount < 0:

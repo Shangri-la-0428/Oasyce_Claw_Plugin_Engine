@@ -106,7 +106,7 @@ class TestE2ELifecycle:
         # ── Node A: producer ──
         engine_a = _make_engine()
         mp = Mempool()
-        server_a = SyncServer(engine_a, host="127.0.0.1", port=port_a)
+        server_a = SyncServer(engine_a, host="127.0.0.1", port=port_a, db_path=":memory:")
         producer = BlockProducer(
             engine_a, mp, sync_server=server_a, proposer_id="node-A",
         )
@@ -154,7 +154,7 @@ class TestE2ELifecycle:
 
         engine_a = _make_engine()
         mp = Mempool()
-        server = SyncServer(engine_a, host="127.0.0.1", port=port)
+        server = SyncServer(engine_a, host="127.0.0.1", port=port, db_path=":memory:")
         producer = BlockProducer(
             engine_a, mp, sync_server=server, proposer_id="node-bg",
         )
@@ -212,7 +212,7 @@ class TestE2ELifecycle:
 
         engine_a = _make_engine()
         mp = Mempool()
-        server = SyncServer(engine_a, host="127.0.0.1", port=port)
+        server = SyncServer(engine_a, host="127.0.0.1", port=port, db_path=":memory:")
         producer = BlockProducer(
             engine_a, mp, sync_server=server, proposer_id="node-A",
         )
@@ -256,7 +256,7 @@ class TestE2ELifecycle:
 
         engine_a = _make_engine()
         mp = Mempool()
-        server_a = SyncServer(engine_a, host="127.0.0.1", port=port_a)
+        server_a = SyncServer(engine_a, host="127.0.0.1", port=port_a, db_path=":memory:")
         producer = BlockProducer(
             engine_a, mp, sync_server=server_a, proposer_id="node-A",
         )
@@ -297,7 +297,7 @@ class TestE2ELifecycle:
 
         engine_a = _make_engine()
         mp = Mempool()
-        server_a = SyncServer(engine_a, host="127.0.0.1", port=port_a)
+        server_a = SyncServer(engine_a, host="127.0.0.1", port=port_a, db_path=":memory:")
         producer = BlockProducer(
             engine_a, mp, sync_server=server_a, proposer_id="node-A",
         )
@@ -365,7 +365,7 @@ class TestE2ELifecycle:
         port = _free_port()
         engine = _make_engine()
         mp = Mempool()
-        server = SyncServer(engine, host="127.0.0.1", port=port)
+        server = SyncServer(engine, host="127.0.0.1", port=port, db_path=":memory:")
         producer = BlockProducer(
             engine, mp, sync_server=server, proposer_id="lifecycle-node",
         )

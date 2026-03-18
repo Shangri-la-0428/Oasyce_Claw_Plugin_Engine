@@ -35,7 +35,7 @@ from oasyce_plugin.consensus.governance.types import (
 from oasyce_plugin.consensus.governance.engine import GovernanceEngine
 from oasyce_plugin.consensus.governance.registry import ParameterRegistry
 from oasyce_plugin.consensus.core.transition import apply_operation
-from oasyce_plugin.consensus.core.validation import validate_operation
+from oasyce_plugin.consensus.core.validation import validate_operation, NonceTracker
 from oasyce_plugin.consensus.core.signature import (
     serialize_operation,
     sign_operation,
@@ -81,6 +81,7 @@ __all__ = [
     "OperationType",
     "apply_operation",
     "validate_operation",
+    "NonceTracker",
     "serialize_operation",
     "sign_operation",
     "verify_signature",
@@ -163,6 +164,7 @@ class ConsensusEngine:
             halving_interval=economics.get("halving_interval", 10000),
         )
         self.asset_registry = AssetRegistry()
+        self._nonce_tracker = NonceTracker()
 
         # Governance
         self.param_registry = ParameterRegistry()
@@ -171,6 +173,7 @@ class ConsensusEngine:
             self.state, self.param_registry,
             min_deposit=economics.get("min_deposit", 100_000_000_000),
             voting_period=params.get("voting_period", 60480),
+            balances=self.state.balances,
         )
 
     def _register_default_params(self, economics: Dict[str, Any],

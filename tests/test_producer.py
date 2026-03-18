@@ -304,7 +304,7 @@ class TestBlockProducer:
         """BlockProducer pushes blocks to SyncServer."""
         engine = _make_engine()
         mp = Mempool()
-        server = SyncServer(engine, port=0)  # port=0 won't start
+        server = SyncServer(engine, port=0, db_path=":memory:")  # port=0 won't start
 
         producer = BlockProducer(engine, mp, sync_server=server,
                                  proposer_id="node-1")
@@ -327,7 +327,7 @@ class TestBlockProducer:
         """If SyncServer already has genesis, don't add again."""
         engine = _make_engine()
         mp = Mempool()
-        server = SyncServer(engine, port=0)
+        server = SyncServer(engine, port=0, db_path=":memory:")
 
         # Pre-add genesis
         genesis = make_genesis_block(engine.chain_id,

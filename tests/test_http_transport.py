@@ -78,7 +78,7 @@ class TestSyncServer:
     def test_server_starts_and_stops(self):
         engine = _make_engine()
         port = _free_port()
-        server = SyncServer(engine, host="127.0.0.1", port=port)
+        server = SyncServer(engine, host="127.0.0.1", port=port, db_path=":memory:")
         server.start()
         try:
             # Health check
@@ -96,7 +96,7 @@ class TestSyncServer:
         genesis = make_genesis_block(chain_id)
 
         server = SyncServer(engine, host="127.0.0.1", port=port,
-                            block_store=[genesis])
+                            block_store=[genesis], db_path=":memory:")
         server.start()
         try:
             transport = HTTPPeerTransport(f"http://127.0.0.1:{port}")
@@ -111,7 +111,7 @@ class TestSyncServer:
     def test_info_endpoint_empty_store(self):
         engine = _make_engine()
         port = _free_port()
-        server = SyncServer(engine, host="127.0.0.1", port=port)
+        server = SyncServer(engine, host="127.0.0.1", port=port, db_path=":memory:")
         server.start()
         try:
             transport = HTTPPeerTransport(f"http://127.0.0.1:{port}")
@@ -128,7 +128,7 @@ class TestSyncServer:
         blocks = _make_chain(chain_id, 5)
 
         server = SyncServer(engine, host="127.0.0.1", port=port,
-                            block_store=blocks)
+                            block_store=blocks, db_path=":memory:")
         server.start()
         try:
             transport = HTTPPeerTransport(f"http://127.0.0.1:{port}")
@@ -147,7 +147,7 @@ class TestSyncServer:
         blocks = _make_chain(engine.chain_id, 10)
 
         server = SyncServer(engine, host="127.0.0.1", port=port,
-                            block_store=blocks)
+                            block_store=blocks, db_path=":memory:")
         server.start()
         try:
             transport = HTTPPeerTransport(f"http://127.0.0.1:{port}")
@@ -164,7 +164,7 @@ class TestSyncServer:
         blocks = _make_chain(engine.chain_id, 3)
 
         server = SyncServer(engine, host="127.0.0.1", port=port,
-                            block_store=blocks)
+                            block_store=blocks, db_path=":memory:")
         server.start()
         try:
             transport = HTTPPeerTransport(f"http://127.0.0.1:{port}")
@@ -182,7 +182,7 @@ class TestSyncServer:
         genesis = make_genesis_block(chain_id)
 
         server = SyncServer(engine, host="127.0.0.1", port=port,
-                            block_store=[genesis])
+                            block_store=[genesis], db_path=":memory:")
         server.start()
         try:
             transport = HTTPPeerTransport(f"http://127.0.0.1:{port}")
@@ -238,7 +238,7 @@ class TestHTTPSync:
         blocks = _make_chain(chain_id, 5)
 
         server = SyncServer(engine, host="127.0.0.1", port=port,
-                            block_store=blocks)
+                            block_store=blocks, db_path=":memory:")
         server.start()
         try:
             transport = HTTPPeerTransport(f"http://127.0.0.1:{port}")
@@ -264,11 +264,11 @@ class TestHTTPSync:
         blocks_long = _make_chain(chain_id, 8)
 
         server1 = SyncServer(engine, host="127.0.0.1", port=port1,
-                             block_store=blocks_short)
+                             block_store=blocks_short, db_path=":memory:")
         # Use a separate engine for server2 to avoid DB conflicts
         engine2 = _make_engine()
         server2 = SyncServer(engine2, host="127.0.0.1", port=port2,
-                             block_store=blocks_long)
+                             block_store=blocks_long, db_path=":memory:")
         server1.start()
         server2.start()
         try:
@@ -299,7 +299,7 @@ class TestHTTPSync:
         blocks = _make_chain(chain_id, 3)
 
         server = SyncServer(engine, host="127.0.0.1", port=port,
-                            block_store=blocks)
+                            block_store=blocks, db_path=":memory:")
         server.start()
         try:
             transport = HTTPPeerTransport(f"http://127.0.0.1:{port}")
@@ -322,7 +322,7 @@ class TestHTTPSync:
         blocks = _make_chain(chain_id, 3)
 
         server = SyncServer(engine, host="127.0.0.1", port=port,
-                            block_store=blocks)
+                            block_store=blocks, db_path=":memory:")
         server.start()
         try:
             transport = HTTPPeerTransport(f"http://127.0.0.1:{port}")
@@ -350,7 +350,7 @@ class TestMultiNode:
         port_a = _free_port()
         blocks = _make_chain(chain_id, 6)
         server_a = SyncServer(engine_a, host="127.0.0.1", port=port_a,
-                              block_store=blocks)
+                              block_store=blocks, db_path=":memory:")
         server_a.start()
 
         # Node B: syncs from A
@@ -379,11 +379,11 @@ class TestMultiNode:
         ports = [_free_port() for _ in range(3)]
         servers = [
             SyncServer(engines[0], host="127.0.0.1", port=ports[0],
-                       block_store=blocks_3),
+                       block_store=blocks_3, db_path=":memory:"),
             SyncServer(engines[1], host="127.0.0.1", port=ports[1],
-                       block_store=blocks_5),
+                       block_store=blocks_5, db_path=":memory:"),
             SyncServer(engines[2], host="127.0.0.1", port=ports[2],
-                       block_store=blocks_10),
+                       block_store=blocks_10, db_path=":memory:"),
         ]
         for s in servers:
             s.start()
@@ -430,7 +430,7 @@ class TestMultiNode:
         )
 
         server = SyncServer(engine, host="127.0.0.1", port=port,
-                            block_store=[genesis, block1])
+                            block_store=[genesis, block1], db_path=":memory:")
         server.start()
         try:
             transport = HTTPPeerTransport(f"http://127.0.0.1:{port}")
@@ -457,7 +457,7 @@ class TestServerEdgeCases:
     def test_404_on_unknown_path(self):
         engine = _make_engine()
         port = _free_port()
-        server = SyncServer(engine, host="127.0.0.1", port=port)
+        server = SyncServer(engine, host="127.0.0.1", port=port, db_path=":memory:")
         server.start()
         try:
             from urllib.request import urlopen
@@ -472,7 +472,7 @@ class TestServerEdgeCases:
     def test_health_endpoint(self):
         engine = _make_engine()
         port = _free_port()
-        server = SyncServer(engine, host="127.0.0.1", port=port)
+        server = SyncServer(engine, host="127.0.0.1", port=port, db_path=":memory:")
         server.start()
         try:
             from urllib.request import urlopen
@@ -489,7 +489,7 @@ class TestServerEdgeCases:
         port = _free_port()
         blocks = _make_chain(engine.chain_id, 20)
         server = SyncServer(engine, host="127.0.0.1", port=port,
-                            block_store=blocks)
+                            block_store=blocks, db_path=":memory:")
         server.start()
 
         results = []
@@ -526,7 +526,7 @@ class TestServerEdgeCases:
 
     def test_server_url_property(self):
         engine = _make_engine()
-        server = SyncServer(engine, host="0.0.0.0", port=9999)
+        server = SyncServer(engine, host="0.0.0.0", port=9999, db_path=":memory:")
         assert server.url == "http://0.0.0.0:9999"
         engine.close()
 
@@ -534,6 +534,6 @@ class TestServerEdgeCases:
         engine = _make_engine()
         blocks = _make_chain(engine.chain_id, 3)
         server = SyncServer(engine, host="127.0.0.1", port=_free_port(),
-                            block_store=blocks)
+                            block_store=blocks, db_path=":memory:")
         assert len(server.blocks) == 3
         engine.close()

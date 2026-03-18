@@ -52,6 +52,7 @@ def engine_with_validators(engine):
 
     Total stake = 50000 OAS (v1=20000, v2=15000, v3=15000).
     Quorum (40%) = 20000 OAS.
+    Each validator is funded with enough OAS to cover governance deposits.
     """
     v1_stake = to_units(20000)
     v2_stake = to_units(15000)
@@ -61,6 +62,15 @@ def engine_with_validators(engine):
     r2 = engine.register_validator("validator_2", v2_stake)
     r3 = engine.register_validator("validator_3", v3_stake)
     assert r1["ok"] and r2["ok"] and r3["ok"]
+
+    # Fund validators with OAS so they can pay governance deposits
+    deposit_fund = DEFAULT_MIN_DEPOSIT * 10  # enough for multiple proposals
+    engine.credit_balance("validator_1", "OAS", deposit_fund)
+    engine.credit_balance("validator_2", "OAS", deposit_fund)
+    engine.credit_balance("validator_3", "OAS", deposit_fund)
+    # Also fund generic proposer addresses used in some tests
+    engine.credit_balance("v1", "OAS", deposit_fund)
+    engine.credit_balance("v2", "OAS", deposit_fund)
     return engine
 
 

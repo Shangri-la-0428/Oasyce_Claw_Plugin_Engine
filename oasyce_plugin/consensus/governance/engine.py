@@ -31,6 +31,7 @@ from oasyce_plugin.consensus.governance.registry import ParameterRegistry
 
 if TYPE_CHECKING:
     from oasyce_plugin.consensus.state import ConsensusState
+    from oasyce_plugin.consensus.assets.balances import MultiAssetBalance
 
 
 class GovernanceEngine:
@@ -42,11 +43,13 @@ class GovernanceEngine:
     def __init__(self, state: ConsensusState,
                  param_registry: ParameterRegistry,
                  min_deposit: int = DEFAULT_MIN_DEPOSIT,
-                 voting_period: int = DEFAULT_VOTING_PERIOD) -> None:
+                 voting_period: int = DEFAULT_VOTING_PERIOD,
+                 balances: Optional['MultiAssetBalance'] = None) -> None:
         self._state = state
         self._registry = param_registry
         self._min_deposit = min_deposit
         self._voting_period = voting_period
+        self._balances = balances
         self._lock = state._lock
         self._conn = state._conn
         self._ensure_tables()
@@ -65,7 +68,9 @@ class GovernanceEngine:
                     status         TEXT NOT NULL DEFAULT 'active',
                     voting_start   INTEGER NOT NULL,
                     voting_end     INTEGER NOT NULL,
-                    created_at     INTEGER NOT NULL
+                    created_at     INTEGER NOT NULL,
+                    snapshot_height INTEGER NOT NULL DEFAULT 0,
+                    stake_snapshot_json TEXT NOT NULL DEFAULT '{}'
                 );
                 CREATE INDEX IF NOT EXISTS idx_gov_proposals_status
                     ON governance_proposals(status);
@@ -82,6 +87,19 @@ class GovernanceEngine:
                 CREATE INDEX IF NOT EXISTS idx_gov_votes_proposal
                     ON governance_votes(proposal_id);
             """)
+            # Migration: add columns if they don't exist (for existing databases)
+            try:
+                self._conn.execute(
+                    "ALTER TABLE governance_proposals ADD COLUMN snapshot_height INTEGER NOT NULL DEFAULT 0"
+                )
+            except Exception:
+                pass  # column already exists
+            try:
+                self._conn.execute(
+                    "ALTER TABLE governance_proposals ADD COLUMN stake_snapshot_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            except Exception:
+                pass  # column already exists
 
     # ── Submit proposal ────────────────────────────────────────────
 
@@ -138,18 +156,34 @@ class GovernanceEngine:
 
         changes_json = json.dumps([c.to_dict() for c in changes])
 
+        # Debit deposit from proposer's balance if balance system is available
+        if self._balances is not None:
+            try:
+                self._balances.debit(proposer, "OAS", deposit)
+            except ValueError as e:
+                return {"ok": False, "error": str(e)}
+
+        # Build stake snapshot at current block height for voting power
+        stake_snapshot = self._build_stake_snapshot()
+        stake_snapshot_json = json.dumps(stake_snapshot)
+
         try:
             with self._lock, self._conn:
                 self._conn.execute(
                     "INSERT INTO governance_proposals "
                     "(id, proposer, title, description, changes_json, deposit, "
-                    "status, voting_start, voting_end, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "status, voting_start, voting_end, created_at, "
+                    "snapshot_height, stake_snapshot_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (proposal_id, proposer, title, description, changes_json,
                      deposit, ProposalStatus.ACTIVE.value,
-                     voting_start, voting_end, block_height),
+                     voting_start, voting_end, block_height,
+                     block_height, stake_snapshot_json),
                 )
         except sqlite3.IntegrityError:
+            # Refund deposit on duplicate proposal
+            if self._balances is not None:
+                self._balances.credit(proposer, "OAS", deposit)
             return {"ok": False, "error": "duplicate proposal"}
 
         proposal = Proposal(
@@ -158,6 +192,8 @@ class GovernanceEngine:
             deposit=deposit, status=ProposalStatus.ACTIVE,
             voting_start=voting_start, voting_end=voting_end,
             created_at=block_height,
+            snapshot_height=block_height,
+            stake_snapshot=stake_snapshot,
         )
         return {"ok": True, "proposal": proposal.to_dict()}
 
@@ -180,8 +216,12 @@ class GovernanceEngine:
         if block_height > proposal.voting_end:
             return {"ok": False, "error": "voting period has ended"}
 
-        # Compute voting weight from stake
-        weight = self._get_voter_weight(voter)
+        # Compute voting weight from stake snapshot (prevents flash-stake attacks)
+        if proposal.stake_snapshot:
+            weight = proposal.stake_snapshot.get(voter, 0)
+        else:
+            # Fallback for proposals created before snapshot support
+            weight = self._get_voter_weight(voter)
         if weight <= 0:
             return {"ok": False, "error": "voter has no stake"}
 
@@ -298,6 +338,7 @@ class GovernanceEngine:
 
         for row in rows:
             pid = row[0]
+            proposal = self._get_proposal(pid)
             tally = self.tally_votes(pid)
             if not tally.get("ok"):
                 continue
@@ -306,18 +347,25 @@ class GovernanceEngine:
                 self._update_status(pid, ProposalStatus.PASSED)
                 # Auto-execute
                 exec_result = self.execute_proposal(pid)
+                # Refund deposit on quorum reached (passed)
+                if self._balances is not None and proposal is not None:
+                    self._balances.credit(proposal.proposer, "OAS", proposal.deposit)
                 changed.append({
                     "proposal_id": pid,
                     "new_status": ProposalStatus.EXECUTED.value,
                     "applied": exec_result.get("applied", []),
                 })
             elif not result["quorum_reached"]:
+                # Burn deposit — no refund when quorum not reached
                 self._update_status(pid, ProposalStatus.EXPIRED)
                 changed.append({
                     "proposal_id": pid,
                     "new_status": ProposalStatus.EXPIRED.value,
                 })
             else:
+                # Refund deposit on quorum reached (rejected)
+                if self._balances is not None and proposal is not None:
+                    self._balances.credit(proposal.proposer, "OAS", proposal.deposit)
                 self._update_status(pid, ProposalStatus.REJECTED)
                 changed.append({
                     "proposal_id": pid,
@@ -375,6 +423,21 @@ class GovernanceEngine:
     def _row_to_proposal(row) -> Proposal:
         changes_raw = json.loads(row["changes_json"])
         changes = [ParameterChange.from_dict(c) for c in changes_raw]
+        # Parse stake snapshot (may be absent in old databases)
+        snapshot_height = 0
+        stake_snapshot = None
+        try:
+            snapshot_height = row["snapshot_height"]
+        except (IndexError, KeyError):
+            pass
+        try:
+            raw = row["stake_snapshot_json"]
+            if raw:
+                parsed = json.loads(raw)
+                if parsed:
+                    stake_snapshot = {k: int(v) for k, v in parsed.items()}
+        except (IndexError, KeyError, json.JSONDecodeError):
+            pass
         return Proposal(
             id=row["id"],
             proposer=row["proposer"],
@@ -386,6 +449,8 @@ class GovernanceEngine:
             voting_start=row["voting_start"],
             voting_end=row["voting_end"],
             created_at=row["created_at"],
+            snapshot_height=snapshot_height,
+            stake_snapshot=stake_snapshot,
         )
 
     def _get_votes(self, proposal_id: str) -> List[Dict[str, Any]]:
@@ -396,6 +461,38 @@ class GovernanceEngine:
                 (proposal_id,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def _build_stake_snapshot(self) -> Dict[str, int]:
+        """Build a snapshot of all current stake weights for voting power.
+
+        Captures both validator self-stake and delegator stakes so that
+        voting power is frozen at proposal creation time, preventing
+        flash-stake attacks (VULN-17).
+        """
+        snapshot: Dict[str, int] = {}
+        # Capture all active validators' total stake
+        active = self._state.get_active_validators(0)
+        for v in active:
+            vid = v["validator_id"]
+            total = v["total_stake"]
+            if total > 0:
+                snapshot[vid] = total
+        # Capture delegator stakes (delegators can also vote)
+        # We need to walk through all delegations to find delegators
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT DISTINCT from_addr FROM stake_events "
+                "WHERE event_type = 'delegate'"
+            ).fetchall()
+        for row in rows:
+            delegator = row[0]
+            if delegator in snapshot:
+                continue  # already captured as validator
+            delegations = self._state.get_delegator_delegations(delegator)
+            total = sum(d["amount"] for d in delegations)
+            if total > 0:
+                snapshot[delegator] = total
+        return snapshot
 
     def _get_voter_weight(self, voter: str) -> int:
         """Get voting weight for a voter — total stake (self + delegated to them)."""

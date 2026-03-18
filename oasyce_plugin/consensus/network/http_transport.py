@@ -15,6 +15,8 @@ Zero external dependencies — uses only stdlib (http.server, urllib).
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
@@ -94,18 +96,44 @@ class SyncServer:
         server.stop()
     """
 
+    _DEFAULT_DB_PATH = os.path.join("~", ".oasyce", "blocks.db")
+
     def __init__(self, engine: ConsensusEngine,
                  host: str = "0.0.0.0", port: int = 9528,
-                 block_store: Optional[List[Block]] = None):
+                 block_store: Optional[List[Block]] = None,
+                 db_path: Optional[str] = None):
         self._engine = engine
         self._host = host
         self._port = port
-        # Block store — append blocks as they are produced/synced.
-        # In production, this should be backed by persistent storage.
-        self._blocks: List[Block] = list(block_store or [])
         self._lock = threading.Lock()
         self._httpd: Optional[HTTPServer] = None
         self._thread: Optional[threading.Thread] = None
+
+        # Persistent block store backed by SQLite.
+        # If db_path is explicitly ":memory:", use in-memory DB.
+        if db_path is None:
+            db_path = os.path.expanduser(self._DEFAULT_DB_PATH)
+        if db_path != ":memory:":
+            db_dir = os.path.dirname(db_path)
+            os.makedirs(db_dir, exist_ok=True)
+        self._db_path = db_path
+        self._db = sqlite3.connect(db_path, check_same_thread=False)
+        self._db.execute("""
+            CREATE TABLE IF NOT EXISTS blocks (
+                height INTEGER PRIMARY KEY,
+                hash TEXT,
+                parent_hash TEXT,
+                proposer TEXT,
+                timestamp REAL,
+                data TEXT
+            )
+        """)
+        self._db.commit()
+
+        # Seed from in-memory block_store if provided
+        if block_store:
+            for b in block_store:
+                self._db_insert_block(b)
 
     @property
     def url(self) -> str:
@@ -114,12 +142,31 @@ class SyncServer:
     @property
     def blocks(self) -> List[Block]:
         with self._lock:
-            return list(self._blocks)
+            rows = self._db.execute(
+                "SELECT data FROM blocks ORDER BY height"
+            ).fetchall()
+        return [Block.from_dict(json.loads(r[0])) for r in rows]
 
     def add_block(self, block: Block) -> None:
         """Add a produced/synced block to the store."""
         with self._lock:
-            self._blocks.append(block)
+            self._db_insert_block(block)
+
+    def _db_insert_block(self, block: Block) -> None:
+        """Insert a block into SQLite (caller must hold lock or be in __init__)."""
+        self._db.execute(
+            "INSERT OR REPLACE INTO blocks (height, hash, parent_hash, proposer, timestamp, data) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                block.block_number,
+                block.block_hash,
+                block.prev_hash,
+                block.proposer,
+                block.timestamp,
+                json.dumps(block.to_dict()),
+            ),
+        )
+        self._db.commit()
 
     def start(self) -> None:
         """Start serving in a background daemon thread."""
@@ -163,12 +210,15 @@ class SyncServer:
         if self._httpd:
             self._httpd.shutdown()
             self._httpd = None
+        if self._db:
+            self._db.close()
 
     # ── Endpoint handlers ──
 
     def _handle_info(self, handler) -> None:
         with self._lock:
-            height = max((b.block_number for b in self._blocks), default=-1)
+            row = self._db.execute("SELECT COALESCE(MAX(height), -1) FROM blocks").fetchone()
+            height = row[0]
         genesis_hash = self._engine.get_genesis_hash()
         resp = GetPeerInfoResponse(
             chain_id=self._engine.chain_id,
@@ -199,16 +249,12 @@ class SyncServer:
         request = GetBlocksRequest.from_dict(req_data)
 
         with self._lock:
-            result = []
-            for b in self._blocks:
-                if b.block_number < request.from_height:
-                    continue
-                if b.block_number > request.to_height:
-                    continue
-                result.append(b)
-                if len(result) >= request.limit:
-                    break
-            result.sort(key=lambda b: b.block_number)
+            rows = self._db.execute(
+                "SELECT data FROM blocks WHERE height >= ? AND height <= ? "
+                "ORDER BY height LIMIT ?",
+                (request.from_height, request.to_height, request.limit),
+            ).fetchall()
+            result = [Block.from_dict(json.loads(r[0])) for r in rows]
 
         resp = GetBlocksResponse(blocks=result)
         body = json.dumps(resp.to_dict()).encode()

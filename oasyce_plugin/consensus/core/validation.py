@@ -8,7 +8,7 @@ They return (True, None) on success or (False, error_message) on failure.
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Tuple
+from typing import Dict, TYPE_CHECKING, Tuple
 
 from oasyce_plugin.consensus.core.types import Operation, OperationType, MAX_COMMISSION_BPS
 
@@ -16,11 +16,57 @@ if TYPE_CHECKING:
     from oasyce_plugin.consensus import ConsensusEngine
 
 # Signature enforcement toggle.
-# Set OASYCE_REQUIRE_SIGNATURES=1 to enforce Ed25519 signatures on all
-# user-initiated operations. Default is off (testnet / backward-compat).
-REQUIRE_SIGNATURES: bool = os.environ.get("OASYCE_REQUIRE_SIGNATURES", "0") == "1"
+# Signatures are REQUIRED by default for all user-initiated operations.
+# Set OASYCE_REQUIRE_SIGNATURES=0 to opt-out (local dev / testing ONLY).
+# Evaluated dynamically so env var changes take effect without re-import.
+def _require_signatures() -> bool:
+    return os.environ.get("OASYCE_REQUIRE_SIGNATURES", "1") != "0"
 
 MAX_TIMESTAMP_DRIFT: int = 300  # 5 minutes
+
+
+# ── Nonce-based replay protection ─────────────────────────────────────
+
+
+class NonceTracker:
+    """Lightweight per-sender nonce tracker for replay protection.
+
+    Tracks the last accepted nonce per sender address. When an operation
+    carries nonce > 0, it must equal last_nonce + 1 for that sender.
+    nonce == 0 means "skip check" (backward compat / unsigned dev ops).
+    """
+
+    def __init__(self) -> None:
+        self._nonces: Dict[str, int] = {}
+
+    def validate_nonce(self, sender: str, nonce: int) -> Tuple[bool, str]:
+        """Check that *nonce* is the expected next value for *sender*."""
+        if nonce == 0:
+            return True, ""
+        expected = self._nonces.get(sender, 0) + 1
+        if nonce != expected:
+            return False, (
+                f"nonce mismatch for {sender}: "
+                f"expected {expected}, got {nonce}"
+            )
+        return True, ""
+
+    def advance(self, sender: str, nonce: int) -> None:
+        """Record a successfully applied nonce for *sender*."""
+        if nonce > 0:
+            self._nonces[sender] = nonce
+
+    def get_nonce(self, sender: str) -> int:
+        """Return the last accepted nonce for *sender* (0 if unseen)."""
+        return self._nonces.get(sender, 0)
+
+
+# Module-level default tracker; engines may supply their own.
+_default_nonce_tracker = NonceTracker()
+
+
+def get_default_nonce_tracker() -> NonceTracker:
+    return _default_nonce_tracker
 
 
 def _validate_signature(op: Operation) -> Tuple[bool, str]:
@@ -31,7 +77,7 @@ def _validate_signature(op: Operation) -> Tuple[bool, str]:
     """
     if op.op_type in (OperationType.SLASH, OperationType.REWARD):
         return True, ""
-    if not REQUIRE_SIGNATURES:
+    if not _require_signatures():
         return True, ""
     if not op.sender:
         return False, "missing sender public key"
@@ -46,7 +92,8 @@ def _validate_signature(op: Operation) -> Tuple[bool, str]:
 
 
 def validate_operation(engine: ConsensusEngine, op: Operation,
-                       block_height: int = 0) -> Tuple[bool, str]:
+                       block_height: int = 0,
+                       nonce_tracker: NonceTracker | None = None) -> Tuple[bool, str]:
     """Validate an operation against current state. Pure function.
 
     Returns:
@@ -59,6 +106,12 @@ def validate_operation(engine: ConsensusEngine, op: Operation,
     # Chain ID replay protection: if op specifies a chain_id, it must match
     if op.chain_id and hasattr(engine, "chain_id") and op.chain_id != engine.chain_id:
         return False, f"chain_id mismatch: op={op.chain_id}, engine={engine.chain_id}"
+
+    # Nonce-based replay protection
+    tracker = nonce_tracker or getattr(engine, "_nonce_tracker", _default_nonce_tracker)
+    nonce_ok, nonce_err = tracker.validate_nonce(op.sender or op.from_addr, op.nonce)
+    if not nonce_ok:
+        return False, nonce_err
 
     if op.op_type == OperationType.REGISTER:
         return _validate_register(engine, op)

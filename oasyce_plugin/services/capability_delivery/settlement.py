@@ -16,6 +16,7 @@ capability invocations — no one calls the gateway directly.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 import time
@@ -87,10 +88,17 @@ class SettlementProtocol:
         # result["ok"] == False → invocation failed, escrow refunded
     """
 
+    _DEFAULT_DB_PATH = os.path.join("~", ".oasyce", "settlement.db")
+
     def __init__(self, registry: EndpointRegistry,
                  escrow: EscrowLedger,
                  gateway: InvocationGateway,
-                 db_path: str = ":memory:"):
+                 db_path: str = ""):
+        if not db_path:
+            db_path = os.path.expanduser(self._DEFAULT_DB_PATH)
+        if db_path != ":memory:":
+            db_dir = os.path.dirname(db_path)
+            os.makedirs(db_dir, exist_ok=True)
         self._registry = registry
         self._escrow = escrow
         self._gateway = gateway
@@ -179,6 +187,7 @@ class SettlementProtocol:
             return {"ok": False, "error": f"escrow lock failed: {escrow_result['error']}"}
 
         escrow_id = escrow_result["escrow_id"]
+        escrow_auth_token = escrow_result["auth_token"]
 
         # Record pending invocation
         self._record_invocation(InvocationRecord(
@@ -202,24 +211,28 @@ class SettlementProtocol:
         if result.success:
             return self._settle_success(
                 invocation_id, escrow_id, result, input_hash,
+                escrow_auth_token,
             )
         else:
             return self._settle_failure(
                 invocation_id, escrow_id, result,
+                escrow_auth_token,
             )
 
     def _settle_success(self, invocation_id: str, escrow_id: str,
                         result: InvocationResult,
-                        input_hash: str) -> Dict[str, Any]:
+                        input_hash: str,
+                        escrow_auth_token: str = "") -> Dict[str, Any]:
         """Release escrow and record successful settlement."""
         import hashlib
         import json
 
-        release = self._escrow.release(escrow_id)
+        release = self._escrow.release(escrow_id, auth_token=escrow_auth_token)
         if not release["ok"]:
             # Escrow release failed (shouldn't happen) — treat as failure
             return self._settle_failure(
                 invocation_id, escrow_id, result,
+                escrow_auth_token,
             )
 
         output_hash = hashlib.sha256(
@@ -272,9 +285,10 @@ class SettlementProtocol:
         }
 
     def _settle_failure(self, invocation_id: str, escrow_id: str,
-                        result: InvocationResult) -> Dict[str, Any]:
+                        result: InvocationResult,
+                        escrow_auth_token: str = "") -> Dict[str, Any]:
         """Refund escrow and record failure."""
-        refund = self._escrow.refund(escrow_id)
+        refund = self._escrow.refund(escrow_id, auth_token=escrow_auth_token)
 
         error_msg = result.error or "invocation failed"
         with self._lock:

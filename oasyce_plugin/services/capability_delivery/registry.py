@@ -15,12 +15,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
+import secrets
 import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ── Encryption helpers (AES-GCM via cryptography lib) ────────────
@@ -138,12 +143,36 @@ class EndpointRegistry:
     """
 
     def __init__(self, db_path: str = ":memory:",
-                 encryption_passphrase: str = ""):
+                 encryption_passphrase: Optional[str] = None):
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
-        self._passphrase = encryption_passphrase or "oasyce-default-key"
+        self._passphrase = encryption_passphrase or self._load_or_create_passphrase()
         self._create_tables()
+
+    def _load_or_create_passphrase(self) -> str:
+        """Load persisted passphrase from ~/.oasyce/encryption_key, or create one.
+
+        If no passphrase file exists, generates a random 32-byte hex token,
+        writes it to ~/.oasyce/encryption_key with 0600 permissions, and
+        logs a warning suggesting the user set one explicitly.
+        """
+        key_path = Path.home() / ".oasyce" / "encryption_key"
+        if key_path.exists():
+            return key_path.read_text().strip()
+
+        # Auto-generate
+        passphrase = secrets.token_hex(32)
+        key_path.parent.mkdir(parents=True, exist_ok=True)
+        key_path.write_text(passphrase)
+        os.chmod(str(key_path), 0o600)
+        logger.warning(
+            "Auto-generated encryption passphrase stored at %s. "
+            "Consider setting an explicit passphrase via the "
+            "encryption_passphrase parameter for production use.",
+            key_path,
+        )
+        return passphrase
 
     def _create_tables(self) -> None:
         self._conn.executescript("""

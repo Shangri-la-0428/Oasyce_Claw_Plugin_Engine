@@ -26,7 +26,7 @@ from oasyce_plugin.consensus.core.signature import (
 )
 from oasyce_plugin.consensus.core.validation import (
     _validate_signature,
-    REQUIRE_SIGNATURES,
+    _require_signatures,
     validate_operation,
 )
 from oasyce_plugin.consensus import ConsensusEngine
@@ -240,7 +240,7 @@ class TestValidateSignature:
 
     def test_system_ops_bypass_signature(self):
         """SLASH and REWARD bypass signature even when required."""
-        with mock.patch("oasyce_plugin.consensus.core.validation.REQUIRE_SIGNATURES", True):
+        with mock.patch("oasyce_plugin.consensus.core.validation._require_signatures", return_value=True):
             slash_op = _make_op(op_type=OperationType.SLASH)
             ok, _ = _validate_signature(slash_op)
             assert ok
@@ -250,26 +250,26 @@ class TestValidateSignature:
             assert ok
 
     def test_missing_sender_rejected(self):
-        with mock.patch("oasyce_plugin.consensus.core.validation.REQUIRE_SIGNATURES", True):
+        with mock.patch("oasyce_plugin.consensus.core.validation._require_signatures", return_value=True):
             op = _make_op(signature="aabb", sender="")
             ok, err = _validate_signature(op)
             assert not ok and "sender" in err
 
     def test_missing_signature_rejected(self):
-        with mock.patch("oasyce_plugin.consensus.core.validation.REQUIRE_SIGNATURES", True):
+        with mock.patch("oasyce_plugin.consensus.core.validation._require_signatures", return_value=True):
             op = _make_op(sender="aabb", signature="")
             ok, err = _validate_signature(op)
             assert not ok and "signature" in err
 
     def test_invalid_signature_rejected(self):
-        with mock.patch("oasyce_plugin.consensus.core.validation.REQUIRE_SIGNATURES", True):
+        with mock.patch("oasyce_plugin.consensus.core.validation._require_signatures", return_value=True):
             priv, pub = generate_keypair()
             op = _make_op(sender=pub, signature="aa" * 64, timestamp=int(time.time()))
             ok, err = _validate_signature(op)
             assert not ok and "invalid signature" in err
 
     def test_valid_signature_accepted(self):
-        with mock.patch("oasyce_plugin.consensus.core.validation.REQUIRE_SIGNATURES", True):
+        with mock.patch("oasyce_plugin.consensus.core.validation._require_signatures", return_value=True):
             priv, pub = generate_keypair()
             op = _make_op(timestamp=int(time.time()))
             op = _signed_op(op, priv, pub)
@@ -277,7 +277,7 @@ class TestValidateSignature:
             assert ok and err == ""
 
     def test_zero_timestamp_rejected(self):
-        with mock.patch("oasyce_plugin.consensus.core.validation.REQUIRE_SIGNATURES", True):
+        with mock.patch("oasyce_plugin.consensus.core.validation._require_signatures", return_value=True):
             priv, pub = generate_keypair()
             # Manually craft with timestamp=0
             op = _make_op(sender=pub, timestamp=0, signature="")
@@ -400,7 +400,7 @@ class TestSignedIntegration:
         """With REQUIRE_SIGNATURES=True, unsigned ops are rejected."""
         engine = _make_engine(tmp_path)
         try:
-            with mock.patch("oasyce_plugin.consensus.core.validation.REQUIRE_SIGNATURES", True):
+            with mock.patch("oasyce_plugin.consensus.core.validation._require_signatures", return_value=True):
                 op = Operation(
                     op_type=OperationType.REGISTER,
                     validator_id="v_unsigned",
@@ -417,7 +417,7 @@ class TestSignedIntegration:
         """With REQUIRE_SIGNATURES=True, properly signed ops pass."""
         engine = _make_engine(tmp_path)
         try:
-            with mock.patch("oasyce_plugin.consensus.core.validation.REQUIRE_SIGNATURES", True):
+            with mock.patch("oasyce_plugin.consensus.core.validation._require_signatures", return_value=True):
                 priv, pub = generate_keypair()
                 op = Operation(
                     op_type=OperationType.REGISTER,
@@ -435,7 +435,7 @@ class TestSignedIntegration:
         """With REQUIRE_SIGNATURES=True, bad signatures are rejected."""
         engine = _make_engine(tmp_path)
         try:
-            with mock.patch("oasyce_plugin.consensus.core.validation.REQUIRE_SIGNATURES", True):
+            with mock.patch("oasyce_plugin.consensus.core.validation._require_signatures", return_value=True):
                 priv, pub = generate_keypair()
                 op = Operation(
                     op_type=OperationType.REGISTER,
@@ -456,7 +456,7 @@ class TestSignedIntegration:
         """Sign an op then tamper with amount — must be rejected."""
         engine = _make_engine(tmp_path)
         try:
-            with mock.patch("oasyce_plugin.consensus.core.validation.REQUIRE_SIGNATURES", True):
+            with mock.patch("oasyce_plugin.consensus.core.validation._require_signatures", return_value=True):
                 priv, pub = generate_keypair()
                 op = Operation(
                     op_type=OperationType.REGISTER,

@@ -12,6 +12,8 @@ All amounts are in OAS integer units (1 OAS = 10^8 units).
 
 from __future__ import annotations
 
+import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -62,15 +64,43 @@ class EscrowLedger:
 
     Tracks locked funds per invocation. Supports lock/release/refund
     and automatic expiry of stale locks.
+
+    If an optional ``balances`` (:class:`MultiAssetBalance`) instance is
+    provided, escrow operations will debit/credit real token balances in
+    addition to maintaining the accounting ledger.
     """
 
     # Protocol fee: 5% of settled amount (in basis points)
     PROTOCOL_FEE_BPS: int = 500
 
-    def __init__(self, db_path: str = ":memory:"):
+    # OAS uses 8 decimal places (1 OAS = 10^8 units).  Amounts stored in
+    # the escrow table are already in integer units, so no extra conversion
+    # is needed when forwarding to MultiAssetBalance.
+    _OAS_ASSET: str = "OAS"
+    _PROTOCOL_TREASURY: str = "protocol_treasury"
+
+    _DEFAULT_DB_PATH = os.path.join("~", ".oasyce", "escrow.db")
+
+    def __init__(self, db_path: str = "", balances=None):
+        """
+        Parameters
+        ----------
+        db_path : str
+            Path to the SQLite database.  Defaults to ``~/.oasyce/escrow.db``.
+        balances : MultiAssetBalance | None
+            If provided, real token balances are debited/credited during
+            lock/release/refund.  When ``None`` (the default), escrow
+            operates in ledger-only mode for backward compatibility.
+        """
+        if not db_path:
+            db_path = os.path.expanduser(self._DEFAULT_DB_PATH)
+        if db_path != ":memory:":
+            db_dir = os.path.dirname(db_path)
+            os.makedirs(db_dir, exist_ok=True)
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
+        self._balances = balances
         self._create_tables()
 
     def _create_tables(self) -> None:
@@ -85,13 +115,22 @@ class EscrowLedger:
                 created_at INTEGER NOT NULL,
                 resolved_at INTEGER NOT NULL DEFAULT 0,
                 ttl INTEGER NOT NULL DEFAULT 300,
-                invocation_id TEXT NOT NULL DEFAULT ''
+                invocation_id TEXT NOT NULL DEFAULT '',
+                auth_token TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_escrow_consumer
                 ON escrow(consumer_id, status);
             CREATE INDEX IF NOT EXISTS idx_escrow_invocation
                 ON escrow(invocation_id);
         """)
+        # Migrate: add auth_token column to existing tables that lack it
+        try:
+            self._conn.execute(
+                "ALTER TABLE escrow ADD COLUMN auth_token TEXT NOT NULL DEFAULT ''"
+            )
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     def lock(self, consumer_id: str, provider_id: str,
              capability_id: str, amount: int,
@@ -108,24 +147,34 @@ class EscrowLedger:
         if not provider_id:
             return {"ok": False, "error": "provider_id required"}
 
+        # Debit consumer's real token balance (funds move into escrow).
+        if self._balances is not None:
+            try:
+                self._balances.debit(consumer_id, self._OAS_ASSET, amount)
+            except ValueError:
+                return {"ok": False, "error": "insufficient balance"}
+
         escrow_id = f"ESC_{uuid.uuid4().hex[:16].upper()}"
+        auth_token = secrets.token_hex(32)
 
         with self._lock:
             self._conn.execute("""
                 INSERT INTO escrow
                     (escrow_id, consumer_id, provider_id, capability_id,
-                     amount, status, created_at, ttl, invocation_id)
-                VALUES (?, ?, ?, ?, ?, 'locked', ?, ?, ?)
+                     amount, status, created_at, ttl, invocation_id, auth_token)
+                VALUES (?, ?, ?, ?, ?, 'locked', ?, ?, ?, ?)
             """, (
                 escrow_id, consumer_id, provider_id, capability_id,
-                amount, int(time.time()), ttl, invocation_id,
+                amount, int(time.time()), ttl, invocation_id, auth_token,
             ))
             self._conn.commit()
 
-        return {"ok": True, "escrow_id": escrow_id}
+        return {"ok": True, "escrow_id": escrow_id, "auth_token": auth_token}
 
-    def release(self, escrow_id: str) -> Dict[str, Any]:
+    def release(self, escrow_id: str, auth_token: str = "") -> Dict[str, Any]:
         """Release escrowed funds to the provider (invocation succeeded).
+
+        Requires the auth_token returned by lock() for authorization.
 
         Returns the settlement breakdown:
           provider_amount = amount - protocol_fee
@@ -140,6 +189,8 @@ class EscrowLedger:
                 return {"ok": False, "error": "escrow not found"}
             if row["status"] != EscrowStatus.LOCKED:
                 return {"ok": False, "error": f"escrow is {row['status']}, cannot release"}
+            if not auth_token or auth_token != row["auth_token"]:
+                return {"ok": False, "error": "invalid auth_token"}
 
             amount = row["amount"]
             fee = amount * self.PROTOCOL_FEE_BPS // 10000
@@ -152,6 +203,15 @@ class EscrowLedger:
             )
             self._conn.commit()
 
+        # Credit real token balances (funds leave escrow).
+        if self._balances is not None:
+            self._balances.credit(
+                row["provider_id"], self._OAS_ASSET, provider_amount,
+            )
+            self._balances.credit(
+                self._PROTOCOL_TREASURY, self._OAS_ASSET, fee,
+            )
+
         return {
             "ok": True,
             "escrow_id": escrow_id,
@@ -162,8 +222,11 @@ class EscrowLedger:
             "consumer_id": row["consumer_id"],
         }
 
-    def refund(self, escrow_id: str) -> Dict[str, Any]:
-        """Refund escrowed funds to the consumer (invocation failed)."""
+    def refund(self, escrow_id: str, auth_token: str = "") -> Dict[str, Any]:
+        """Refund escrowed funds to the consumer (invocation failed).
+
+        Requires the auth_token returned by lock() for authorization.
+        """
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM escrow WHERE escrow_id = ?",
@@ -173,6 +236,8 @@ class EscrowLedger:
                 return {"ok": False, "error": "escrow not found"}
             if row["status"] != EscrowStatus.LOCKED:
                 return {"ok": False, "error": f"escrow is {row['status']}, cannot refund"}
+            if not auth_token or auth_token != row["auth_token"]:
+                return {"ok": False, "error": "invalid auth_token"}
 
             self._conn.execute(
                 "UPDATE escrow SET status = 'refunded', resolved_at = ? "
@@ -180,6 +245,12 @@ class EscrowLedger:
                 (int(time.time()), escrow_id),
             )
             self._conn.commit()
+
+        # Credit consumer's real token balance (funds return from escrow).
+        if self._balances is not None:
+            self._balances.credit(
+                row["consumer_id"], self._OAS_ASSET, row["amount"],
+            )
 
         return {
             "ok": True,

@@ -1962,7 +1962,9 @@ def cmd_start(args):
 
     # Initialize consensus engine
     from oasyce_plugin.consensus import ConsensusEngine
-    engine = ConsensusEngine(db_path=":memory:")
+    config = Config.from_env()
+    consensus_db = os.path.join(config.data_dir, "consensus.db")
+    engine = ConsensusEngine(db_path=consensus_db)
 
     # Start SyncServer for P2P block distribution
     from oasyce_plugin.consensus.network.http_transport import SyncServer
@@ -3964,8 +3966,8 @@ def main():
     # Register command
     reg_parser = subparsers.add_parser("register", help="Register a file as an asset")
     reg_parser.add_argument("file", help="Path to the file to register")
-    reg_parser.add_argument("--owner", default="Shangrila", help="Asset owner")
-    reg_parser.add_argument("--tags", default="Core,Genesis", help="Comma-separated tags")
+    reg_parser.add_argument("--owner", required=True, help="Asset owner")
+    reg_parser.add_argument("--tags", default="", help="Comma-separated tags")
     reg_parser.add_argument("--signing-key", help="Signing key (or OASYCE_SIGNING_KEY env)")
     reg_parser.add_argument("--signing-key-id", help="Signing key ID")
     reg_parser.add_argument("--free", action="store_true", help="Register as free asset (attribution only, no Bonding Curve)")

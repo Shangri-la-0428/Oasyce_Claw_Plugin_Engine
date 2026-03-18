@@ -245,17 +245,18 @@ class TestEndpointRegistry:
 
 class TestEscrowLedger:
     def test_lock_and_release(self):
-        escrow = EscrowLedger()
+        escrow = EscrowLedger(db_path=":memory:")
         result = escrow.lock("consumer-1", "provider-1", "CAP_1",
                              amount=to_units(10))
         assert result["ok"] is True
         eid = result["escrow_id"]
+        token = result["auth_token"]
 
         entry = escrow.get(eid)
         assert entry.status == EscrowStatus.LOCKED
         assert entry.amount == to_units(10)
 
-        release = escrow.release(eid)
+        release = escrow.release(eid, auth_token=token)
         assert release["ok"] is True
         assert release["amount"] == to_units(10)
         # 5% protocol fee
@@ -264,11 +265,12 @@ class TestEscrowLedger:
         escrow.close()
 
     def test_lock_and_refund(self):
-        escrow = EscrowLedger()
+        escrow = EscrowLedger(db_path=":memory:")
         result = escrow.lock("c", "p", "cap", amount=to_units(5))
         eid = result["escrow_id"]
+        token = result["auth_token"]
 
-        refund = escrow.refund(eid)
+        refund = escrow.refund(eid, auth_token=token)
         assert refund["ok"] is True
         assert refund["refunded_amount"] == to_units(5)
 
@@ -277,27 +279,29 @@ class TestEscrowLedger:
         escrow.close()
 
     def test_double_release_fails(self):
-        escrow = EscrowLedger()
+        escrow = EscrowLedger(db_path=":memory:")
         result = escrow.lock("c", "p", "cap", amount=1000)
         eid = result["escrow_id"]
-        escrow.release(eid)
+        token = result["auth_token"]
+        escrow.release(eid, auth_token=token)
 
-        result2 = escrow.release(eid)
+        result2 = escrow.release(eid, auth_token=token)
         assert result2["ok"] is False
         escrow.close()
 
     def test_release_then_refund_fails(self):
-        escrow = EscrowLedger()
+        escrow = EscrowLedger(db_path=":memory:")
         result = escrow.lock("c", "p", "cap", amount=1000)
         eid = result["escrow_id"]
-        escrow.release(eid)
+        token = result["auth_token"]
+        escrow.release(eid, auth_token=token)
 
-        result2 = escrow.refund(eid)
+        result2 = escrow.refund(eid, auth_token=token)
         assert result2["ok"] is False
         escrow.close()
 
     def test_lock_validation(self):
-        escrow = EscrowLedger()
+        escrow = EscrowLedger(db_path=":memory:")
         assert escrow.lock("", "p", "cap", 100)["ok"] is False
         assert escrow.lock("c", "", "cap", 100)["ok"] is False
         assert escrow.lock("c", "p", "cap", 0)["ok"] is False
@@ -305,7 +309,7 @@ class TestEscrowLedger:
         escrow.close()
 
     def test_expire_stale(self):
-        escrow = EscrowLedger()
+        escrow = EscrowLedger(db_path=":memory:")
         # Lock with TTL=0 so it's already expired
         result = escrow.lock("c", "p", "cap", amount=1000, ttl=0)
         eid = result["escrow_id"]
@@ -323,7 +327,7 @@ class TestEscrowLedger:
         escrow.close()
 
     def test_total_locked(self):
-        escrow = EscrowLedger()
+        escrow = EscrowLedger(db_path=":memory:")
         escrow.lock("c1", "p", "cap", amount=1000)
         escrow.lock("c1", "p", "cap", amount=2000)
         escrow.lock("c2", "p", "cap", amount=3000)
@@ -334,10 +338,10 @@ class TestEscrowLedger:
         escrow.close()
 
     def test_list_locked(self):
-        escrow = EscrowLedger()
+        escrow = EscrowLedger(db_path=":memory:")
         escrow.lock("c1", "p", "cap", amount=1000)
         r2 = escrow.lock("c1", "p", "cap", amount=2000)
-        escrow.release(r2["escrow_id"])
+        escrow.release(r2["escrow_id"], auth_token=r2["auth_token"])
 
         locked = escrow.list_locked("c1")
         assert len(locked) == 1
@@ -345,11 +349,11 @@ class TestEscrowLedger:
         escrow.close()
 
     def test_protocol_fee_calculation(self):
-        escrow = EscrowLedger()
+        escrow = EscrowLedger(db_path=":memory:")
         # Test with large amount for precise fee calculation
         amount = to_units(100)  # 100 OAS
         result = escrow.lock("c", "p", "cap", amount=amount)
-        release = escrow.release(result["escrow_id"])
+        release = escrow.release(result["escrow_id"], auth_token=result["auth_token"])
 
         expected_fee = amount * 500 // 10000  # 5%
         assert release["protocol_fee"] == expected_fee
@@ -449,9 +453,9 @@ class TestInvocationGateway:
 class TestSettlementProtocol:
     def _make_protocol(self, port=None, price=to_units(1)):
         reg = EndpointRegistry()
-        escrow = EscrowLedger()
+        escrow = EscrowLedger(db_path=":memory:")
         gw = InvocationGateway(reg, timeout=5.0)
-        protocol = SettlementProtocol(reg, escrow, gw)
+        protocol = SettlementProtocol(reg, escrow, gw, db_path=":memory:")
 
         if port:
             reg.register(
@@ -613,9 +617,9 @@ class TestSettlementProtocol:
         server = _start_mock_provider(port)
         try:
             reg = EndpointRegistry()
-            escrow = EscrowLedger()
+            escrow = EscrowLedger(db_path=":memory:")
             gw = InvocationGateway(reg, timeout=5.0)
-            protocol = SettlementProtocol(reg, escrow, gw)
+            protocol = SettlementProtocol(reg, escrow, gw, db_path=":memory:")
 
             reg.register(
                 endpoint_url=f"http://127.0.0.1:{port}/translate",
@@ -687,9 +691,9 @@ class TestE2ECapabilityDelivery:
             assert available[0].price_per_call == to_units(0.5)
 
             # Consumer invokes via settlement protocol
-            escrow = EscrowLedger()
+            escrow = EscrowLedger(db_path=":memory:")
             gw = InvocationGateway(reg, timeout=10.0)
-            protocol = SettlementProtocol(reg, escrow, gw)
+            protocol = SettlementProtocol(reg, escrow, gw, db_path=":memory:")
 
             invoke_result = protocol.invoke(
                 cap_id, "consumer-bob", {"text": "hello world"},
@@ -733,9 +737,9 @@ class TestE2ECapabilityDelivery:
 
         try:
             reg = EndpointRegistry()
-            escrow = EscrowLedger()
+            escrow = EscrowLedger(db_path=":memory:")
             gw = InvocationGateway(reg, timeout=5.0)
-            protocol = SettlementProtocol(reg, escrow, gw)
+            protocol = SettlementProtocol(reg, escrow, gw, db_path=":memory:")
 
             # Provider 1: cheap but basic
             reg.register(
@@ -781,3 +785,121 @@ class TestE2ECapabilityDelivery:
         finally:
             server1.shutdown()
             server2.shutdown()
+
+
+# ── Escrow + Real Balance Integration Tests ──────────────────────
+
+
+class TestEscrowBalanceIntegration:
+    """Verify that EscrowLedger correctly debits/credits MultiAssetBalance."""
+
+    @staticmethod
+    def _make_balances():
+        """Create an in-memory MultiAssetBalance instance."""
+        import sqlite3 as _sqlite3
+        conn = _sqlite3.connect(":memory:", check_same_thread=False)
+        lock = threading.Lock()
+        from oasyce_plugin.consensus.assets.balances import MultiAssetBalance
+        return MultiAssetBalance(conn, lock)
+
+    def test_lock_debits_consumer(self):
+        bal = self._make_balances()
+        bal.credit("consumer", "OAS", to_units(100))
+
+        escrow = EscrowLedger(db_path=":memory:", balances=bal)
+        result = escrow.lock("consumer", "provider", "CAP_1", amount=to_units(10))
+        assert result["ok"] is True
+
+        # Consumer balance should have decreased by the locked amount.
+        assert bal.get_balance("consumer", "OAS") == to_units(90)
+        escrow.close()
+
+    def test_lock_insufficient_balance(self):
+        bal = self._make_balances()
+        bal.credit("consumer", "OAS", to_units(5))
+
+        escrow = EscrowLedger(db_path=":memory:", balances=bal)
+        result = escrow.lock("consumer", "provider", "CAP_1", amount=to_units(10))
+        assert result["ok"] is False
+        assert "insufficient balance" in result["error"]
+
+        # Balance unchanged.
+        assert bal.get_balance("consumer", "OAS") == to_units(5)
+        escrow.close()
+
+    def test_release_credits_provider_and_treasury(self):
+        bal = self._make_balances()
+        bal.credit("consumer", "OAS", to_units(100))
+
+        escrow = EscrowLedger(db_path=":memory:", balances=bal)
+        lock_result = escrow.lock("consumer", "provider", "CAP_1", amount=to_units(100))
+        assert lock_result["ok"] is True
+
+        release = escrow.release(lock_result["escrow_id"], auth_token=lock_result["auth_token"])
+        assert release["ok"] is True
+
+        # Provider receives 95%, protocol treasury receives 5%.
+        expected_fee = to_units(100) * 500 // 10000
+        expected_provider = to_units(100) - expected_fee
+        assert bal.get_balance("provider", "OAS") == expected_provider
+        assert bal.get_balance("protocol_treasury", "OAS") == expected_fee
+        # Consumer's balance fully debited during lock.
+        assert bal.get_balance("consumer", "OAS") == 0
+        escrow.close()
+
+    def test_refund_credits_consumer(self):
+        bal = self._make_balances()
+        bal.credit("consumer", "OAS", to_units(50))
+
+        escrow = EscrowLedger(db_path=":memory:", balances=bal)
+        lock_result = escrow.lock("consumer", "provider", "CAP_1", amount=to_units(50))
+        assert lock_result["ok"] is True
+        assert bal.get_balance("consumer", "OAS") == 0
+
+        refund = escrow.refund(lock_result["escrow_id"], auth_token=lock_result["auth_token"])
+        assert refund["ok"] is True
+
+        # Consumer gets all funds back.
+        assert bal.get_balance("consumer", "OAS") == to_units(50)
+        escrow.close()
+
+    def test_no_balances_backward_compatible(self):
+        """When balances=None, escrow works exactly as before (ledger-only)."""
+        escrow = EscrowLedger(db_path=":memory:")  # no balances
+        result = escrow.lock("c", "p", "cap", amount=to_units(10))
+        assert result["ok"] is True
+
+        release = escrow.release(result["escrow_id"], auth_token=result["auth_token"])
+        assert release["ok"] is True
+        assert release["provider_amount"] + release["protocol_fee"] == to_units(10)
+        escrow.close()
+
+    def test_full_cycle_lock_release_balances(self):
+        """End-to-end: fund consumer, lock, release — verify all balances."""
+        bal = self._make_balances()
+        initial = to_units(1000)
+        bal.credit("alice", "OAS", initial)
+
+        escrow = EscrowLedger(db_path=":memory:", balances=bal)
+        price = to_units(20)
+
+        lock_r = escrow.lock("alice", "bob", "CAP_X", amount=price)
+        assert lock_r["ok"] is True
+        assert bal.get_balance("alice", "OAS") == initial - price
+
+        rel = escrow.release(lock_r["escrow_id"], auth_token=lock_r["auth_token"])
+        assert rel["ok"] is True
+
+        fee = price * 500 // 10000
+        provider_cut = price - fee
+
+        assert bal.get_balance("bob", "OAS") == provider_cut
+        assert bal.get_balance("protocol_treasury", "OAS") == fee
+        assert bal.get_balance("alice", "OAS") == initial - price
+
+        # Total OAS in the system should equal what was originally credited.
+        total = (bal.get_balance("alice", "OAS")
+                 + bal.get_balance("bob", "OAS")
+                 + bal.get_balance("protocol_treasury", "OAS"))
+        assert total == initial
+        escrow.close()

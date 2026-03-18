@@ -53,7 +53,7 @@ class TestBasicPricing:
         expected_keys = {
             "final_price", "base_price", "demand_factor",
             "scarcity_factor", "quality_factor", "freshness_factor",
-            "rights_type_factor", "breakdown",
+            "rights_type_factor", "breakdown", "price_model",
         }
         assert set(result.keys()) == expected_keys
         assert "query_count" in result["breakdown"]
