@@ -42,6 +42,9 @@ _cap_escrow: Any = None
 _cap_shares: Any = None
 _cap_engine: Any = None
 _discovery: Any = None
+_mempool: Any = None
+_block_producer: Any = None
+_consensus_engine: Any = None
 
 # ── Security: API token + rate limiting ──────────────────────────────
 _api_token: str = ""
@@ -1006,6 +1009,30 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 500)
 
+        if path == "/api/consensus/mempool":
+            if _mempool is None:
+                return _json_response(self, {"error": "mempool not running"}, 503)
+            ops = _mempool.peek(50)
+            return _json_response(self, {
+                "size": _mempool.size,
+                "pending": [
+                    {
+                        "op_type": op.op_type.value if hasattr(op.op_type, "value") else str(op.op_type),
+                        "validator_id": op.validator_id,
+                        "amount": op.amount,
+                        "from_addr": op.from_addr,
+                        "to_addr": op.to_addr,
+                        "asset_type": op.asset_type,
+                    }
+                    for op in ops
+                ],
+            })
+
+        if path == "/api/consensus/producer":
+            if _block_producer is None:
+                return _json_response(self, {"error": "block producer not running"}, 503)
+            return _json_response(self, _block_producer.status())
+
         # ── Static files from dashboard/dist/ ────────────────────
         if path.startswith('/assets/'):
             file_path = os.path.join(DASHBOARD_DIR, path.lstrip('/'))
@@ -1556,6 +1583,33 @@ class _Handler(BaseHTTPRequestHandler):
             result = _api_capability_invoke(body)
             status = 200 if result.get("ok") else 400
             return _json_response(self, result, status)
+
+        # ── Mempool POST route ─────────────────────────────────────
+        if path == "/api/consensus/mempool/submit":
+            if _mempool is None:
+                return _json_response(self, {"error": "mempool not running"}, 503)
+            try:
+                from oasyce_plugin.consensus.core.types import Operation, OperationType
+                op_type_str = body.get("op_type", "")
+                try:
+                    op_type = OperationType(op_type_str)
+                except ValueError:
+                    return _json_response(self, {"error": f"invalid op_type: {op_type_str}"}, 400)
+                op = Operation(
+                    op_type=op_type,
+                    validator_id=body.get("validator_id", ""),
+                    amount=int(body.get("amount", 0)),
+                    from_addr=body.get("from_addr", ""),
+                    to_addr=body.get("to_addr", ""),
+                    asset_type=body.get("asset_type", "OAS"),
+                    commission_rate=int(body.get("commission_rate", 0)),
+                    reason=body.get("reason", ""),
+                )
+                result = _mempool.submit(op)
+                status_code = 200 if result.get("ok") else 400
+                return _json_response(self, result, status_code)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
 
         # ── Consensus POST routes ──────────────────────────────────
         if path == "/api/consensus/delegate":

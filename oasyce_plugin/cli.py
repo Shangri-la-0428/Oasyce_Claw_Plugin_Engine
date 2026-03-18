@@ -1793,6 +1793,13 @@ def cmd_start(args):
         producer.start(interval=block_interval, empty_blocks=False)
         print(f"  ✓ BlockProducer started (interval={block_interval}s, empty_blocks=False)")
 
+    # Expose shared state to Dashboard API
+    import oasyce_plugin.gui.app as _gui_module
+    _gui_module._consensus_engine = engine
+    if not no_produce:
+        _gui_module._mempool = mempool
+        _gui_module._block_producer = producer
+
     # Start Dashboard in main thread
     try:
         from oasyce_plugin.gui.app import OasyceGUI

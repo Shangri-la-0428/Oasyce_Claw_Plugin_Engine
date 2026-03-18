@@ -143,8 +143,10 @@ After `oasyce start`, the web Dashboard is at `http://localhost:8420`.
 - `/register` — Register new assets (drag & drop)
 - Supports both data assets and AI capabilities in unified view.
 - API: `/api/consensus/status`, `/api/consensus/validators`, `/api/consensus/rewards`, `/api/consensus/slashing`, `/api/consensus/sync`
+- API: `/api/consensus/mempool` (pending ops), `/api/consensus/producer` (block production status)
 - API: `/api/governance/proposals`, `/api/governance/proposal/:id`, `/api/governance/params`
 - API: POST `/api/governance/propose`, `/api/governance/vote`, `/api/consensus/delegate`, `/api/consensus/undelegate`
+- API: POST `/api/consensus/mempool/submit` (submit operation to mempool)
 
 ## Architecture (v2.0.0)
 
@@ -158,7 +160,8 @@ oasyce_plugin/
 │   ├── storage/
 │   │   └── events.py     # append_event — single write function for stake
 │   ├── execution/
-│   │   └── engine.py     # Block-height scheduling, compute_block_hash
+│   │   ├── engine.py     # Block-height scheduling, compute_block_hash
+│   │   └── producer.py   # Mempool (op queue) + BlockProducer (builds & applies blocks)
 │   ├── state.py          # ConsensusState — event-derived views (no REAL, no UPDATE on stake)
 │   ├── epoch.py          # EpochManager — wall-clock fallback for P2P
 │   ├── proposer.py       # Stake-weighted leader election (integer arithmetic)
