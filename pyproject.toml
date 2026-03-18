@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oasyce"
-version = "1.10.0"
-description = "Decentralized data ownership and settlement protocol for the AI era"
+version = "1.11.0"
+description = "Decentralized AI capability marketplace — register, price, trade, settle"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
     {name = "Shangrila", email = "wutc@oasyce.com"}
 ]
-keywords = ["oasyce", "data-ownership", "settlement", "ai", "web3", "bonding-curve", "p2p", "staking"]
+keywords = ["oasyce", "data-ownership", "settlement", "ai", "web3", "bonding-curve", "p2p", "staking", "capability-marketplace", "agent-scheduler"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
