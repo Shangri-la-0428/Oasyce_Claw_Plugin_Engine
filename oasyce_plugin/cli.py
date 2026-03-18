@@ -1528,6 +1528,194 @@ def cmd_testnet_reset(args):
     print(f"Testnet data reset. Removed {data_dir}")
 
 
+def cmd_testnet_init(args):
+    """Initialize a testnet with N validators."""
+    from oasyce_plugin.crypto import generate_keypair
+    from oasyce_plugin.consensus.testnet_config import TestnetConfig, ValidatorInfo
+    from oasyce_plugin.consensus.genesis import create_genesis, export_genesis
+    from oasyce_plugin.consensus.core.types import OAS_DECIMALS
+
+    output_dir = Path(args.output)
+    num_validators = args.validators
+
+    # Generate validators
+    validators = []
+    for i in range(num_validators):
+        priv, pub = generate_keypair()
+        v = ValidatorInfo(
+            pubkey=pub,
+            stake=1000 * OAS_DECIMALS,
+            commission=1000,
+            moniker=f"validator-{i}",
+        )
+        validators.append(v)
+
+        # Save validator keys to node directory
+        node_dir = output_dir / f"node-{i}"
+        node_dir.mkdir(parents=True, exist_ok=True)
+        (node_dir / "node_id.json").write_text(json.dumps({
+            "node_id": pub,
+            "private_key": priv,
+            "moniker": f"validator-{i}",
+        }, indent=2))
+
+    config = TestnetConfig(
+        chain_id=getattr(args, "chain_id", "oasyce-testnet-1") or "oasyce-testnet-1",
+        initial_validators=validators,
+    )
+    genesis_state = create_genesis(config, validators)
+
+    genesis_path = str(output_dir / "genesis.json")
+    export_genesis(genesis_state, genesis_path)
+
+    # Copy genesis to each node
+    for i in range(num_validators):
+        node_dir = output_dir / f"node-{i}"
+        import shutil
+        shutil.copy2(genesis_path, str(node_dir / "genesis.json"))
+
+    result = {
+        "genesis_hash": genesis_state.genesis_hash,
+        "chain_id": config.chain_id,
+        "validators": num_validators,
+        "output": str(output_dir),
+        "genesis_file": genesis_path,
+        "nodes": [
+            {"moniker": f"validator-{i}",
+             "pubkey": validators[i].pubkey[:16] + "...",
+             "data_dir": str(output_dir / f"node-{i}")}
+            for i in range(num_validators)
+        ],
+    }
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"Testnet initialized!")
+        print(f"  Chain ID:     {config.chain_id}")
+        print(f"  Genesis hash: {genesis_state.genesis_hash[:16]}...")
+        print(f"  Validators:   {num_validators}")
+        print(f"  Output:       {output_dir}")
+        print()
+        for i in range(num_validators):
+            print(f"  node-{i}: {validators[i].pubkey[:16]}... ({validators[i].moniker})")
+        print()
+        print(f"  Genesis: {genesis_path}")
+        print()
+        print("  Next steps:")
+        print(f"    oasyce testnet join --genesis {genesis_path} --data-dir {output_dir}/node-0")
+
+
+def cmd_testnet_genesis(args):
+    """Create genesis from a config file."""
+    from oasyce_plugin.consensus.testnet_config import TestnetConfig
+    from oasyce_plugin.consensus.genesis import (
+        create_genesis, export_genesis, validate_genesis,
+    )
+
+    # Load config
+    config_path = Path(args.config)
+    if not config_path.exists():
+        print(f"Error: config file not found: {args.config}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        config_data = json.loads(config_path.read_text())
+        config = TestnetConfig.from_dict(config_data)
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"Error: invalid config file: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    genesis_state = create_genesis(config)
+    errors = validate_genesis(genesis_state)
+    if errors:
+        print("Genesis validation failed:", file=sys.stderr)
+        for err in errors:
+            print(f"  - {err}", file=sys.stderr)
+        sys.exit(1)
+
+    output = args.output or "genesis.json"
+    export_genesis(genesis_state, output)
+
+    if args.json:
+        print(json.dumps(genesis_state.to_dict(), indent=2))
+    else:
+        print(f"Genesis created: {output}")
+        print(f"  Chain ID:     {config.chain_id}")
+        print(f"  Genesis hash: {genesis_state.genesis_hash[:16]}...")
+        print(f"  Validators:   {len(genesis_state.validators)}")
+        print(f"  Total stake:  {genesis_state.total_stake} units")
+
+
+def cmd_testnet_join(args):
+    """Join a testnet using a genesis file."""
+    from oasyce_plugin.consensus.genesis import import_genesis, validate_genesis, initialize_chain
+    from oasyce_plugin.config import NetworkMode, get_data_dir, load_or_create_node_identity
+
+    genesis_path = args.genesis
+    data_dir = args.data_dir or get_data_dir(NetworkMode.TESTNET)
+
+    # Import and validate genesis
+    try:
+        genesis_state = import_genesis(genesis_path)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    errors = validate_genesis(genesis_state)
+    if errors:
+        print("Genesis validation failed:", file=sys.stderr)
+        for err in errors:
+            print(f"  - {err}", file=sys.stderr)
+        sys.exit(1)
+
+    # Load or create node identity
+    _priv, node_id = load_or_create_node_identity(data_dir)
+    node_id_short = node_id[:16]
+
+    # Copy genesis to data dir
+    import shutil
+    Path(data_dir).mkdir(parents=True, exist_ok=True)
+    shutil.copy2(genesis_path, os.path.join(data_dir, "genesis.json"))
+
+    # Initialize chain from genesis
+    db_path = os.path.join(data_dir, "consensus.db")
+    engine = initialize_chain(genesis_state, db_path=db_path)
+
+    result = {
+        "success": True,
+        "node_id": node_id_short,
+        "chain_id": genesis_state.chain_id,
+        "genesis_hash": genesis_state.genesis_hash,
+        "validators": len(genesis_state.validators),
+        "data_dir": data_dir,
+    }
+
+    engine.close()
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"Joined testnet!")
+        print(f"  Node ID:      {node_id_short}...")
+        print(f"  Chain ID:     {genesis_state.chain_id}")
+        print(f"  Genesis hash: {genesis_state.genesis_hash[:16]}...")
+        print(f"  Validators:   {len(genesis_state.validators)}")
+        print(f"  Data dir:     {data_dir}")
+
+
+def cmd_testnet_faucet_serve(args):
+    """Start the faucet HTTP server."""
+    from scripts.run_faucet import main as faucet_main
+    # Delegate to the faucet server script
+    sys.argv = ["run_faucet"]
+    if args.port:
+        sys.argv.extend(["--port", str(args.port)])
+    if getattr(args, "data_dir", None):
+        sys.argv.extend(["--data-dir", args.data_dir])
+    faucet_main()
+
+
 def cmd_start(args):
     """Start Core node + Dashboard in one command."""
     import threading
@@ -2017,6 +2205,307 @@ def cmd_node_api_key(args):
             print(f"  Endpoint: {endpoint}")
 
 
+# ── Key management commands ────────────────────────────────────────
+
+
+def cmd_keys_generate(args):
+    """Generate a new Ed25519 keypair for consensus signing."""
+    from oasyce_plugin.crypto.keys import generate_keypair, load_or_create_keypair
+
+    config = Config.from_env()
+    key_dir = os.path.join(config.data_dir, "keys")
+
+    force = getattr(args, "force", False)
+    priv_file = os.path.join(key_dir, "private.key")
+    if os.path.exists(priv_file) and not force:
+        if args.json:
+            print(json.dumps({"ok": False, "error": "keys already exist, use --force to overwrite"}))
+        else:
+            print("Keys already exist. Use --force to overwrite.")
+        return
+
+    if force:
+        # Remove existing keys so load_or_create_keypair generates fresh ones
+        for f in ("private.key", "private.key.enc", "public.key"):
+            p = os.path.join(key_dir, f)
+            if os.path.exists(p):
+                os.remove(p)
+
+    passphrase = getattr(args, "passphrase", None)
+    priv_hex, pub_hex = load_or_create_keypair(key_dir, passphrase=passphrase)
+
+    if args.json:
+        print(json.dumps({"ok": True, "public_key": pub_hex, "key_dir": key_dir}))
+    else:
+        print(f"Ed25519 keypair generated.")
+        print(f"  Public key: {pub_hex}")
+        print(f"  Key dir:    {key_dir}")
+        if passphrase:
+            print(f"  Encrypted:  yes")
+
+
+def cmd_keys_show(args):
+    """Show the current consensus signing key."""
+    from oasyce_plugin.crypto.keys import load_or_create_keypair
+
+    config = Config.from_env()
+    key_dir = os.path.join(config.data_dir, "keys")
+    pub_file = os.path.join(key_dir, "public.key")
+
+    if not os.path.exists(pub_file):
+        if args.json:
+            print(json.dumps({"ok": False, "error": "no keys found, run: oasyce keys generate"}))
+        else:
+            print("No keys found. Run: oasyce keys generate")
+        return
+
+    pub_hex = open(pub_file).read().strip()
+    priv_exists = os.path.exists(os.path.join(key_dir, "private.key"))
+    enc_exists = os.path.exists(os.path.join(key_dir, "private.key.enc"))
+
+    if args.json:
+        print(json.dumps({
+            "ok": True,
+            "public_key": pub_hex,
+            "key_dir": key_dir,
+            "encrypted": enc_exists and not priv_exists,
+        }))
+    else:
+        print(f"Consensus signing key:")
+        print(f"  Public key: {pub_hex}")
+        print(f"  Key dir:    {key_dir}")
+        print(f"  Encrypted:  {'yes' if enc_exists and not priv_exists else 'no'}")
+
+
+def _load_signing_key(config):
+    """Load private + public key for signing consensus operations."""
+    from oasyce_plugin.crypto.keys import load_or_create_keypair
+    key_dir = os.path.join(config.data_dir, "keys")
+    return load_or_create_keypair(key_dir)
+
+
+# ── Enforcement commands ───────────────────────────────────────────
+
+
+def _get_enforcement_engine():
+    """Create an EnforcementEngine singleton."""
+    from oasyce_plugin.consensus.enforcement import EnforcementEngine
+    return EnforcementEngine()
+
+
+def cmd_enforcement_scan_content(args):
+    """Scan a local file for fingerprint."""
+    from oasyce_plugin.consensus.enforcement import EnforcementEngine
+
+    path = args.file
+    if not os.path.isfile(path):
+        print(f"Error: file not found: {path}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(path, "rb") as f:
+        data = f.read()
+
+    engine = _get_enforcement_engine()
+    result = engine.scan_content(data)
+
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "fingerprint": result.fingerprint,
+            "content_hash": result.content_hash,
+            "content_size": result.content_size,
+            "watermark_found": result.watermark_found,
+            "watermark_data": result.watermark_data,
+        }, indent=2))
+    else:
+        print(f"  Fingerprint:  {result.fingerprint}")
+        print(f"  Content hash: {result.content_hash}")
+        print(f"  Size:         {result.content_size} bytes")
+        print(f"  Watermark:    {'yes' if result.watermark_found else 'no'}")
+        if result.watermark_data:
+            print(f"  Watermark ID: {result.watermark_data}")
+
+
+def cmd_enforcement_scan_url(args):
+    """Scan a platform URL for content."""
+    from oasyce_plugin.consensus.enforcement import EnforcementEngine
+    from oasyce_plugin.consensus.enforcement.crawlers import (
+        GitHubCrawler, TwitterCrawler, ZhihuCrawler, GeneralCrawler,
+    )
+
+    engine = _get_enforcement_engine()
+
+    # Register appropriate crawler
+    platform = args.platform
+    if platform == "github":
+        engine.register_crawler("github", GitHubCrawler())
+    elif platform == "twitter":
+        engine.register_crawler("twitter", TwitterCrawler())
+    elif platform == "zhihu":
+        engine.register_crawler("zhihu", ZhihuCrawler())
+    else:
+        engine.register_crawler(platform, GeneralCrawler())
+
+    try:
+        results = engine.scan_platform(platform, args.url)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if getattr(args, "json", False):
+        print(json.dumps([{
+            "platform": r.platform,
+            "url": r.url,
+            "content_hash": r.content_hash,
+            "fingerprint": r.fingerprint,
+            "title": r.title,
+            "author": r.author,
+            "snippet": r.raw_snippet[:200],
+        } for r in results], indent=2))
+    else:
+        if not results:
+            print("  No content found.")
+        else:
+            print(f"  Found {len(results)} content items:")
+            for r in results:
+                print(f"    [{r.platform}] {r.title or r.url}")
+                print(f"      Fingerprint: {r.fingerprint[:32]}...")
+                if r.raw_snippet:
+                    print(f"      Snippet:     {r.raw_snippet[:80]}...")
+
+
+def cmd_enforcement_scan_github(args):
+    """Scan a GitHub repository."""
+    from oasyce_plugin.consensus.enforcement import EnforcementEngine
+    from oasyce_plugin.consensus.enforcement.crawlers import GitHubCrawler
+
+    engine = _get_enforcement_engine()
+    engine.register_crawler("github", GitHubCrawler())
+
+    url = f"https://github.com/{args.repo}"
+    try:
+        results = engine.scan_platform("github", url)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if getattr(args, "json", False):
+        print(json.dumps([{
+            "url": r.url,
+            "fingerprint": r.fingerprint,
+            "title": r.title,
+            "author": r.author,
+        } for r in results], indent=2))
+    else:
+        if not results:
+            print("  No files scanned (no API token or empty repo).")
+        else:
+            print(f"  Scanned {len(results)} files from {args.repo}:")
+            for r in results:
+                print(f"    {r.title}: {r.fingerprint[:32]}...")
+
+
+def cmd_enforcement_report(args):
+    """Submit an infringement report."""
+    import time as _time
+    from oasyce_plugin.consensus.enforcement import EnforcementEngine, Evidence, InfringementType
+
+    engine = _get_enforcement_engine()
+
+    # Build evidence
+    evidence = Evidence(
+        asset_id=args.asset,
+        reporter=getattr(args, "reporter", "self"),
+        infringement_type=InfringementType(getattr(args, "type", "unauthorized_distribution")),
+        platform=getattr(args, "platform", "unknown"),
+        url=getattr(args, "url", ""),
+        content_hash=getattr(args, "content_hash", ""),
+        fingerprint=getattr(args, "fingerprint_hex", ""),
+        similarity_score=getattr(args, "similarity", 0),
+        description=getattr(args, "description", ""),
+        timestamp=int(_time.time()),
+    )
+
+    try:
+        dispute_id = engine.submit_evidence(args.asset, evidence)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "ok": True,
+            "dispute_id": dispute_id,
+            "asset_id": args.asset,
+        }, indent=2))
+    else:
+        print(f"  Report submitted.")
+        print(f"  Dispute ID:  {dispute_id}")
+        print(f"  Asset:       {args.asset}")
+        print(f"  Status:      pending")
+
+
+def cmd_enforcement_bounty(args):
+    """Show bounty info for an asset."""
+    from oasyce_plugin.consensus.enforcement import EnforcementEngine
+    from oasyce_plugin.consensus.core.types import from_units
+
+    engine = _get_enforcement_engine()
+    info = engine.get_bounty_info(args.asset)
+
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "asset_id": info.asset_id,
+            "total_bounty_pool": info.total_bounty_pool,
+            "active_cases": info.active_cases,
+            "resolved_cases": info.resolved_cases,
+            "total_paid_out": info.total_paid_out,
+            "reward_rates": info.reward_rates,
+        }, indent=2))
+    else:
+        print(f"  Bounty info for {info.asset_id}:")
+        print(f"    Pool:          {from_units(info.total_bounty_pool):.4f} OAS")
+        print(f"    Active cases:  {info.active_cases}")
+        print(f"    Resolved:      {info.resolved_cases}")
+        print(f"    Total paid:    {from_units(info.total_paid_out):.4f} OAS")
+        print(f"    Reward rates:")
+        for sev, rate in info.reward_rates.items():
+            print(f"      {sev}: {rate / 100:.1f}%")
+
+
+def cmd_enforcement_list(args):
+    """List enforcement cases."""
+    from oasyce_plugin.consensus.enforcement import EnforcementEngine, EvidenceStatus
+    from oasyce_plugin.consensus.core.types import from_units
+
+    engine = _get_enforcement_engine()
+    status_filter = None
+    if getattr(args, "status", None):
+        status_filter = EvidenceStatus(args.status)
+
+    cases = engine.list_cases(status=status_filter)
+
+    if getattr(args, "json", False):
+        print(json.dumps([{
+            "case_id": c.case_id,
+            "dispute_id": c.dispute_id,
+            "asset_id": c.asset_id,
+            "reporter": c.reporter,
+            "status": c.status.value,
+            "verdict": c.verdict.value if c.verdict else None,
+            "bounty_amount": c.bounty_amount,
+            "created_at": c.created_at,
+        } for c in cases], indent=2))
+    else:
+        if not cases:
+            print("  No enforcement cases found.")
+        else:
+            print(f"  {len(cases)} enforcement case(s):")
+            for c in cases:
+                verdict = c.verdict.value if c.verdict else "-"
+                print(f"    [{c.status.value:12s}] {c.case_id} | "
+                      f"asset={c.asset_id[:12]}... | verdict={verdict}")
+
+
 # ── Consensus commands ─────────────────────────────────────────────
 
 
@@ -2110,16 +2599,24 @@ def cmd_consensus_schedule(args):
 def cmd_consensus_register(args):
     """Register as a validator."""
     from oasyce_plugin.config import load_or_create_node_identity
+    from oasyce_plugin.consensus.core.types import Operation, OperationType, to_units
 
     config = Config.from_env()
     _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    priv_key, pub_key = _load_signing_key(config)
     engine = _get_consensus_engine(args)
     try:
-        from oasyce_plugin.consensus.core.types import to_units
         commission_pct = getattr(args, "commission", 0.10) or 0.10
         commission_bps = int(commission_pct * 10000)
         stake_units = to_units(args.stake)
-        result = engine.register_validator(pubkey, stake_units, commission_bps)
+        op = Operation(
+            op_type=OperationType.REGISTER,
+            validator_id=pubkey,
+            amount=stake_units,
+            commission_rate=commission_bps,
+        )
+        op = engine.sign_op(op, priv_key, pub_key)
+        result = engine.apply(op)
         if args.json:
             print(json.dumps(result, indent=2))
         else:
@@ -2140,12 +2637,16 @@ def cmd_consensus_register(args):
 def cmd_consensus_exit(args):
     """Voluntary exit as validator."""
     from oasyce_plugin.config import load_or_create_node_identity
+    from oasyce_plugin.consensus.core.types import Operation, OperationType
 
     config = Config.from_env()
     _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    priv_key, pub_key = _load_signing_key(config)
     engine = _get_consensus_engine(args)
     try:
-        result = engine.exit_validator(pubkey)
+        op = Operation(op_type=OperationType.EXIT, validator_id=pubkey)
+        op = engine.sign_op(op, priv_key, pub_key)
+        result = engine.apply(op)
         if args.json:
             print(json.dumps(result, indent=2))
         else:
@@ -2164,12 +2665,16 @@ def cmd_consensus_exit(args):
 def cmd_consensus_unjail(args):
     """Unjail validator."""
     from oasyce_plugin.config import load_or_create_node_identity
+    from oasyce_plugin.consensus.core.types import Operation, OperationType
 
     config = Config.from_env()
     _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    priv_key, pub_key = _load_signing_key(config)
     engine = _get_consensus_engine(args)
     try:
-        result = engine.unjail_validator(pubkey)
+        op = Operation(op_type=OperationType.UNJAIL, validator_id=pubkey)
+        op = engine.sign_op(op, priv_key, pub_key)
+        result = engine.apply(op)
         if args.json:
             print(json.dumps(result, indent=2))
         else:
@@ -2188,14 +2693,22 @@ def cmd_consensus_unjail(args):
 def cmd_consensus_delegate(args):
     """Delegate stake to a validator."""
     from oasyce_plugin.config import load_or_create_node_identity
+    from oasyce_plugin.consensus.core.types import Operation, OperationType, to_units
 
     config = Config.from_env()
     _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    priv_key, pub_key = _load_signing_key(config)
     engine = _get_consensus_engine(args)
     try:
-        from oasyce_plugin.consensus.core.types import to_units
         amount_units = to_units(args.amount)
-        result = engine.delegate(pubkey, args.validator_id, amount_units)
+        op = Operation(
+            op_type=OperationType.DELEGATE,
+            validator_id=args.validator_id,
+            amount=amount_units,
+            from_addr=pubkey,
+        )
+        op = engine.sign_op(op, priv_key, pub_key)
+        result = engine.apply(op)
         if args.json:
             print(json.dumps(result, indent=2))
         else:
@@ -2214,14 +2727,22 @@ def cmd_consensus_delegate(args):
 def cmd_consensus_undelegate(args):
     """Undelegate stake from a validator."""
     from oasyce_plugin.config import load_or_create_node_identity
+    from oasyce_plugin.consensus.core.types import Operation, OperationType, to_units
 
     config = Config.from_env()
     _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    priv_key, pub_key = _load_signing_key(config)
     engine = _get_consensus_engine(args)
     try:
-        from oasyce_plugin.consensus.core.types import to_units
         amount_units = to_units(args.amount)
-        result = engine.undelegate(pubkey, args.validator_id, amount_units)
+        op = Operation(
+            op_type=OperationType.UNDELEGATE,
+            validator_id=args.validator_id,
+            amount=amount_units,
+            from_addr=pubkey,
+        )
+        op = engine.sign_op(op, priv_key, pub_key)
+        result = engine.apply(op)
         if args.json:
             print(json.dumps(result, indent=2))
         else:
@@ -2338,140 +2859,699 @@ def cmd_consensus_unbondings(args):
         engine.close()
 
 
-# ── Key management ───────────────────────────────────────────────
+# ── Governance CLI commands ─────────────────────────────────────────────
 
 
-def _keys_dir() -> Path:
-    """Get keys directory from Config, fallback to ~/.oasyce/keys."""
+def cmd_governance_propose(args):
+    """Submit a governance proposal."""
+    from oasyce_plugin.config import load_or_create_node_identity
+    from oasyce_plugin.consensus.core.types import to_units
+    from oasyce_plugin.consensus.governance.types import ParameterChange
+
+    config = Config.from_env()
+    _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    engine = _get_consensus_engine(args)
     try:
-        cfg = Config.from_env()
-        return Path(cfg.data_dir) / "keys"
-    except Exception:
-        return Path.home() / ".oasyce" / "keys"
+        # Parse --change flags: "MODULE.KEY=VALUE"
+        changes = []
+        for raw in (args.change or []):
+            if "=" not in raw:
+                print(f"Error: invalid change format '{raw}', expected MODULE.KEY=VALUE",
+                      file=sys.stderr)
+                sys.exit(1)
+            left, value_str = raw.split("=", 1)
+            if "." not in left:
+                print(f"Error: invalid change key '{left}', expected MODULE.KEY",
+                      file=sys.stderr)
+                sys.exit(1)
+            module, key = left.split(".", 1)
+            # Determine type from registry
+            spec = engine.param_registry.get(module, key)
+            if spec is None:
+                print(f"Error: unknown parameter '{module}.{key}'", file=sys.stderr)
+                sys.exit(1)
+            try:
+                new_value = spec.value_type(value_str)
+            except (ValueError, TypeError):
+                print(f"Error: cannot parse '{value_str}' as {spec.value_type.__name__}",
+                      file=sys.stderr)
+                sys.exit(1)
+            changes.append(ParameterChange(
+                module=module, key=key,
+                old_value=spec.current_value, new_value=new_value,
+            ))
 
-
-def cmd_keys_generate(args):
-    """Generate Ed25519 keypair for signing operations."""
-    from oasyce_plugin.crypto.keys import generate_keypair
-    keys_dir = _keys_dir()
-    priv_path = keys_dir / "private.key"
-    pub_path = keys_dir / "public.key"
-    if priv_path.exists() and not getattr(args, "force", False):
-        if getattr(args, "json", False):
-            print(json.dumps({"ok": False, "error": "keypair exists, use --force"}))
+        deposit = to_units(getattr(args, "deposit", 1000.0) or 1000.0)
+        result = engine.submit_proposal(
+            proposer=pubkey,
+            title=args.title,
+            description=getattr(args, "description", "") or "",
+            changes=changes,
+            deposit=deposit,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2))
         else:
-            print(f"Keys already exist at {keys_dir}. Use --force to overwrite.")
-        return
-    keys_dir.mkdir(parents=True, exist_ok=True)
-    priv, pub = generate_keypair()
-    priv_path.write_text(priv)
-    pub_path.write_text(pub)
-    if getattr(args, "json", False):
-        print(json.dumps({"ok": True, "public_key": pub, "path": str(keys_dir)}))
-    else:
-        print(f"Keypair generated:")
-        print(f"  Public:  {pub}")
-        print(f"  Stored:  {keys_dir}")
-
-
-def cmd_keys_show(args):
-    """Show current signing key."""
-    keys_dir = _keys_dir()
-    pub_path = keys_dir / "public.key"
-    if not pub_path.exists():
-        if getattr(args, "json", False):
-            print(json.dumps({"ok": False, "error": "no keys found"}))
-        else:
-            print("No keys found. Run: oasyce keys generate")
-        return
-    pub = pub_path.read_text().strip()
-    if getattr(args, "json", False):
-        print(json.dumps({"ok": True, "public_key": pub, "path": str(keys_dir)}))
-    else:
-        print(f"Public key: {pub}")
-        print(f"Location:   {keys_dir}")
-
-
-# ── Enforcement CLI ─────────────────────────────────────────────
-
-
-def _get_enforcement_engine():
-    from oasyce_plugin.consensus.enforcement import EnforcementEngine
-    return EnforcementEngine()
-
-
-def cmd_enforcement_scan_content(args):
-    """Scan a local file for fingerprint."""
-    engine = _get_enforcement_engine()
-    file_path = args.file
-    if not os.path.exists(file_path):
-        print(f"File not found: {file_path}", file=sys.stderr)
+            if result.get("ok"):
+                p = result["proposal"]
+                print(f"Proposal submitted: {p['id'][:16]}...")
+                print(f"  Title:    {p['title']}")
+                print(f"  Changes:  {len(p['changes'])}")
+                print(f"  Voting:   block {p['voting_start']} -> {p['voting_end']}")
+            else:
+                print(f"Proposal failed: {result.get('error')}", file=sys.stderr)
+                sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    with open(file_path, "rb") as f:
-        data = f.read()
-    result = engine.scan_content(data)
-    if getattr(args, "json", False):
-        print(json.dumps({
-            "fingerprint": result.fingerprint,
-            "content_hash": result.content_hash,
-            "content_size": result.content_size,
-            "watermark_found": result.watermark_found,
-            "watermark_data": result.watermark_data,
-        }))
-    else:
-        print(f"Fingerprint:  {result.fingerprint}")
-        print(f"Content hash: {result.content_hash}")
-        print(f"Size:         {result.content_size} bytes")
-        if result.watermark_found:
-            print(f"Watermark:    {result.watermark_data}")
+    finally:
+        engine.close()
 
 
-def cmd_enforcement_bounty(args):
-    """Query bounty info for an asset."""
-    engine = _get_enforcement_engine()
-    asset_id = args.asset
-    info = engine.get_bounty_info(asset_id)
-    if getattr(args, "json", False):
-        print(json.dumps({
-            "asset_id": info.asset_id,
-            "total_bounty_pool": info.total_bounty_pool,
-            "active_cases": info.active_cases,
-            "resolved_cases": info.resolved_cases,
-            "total_paid": info.total_paid_out,
-        }))
-    else:
+def cmd_governance_vote(args):
+    """Vote on a governance proposal."""
+    from oasyce_plugin.config import load_or_create_node_identity
+    from oasyce_plugin.consensus.governance.types import VoteOption
+
+    config = Config.from_env()
+    _priv, pubkey = load_or_create_node_identity(config.data_dir)
+    engine = _get_consensus_engine(args)
+    try:
+        option = VoteOption(args.vote.lower())
+        result = engine.cast_vote(args.proposal, pubkey, option)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            if result.get("ok"):
+                v = result["vote"]
+                from oasyce_plugin.consensus.core.types import from_units
+                print(f"Vote cast: {option.value.upper()} on {args.proposal[:16]}...")
+                print(f"  Weight: {from_units(v['weight']):.2f} OAS")
+            else:
+                print(f"Vote failed: {result.get('error')}", file=sys.stderr)
+                sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_governance_list(args):
+    """List governance proposals."""
+    engine = _get_consensus_engine(args)
+    try:
+        status = getattr(args, "status", None)
+        proposals = engine.list_proposals(status=status)
+        if args.json:
+            print(json.dumps(proposals, indent=2))
+        else:
+            if not proposals:
+                print("No proposals found.")
+                return
+            print(f"Proposals ({len(proposals)}):")
+            for p in proposals:
+                print(f"  {p['id'][:16]}  [{p['status']}]  {p['title']}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_governance_show(args):
+    """Show details of a governance proposal."""
+    engine = _get_consensus_engine(args)
+    try:
+        proposal = engine.get_proposal(args.proposal_id)
+        if args.json:
+            print(json.dumps(proposal, indent=2))
+        else:
+            if proposal is None:
+                print(f"Proposal '{args.proposal_id}' not found.")
+                sys.exit(1)
+            from oasyce_plugin.consensus.core.types import from_units
+            print(f"Proposal: {proposal['id'][:16]}...")
+            print(f"  Title:       {proposal['title']}")
+            print(f"  Status:      {proposal['status']}")
+            print(f"  Proposer:    {proposal['proposer'][:16]}...")
+            print(f"  Deposit:     {from_units(proposal['deposit']):.2f} OAS")
+            print(f"  Voting:      block {proposal['voting_start']} -> {proposal['voting_end']}")
+            print(f"  Votes:       {proposal.get('vote_count', 0)}")
+            print(f"  Description: {proposal['description']}")
+            print(f"  Changes:")
+            for c in proposal["changes"]:
+                print(f"    {c['module']}.{c['key']}: {c['old_value']} -> {c['new_value']}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_governance_tally(args):
+    """Tally votes for a governance proposal."""
+    engine = _get_consensus_engine(args)
+    try:
+        result = engine.tally_votes(args.proposal_id)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            if not result.get("ok"):
+                print(f"Tally failed: {result.get('error')}", file=sys.stderr)
+                sys.exit(1)
+            r = result["result"]
+            from oasyce_plugin.consensus.core.types import from_units
+            print(f"Tally for {args.proposal_id[:16]}...")
+            print(f"  YES:     {from_units(r['yes_votes']):.2f} OAS")
+            print(f"  NO:      {from_units(r['no_votes']):.2f} OAS")
+            print(f"  ABSTAIN: {from_units(r['abstain_votes']):.2f} OAS")
+            print(f"  Total:   {from_units(r['total_voting_power']):.2f} OAS")
+            print(f"  Quorum:  {'Yes' if r['quorum_reached'] else 'No'}")
+            print(f"  Result:  {'PASSED' if r['passed'] else 'NOT PASSED'}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_governance_params(args):
+    """List governable parameters."""
+    engine = _get_consensus_engine(args)
+    try:
+        module = getattr(args, "module", None)
+        params = engine.list_governable_params(module=module)
+        if args.json:
+            print(json.dumps(params, indent=2))
+        else:
+            if not params:
+                print("No governable parameters registered.")
+                return
+            print(f"Governable parameters ({len(params)}):")
+            for p in params:
+                constraints = ""
+                if p.get("min_value") is not None:
+                    constraints += f" min={p['min_value']}"
+                if p.get("max_value") is not None:
+                    constraints += f" max={p['max_value']}"
+                print(f"  {p['module']}.{p['key']} = {p['current_value']} "
+                      f"({p['value_type']}{constraints})")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_assets_register(args):
+    """Register a new asset type."""
+    engine = _get_consensus_engine(args)
+    try:
+        result = engine.register_asset_type(
+            asset_type=args.type,
+            name=args.name,
+            decimals=args.decimals,
+            issuer=getattr(args, "issuer", "admin"),
+        )
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            if result.get("ok"):
+                print(f"Asset registered: {args.type}")
+                print(f"  Name:     {args.name}")
+                print(f"  Decimals: {args.decimals}")
+            else:
+                print(f"Error: {result.get('error')}", file=sys.stderr)
+                sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_assets_list(args):
+    """List all registered asset types."""
+    engine = _get_consensus_engine(args)
+    try:
+        assets = engine.list_asset_types()
+        if args.json:
+            print(json.dumps(assets, indent=2))
+        else:
+            if not assets:
+                print("No assets registered.")
+                return
+            print(f"Asset Types ({len(assets)}):")
+            for a in assets:
+                native = " (native)" if a.get("is_native") else ""
+                print(f"  {a['asset_type']:20s} {a['name']:24s} decimals={a['decimals']}{native}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_assets_info(args):
+    """Show info for a specific asset type."""
+    engine = _get_consensus_engine(args)
+    try:
+        info = engine.asset_registry.get_asset_info(args.type)
+        if info is None:
+            print(f"Asset type '{args.type}' not registered.", file=sys.stderr)
+            sys.exit(1)
+        data = {
+            "asset_type": info.asset_type,
+            "name": info.name,
+            "decimals": info.decimals,
+            "issuer": info.issuer,
+            "is_native": info.is_native,
+            "metadata": info.metadata,
+        }
+        if args.json:
+            print(json.dumps(data, indent=2))
+        else:
+            print(f"Asset: {info.asset_type}")
+            print(f"  Name:     {info.name}")
+            print(f"  Decimals: {info.decimals}")
+            print(f"  Issuer:   {info.issuer or '(native)'}")
+            print(f"  Native:   {info.is_native}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_balance(args):
+    """Show balance for an address."""
+    engine = _get_consensus_engine(args)
+    try:
+        asset = getattr(args, "asset", None)
+        address = args.address
+        if asset:
+            bal = engine.get_balance(address, asset)
+            if args.json:
+                print(json.dumps({"address": address, "asset_type": asset, "balance": bal}))
+            else:
+                print(f"Balance: {bal} units ({asset})")
+        else:
+            balances = engine.get_all_balances(address)
+            if args.json:
+                print(json.dumps({"address": address, "balances": balances}, indent=2))
+            else:
+                if not balances:
+                    print(f"No balances for {address[:16]}")
+                    return
+                print(f"Balances for {address[:16]}:")
+                for at, amt in balances.items():
+                    print(f"  {at:20s} {amt} units")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_transfer(args):
+    """Transfer assets between addresses."""
+    engine = _get_consensus_engine(args)
+    try:
+        from oasyce_plugin.consensus.core.types import to_units
+        amount_units = to_units(args.amount)
+        result = engine.transfer_asset(
+            from_addr=args.from_addr,
+            to_addr=args.to,
+            asset_type=getattr(args, "asset", "OAS"),
+            amount=amount_units,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            if result.get("ok"):
+                print(f"Transfer successful:")
+                print(f"  {args.from_addr[:16]} → {args.to[:16]}")
+                print(f"  Amount: {args.amount} {getattr(args, 'asset', 'OAS')}")
+            else:
+                print(f"Error: {result.get('error')}", file=sys.stderr)
+                sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_sync(args):
+    """Sync blocks from network peers."""
+    engine = _get_consensus_engine(args)
+    try:
+        from oasyce_plugin.consensus.network.sync_protocol import make_genesis_block
+        from oasyce_plugin.consensus.network.protocol import SyncState, SyncInfo
+
+        genesis_hash = make_genesis_block(engine.chain_id).block_hash
+        local_height = getattr(args, "from_height", -1)
+        if local_height is None:
+            local_height = -1
+        use_json = getattr(args, "json", False)
+        show_status = getattr(args, "status", False)
+        peers_arg = getattr(args, "peers", None)
+        auto_sync = getattr(args, "auto", False)
+
+        # --status: show sync info only
+        if show_status:
+            info = SyncInfo(
+                state=SyncState.IDLE,
+                chain_id=engine.chain_id,
+                local_height=local_height,
+                genesis_hash=genesis_hash,
+            )
+            if use_json:
+                print(json.dumps(info.to_dict(), indent=2))
+            else:
+                print("Sync Status")
+                print(f"  State:         {info.state.value}")
+                print(f"  Chain ID:      {engine.chain_id}")
+                print(f"  Genesis hash:  {genesis_hash[:16]}...")
+                print(f"  Local height:  {local_height}")
+                progress_pct = info.sync_progress * 100
+                print(f"  Progress:      {progress_pct:.1f}%")
+                print(f"  Blocks behind: {info.blocks_behind}")
+            return
+
+        # --peers: sync from specified peers
+        if peers_arg:
+            from oasyce_plugin.consensus.network.block_sync import (
+                InMemoryPeer, sync_from_network,
+            )
+            # peers_arg is comma-separated host:port list
+            # In standalone mode, we can't connect to real peers yet
+            # but the CLI interface is ready for P2P integration
+            if use_json:
+                print(json.dumps({
+                    "chain_id": engine.chain_id,
+                    "genesis_hash": genesis_hash,
+                    "local_height": local_height,
+                    "peers": peers_arg.split(","),
+                    "status": "peer_sync_pending",
+                    "message": "Peer sync requires running P2P nodes. Use 'oasyce start' first.",
+                }, indent=2))
+            else:
+                peer_list = peers_arg.split(",")
+                print("Block Sync (peer mode)")
+                print(f"  Chain ID:      {engine.chain_id}")
+                print(f"  Genesis hash:  {genesis_hash[:16]}...")
+                print(f"  Local height:  {local_height}")
+                print(f"  Target peers:  {', '.join(peer_list)}")
+                print()
+                print("  Peer sync requires running P2P nodes. Use 'oasyce start' first.")
+            return
+
+        # --auto or default: report status
+        if use_json:
+            print(json.dumps({
+                "chain_id": engine.chain_id,
+                "genesis_hash": genesis_hash,
+                "local_height": local_height,
+                "status": "no_peers",
+                "message": "No peers connected. Start a node with 'oasyce start' to sync.",
+            }, indent=2))
+        else:
+            print("Block Sync")
+            print(f"  Chain ID:      {engine.chain_id}")
+            print(f"  Genesis hash:  {genesis_hash[:16]}...")
+            print(f"  Local height:  {local_height}")
+            print()
+            if auto_sync:
+                print("  Auto-sync: no known peers yet. Start a node with 'oasyce start'.")
+            else:
+                print("  No peers connected. Start a node with 'oasyce start' to sync.")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
+
+
+def cmd_chain_info(args):
+    """Show local chain information."""
+    engine = _get_consensus_engine(args)
+    try:
+        from oasyce_plugin.consensus.network.sync_protocol import make_genesis_block
         from oasyce_plugin.consensus.core.types import from_units
-        print(f"Asset:       {info.asset_id}")
-        print(f"Bounty pool: {from_units(info.total_bounty_pool):.2f} OAS")
-        print(f"Active:      {info.active_cases}")
-        print(f"Resolved:    {info.resolved_cases}")
-        print(f"Total paid:  {from_units(info.total_paid_out):.2f} OAS")
+
+        genesis = make_genesis_block(engine.chain_id)
+        genesis_hash = genesis.block_hash
+        use_json = getattr(args, "json", False)
+
+        # Gather chain info
+        active_validators = engine.get_validators(include_inactive=False)
+        all_validators = engine.get_validators(include_inactive=True)
+        total_staked = sum(v.get("total_stake", 0) for v in active_validators)
+
+        # Stake distribution
+        stake_distribution = []
+        for v in active_validators:
+            stake_distribution.append({
+                "validator": v.get("id", v.get("pubkey", ""))[:16] + "...",
+                "stake": v.get("total_stake", 0),
+                "stake_oas": from_units(v.get("total_stake", 0)),
+                "share_pct": round(v.get("total_stake", 0) / total_staked * 100, 2) if total_staked > 0 else 0,
+            })
+        stake_distribution.sort(key=lambda x: x["stake"], reverse=True)
+
+        info = {
+            "chain_id": engine.chain_id,
+            "genesis_hash": genesis_hash,
+            "blocks_per_epoch": engine.blocks_per_epoch,
+            "unbonding_blocks": engine.unbonding_blocks,
+            "active_validators": len(active_validators),
+            "total_validators": len(all_validators),
+            "total_staked_units": total_staked,
+            "total_staked_oas": from_units(total_staked),
+            "stake_distribution": stake_distribution,
+        }
+
+        if use_json:
+            print(json.dumps(info, indent=2))
+        else:
+            print("Chain Info")
+            print(f"  Chain ID:          {info['chain_id']}")
+            print(f"  Genesis hash:      {genesis_hash[:16]}...")
+            print(f"  Blocks per epoch:  {info['blocks_per_epoch']}")
+            print(f"  Unbonding blocks:  {info['unbonding_blocks']}")
+            print(f"  Active validators: {info['active_validators']}")
+            print(f"  Total validators:  {info['total_validators']}")
+            print(f"  Total staked:      {info['total_staked_oas']:.2f} OAS")
+            if stake_distribution:
+                print()
+                print("  Stake Distribution:")
+                for sd in stake_distribution[:10]:
+                    bar_len = int(sd["share_pct"] / 5) if sd["share_pct"] > 0 else 0
+                    bar = "█" * bar_len
+                    print(f"    {sd['validator']}  {sd['stake_oas']:>10.2f} OAS  ({sd['share_pct']:>5.1f}%)  {bar}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
 
 
-def cmd_enforcement_list(args):
-    """List enforcement cases."""
-    engine = _get_enforcement_engine()
-    cases = engine.list_cases()
-    if getattr(args, "json", False):
-        print(json.dumps([{
-            "dispute_id": c.dispute_id,
-            "asset_id": c.asset_id,
-            "status": c.status.value if hasattr(c.status, "value") else str(c.status),
-            "reporter": c.reporter,
-        } for c in cases]))
-    else:
-        if not cases:
-            print("No enforcement cases.")
-        for c in cases:
-            print(f"  [{c.dispute_id[:8]}] {c.asset_id} — {c.status}")
+def cmd_replay(args):
+    """Replay stake events and verify state consistency."""
+    from oasyce_plugin.consensus.execution.replay import (
+        replay_events, verify_state_consistency, replay_from_snapshot,
+    )
+    from oasyce_plugin.consensus.core.types import from_units
+
+    engine = _get_consensus_engine(args)
+    try:
+        source_state = engine.state
+        use_json = getattr(args, "json", False)
+        verify = getattr(args, "verify", False)
+        from_height = getattr(args, "from_height", None)
+
+        if verify:
+            to_h = getattr(args, "to_height", None)
+            report = verify_state_consistency(source_state, to_height=to_h)
+            if use_json:
+                print(json.dumps({
+                    "consistent": report.consistent,
+                    "events_replayed": report.events_replayed,
+                    "validators_checked": report.validators_checked,
+                    "state_hash_live": report.state_hash_live,
+                    "state_hash_replayed": report.state_hash_replayed,
+                    "diffs": [{"validator_id": d.validator_id, "field": d.field,
+                               "expected": d.expected, "actual": d.actual}
+                              for d in report.diffs],
+                    "errors": report.errors,
+                }, indent=2))
+            else:
+                print()
+                print("  Replay + Verify")
+                print(f"  Events replayed:    {report.events_replayed}")
+                print(f"  Validators checked: {report.validators_checked}")
+                print(f"  State hash (live):     {report.state_hash_live[:16]}...")
+                print(f"  State hash (replayed): {report.state_hash_replayed[:16]}...")
+                if report.consistent:
+                    print(f"  Consistency check:  PASSED")
+                else:
+                    print(f"  Consistency check:  FAILED ({len(report.diffs)} diff(s))")
+                    for d in report.diffs:
+                        print(f"    {d.validator_id[:16]}  {d.field}: "
+                              f"live={d.expected}  replayed={d.actual}")
+                if report.errors:
+                    print(f"  Errors: {len(report.errors)}")
+                    for e in report.errors:
+                        print(f"    {e}")
+                print()
+        else:
+            fh = from_height if from_height is not None else 0
+            to_h = getattr(args, "to_height", None)
+            result = replay_events(source_state, from_height=fh, to_height=to_h)
+            if use_json:
+                print(json.dumps({
+                    "events_replayed": result.events_replayed,
+                    "from_height": result.from_height,
+                    "to_height": result.to_height,
+                    "state_hash": result.state_hash,
+                    "validators": {vid: {"total_stake": s["total_stake"],
+                                         "self_stake": s["self_stake"]}
+                                   for vid, s in result.validators.items()},
+                    "errors": result.errors,
+                }, indent=2))
+            else:
+                print()
+                print("  Replay complete.")
+                print(f"  Events replayed:  {result.events_replayed}")
+                print(f"  Height range:     {result.from_height} → {result.to_height}")
+                print(f"  Final state hash: {result.state_hash[:16]}...")
+                print(f"  Validators:       {len(result.validators)}")
+                for vid, s in sorted(result.validators.items()):
+                    print(f"    {vid[:16]}  total={from_units(s['total_stake']):.2f} OAS  "
+                          f"self={from_units(s['self_stake']):.2f} OAS")
+                if result.errors:
+                    print(f"  Errors: {len(result.errors)}")
+                    for e in result.errors:
+                        print(f"    {e}")
+                print()
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        engine.close()
 
 
-def cmd_enforcement_help(args):
-    """Show enforcement help."""
-    print("Enforcement commands:")
-    print("  oasyce enforcement scan-content <file>    Scan file for fingerprint")
-    print("  oasyce enforcement bounty --asset <id>    Query bounty info")
-    print("  oasyce enforcement list                   List cases")
+# ── Offline mode commands ─────────────────────────────────────────
+
+
+def _get_offline_manager():
+    """Create an OfflineModeManager with detector and cache."""
+    from oasyce_plugin.consensus.network.offline_detector import OfflineDetector
+    from oasyce_plugin.consensus.provider_cache import ProviderCache
+    from oasyce_plugin.consensus.offline_mode import OfflineModeManager
+
+    config = Config.from_env()
+    cache_db = os.path.join(config.data_dir, "provider_cache.db")
+    detector = OfflineDetector()
+    cache = ProviderCache(db_path=cache_db)
+    return OfflineModeManager(detector=detector, cache=cache)
+
+
+def cmd_status(args):
+    """Show network connectivity and offline mode status."""
+    manager = _get_offline_manager()
+    try:
+        manager.detector.check_connectivity()
+        status = manager.get_connectivity_status()
+
+        if getattr(args, "json", False):
+            print(json.dumps(manager.summary(), indent=2))
+            return
+
+        status_icon = {"online": "●", "degraded": "◐", "offline": "○"}
+        print(f"\n  Network Status: {status_icon.get(status, '?')} {status.upper()}")
+
+        info = manager.detector.get_info()
+        if info["last_check"]:
+            import datetime
+            last = datetime.datetime.fromtimestamp(info["last_check"])
+            print(f"  Last check:     {last.strftime('%H:%M:%S')}")
+
+        available = manager.get_available_features()
+        unavailable = manager.get_unavailable_features()
+        print(f"  Features:       {len(available)} available, {len(unavailable)} unavailable")
+
+        if unavailable and status != "online":
+            print(f"\n  Unavailable features:")
+            for f in unavailable[:10]:
+                reason = manager.get_unavailable_reason(f)
+                print(f"    - {reason}")
+
+        cache_stats = manager.cache.stats() if manager.cache else None
+        if cache_stats:
+            print(f"\n  Cache: {cache_stats['active']} active, "
+                  f"{cache_stats['expired']} expired entries")
+        print()
+    finally:
+        if manager.cache:
+            manager.cache.close()
+
+
+def cmd_cache(args):
+    """Manage provider cache."""
+    from oasyce_plugin.consensus.provider_cache import ProviderCache
+
+    config = Config.from_env()
+    cache_db = os.path.join(config.data_dir, "provider_cache.db")
+    cache = ProviderCache(db_path=cache_db)
+
+    try:
+        sub = getattr(args, "cache_command", None)
+        use_json = getattr(args, "json", False)
+
+        if sub == "list":
+            include_expired = getattr(args, "all", False)
+            providers = cache.get_all_cached(include_expired=include_expired)
+            if use_json:
+                print(json.dumps(providers, indent=2, default=str))
+                return
+            if not providers:
+                print("  Cache is empty.")
+                return
+            print(f"\n  Cached providers ({len(providers)}):")
+            for p in providers:
+                pid = p.get("provider_id", "?")[:16]
+                expired = " (expired)" if p.get("_expired") else ""
+                print(f"    {pid}  {expired}")
+            print()
+
+        elif sub == "clear":
+            cache.clear()
+            print("  Cache cleared.")
+
+        elif sub == "stats":
+            stats = cache.stats()
+            if use_json:
+                print(json.dumps(stats, indent=2))
+                return
+            print(f"\n  Cache Statistics:")
+            print(f"    Total entries:   {stats['total']}")
+            print(f"    Active:          {stats['active']}")
+            print(f"    Expired:         {stats['expired']}")
+            print(f"    DB path:         {stats['db_path']}")
+            print(f"    Default TTL:     {stats['default_ttl']}s")
+            print()
+
+        elif sub == "purge":
+            removed = cache.purge_expired()
+            print(f"  Purged {removed} expired entries.")
+
+        else:
+            print("  Usage: oasyce cache {list|clear|stats|purge}")
+    finally:
+        cache.close()
 
 
 def main():
@@ -2836,6 +3916,31 @@ def main():
     testnet_reset_parser.add_argument("--force", action="store_true", help="Confirm reset")
     testnet_reset_parser.set_defaults(func=cmd_testnet_reset)
 
+    testnet_init_parser = testnet_sub.add_parser("init", help="Initialize testnet with N validators")
+    testnet_init_parser.add_argument("--validators", type=int, default=3, help="Number of validators (default: 3)")
+    testnet_init_parser.add_argument("--output", default="./testnet-data", help="Output directory")
+    testnet_init_parser.add_argument("--chain-id", default=None, help="Chain ID (default: oasyce-testnet-1)")
+    testnet_init_parser.add_argument("--json", action="store_true")
+    testnet_init_parser.set_defaults(func=cmd_testnet_init)
+
+    testnet_genesis_parser = testnet_sub.add_parser("genesis", help="Create genesis from config file")
+    testnet_genesis_parser.add_argument("--config", required=True, help="Path to testnet config JSON")
+    testnet_genesis_parser.add_argument("--output", default=None, help="Output genesis.json path")
+    testnet_genesis_parser.add_argument("--json", action="store_true")
+    testnet_genesis_parser.set_defaults(func=cmd_testnet_genesis)
+
+    testnet_join_parser = testnet_sub.add_parser("join", help="Join testnet using genesis file")
+    testnet_join_parser.add_argument("--genesis", required=True, help="Path to genesis.json")
+    testnet_join_parser.add_argument("--data-dir", default=None, help="Node data directory")
+    testnet_join_parser.add_argument("--bootstrap", default=None, help="Bootstrap peer address (host:port)")
+    testnet_join_parser.add_argument("--json", action="store_true")
+    testnet_join_parser.set_defaults(func=cmd_testnet_join)
+
+    testnet_faucet_serve_parser = testnet_sub.add_parser("faucet-serve", help="Start faucet HTTP server")
+    testnet_faucet_serve_parser.add_argument("--port", type=int, default=8421, help="Listen port")
+    testnet_faucet_serve_parser.add_argument("--data-dir", default=None, help="Data directory")
+    testnet_faucet_serve_parser.set_defaults(func=cmd_testnet_faucet_serve)
+
     # ── demo-network ─────────────────────────────────────────────────
     demo_net_parser = subparsers.add_parser(
         "demo-network",
@@ -2934,32 +4039,194 @@ def main():
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_consensus_unbondings)
 
-    # ── keys ────────────────────────────────────────────────────────
-    keys_parser = subparsers.add_parser("keys", help="Ed25519 key management")
+    # ── governance ─────────────────────────────────────────────────────
+    gov_parser = subparsers.add_parser("governance", help="On-chain governance")
+    gov_sub = gov_parser.add_subparsers(dest="governance_command", help="Governance sub-commands")
+
+    gp = gov_sub.add_parser("propose", help="Submit a governance proposal")
+    gp.add_argument("--title", required=True, help="Proposal title")
+    gp.add_argument("--description", default="", help="Proposal description")
+    gp.add_argument("--change", action="append", help="Parameter change: MODULE.KEY=VALUE (repeatable)")
+    gp.add_argument("--deposit", type=float, default=1000.0, help="Deposit in OAS (default: 1000)")
+    gp.add_argument("--json", action="store_true")
+    gp.set_defaults(func=cmd_governance_propose)
+
+    gv = gov_sub.add_parser("vote", help="Vote on a proposal")
+    gv.add_argument("--proposal", required=True, help="Proposal ID")
+    gv.add_argument("--vote", required=True, choices=["yes", "no", "abstain"], help="Vote option")
+    gv.add_argument("--json", action="store_true")
+    gv.set_defaults(func=cmd_governance_vote)
+
+    gl = gov_sub.add_parser("list", help="List proposals")
+    gl.add_argument("--status", default=None, help="Filter by status (active/passed/rejected/executed/expired)")
+    gl.add_argument("--json", action="store_true")
+    gl.set_defaults(func=cmd_governance_list)
+
+    gs = gov_sub.add_parser("show", help="Show proposal details")
+    gs.add_argument("proposal_id", help="Proposal ID")
+    gs.add_argument("--json", action="store_true")
+    gs.set_defaults(func=cmd_governance_show)
+
+    gt = gov_sub.add_parser("tally", help="Tally votes for a proposal")
+    gt.add_argument("proposal_id", help="Proposal ID")
+    gt.add_argument("--json", action="store_true")
+    gt.set_defaults(func=cmd_governance_tally)
+
+    gpm = gov_sub.add_parser("params", help="List governable parameters")
+    gpm.add_argument("--module", default=None, help="Filter by module")
+    gpm.add_argument("--json", action="store_true")
+    gpm.set_defaults(func=cmd_governance_params)
+
+    # ── assets (multi-asset management) ─────────────────────────────
+    assets_parser = subparsers.add_parser("assets", help="Multi-asset management")
+    assets_sub = assets_parser.add_subparsers(dest="assets_command", help="Asset sub-commands")
+
+    ar_parser = assets_sub.add_parser("register", help="Register a new asset type")
+    ar_parser.add_argument("--type", required=True, help="Asset type identifier (e.g. USDC)")
+    ar_parser.add_argument("--name", required=True, help="Human-readable name")
+    ar_parser.add_argument("--decimals", type=int, default=8, help="Decimal places (0-18)")
+    ar_parser.add_argument("--issuer", default="admin", help="Issuer address")
+    ar_parser.add_argument("--json", action="store_true")
+    ar_parser.set_defaults(func=cmd_assets_register)
+
+    al_parser = assets_sub.add_parser("list", help="List all registered asset types")
+    al_parser.add_argument("--json", action="store_true")
+    al_parser.set_defaults(func=cmd_assets_list)
+
+    ai_parser = assets_sub.add_parser("info", help="Show info for an asset type")
+    ai_parser.add_argument("--type", required=True, help="Asset type identifier")
+    ai_parser.add_argument("--json", action="store_true")
+    ai_parser.set_defaults(func=cmd_assets_info)
+
+    # ── balance ────────────────────────────────────────────────────
+    balance_parser = subparsers.add_parser("balance", help="Show balance for an address")
+    balance_parser.add_argument("--address", required=True, help="Address to query")
+    balance_parser.add_argument("--asset", default=None, help="Asset type (omit for all)")
+    balance_parser.add_argument("--json", action="store_true")
+    balance_parser.set_defaults(func=cmd_balance)
+
+    # ── transfer ───────────────────────────────────────────────────
+    transfer_parser = subparsers.add_parser("transfer", help="Transfer assets between addresses")
+    transfer_parser.add_argument("--from", dest="from_addr", required=True, help="Sender address")
+    transfer_parser.add_argument("--to", required=True, help="Recipient address")
+    transfer_parser.add_argument("--asset", default="OAS", help="Asset type (default: OAS)")
+    transfer_parser.add_argument("--amount", type=float, required=True, help="Amount to transfer")
+    transfer_parser.add_argument("--json", action="store_true")
+    transfer_parser.set_defaults(func=cmd_transfer)
+
+    # ── sync ───────────────────────────────────────────────────────
+    sync_parser = subparsers.add_parser("sync", help="Sync blocks from network peers")
+    sync_parser.add_argument("--from-height", type=int, default=None, help="Local chain height")
+    sync_parser.add_argument("--peers", type=str, default=None, help="Comma-separated peer list (host:port)")
+    sync_parser.add_argument("--auto", action="store_true", help="Auto-sync from known peers")
+    sync_parser.add_argument("--status", action="store_true", help="Show sync status")
+    sync_parser.add_argument("--json", action="store_true")
+    sync_parser.set_defaults(func=cmd_sync)
+
+    # ── chain ──────────────────────────────────────────────────────
+    chain_parser = subparsers.add_parser("chain", help="Chain information")
+    chain_sub = chain_parser.add_subparsers(dest="chain_command", help="Chain sub-commands")
+
+    chain_info_parser = chain_sub.add_parser("info", help="Show local chain info")
+    chain_info_parser.add_argument("--json", action="store_true")
+    chain_info_parser.set_defaults(func=cmd_chain_info)
+
+    # ── keys ───────────────────────────────────────────────────────
+    keys_parser = subparsers.add_parser("keys", help="Ed25519 key management for consensus signing")
     keys_sub = keys_parser.add_subparsers(dest="keys_command", help="Key sub-commands")
+
     keys_gen_parser = keys_sub.add_parser("generate", help="Generate Ed25519 keypair")
-    keys_gen_parser.add_argument("--force", action="store_true", help="Overwrite existing keypair")
-    keys_gen_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    keys_gen_parser.add_argument("--force", action="store_true", help="Overwrite existing keys")
+    keys_gen_parser.add_argument("--passphrase", default=None, help="Encrypt private key with passphrase")
+    keys_gen_parser.add_argument("--json", action="store_true")
     keys_gen_parser.set_defaults(func=cmd_keys_generate)
+
     keys_show_parser = keys_sub.add_parser("show", help="Show current signing key")
-    keys_show_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    keys_show_parser.add_argument("--json", action="store_true")
     keys_show_parser.set_defaults(func=cmd_keys_show)
 
-    # ── enforcement ─────────────────────────────────────────────────
-    enforcement_parser = subparsers.add_parser("enforcement", help="Enforcement and bounty system")
-    enforcement_parser.set_defaults(func=cmd_enforcement_help)
-    enforcement_sub = enforcement_parser.add_subparsers(dest="enforcement_command", help="Enforcement sub-commands")
-    enf_scan_parser = enforcement_sub.add_parser("scan-content", help="Scan file for fingerprint")
-    enf_scan_parser.add_argument("file", help="Path to file to scan")
-    enf_scan_parser.add_argument("--json", action="store_true", help="Output as JSON")
-    enf_scan_parser.set_defaults(func=cmd_enforcement_scan_content)
-    enf_bounty_parser = enforcement_sub.add_parser("bounty", help="Query bounty info")
-    enf_bounty_parser.add_argument("--asset", required=True, help="Asset ID")
-    enf_bounty_parser.add_argument("--json", action="store_true", help="Output as JSON")
-    enf_bounty_parser.set_defaults(func=cmd_enforcement_bounty)
-    enf_list_parser = enforcement_sub.add_parser("list", help="List enforcement cases")
-    enf_list_parser.add_argument("--json", action="store_true", help="Output as JSON")
-    enf_list_parser.set_defaults(func=cmd_enforcement_list)
+    # ── replay ──────────────────────────────────────────────────────
+    replay_parser = subparsers.add_parser("replay", help="Replay stake events and verify state")
+    replay_parser.add_argument("--verify", action="store_true",
+                               help="Compare replayed state against current state")
+    replay_parser.add_argument("--from-height", type=int, default=None,
+                               help="Start replay from this block height")
+    replay_parser.add_argument("--to-height", type=int, default=None,
+                               help="Stop replay at this block height")
+    replay_parser.add_argument("--json", action="store_true")
+    replay_parser.set_defaults(func=cmd_replay)
+
+    # ── status (offline mode) ─────────────────────────────────────
+    status_parser = subparsers.add_parser("status", help="Show network connectivity status")
+    status_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    status_parser.set_defaults(func=cmd_status)
+
+    # ── cache management ──────────────────────────────────────────
+    cache_parser = subparsers.add_parser("cache", help="Manage provider cache")
+    cache_sub = cache_parser.add_subparsers(dest="cache_command", help="Cache sub-commands")
+
+    cache_list_parser = cache_sub.add_parser("list", help="List cached providers")
+    cache_list_parser.add_argument("--all", action="store_true", help="Include expired entries")
+    cache_list_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    cache_list_parser.set_defaults(func=cmd_cache)
+
+    cache_clear_parser = cache_sub.add_parser("clear", help="Clear all cached providers")
+    cache_clear_parser.set_defaults(func=cmd_cache)
+
+    cache_stats_parser = cache_sub.add_parser("stats", help="Show cache statistics")
+    cache_stats_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    cache_stats_parser.set_defaults(func=cmd_cache)
+
+    cache_purge_parser = cache_sub.add_parser("purge", help="Remove expired cache entries")
+    cache_purge_parser.set_defaults(func=cmd_cache)
+
+    # ── enforcement ────────────────────────────────────────────────
+    enf_parser = subparsers.add_parser("enforcement", help="Bounty hunter enforcement system")
+    enf_sub = enf_parser.add_subparsers(dest="enforcement_command", help="Enforcement sub-commands")
+
+    enf_scan_content = enf_sub.add_parser("scan-content", help="Scan a local file for fingerprint")
+    enf_scan_content.add_argument("file", help="Path to file to scan")
+    enf_scan_content.add_argument("--json", action="store_true")
+    enf_scan_content.set_defaults(func=cmd_enforcement_scan_content)
+
+    enf_scan_url = enf_sub.add_parser("scan-url", help="Scan a platform URL")
+    enf_scan_url.add_argument("platform", help="Platform: github, twitter, zhihu, web")
+    enf_scan_url.add_argument("url", help="URL to scan")
+    enf_scan_url.add_argument("--json", action="store_true")
+    enf_scan_url.set_defaults(func=cmd_enforcement_scan_url)
+
+    enf_scan_github = enf_sub.add_parser("scan-github", help="Scan a GitHub repository")
+    enf_scan_github.add_argument("repo", help="Repository in owner/repo format")
+    enf_scan_github.add_argument("--json", action="store_true")
+    enf_scan_github.set_defaults(func=cmd_enforcement_scan_github)
+
+    enf_report = enf_sub.add_parser("report", help="Submit an infringement report")
+    enf_report.add_argument("--asset", required=True, help="Asset ID")
+    enf_report.add_argument("--url", default="", help="URL where infringement was found")
+    enf_report.add_argument("--platform", default="unknown", help="Platform name")
+    enf_report.add_argument("--type", default="unauthorized_distribution",
+                            choices=["unauthorized_distribution", "content_tampering",
+                                     "license_violation", "attribution_missing"],
+                            help="Infringement type")
+    enf_report.add_argument("--description", default="", help="Description of infringement")
+    enf_report.add_argument("--fingerprint", dest="fingerprint_hex", default="", help="Content fingerprint hex")
+    enf_report.add_argument("--content-hash", default="", help="Content SHA-256 hash")
+    enf_report.add_argument("--similarity", type=int, default=0, help="Similarity score (0-10000)")
+    enf_report.add_argument("--reporter", default="self", help="Reporter address")
+    enf_report.add_argument("--json", action="store_true")
+    enf_report.set_defaults(func=cmd_enforcement_report)
+
+    enf_bounty = enf_sub.add_parser("bounty", help="Show bounty info for an asset")
+    enf_bounty.add_argument("--asset", required=True, help="Asset ID")
+    enf_bounty.add_argument("--json", action="store_true")
+    enf_bounty.set_defaults(func=cmd_enforcement_bounty)
+
+    enf_list = enf_sub.add_parser("list", help="List enforcement cases")
+    enf_list.add_argument("--status", default=None,
+                          choices=["pending", "under_review", "verified", "rejected", "resolved"],
+                          help="Filter by status")
+    enf_list.add_argument("--json", action="store_true")
+    enf_list.set_defaults(func=cmd_enforcement_list)
 
     # ── doctor ──────────────────────────────────────────────────────
     doctor_parser = subparsers.add_parser("doctor", help="Security and readiness check")
@@ -3017,12 +4284,24 @@ def main():
         consensus_parser.print_help()
         sys.exit(0)
 
+    if args.command == "governance" and getattr(args, "governance_command", None) is None:
+        gov_parser.print_help()
+        sys.exit(0)
+
     if args.command == "keys" and getattr(args, "keys_command", None) is None:
         keys_parser.print_help()
         sys.exit(0)
 
+    if args.command == "chain" and getattr(args, "chain_command", None) is None:
+        chain_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "cache" and getattr(args, "cache_command", None) is None:
+        cache_parser.print_help()
+        sys.exit(0)
+
     if args.command == "enforcement" and getattr(args, "enforcement_command", None) is None:
-        cmd_enforcement_help(args)
+        enf_parser.print_help()
         sys.exit(0)
 
     args.func(args)

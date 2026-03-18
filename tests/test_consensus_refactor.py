@@ -110,6 +110,8 @@ class TestOperationTypes:
         assert OperationType.REWARD.value == "reward"
         assert OperationType.EXIT.value == "exit"
         assert OperationType.UNJAIL.value == "unjail"
+        assert OperationType.TRANSFER.value == "transfer"
+        assert OperationType.REGISTER_ASSET.value == "register_asset"
 
     def test_slash_rates_are_int(self):
         assert isinstance(OFFLINE_SLASH_BPS, int)
