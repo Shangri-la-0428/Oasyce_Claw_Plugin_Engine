@@ -20,9 +20,20 @@ from oasyce_plugin.consensus.rewards import RewardEngine
 from oasyce_plugin.consensus.core.types import (
     OAS_DECIMALS, to_units, from_units,
     Operation, OperationType,
-    AssetType, KNOWN_ASSET_TYPES, ASSET_DECIMALS, Resource,
+    AssetType, Resource, KNOWN_ASSET_TYPES, ASSET_DECIMALS,
 )
-from oasyce_plugin.consensus.assets import AssetRegistry, AssetDefinition, MultiAssetBalance
+from oasyce_plugin.consensus.assets.registry import AssetDefinition, AssetRegistry
+from oasyce_plugin.consensus.assets.balances import MultiAssetBalance
+from oasyce_plugin.consensus.governance.types import (
+    Proposal,
+    ParameterChange,
+    Vote,
+    VoteOption,
+    VoteResult,
+    ProposalStatus,
+)
+from oasyce_plugin.consensus.governance.engine import GovernanceEngine
+from oasyce_plugin.consensus.governance.registry import ParameterRegistry
 from oasyce_plugin.consensus.core.transition import apply_operation
 from oasyce_plugin.consensus.core.validation import validate_operation
 from oasyce_plugin.consensus.core.signature import (
@@ -30,10 +41,37 @@ from oasyce_plugin.consensus.core.signature import (
     sign_operation,
     verify_signature,
 )
+from oasyce_plugin.consensus.core.fork_choice import (
+    ChainInfo,
+    ForkInfo,
+    ForkPoint,
+    ReorgResult,
+    MAX_REORG_DEPTH,
+    choose_fork,
+    choose_best_chain,
+    should_sync,
+    rank_peers,
+    get_chain_weight,
+    find_common_ancestor,
+    detect_fork,
+    detect_fork_info,
+    detect_fork_point,
+    execute_reorg,
+    reorg_to,
+)
+from oasyce_plugin.consensus.network.sync import BlockSyncProtocol
+from oasyce_plugin.consensus.node import ConsensusNode, NodeState, JoinResult
 
 __all__ = [
     "ConsensusEngine",
     "ConsensusState",
+    "AssetDefinition",
+    "AssetRegistry",
+    "MultiAssetBalance",
+    "AssetType",
+    "Resource",
+    "KNOWN_ASSET_TYPES",
+    "ASSET_DECIMALS",
     "EpochManager",
     "ValidatorRegistry",
     "ProposerElection",
@@ -49,13 +87,34 @@ __all__ = [
     "to_units",
     "from_units",
     "OAS_DECIMALS",
-    "AssetType",
-    "KNOWN_ASSET_TYPES",
-    "ASSET_DECIMALS",
-    "Resource",
-    "AssetRegistry",
-    "AssetDefinition",
-    "MultiAssetBalance",
+    "ChainInfo",
+    "ForkInfo",
+    "ForkPoint",
+    "ReorgResult",
+    "MAX_REORG_DEPTH",
+    "choose_fork",
+    "choose_best_chain",
+    "should_sync",
+    "rank_peers",
+    "get_chain_weight",
+    "find_common_ancestor",
+    "detect_fork",
+    "detect_fork_info",
+    "detect_fork_point",
+    "execute_reorg",
+    "reorg_to",
+    "BlockSyncProtocol",
+    "ConsensusNode",
+    "NodeState",
+    "JoinResult",
+    "Proposal",
+    "ParameterChange",
+    "Vote",
+    "VoteOption",
+    "VoteResult",
+    "ProposalStatus",
+    "GovernanceEngine",
+    "ParameterRegistry",
 ]
 
 
@@ -78,6 +137,7 @@ class ConsensusEngine:
         self.chain_id = params.get("chain_id", "oasyce-testnet-1")
         self.blocks_per_epoch = params.get("blocks_per_epoch", 10)
         self.unbonding_blocks = params.get("unbonding_blocks", 20)
+        self.genesis_time = genesis_time or 0
 
         self.state = ConsensusState(db_path)
         self.epoch_manager = EpochManager(self.state, params, genesis_time)
@@ -103,6 +163,57 @@ class ConsensusEngine:
             halving_interval=economics.get("halving_interval", 10000),
         )
         self.asset_registry = AssetRegistry()
+
+        # Governance
+        self.param_registry = ParameterRegistry()
+        self._register_default_params(economics, params)
+        self.governance = GovernanceEngine(
+            self.state, self.param_registry,
+            min_deposit=economics.get("min_deposit", 100_000_000_000),
+            voting_period=params.get("voting_period", 60480),
+        )
+
+    def _register_default_params(self, economics: Dict[str, Any],
+                                  params: Dict[str, Any]) -> None:
+        """Register governable parameters with the parameter registry."""
+        reg = self.param_registry
+        # Consensus parameters
+        reg.register("consensus", "blocks_per_epoch", int,
+                     self.blocks_per_epoch, min_value=1, max_value=10000,
+                     description="Blocks per epoch",
+                     applier=lambda v: setattr(self, "blocks_per_epoch", v))
+        reg.register("consensus", "unbonding_blocks", int,
+                     self.unbonding_blocks, min_value=1, max_value=100000,
+                     description="Unbonding period in blocks")
+        reg.register("consensus", "voting_period", int,
+                     params.get("voting_period", 60480),
+                     min_value=100, max_value=1000000,
+                     description="Governance voting period in blocks")
+
+        # Economics parameters
+        reg.register("economics", "min_stake", int,
+                     economics.get("min_stake", 10_000_000_000),
+                     min_value=1_000_000_000, max_value=1_000_000_000_000,
+                     description="Minimum validator stake (units)")
+        reg.register("economics", "block_reward", int,
+                     economics.get("block_reward", 4_000_000_000),
+                     min_value=0, max_value=100_000_000_000,
+                     description="Block reward per block (units)")
+        reg.register("economics", "min_deposit", int,
+                     economics.get("min_deposit", 100_000_000_000),
+                     min_value=0, max_value=10_000_000_000_000,
+                     description="Minimum governance proposal deposit (units)")
+
+        # Slashing parameters
+        reg.register("slashing", "offline_slash_bps", int,
+                     100, min_value=0, max_value=5000,
+                     description="Offline slash rate in basis points")
+        reg.register("slashing", "double_sign_slash_bps", int,
+                     500, min_value=0, max_value=10000,
+                     description="Double-sign slash rate in basis points")
+        reg.register("slashing", "low_quality_slash_bps", int,
+                     50, min_value=0, max_value=5000,
+                     description="Low-quality slash rate in basis points")
 
     @staticmethod
     def _default_testnet_params() -> Dict[str, Any]:
@@ -144,6 +255,16 @@ class ConsensusEngine:
     def apply(self, op: Operation, block_height: int = 0) -> Dict[str, Any]:
         """Apply a single operation through the unified state machine."""
         return apply_operation(self, op, block_height)
+
+    @staticmethod
+    def sign_op(op: Operation, secret_key_hex: str, public_key_hex: str) -> Operation:
+        """Return a copy of *op* with sender, timestamp, and signature filled in."""
+        import time as _time
+        from dataclasses import replace
+        ts = op.timestamp if op.timestamp > 0 else int(_time.time())
+        unsigned = replace(op, sender=public_key_hex, timestamp=ts)
+        sig = sign_operation(unsigned, secret_key_hex)
+        return replace(unsigned, signature=sig)
 
     def status(self, now: Optional[int] = None) -> Dict[str, Any]:
         now = now or int(time.time())
@@ -271,6 +392,26 @@ class ConsensusEngine:
                         validator_id: str) -> bool:
         return self.proposer.verify_proposer(epoch_number, slot_index, validator_id)
 
+    # ── Block sync ─────────────────────────────────────────────────
+
+    def get_genesis_hash(self) -> str:
+        """Compute the genesis block hash for this chain."""
+        from oasyce_plugin.consensus.network.sync_protocol import make_genesis_block
+        genesis = make_genesis_block(self.chain_id, timestamp=self.genesis_time)
+        return genesis.block_hash
+
+    def sync_from_peers(self, peers, local_height: int = -1,
+                        verify_signatures: bool = False,
+                        on_progress=None) -> Dict[str, Any]:
+        """Sync blocks from the best available peer."""
+        from oasyce_plugin.consensus.network.block_sync import sync_from_network
+        result = sync_from_network(
+            peers, self, local_height, self.get_genesis_hash(),
+            verify_signatures=verify_signatures,
+            on_progress=on_progress,
+        )
+        return result.to_dict()
+
     # ── Multi-asset operations ──────────────────────────────────────
 
     def transfer_asset(self, from_addr: str, to_addr: str,
@@ -316,17 +457,33 @@ class ConsensusEngine:
     def list_asset_types(self) -> List[Dict[str, Any]]:
         return self.asset_registry.to_dict_list()
 
-    # ── Signature helpers ───────────────────────────────────────────
+    # ── Governance operations ──────────────────────────────────────
 
-    @staticmethod
-    def sign_op(op: Operation, secret_key_hex: str,
-                public_key_hex: str) -> Operation:
-        """Sign an operation and return a new Operation with signature + sender + timestamp."""
-        import dataclasses
-        ts = op.timestamp if op.timestamp > 0 else int(time.time())
-        op_with_ts = dataclasses.replace(op, sender=public_key_hex, timestamp=ts)
-        sig = sign_operation(op_with_ts, secret_key_hex)
-        return dataclasses.replace(op_with_ts, signature=sig)
+    def submit_proposal(self, proposer: str, title: str,
+                        description: str,
+                        changes: List[ParameterChange],
+                        deposit: int,
+                        block_height: int = 0) -> Dict[str, Any]:
+        return self.governance.submit_proposal(
+            proposer, title, description, changes, deposit, block_height,
+        )
+
+    def cast_vote(self, proposal_id: str, voter: str,
+                  option: VoteOption,
+                  block_height: int = 0) -> Dict[str, Any]:
+        return self.governance.cast_vote(proposal_id, voter, option, block_height)
+
+    def tally_votes(self, proposal_id: str) -> Dict[str, Any]:
+        return self.governance.tally_votes(proposal_id)
+
+    def get_proposal(self, proposal_id: str) -> Optional[Dict[str, Any]]:
+        return self.governance.get_proposal(proposal_id)
+
+    def list_proposals(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self.governance.list_proposals(status)
+
+    def list_governable_params(self, module: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self.param_registry.to_dict_list(module)
 
     def close(self) -> None:
         self.state.close()
