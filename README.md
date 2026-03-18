@@ -1,8 +1,6 @@
 # Oasyce
 
-[![CI](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions)
-[![PyPI](https://img.shields.io/pypi/v/oasyce)](https://pypi.org/project/oasyce/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![CI](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions/workflows/ci.yml/badge.svg) ![PyPI](https://img.shields.io/pypi/v/oasyce) ![Python](https://img.shields.io/pypi/pyversions/oasyce) ![License](https://img.shields.io/github/license/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
 
 **数据有了主权，能力有了价格。**
 
@@ -290,5 +288,5 @@ MIT
 
 ## Community
 
-- [Discord](https://discord.gg/dPP5eZKs) — 提问、反馈、闲聊
+- [Discord](https://discord.gg/tfrCn54yZW) — 提问、反馈、闲聊
 - [GitHub Issues](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues) — Bug 报告、功能建议

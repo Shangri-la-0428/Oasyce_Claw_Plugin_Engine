@@ -32,3 +32,10 @@ jobs:
 
       - name: Run tests
         run: pytest --tb=short -q
+
+      - name: Lint with black
+        run: black --check .
+
+      - name: Type check with mypy
+        continue-on-error: true
+        run: mypy oasyce_plugin --ignore-missing-imports
