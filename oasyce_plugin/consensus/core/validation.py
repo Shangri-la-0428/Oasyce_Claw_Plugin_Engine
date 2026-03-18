@@ -7,12 +7,42 @@ They return (True, None) on success or (False, error_message) on failure.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Tuple
 
 from oasyce_plugin.consensus.core.types import Operation, OperationType, MAX_COMMISSION_BPS
 
 if TYPE_CHECKING:
     from oasyce_plugin.consensus import ConsensusEngine
+
+# Signature enforcement toggle.
+# Set OASYCE_REQUIRE_SIGNATURES=1 to enforce Ed25519 signatures on all
+# user-initiated operations. Default is off (testnet / backward-compat).
+REQUIRE_SIGNATURES: bool = os.environ.get("OASYCE_REQUIRE_SIGNATURES", "0") == "1"
+
+MAX_TIMESTAMP_DRIFT: int = 300  # 5 minutes
+
+
+def _validate_signature(op: Operation) -> Tuple[bool, str]:
+    """Validate Ed25519 signature on an operation.
+
+    Skipped for system-generated operations (SLASH, REWARD) and when
+    REQUIRE_SIGNATURES is False.
+    """
+    if op.op_type in (OperationType.SLASH, OperationType.REWARD):
+        return True, ""
+    if not REQUIRE_SIGNATURES:
+        return True, ""
+    if not op.sender:
+        return False, "missing sender public key"
+    if not op.signature:
+        return False, "missing signature"
+    from oasyce_plugin.consensus.core.signature import verify_signature
+    if not verify_signature(op, op.signature, op.sender):
+        return False, "invalid signature"
+    if op.timestamp <= 0:
+        return False, "missing or invalid timestamp"
+    return True, ""
 
 
 def validate_operation(engine: ConsensusEngine, op: Operation,
@@ -22,6 +52,9 @@ def validate_operation(engine: ConsensusEngine, op: Operation,
     Returns:
         (True, "") if valid, (False, error_message) if invalid.
     """
+    sig_ok, sig_err = _validate_signature(op)
+    if not sig_ok:
+        return False, sig_err
     if op.op_type == OperationType.REGISTER:
         return _validate_register(engine, op)
     elif op.op_type == OperationType.DELEGATE:

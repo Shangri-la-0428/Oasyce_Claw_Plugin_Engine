@@ -2338,6 +2338,142 @@ def cmd_consensus_unbondings(args):
         engine.close()
 
 
+# ── Key management ───────────────────────────────────────────────
+
+
+def _keys_dir() -> Path:
+    """Get keys directory from Config, fallback to ~/.oasyce/keys."""
+    try:
+        cfg = Config.from_env()
+        return Path(cfg.data_dir) / "keys"
+    except Exception:
+        return Path.home() / ".oasyce" / "keys"
+
+
+def cmd_keys_generate(args):
+    """Generate Ed25519 keypair for signing operations."""
+    from oasyce_plugin.crypto.keys import generate_keypair
+    keys_dir = _keys_dir()
+    priv_path = keys_dir / "private.key"
+    pub_path = keys_dir / "public.key"
+    if priv_path.exists() and not getattr(args, "force", False):
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "error": "keypair exists, use --force"}))
+        else:
+            print(f"Keys already exist at {keys_dir}. Use --force to overwrite.")
+        return
+    keys_dir.mkdir(parents=True, exist_ok=True)
+    priv, pub = generate_keypair()
+    priv_path.write_text(priv)
+    pub_path.write_text(pub)
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "public_key": pub, "path": str(keys_dir)}))
+    else:
+        print(f"Keypair generated:")
+        print(f"  Public:  {pub}")
+        print(f"  Stored:  {keys_dir}")
+
+
+def cmd_keys_show(args):
+    """Show current signing key."""
+    keys_dir = _keys_dir()
+    pub_path = keys_dir / "public.key"
+    if not pub_path.exists():
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "error": "no keys found"}))
+        else:
+            print("No keys found. Run: oasyce keys generate")
+        return
+    pub = pub_path.read_text().strip()
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "public_key": pub, "path": str(keys_dir)}))
+    else:
+        print(f"Public key: {pub}")
+        print(f"Location:   {keys_dir}")
+
+
+# ── Enforcement CLI ─────────────────────────────────────────────
+
+
+def _get_enforcement_engine():
+    from oasyce_plugin.consensus.enforcement import EnforcementEngine
+    return EnforcementEngine()
+
+
+def cmd_enforcement_scan_content(args):
+    """Scan a local file for fingerprint."""
+    engine = _get_enforcement_engine()
+    file_path = args.file
+    if not os.path.exists(file_path):
+        print(f"File not found: {file_path}", file=sys.stderr)
+        sys.exit(1)
+    with open(file_path, "rb") as f:
+        data = f.read()
+    result = engine.scan_content(data)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "fingerprint": result.fingerprint,
+            "content_hash": result.content_hash,
+            "content_size": result.content_size,
+            "watermark_found": result.watermark_found,
+            "watermark_data": result.watermark_data,
+        }))
+    else:
+        print(f"Fingerprint:  {result.fingerprint}")
+        print(f"Content hash: {result.content_hash}")
+        print(f"Size:         {result.content_size} bytes")
+        if result.watermark_found:
+            print(f"Watermark:    {result.watermark_data}")
+
+
+def cmd_enforcement_bounty(args):
+    """Query bounty info for an asset."""
+    engine = _get_enforcement_engine()
+    asset_id = args.asset
+    info = engine.get_bounty_info(asset_id)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "asset_id": info.asset_id,
+            "total_bounty_pool": info.total_bounty_pool,
+            "active_cases": info.active_cases,
+            "resolved_cases": info.resolved_cases,
+            "total_paid": info.total_paid_out,
+        }))
+    else:
+        from oasyce_plugin.consensus.core.types import from_units
+        print(f"Asset:       {info.asset_id}")
+        print(f"Bounty pool: {from_units(info.total_bounty_pool):.2f} OAS")
+        print(f"Active:      {info.active_cases}")
+        print(f"Resolved:    {info.resolved_cases}")
+        print(f"Total paid:  {from_units(info.total_paid_out):.2f} OAS")
+
+
+def cmd_enforcement_list(args):
+    """List enforcement cases."""
+    engine = _get_enforcement_engine()
+    cases = engine.list_cases()
+    if getattr(args, "json", False):
+        print(json.dumps([{
+            "dispute_id": c.dispute_id,
+            "asset_id": c.asset_id,
+            "status": c.status.value if hasattr(c.status, "value") else str(c.status),
+            "reporter": c.reporter,
+        } for c in cases]))
+    else:
+        if not cases:
+            print("No enforcement cases.")
+        for c in cases:
+            print(f"  [{c.dispute_id[:8]}] {c.asset_id} — {c.status}")
+
+
+def cmd_enforcement_help(args):
+    """Show enforcement help."""
+    print("Enforcement commands:")
+    print("  oasyce enforcement scan-content <file>    Scan file for fingerprint")
+    print("  oasyce enforcement bounty --asset <id>    Query bounty info")
+    print("  oasyce enforcement list                   List cases")
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="oasyce",
@@ -2798,6 +2934,33 @@ def main():
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_consensus_unbondings)
 
+    # ── keys ────────────────────────────────────────────────────────
+    keys_parser = subparsers.add_parser("keys", help="Ed25519 key management")
+    keys_sub = keys_parser.add_subparsers(dest="keys_command", help="Key sub-commands")
+    keys_gen_parser = keys_sub.add_parser("generate", help="Generate Ed25519 keypair")
+    keys_gen_parser.add_argument("--force", action="store_true", help="Overwrite existing keypair")
+    keys_gen_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    keys_gen_parser.set_defaults(func=cmd_keys_generate)
+    keys_show_parser = keys_sub.add_parser("show", help="Show current signing key")
+    keys_show_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    keys_show_parser.set_defaults(func=cmd_keys_show)
+
+    # ── enforcement ─────────────────────────────────────────────────
+    enforcement_parser = subparsers.add_parser("enforcement", help="Enforcement and bounty system")
+    enforcement_parser.set_defaults(func=cmd_enforcement_help)
+    enforcement_sub = enforcement_parser.add_subparsers(dest="enforcement_command", help="Enforcement sub-commands")
+    enf_scan_parser = enforcement_sub.add_parser("scan-content", help="Scan file for fingerprint")
+    enf_scan_parser.add_argument("file", help="Path to file to scan")
+    enf_scan_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    enf_scan_parser.set_defaults(func=cmd_enforcement_scan_content)
+    enf_bounty_parser = enforcement_sub.add_parser("bounty", help="Query bounty info")
+    enf_bounty_parser.add_argument("--asset", required=True, help="Asset ID")
+    enf_bounty_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    enf_bounty_parser.set_defaults(func=cmd_enforcement_bounty)
+    enf_list_parser = enforcement_sub.add_parser("list", help="List enforcement cases")
+    enf_list_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    enf_list_parser.set_defaults(func=cmd_enforcement_list)
+
     # ── doctor ──────────────────────────────────────────────────────
     doctor_parser = subparsers.add_parser("doctor", help="Security and readiness check")
     doctor_parser.set_defaults(func=cmd_doctor)
@@ -2852,6 +3015,14 @@ def main():
 
     if args.command == "consensus" and getattr(args, "consensus_command", None) is None:
         consensus_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "keys" and getattr(args, "keys_command", None) is None:
+        keys_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "enforcement" and getattr(args, "enforcement_command", None) is None:
+        cmd_enforcement_help(args)
         sys.exit(0)
 
     args.func(args)

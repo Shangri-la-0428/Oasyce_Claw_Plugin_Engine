@@ -70,6 +70,8 @@ class Operation:
     commission_rate: int = 1000  # basis points (1000 = 10.00%)
     signature: str = ""
     chain_id: str = ""
+    sender: str = ""             # public key of the operation sender
+    timestamp: int = 0           # unix timestamp (anti-replay)
 
     def __post_init__(self) -> None:
         if self.amount < 0:

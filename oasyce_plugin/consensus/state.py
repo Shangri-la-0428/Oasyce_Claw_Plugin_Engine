@@ -124,6 +124,15 @@ class ConsensusState:
                     key   TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS state_snapshots (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    block_height  INTEGER NOT NULL UNIQUE,
+                    validator_states BLOB NOT NULL,
+                    stake_states     BLOB NOT NULL,
+                    created_at    INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_snapshots_height
+                    ON state_snapshots(block_height);
             """)
 
     # ── Stake Events (append-only, single source of truth) ─────────
@@ -147,51 +156,23 @@ class ConsensusState:
 
     def get_validator_stake(self, validator_id: str,
                             at_height: Optional[int] = None) -> int:
-        """Derive total stake for a validator from events."""
-        height_clause = ""
-        params: list = [validator_id]
-        if at_height is not None:
-            height_clause = " AND block_height <= ?"
-            params.append(at_height)
-        with self._lock:
-            row = self._conn.execute(
-                f"""SELECT COALESCE(SUM(
-                    CASE WHEN event_type IN ('register_self', 'delegate', 'reward')
-                         THEN amount
-                         WHEN event_type IN ('undelegate', 'slash', 'exit')
-                         THEN -amount
-                         ELSE 0
-                    END
-                ), 0) AS total
-                FROM stake_events
-                WHERE validator_id = ?{height_clause}""",
-                params,
-            ).fetchone()
-        return max(0, row[0]) if row else 0
+        """Derive total stake for a validator from events.
+
+        Uses snapshot acceleration when available: loads cached stake from the
+        most recent snapshot, then replays only incremental events after it.
+        Falls back to full scan when no snapshot exists.
+        """
+        from oasyce_plugin.consensus.storage.snapshots import get_validator_stake_fast
+        return get_validator_stake_fast(self, validator_id, at_height)
 
     def get_self_stake(self, validator_id: str,
                        at_height: Optional[int] = None) -> int:
-        """Derive self-stake from events (register_self minus exit/slash on self)."""
-        height_clause = ""
-        # params order: from_addr match (x2), then validator_id, then optional height
-        params: list = [validator_id, validator_id, validator_id]
-        if at_height is not None:
-            height_clause = " AND block_height <= ?"
-            params.append(at_height)
-        with self._lock:
-            row = self._conn.execute(
-                f"""SELECT COALESCE(SUM(
-                    CASE WHEN event_type = 'register_self' THEN amount
-                         WHEN event_type = 'exit' AND from_addr = ? THEN -amount
-                         WHEN event_type = 'slash' AND from_addr = ? THEN -amount
-                         ELSE 0
-                    END
-                ), 0) AS total
-                FROM stake_events
-                WHERE validator_id = ?{height_clause}""",
-                params,
-            ).fetchone()
-        return max(0, row[0]) if row else 0
+        """Derive self-stake from events (register_self minus exit/slash on self).
+
+        Uses snapshot acceleration when available.
+        """
+        from oasyce_plugin.consensus.storage.snapshots import get_self_stake_fast
+        return get_self_stake_fast(self, validator_id, at_height)
 
     def get_delegations(self, validator_id: str,
                         at_height: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -660,6 +641,84 @@ class ConsensusState:
                 "ON CONFLICT(key) DO UPDATE SET value = ?",
                 (key, value, value),
             )
+
+    # ── Reorg support (event-sourced rollback) ─────────────────────
+
+    def revert_to_height(self, height: int) -> int:
+        """Mark all stake_events above *height* as reverted.
+
+        Events are not deleted — a ``reverted_at`` column tracks which
+        events have been logically removed.  Returns the number of events
+        reverted.
+        """
+        self._ensure_reverted_column()
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "UPDATE stake_events SET reverted_at = ? "
+                "WHERE block_height > ? AND reverted_at IS NULL",
+                (height, height),
+            )
+            reverted = cur.rowcount
+
+            self._conn.execute(
+                "DELETE FROM slash_events WHERE block_height > ?", (height,)
+            )
+            self._conn.execute(
+                "DELETE FROM reward_events WHERE block_height > ?", (height,)
+            )
+            self._conn.execute(
+                "DELETE FROM leader_schedule WHERE epoch_number IN "
+                "(SELECT epoch_number FROM epochs WHERE start_block > ?)",
+                (height,),
+            )
+            self._conn.execute(
+                "DELETE FROM epochs WHERE start_block > ?", (height,)
+            )
+        return reverted
+
+    def delete_snapshots_above(self, height: int) -> int:
+        """Delete all state snapshots above *height*."""
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "DELETE FROM state_snapshots WHERE block_height > ?", (height,)
+            )
+        return cur.rowcount
+
+    def _ensure_reverted_column(self) -> None:
+        """Add ``reverted_at`` column to stake_events if it doesn't exist."""
+        with self._lock:
+            cols = [
+                row[1] for row in
+                self._conn.execute("PRAGMA table_info(stake_events)").fetchall()
+            ]
+        if "reverted_at" not in cols:
+            with self._lock, self._conn:
+                self._conn.execute(
+                    "ALTER TABLE stake_events ADD COLUMN reverted_at INTEGER"
+                )
+
+    def get_stake_events(self, from_height: int = 0,
+                         to_height: Optional[int] = None,
+                         include_reverted: bool = False) -> List[Dict[str, Any]]:
+        """Read stake events in a height range.
+
+        By default, excludes reverted events.
+        """
+        self._ensure_reverted_column()
+        clauses = ["block_height >= ?"]
+        params: list = [from_height]
+        if to_height is not None:
+            clauses.append("block_height <= ?")
+            params.append(to_height)
+        if not include_reverted:
+            clauses.append("reverted_at IS NULL")
+        where = " AND ".join(clauses)
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM stake_events WHERE {where} ORDER BY id",
+                params,
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     # ── Utility ───────────────────────────────────────────────────
 

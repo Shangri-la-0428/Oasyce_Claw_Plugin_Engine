@@ -23,6 +23,11 @@ from oasyce_plugin.consensus.core.types import (
 )
 from oasyce_plugin.consensus.core.transition import apply_operation
 from oasyce_plugin.consensus.core.validation import validate_operation
+from oasyce_plugin.consensus.core.signature import (
+    serialize_operation,
+    sign_operation,
+    verify_signature,
+)
 
 __all__ = [
     "ConsensusEngine",
@@ -36,6 +41,9 @@ __all__ = [
     "OperationType",
     "apply_operation",
     "validate_operation",
+    "serialize_operation",
+    "sign_operation",
+    "verify_signature",
     "to_units",
     "from_units",
     "OAS_DECIMALS",
@@ -252,6 +260,18 @@ class ConsensusEngine:
     def verify_proposer(self, epoch_number: int, slot_index: int,
                         validator_id: str) -> bool:
         return self.proposer.verify_proposer(epoch_number, slot_index, validator_id)
+
+    # ── Signature helpers ───────────────────────────────────────────
+
+    @staticmethod
+    def sign_op(op: Operation, secret_key_hex: str,
+                public_key_hex: str) -> Operation:
+        """Sign an operation and return a new Operation with signature + sender + timestamp."""
+        import dataclasses
+        ts = op.timestamp if op.timestamp > 0 else int(time.time())
+        op_with_ts = dataclasses.replace(op, sender=public_key_hex, timestamp=ts)
+        sig = sign_operation(op_with_ts, secret_key_hex)
+        return dataclasses.replace(op_with_ts, signature=sig)
 
     def close(self) -> None:
         self.state.close()

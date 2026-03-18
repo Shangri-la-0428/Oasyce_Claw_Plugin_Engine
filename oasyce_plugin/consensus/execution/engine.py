@@ -90,8 +90,15 @@ def apply_block(engine: Any, block: Dict[str, Any]) -> Dict[str, Any]:
         result = apply_operation(engine, op, height)
         results.append(result)
 
+    # Create snapshot at periodic intervals
+    snapshot_created = False
+    from oasyce_plugin.consensus.storage.snapshots import SNAPSHOT_INTERVAL, create_snapshot
+    if height > 0 and height % SNAPSHOT_INTERVAL == 0:
+        snapshot_created = create_snapshot(engine.state, height)
+
     return {
         "height": height,
         "operations_applied": len(results),
         "results": results,
+        "snapshot_created": snapshot_created,
     }
