@@ -130,6 +130,8 @@ class SyncServer:
             os.makedirs(db_dir, exist_ok=True)
         self._db_path = db_path
         self._db = sqlite3.connect(db_path, check_same_thread=False)
+        if db_path != ":memory:":
+            self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS blocks (
                 height INTEGER PRIMARY KEY,

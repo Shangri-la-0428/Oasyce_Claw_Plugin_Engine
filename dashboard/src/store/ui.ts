@@ -398,6 +398,13 @@ const dict: Record<string, Record<string, string>> = {
     'wallet-needed': '创建钱包以开始使用',
     'create-wallet': '创建钱包',
     'wallet-created': '钱包已创建',
+    'onboard-step1': '创建钱包',
+    'onboard-step2': '领取测试币',
+    'onboard-step3': '注册你的第一个资产',
+    'onboard-complete': '准备就绪！',
+    'total-earned': '总收入',
+    'recent-transactions': '最近交易',
+    'no-transactions': '暂无交易记录',
   },
   en: {
     home: 'Home', mydata: 'My Data', explore: 'Market', auto: 'Automation', network: 'Network',
@@ -685,6 +692,13 @@ const dict: Record<string, Record<string, string>> = {
     'wallet-needed': 'Create your wallet to get started',
     'create-wallet': 'Create Wallet',
     'wallet-created': 'Wallet created',
+    'onboard-step1': 'Create Wallet',
+    'onboard-step2': 'Claim Test OAS',
+    'onboard-step3': 'Register Your First Asset',
+    'onboard-complete': "You're all set!",
+    'total-earned': 'Total Earned',
+    'recent-transactions': 'Recent Transactions',
+    'no-transactions': 'No transactions yet',
   },
 };
 

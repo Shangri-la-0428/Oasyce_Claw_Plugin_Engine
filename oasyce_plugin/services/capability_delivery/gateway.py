@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import socket
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
@@ -73,6 +74,43 @@ def _validate_endpoint_url(url: str) -> bool:
         return False
     if addr.is_link_local:        # 169.254.0.0/16
         return False
+
+    return True
+
+
+def _resolve_and_validate(url: str) -> bool:
+    """Resolve the hostname in *url* via DNS and check that the resolved IP
+    is not private/internal.  This defends against DNS rebinding attacks where
+    a name that pointed to a public IP at registration time is later rebound
+    to an internal IP.
+
+    Returns True if the resolved address is safe, False otherwise.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
+    host = parsed.hostname
+    if not host:
+        return False
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, OSError):
+        return False
+
+    for family, _type, _proto, _canonname, sockaddr in infos:
+        ip_str = sockaddr[0]
+        try:
+            addr = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False
+
+        if addr.is_loopback or addr.is_private or addr.is_reserved or addr.is_link_local:
+            return False
 
     return True
 
@@ -186,6 +224,16 @@ class InvocationGateway:
                 output={"ok": False, "error": "endpoint URL blocked: private/internal address not allowed"},
                 latency_ms=0,
                 error="endpoint URL blocked: private/internal address not allowed",
+            )
+
+        # DNS rebinding protection: resolve hostname and validate the resolved
+        # IP is not private/internal (second layer after registration-time check).
+        if not self._allow_private and not _resolve_and_validate(endpoint.endpoint_url):
+            return InvocationResult(
+                success=False,
+                output={"ok": False, "error": "endpoint URL blocked: DNS resolved to private/internal address"},
+                latency_ms=0,
+                error="endpoint URL blocked: DNS resolved to private/internal address",
             )
 
         # Get decrypted API key

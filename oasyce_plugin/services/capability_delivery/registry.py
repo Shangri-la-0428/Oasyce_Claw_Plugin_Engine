@@ -136,6 +136,11 @@ class CapabilityEndpoint:
         }
 
 
+# Minimum balance a provider must hold to register a capability (Sybil barrier).
+# 100 OAS in integer units (1 OAS = 10^8 units).
+MIN_PROVIDER_STAKE = 100_00000000
+
+
 # ── Registry (SQLite-backed) ────────────────────────────────────
 
 
@@ -148,12 +153,16 @@ class EndpointRegistry:
 
     def __init__(self, db_path: str = ":memory:",
                  encryption_passphrase: Optional[str] = None,
-                 allow_private: bool = False):
+                 allow_private: bool = False,
+                 balances=None):
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        if db_path != ":memory:":
+            self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         self._passphrase = encryption_passphrase or self._load_or_create_passphrase()
         self._allow_private = allow_private
+        self._balances = balances
         self._create_tables()
 
     def _load_or_create_passphrase(self) -> str:
@@ -237,8 +246,19 @@ class EndpointRegistry:
             return {"ok": False, "error": "provider_id required"}
         if not name:
             return {"ok": False, "error": "name required"}
+        # price_per_call >= 0 is explicitly allowed: free capabilities (price=0)
+        # skip escrow in the settlement protocol and are invoked directly.
         if price_per_call < 0:
             return {"ok": False, "error": "price_per_call must be non-negative"}
+
+        # Sybil protection: require minimum stake if balances are available
+        if self._balances is not None:
+            provider_balance = self._balances.get_balance(provider_id, "OAS")
+            if provider_balance < MIN_PROVIDER_STAKE:
+                return {
+                    "ok": False,
+                    "error": "insufficient stake: providers must hold at least 100 OAS",
+                }
 
         # Generate capability_id from content hash if not provided
         if not capability_id:

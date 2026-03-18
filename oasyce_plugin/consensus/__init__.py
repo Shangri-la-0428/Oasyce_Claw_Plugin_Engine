@@ -210,18 +210,18 @@ class ConsensusEngine:
                      description="Block reward per block (units)")
         reg.register("economics", "min_deposit", int,
                      economics.get("min_deposit", 100_000_000_000),
-                     min_value=0, max_value=10_000_000_000_000,
+                     min_value=100_000_000, max_value=10_000_000_000_000,
                      description="Minimum governance proposal deposit (units)")
 
         # Slashing parameters
         reg.register("slashing", "offline_slash_bps", int,
-                     100, min_value=0, max_value=5000,
+                     100, min_value=10, max_value=5000,
                      description="Offline slash rate in basis points")
         reg.register("slashing", "double_sign_slash_bps", int,
-                     500, min_value=0, max_value=10000,
+                     500, min_value=50, max_value=10000,
                      description="Double-sign slash rate in basis points")
         reg.register("slashing", "low_quality_slash_bps", int,
-                     50, min_value=0, max_value=5000,
+                     50, min_value=5, max_value=5000,
                      description="Low-quality slash rate in basis points")
 
     @staticmethod

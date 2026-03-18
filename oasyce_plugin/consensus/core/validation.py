@@ -53,6 +53,8 @@ class NonceTracker:
                 if db_dir:
                     os.makedirs(db_dir, exist_ok=True)
             self._db = sqlite3.connect(db_path, check_same_thread=False)
+            if db_path != ":memory:":
+                self._db.execute("PRAGMA journal_mode=WAL")
             self._db.execute(
                 "CREATE TABLE IF NOT EXISTS nonces "
                 "(address TEXT PRIMARY KEY, last_nonce INTEGER NOT NULL)"

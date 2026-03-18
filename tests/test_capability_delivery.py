@@ -612,7 +612,7 @@ class TestSettlementProtocol:
             server.shutdown()
 
     def test_zero_price_free_invocation(self):
-        """Free capabilities (price=0) still go through the pipeline."""
+        """Free capabilities (price=0) skip escrow and invoke directly."""
         port = _free_port()
         server = _start_mock_provider(port)
         try:
@@ -630,14 +630,68 @@ class TestSettlementProtocol:
                 capability_id="CAP_FREE",
             )
 
-            # price=0, escrow lock should still work (amount=0 will fail)
-            # Actually, escrow rejects amount=0, so free caps skip escrow
-            # Let's verify the behavior
             result = protocol.invoke("CAP_FREE", "c1", {"text": "free"})
-            # With price=0, escrow.lock will fail (amount must be positive)
-            # This is expected — free capabilities need special handling
-            # For now, this documents the behavior
-            assert "ok" in result
+
+            # Free capabilities should succeed, skipping escrow
+            assert result["ok"] is True
+            assert result["output"]["result"] == "translated: free"
+            assert result["amount"] == 0
+            assert result["provider_earned"] == 0
+            assert result["protocol_fee"] == 0
+            assert result["latency_ms"] > 0
+
+            # No escrow should have been created
+            assert escrow.total_locked() == 0
+
+            # Invocation record should exist with amount=0
+            inv = protocol.get_invocation(result["invocation_id"])
+            assert inv is not None
+            assert inv.status == InvocationStatus.SUCCESS
+            assert inv.amount == 0
+            assert inv.provider_earned == 0
+
+            # Registry stats should be updated
+            ep = reg.get("CAP_FREE")
+            assert ep.total_calls == 1
+            assert ep.success_rate == 1.0
+
+            protocol.close()
+            reg.close()
+            escrow.close()
+        finally:
+            server.shutdown()
+
+    def test_zero_price_free_invocation_failure(self):
+        """Free capabilities that fail should record the failure properly."""
+        port = _free_port()
+        server = _start_mock_provider(port)
+        try:
+            reg = EndpointRegistry(allow_private=True)
+            escrow = EscrowLedger(db_path=":memory:")
+            gw = InvocationGateway(reg, timeout=5.0, allow_private=True)
+            protocol = SettlementProtocol(reg, escrow, gw, db_path=":memory:")
+
+            reg.register(
+                endpoint_url=f"http://127.0.0.1:{port}/translate",
+                api_key="sk-test",
+                provider_id="p1",
+                name="Free Fail API",
+                price_per_call=0,
+                capability_id="CAP_FREE_FAIL",
+            )
+
+            result = protocol.invoke("CAP_FREE_FAIL", "c1", {"_fail": True})
+
+            assert result["ok"] is False
+            assert result["refunded"] is False
+            assert result["refunded_amount"] == 0
+
+            # Invocation record should show failure
+            inv = protocol.get_invocation(result["invocation_id"])
+            assert inv is not None
+            assert inv.status == InvocationStatus.FAILED
+            assert inv.amount == 0
+
             protocol.close()
             reg.close()
             escrow.close()

@@ -113,6 +113,7 @@ class AgentScheduler:
 
     def _init_db(self) -> None:
         conn = sqlite3.connect(self._db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS agent_runs (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,

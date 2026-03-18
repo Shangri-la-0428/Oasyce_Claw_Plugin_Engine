@@ -868,6 +868,59 @@ class _Handler(BaseHTTPRequestHandler):
                     })
             return _json_response(self, list(reversed(txs)))
 
+        # ── Data asset owner earnings ──────────────────────────────
+        if path == "/api/earnings":
+            owner = qs.get("owner", [None])[0]
+            if not owner:
+                return _json_response(self, {"error": "owner param required"}, 400)
+            se = _get_settlement()
+            total_earned = 0.0
+            transactions = []
+            if hasattr(se, "receipts"):
+                for r in se.receipts:
+                    if getattr(r, "status", None) and r.status.value != "SETTLED":
+                        continue
+                    # Match receipts where the asset owner earned from trades.
+                    # The asset owner earns creator fees from bonding curve trades.
+                    asset_owner = None
+                    if _ledger:
+                        row = _ledger._conn.execute(
+                            "SELECT owner FROM assets WHERE asset_id = ?",
+                            (r.asset_id,),
+                        ).fetchone()
+                        if row:
+                            asset_owner = row["owner"]
+                    if asset_owner and asset_owner == owner:
+                        earned = getattr(r.quote, "creator_fee_oas", 0) or getattr(r.quote, "payment_oas", 0)
+                        total_earned += earned
+                        transactions.append({
+                            "asset_id": r.asset_id,
+                            "buyer": r.buyer_id,
+                            "amount": round(earned, 6),
+                            "timestamp": getattr(r, "timestamp", 0),
+                        })
+            # Also include capability delivery earnings (provider = owner)
+            try:
+                protocol, _, _ = _get_delivery_stack()
+                cap_earnings = protocol.provider_earnings(owner)
+                total_earned += cap_earnings.get("total_earned", 0)
+                cap_invocations = protocol.list_invocations(provider_id=owner, status="success", limit=20)
+                for inv in cap_invocations:
+                    transactions.append({
+                        "asset_id": inv.capability_id,
+                        "buyer": inv.consumer_id,
+                        "amount": inv.provider_earned,
+                        "timestamp": inv.settled_at or inv.created_at,
+                    })
+            except Exception:
+                pass  # delivery stack may not be initialized
+
+            transactions.sort(key=lambda t: t.get("timestamp", 0), reverse=True)
+            return _json_response(self, {
+                "total_earned": round(total_earned, 6),
+                "transactions": transactions[:50],
+            })
+
         # ── AHRP proxy (GET) ─────────────────────────────────────
         if path.startswith("/ahrp/"):
             return _proxy_ahrp(self, "GET", self.path)

@@ -37,6 +37,11 @@ interface EarningsData {
   recent?: { capability_id: string; amount: number; timestamp: number }[];
 }
 
+interface OwnerEarningsData {
+  total_earned: number;
+  transactions: { asset_id: string; buyer: string; amount: number; timestamp: number }[];
+}
+
 export default function MyData() {
   const [q, setQ] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -59,6 +64,9 @@ export default function MyData() {
   const [myCapsLoading, setMyCapsLoading] = useState(false);
   const [earnings, setEarnings] = useState<EarningsData | null>(null);
 
+  // Data asset owner earnings
+  const [ownerEarnings, setOwnerEarnings] = useState<OwnerEarningsData | null>(null);
+
   const _ = i18n.value;
 
   const loadMyCaps = async () => {
@@ -70,7 +78,14 @@ export default function MyData() {
     setMyCapsLoading(false);
   };
 
-  useEffect(() => { loadAssets(); loadMyCaps(); }, []);
+  const loadOwnerEarnings = async () => {
+    const addr = walletAddress();
+    if (addr === 'anonymous') return;
+    const res = await get<OwnerEarningsData>(`/earnings?owner=${encodeURIComponent(addr)}`);
+    if (res.success && res.data && typeof res.data === 'object') setOwnerEarnings(res.data);
+  };
+
+  useEffect(() => { loadAssets(); loadMyCaps(); loadOwnerEarnings(); }, []);
 
   const handleRegisterSuccess = () => {
     loadAssets();
@@ -360,6 +375,39 @@ export default function MyData() {
             <button class="btn btn-ghost btn-sm" onClick={() => setPageSize(s => s + 20)}>{_['load-more']}</button>
           ) : (
             <span class="caption">{_['no-more']}</span>
+          )}
+        </div>
+      )}
+
+      {/* ── Earnings section for data asset owners ── */}
+      {ownerEarnings && (
+        <div class="mt-24">
+          <h2 class="label-inline mb-12">{_['total-earned']}</h2>
+          <div class="row gap-16 wrap mb-16">
+            <div class="kv">
+              <span class="kv-key">{_['total-earned']}</span>
+              <span class="kv-val mono">{fmtPrice(ownerEarnings.total_earned)} OAS</span>
+            </div>
+          </div>
+          <h3 class="caption fw-600 mb-8">{_['recent-transactions']}</h3>
+          {ownerEarnings.transactions.length === 0 ? (
+            <div class="caption fg-muted">{_['no-transactions']}</div>
+          ) : (
+            <div class="item-list">
+              {ownerEarnings.transactions.map((tx, i) => (
+                <div key={i} class="data-item">
+                  <div class="item-row cursor-default">
+                    <div class="grow">
+                      <div class="item-meta">
+                        <span class="mono data-id-inline">{maskIdShort(tx.asset_id)}</span>
+                        <span class="caption ml-8">{maskOwner(tx.buyer)}</span>
+                      </div>
+                    </div>
+                    <span class="mono item-price">{fmtPrice(tx.amount)} <span class="oas-unit">OAS</span></span>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

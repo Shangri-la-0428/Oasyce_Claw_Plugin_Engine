@@ -103,6 +103,8 @@ class SettlementProtocol:
         self._escrow = escrow
         self._gateway = gateway
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        if db_path != ":memory:":
+            self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         self._create_tables()
@@ -174,7 +176,16 @@ class SettlementProtocol:
             json.dumps(input_payload, sort_keys=True).encode()
         ).hexdigest()
 
-        # Step 2: Lock escrow
+        # Step 2: For free capabilities (price==0), skip escrow entirely.
+        # Escrow rejects amount<=0, so free capabilities go through a
+        # lightweight path that calls the provider directly.
+        if price == 0:
+            return self._invoke_free(
+                invocation_id, capability_id, consumer_id,
+                endpoint, input_payload, input_hash,
+            )
+
+        # Step 2b: Lock escrow (paid capabilities)
         escrow_result = self._escrow.lock(
             consumer_id=consumer_id,
             provider_id=endpoint.provider_id,
@@ -322,6 +333,106 @@ class SettlementProtocol:
             "refunded": refund.get("ok", False),
             "refunded_amount": refund.get("refunded_amount", 0),
         }
+
+    def _invoke_free(self, invocation_id: str, capability_id: str,
+                     consumer_id: str, endpoint,
+                     input_payload: Dict[str, Any],
+                     input_hash: str) -> Dict[str, Any]:
+        """Handle free capability invocations (price_per_call == 0).
+
+        Skips escrow entirely — no lock/release needed for free capabilities.
+        Calls the provider endpoint directly via the gateway, records the
+        invocation in the DB with amount=0, and returns success with no
+        shares minted.
+        """
+        import hashlib
+        import json
+
+        # Record pending invocation (no escrow)
+        self._record_invocation(InvocationRecord(
+            invocation_id=invocation_id,
+            capability_id=capability_id,
+            consumer_id=consumer_id,
+            provider_id=endpoint.provider_id,
+            amount=0,
+            status=InvocationStatus.IN_PROGRESS,
+            input_hash=input_hash,
+            escrow_id="",
+            created_at=int(time.time()),
+        ))
+
+        # Call provider directly via gateway
+        result = self._gateway.invoke(
+            capability_id, input_payload, consumer_id,
+        )
+
+        if result.success:
+            output_hash = hashlib.sha256(
+                json.dumps(result.output, sort_keys=True).encode()
+            ).hexdigest()
+
+            with self._lock:
+                self._conn.execute("""
+                    UPDATE invocations
+                    SET status = ?, output_hash = ?, latency_ms = ?,
+                        provider_earned = 0, protocol_fee = 0, settled_at = ?
+                    WHERE invocation_id = ?
+                """, (
+                    InvocationStatus.SUCCESS,
+                    output_hash,
+                    result.latency_ms,
+                    int(time.time()),
+                    invocation_id,
+                ))
+                self._conn.commit()
+
+            # Update registry stats (no earnings for free calls)
+            self._registry.update_stats(
+                capability_id,
+                latency_ms=result.latency_ms,
+                success=True,
+                earned=0,
+            )
+
+            return {
+                "ok": True,
+                "invocation_id": invocation_id,
+                "output": result.output,
+                "latency_ms": result.latency_ms,
+                "amount": 0,
+                "provider_earned": 0,
+                "protocol_fee": 0,
+            }
+        else:
+            error_msg = result.error or "invocation failed"
+            with self._lock:
+                self._conn.execute("""
+                    UPDATE invocations
+                    SET status = ?, latency_ms = ?, error = ?, settled_at = ?
+                    WHERE invocation_id = ?
+                """, (
+                    InvocationStatus.FAILED,
+                    result.latency_ms,
+                    error_msg,
+                    int(time.time()),
+                    invocation_id,
+                ))
+                self._conn.commit()
+
+            self._registry.update_stats(
+                capability_id,
+                latency_ms=result.latency_ms,
+                success=False,
+            )
+
+            return {
+                "ok": False,
+                "invocation_id": invocation_id,
+                "error": error_msg,
+                "latency_ms": result.latency_ms,
+                "refunded": False,
+                "refunded_amount": 0,
+            }
 
     def get_invocation(self, invocation_id: str) -> Optional[InvocationRecord]:
         """Get an invocation record by ID."""

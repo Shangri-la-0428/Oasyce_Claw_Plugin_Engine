@@ -98,6 +98,8 @@ class EscrowLedger:
             db_dir = os.path.dirname(db_path)
             os.makedirs(db_dir, exist_ok=True)
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        if db_path != ":memory:":
+            self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         self._balances = balances
