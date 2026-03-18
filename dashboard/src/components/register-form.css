@@ -1,0 +1,16 @@
+/* RegisterForm — shared registration form styles */
+
+.register-fields {
+  display: flex; flex-direction: column; gap: 16px; margin-top: 16px;
+  animation: field-in 0.25s var(--ease);
+}
+
+.register-fields.compact {
+  margin-top: 0;
+}
+
+@media (max-width: 600px) {
+  .register-fields .row.gap-8 { flex-wrap: wrap; }
+  .register-fields .row.gap-8 .input-flex-2 { flex: 1 1 100%; }
+  .register-fields .row.gap-8 .input-share { max-width: none; }
+}
