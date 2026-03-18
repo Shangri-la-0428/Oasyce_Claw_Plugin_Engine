@@ -1716,6 +1716,173 @@ def cmd_testnet_faucet_serve(args):
     faucet_main()
 
 
+def _get_delivery_protocol():
+    """Initialize the capability delivery protocol stack."""
+    from oasyce_plugin.services.capability_delivery.registry import EndpointRegistry
+    from oasyce_plugin.services.capability_delivery.escrow import EscrowLedger
+    from oasyce_plugin.services.capability_delivery.gateway import InvocationGateway
+    from oasyce_plugin.services.capability_delivery.settlement import SettlementProtocol
+
+    config = Config.from_env()
+    db_dir = config.data_dir
+    os.makedirs(db_dir, exist_ok=True)
+
+    reg = EndpointRegistry(
+        db_path=os.path.join(db_dir, "capability_endpoints.db"),
+        encryption_passphrase=config.signing_key or "oasyce-default-key",
+    )
+    escrow = EscrowLedger(db_path=os.path.join(db_dir, "escrow.db"))
+    gw = InvocationGateway(reg, timeout=30.0)
+    protocol = SettlementProtocol(
+        reg, escrow, gw,
+        db_path=os.path.join(db_dir, "invocations.db"),
+    )
+    return protocol, reg, escrow
+
+
+def cmd_capability_register(args):
+    """Register a capability endpoint on the marketplace."""
+    from oasyce_plugin.consensus.core.types import to_units
+
+    _, reg, _ = _get_delivery_protocol()
+    try:
+        tags = [t.strip() for t in args.tags.split(",")] if args.tags else []
+        price = to_units(float(args.price)) if args.price else 0
+
+        result = reg.register(
+            endpoint_url=args.endpoint,
+            api_key=args.api_key or "",
+            provider_id=args.provider or "self",
+            name=args.name,
+            price_per_call=price,
+            tags=tags,
+            description=args.description or "",
+            rate_limit=args.rate_limit,
+        )
+
+        if result["ok"]:
+            if getattr(args, "json", False):
+                print(json.dumps(result))
+            else:
+                print(f"✓ Capability registered: {result['capability_id']}")
+                print(f"  Name:     {args.name}")
+                print(f"  Endpoint: {args.endpoint}")
+                print(f"  Price:    {args.price or '0'} OAS per call")
+                print(f"  Tags:     {', '.join(tags) if tags else 'none'}")
+        else:
+            print(f"✗ Registration failed: {result['error']}", file=sys.stderr)
+            sys.exit(1)
+    finally:
+        reg.close()
+
+
+def cmd_capability_list(args):
+    """List active capabilities on the marketplace."""
+    _, reg, _ = _get_delivery_protocol()
+    try:
+        endpoints = reg.list_active(
+            provider_id=getattr(args, "provider", None),
+            tag=getattr(args, "tag", None),
+            limit=getattr(args, "limit", 50),
+        )
+
+        if getattr(args, "json", False):
+            print(json.dumps([e.to_dict() for e in endpoints], indent=2))
+            return
+
+        if not endpoints:
+            print("No active capabilities found.")
+            return
+
+        from oasyce_plugin.consensus.core.types import from_units
+        print(f"{'ID':<22} {'Name':<25} {'Price (OAS)':<12} {'Calls':<8} {'Success':<8}")
+        print("─" * 75)
+        for ep in endpoints:
+            print(f"{ep.capability_id:<22} {ep.name[:24]:<25} "
+                  f"{from_units(ep.price_per_call):<12.4f} "
+                  f"{ep.total_calls:<8} {ep.success_rate:.0%}")
+    finally:
+        reg.close()
+
+
+def cmd_capability_invoke(args):
+    """Invoke a capability through the settlement protocol."""
+    protocol, reg, escrow = _get_delivery_protocol()
+    try:
+        # Parse input
+        if args.input:
+            if os.path.exists(args.input):
+                with open(args.input) as f:
+                    input_payload = json.load(f)
+            else:
+                input_payload = json.loads(args.input)
+        else:
+            input_payload = {}
+
+        consumer = args.consumer or "self"
+
+        result = protocol.invoke(args.capability_id, consumer, input_payload)
+
+        if getattr(args, "json", False):
+            print(json.dumps(result, indent=2))
+            return
+
+        if result["ok"]:
+            from oasyce_plugin.consensus.core.types import from_units
+            print(f"✓ Invocation succeeded")
+            print(f"  ID:       {result['invocation_id']}")
+            print(f"  Latency:  {result['latency_ms']:.0f}ms")
+            print(f"  Paid:     {from_units(result['amount']):.4f} OAS")
+            print(f"  Provider: {from_units(result['provider_earned']):.4f} OAS")
+            print(f"  Fee:      {from_units(result['protocol_fee']):.4f} OAS")
+            print(f"\n  Output:")
+            print(f"  {json.dumps(result['output'], indent=2, ensure_ascii=False)}")
+        else:
+            print(f"✗ Invocation failed: {result['error']}", file=sys.stderr)
+            if result.get("refunded"):
+                from oasyce_plugin.consensus.core.types import from_units
+                print(f"  Refunded: {from_units(result.get('refunded_amount', 0)):.4f} OAS")
+            sys.exit(1)
+    finally:
+        protocol.close()
+        reg.close()
+        escrow.close()
+
+
+def cmd_capability_earnings(args):
+    """Show provider earnings or consumer spending."""
+    protocol, reg, escrow = _get_delivery_protocol()
+    try:
+        if args.provider:
+            data = protocol.provider_earnings(args.provider)
+            label = "Provider Earnings"
+        elif args.consumer:
+            data = protocol.consumer_spending(args.consumer)
+            label = "Consumer Spending"
+        else:
+            print("Specify --provider or --consumer", file=sys.stderr)
+            sys.exit(1)
+
+        if getattr(args, "json", False):
+            print(json.dumps(data, indent=2))
+            return
+
+        from oasyce_plugin.consensus.core.types import from_units
+        print(f"\n  {label}")
+        print("  " + "─" * 30)
+        for k, v in data.items():
+            if "earned" in k or "spent" in k:
+                print(f"  {k}: {from_units(v):.4f} OAS")
+            elif "rate" in k:
+                print(f"  {k}: {v:.1%}")
+            else:
+                print(f"  {k}: {v}")
+    finally:
+        protocol.close()
+        reg.close()
+        escrow.close()
+
+
 def cmd_start(args):
     """Start Core node + Dashboard + SyncServer + BlockProducer."""
     import threading
@@ -4209,6 +4376,42 @@ def main():
     sync_parser.add_argument("--sync-port", type=int, default=9528, help="Sync server port (default: 9528)")
     sync_parser.add_argument("--json", action="store_true")
     sync_parser.set_defaults(func=cmd_sync)
+
+    # ── capability ─────────────────────────────────────────────────
+    cap_parser = subparsers.add_parser("capability", help="Capability marketplace — register, invoke, settle")
+    cap_sub = cap_parser.add_subparsers(dest="cap_command", help="Capability sub-commands")
+
+    cap_reg_parser = cap_sub.add_parser("register", help="Register a capability endpoint")
+    cap_reg_parser.add_argument("--name", required=True, help="Capability name")
+    cap_reg_parser.add_argument("--endpoint", required=True, help="HTTP endpoint URL")
+    cap_reg_parser.add_argument("--api-key", default="", help="API key for the endpoint")
+    cap_reg_parser.add_argument("--provider", default="self", help="Provider address/ID")
+    cap_reg_parser.add_argument("--price", default="0", help="Price per call in OAS")
+    cap_reg_parser.add_argument("--tags", default="", help="Comma-separated tags")
+    cap_reg_parser.add_argument("--description", default="", help="Description")
+    cap_reg_parser.add_argument("--rate-limit", type=int, default=60, help="Max calls/minute (default: 60)")
+    cap_reg_parser.add_argument("--json", action="store_true")
+    cap_reg_parser.set_defaults(func=cmd_capability_register)
+
+    cap_list_parser = cap_sub.add_parser("list", help="List active capabilities")
+    cap_list_parser.add_argument("--provider", default=None, help="Filter by provider")
+    cap_list_parser.add_argument("--tag", default=None, help="Filter by tag")
+    cap_list_parser.add_argument("--limit", type=int, default=50, help="Max results")
+    cap_list_parser.add_argument("--json", action="store_true")
+    cap_list_parser.set_defaults(func=cmd_capability_list)
+
+    cap_invoke_parser = cap_sub.add_parser("invoke", help="Invoke a capability")
+    cap_invoke_parser.add_argument("capability_id", help="Capability ID to invoke")
+    cap_invoke_parser.add_argument("--input", default=None, help="Input JSON string or file path")
+    cap_invoke_parser.add_argument("--consumer", default="self", help="Consumer address/ID")
+    cap_invoke_parser.add_argument("--json", action="store_true")
+    cap_invoke_parser.set_defaults(func=cmd_capability_invoke)
+
+    cap_earnings_parser = cap_sub.add_parser("earnings", help="Show provider earnings or consumer spending")
+    cap_earnings_parser.add_argument("--provider", default=None, help="Provider address")
+    cap_earnings_parser.add_argument("--consumer", default=None, help="Consumer address")
+    cap_earnings_parser.add_argument("--json", action="store_true")
+    cap_earnings_parser.set_defaults(func=cmd_capability_earnings)
 
     # ── chain ──────────────────────────────────────────────────────
     chain_parser = subparsers.add_parser("chain", help="Chain information")

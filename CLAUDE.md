@@ -103,6 +103,17 @@ oasyce info --section update           # How to update and contribute
 oasyce info --json                     # Full info as JSON
 ```
 
+### Capability Marketplace
+```bash
+oasyce capability register --name "Translation API" \
+  --endpoint https://api.example.com/translate \
+  --api-key sk-xxx --price 0.5 --tags nlp,translation   # Register endpoint
+oasyce capability list [--tag nlp] [--provider addr]     # Browse capabilities
+oasyce capability invoke CAP_ID --input '{"text":"hello"}'  # Invoke via settlement
+oasyce capability earnings --provider addr               # Provider earnings
+oasyce capability earnings --consumer addr               # Consumer spending
+```
+
 ### Diagnostics
 ```bash
 oasyce doctor                   # Health check (keys, ports, deps)
@@ -133,6 +144,7 @@ oasyce demo                     # Run full pipeline demo
 - **Fork Choice**: Longest-chain with stake-weighted tiebreaker. Reorg support via event-sourced rollback. Max reorg depth limit.
 - **Block Sync**: HTTP JSON transport (`SyncServer` port 9528 + `HTTPPeerTransport`). Genesis hash validation. Batch block download with verification.
 - **Offline Mode**: Feature tiers (CRITICAL/DEGRADED/UNAVAILABLE). Provider cache for offline browsing.
+- **Capability Delivery**: Provider registers endpoint + encrypted API key → consumer invokes via gateway → escrow lock → call → settle (release/refund). 5% protocol fee.
 - **Enforcement**: Content fingerprinting, infringement detection, bounty hunter system.
 - **Chain ID**: Operations include `chain_id` for replay protection. Validated during apply_operation.
 
@@ -193,6 +205,7 @@ oasyce_plugin/
 │   ├── core_engines.py   # Scan → Classify → Metadata → PoPc → Register (+ auto risk)
 │   ├── risk.py           # Auto risk classification (public/internal/sensitive)
 │   └── schema.py         # Backward-compat (delegates to schema_registry)
+├── services/capability_delivery/  # Endpoint registry, escrow, gateway, settlement
 ├── services/discovery/   # Recall→Rank discovery + FeedbackStore
 ├── info.py               # Project info hub (shared by GUI/CLI/API)
 └── gui/app.py            # Dashboard SPA with tabbed about panel
