@@ -395,6 +395,9 @@ const dict: Record<string, Record<string, string>> = {
     'faucet-claim': '领取测试币',
     'faucet-success': '已领取 {amount} OAS',
     'faucet-cooldown': '请稍后再试',
+    'wallet-needed': '创建钱包以开始使用',
+    'create-wallet': '创建钱包',
+    'wallet-created': '钱包已创建',
   },
   en: {
     home: 'Home', mydata: 'My Data', explore: 'Market', auto: 'Automation', network: 'Network',
@@ -679,6 +682,9 @@ const dict: Record<string, Record<string, string>> = {
     'faucet-claim': 'Claim Test OAS',
     'faucet-success': 'Claimed {amount} OAS',
     'faucet-cooldown': 'Please try again later',
+    'wallet-needed': 'Create your wallet to get started',
+    'create-wallet': 'Create Wallet',
+    'wallet-created': 'Wallet created',
   },
 };
 

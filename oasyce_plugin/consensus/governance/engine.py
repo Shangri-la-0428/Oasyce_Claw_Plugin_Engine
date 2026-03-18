@@ -70,7 +70,8 @@ class GovernanceEngine:
                     voting_end     INTEGER NOT NULL,
                     created_at     INTEGER NOT NULL,
                     snapshot_height INTEGER NOT NULL DEFAULT 0,
-                    stake_snapshot_json TEXT NOT NULL DEFAULT '{}'
+                    stake_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                    snapshot_total_stake INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS idx_gov_proposals_status
                     ON governance_proposals(status);
@@ -97,6 +98,12 @@ class GovernanceEngine:
             try:
                 self._conn.execute(
                     "ALTER TABLE governance_proposals ADD COLUMN stake_snapshot_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            except Exception:
+                pass  # column already exists
+            try:
+                self._conn.execute(
+                    "ALTER TABLE governance_proposals ADD COLUMN snapshot_total_stake INTEGER NOT NULL DEFAULT 0"
                 )
             except Exception:
                 pass  # column already exists
@@ -165,6 +172,7 @@ class GovernanceEngine:
 
         # Build stake snapshot at current block height for voting power
         stake_snapshot = self._build_stake_snapshot()
+        snapshot_total_stake = sum(stake_snapshot.values()) if stake_snapshot else 0
         stake_snapshot_json = json.dumps(stake_snapshot)
 
         try:
@@ -173,12 +181,12 @@ class GovernanceEngine:
                     "INSERT INTO governance_proposals "
                     "(id, proposer, title, description, changes_json, deposit, "
                     "status, voting_start, voting_end, created_at, "
-                    "snapshot_height, stake_snapshot_json) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "snapshot_height, stake_snapshot_json, snapshot_total_stake) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (proposal_id, proposer, title, description, changes_json,
                      deposit, ProposalStatus.ACTIVE.value,
                      voting_start, voting_end, block_height,
-                     block_height, stake_snapshot_json),
+                     block_height, stake_snapshot_json, snapshot_total_stake),
                 )
         except sqlite3.IntegrityError:
             # Refund deposit on duplicate proposal
@@ -194,6 +202,7 @@ class GovernanceEngine:
             created_at=block_height,
             snapshot_height=block_height,
             stake_snapshot=stake_snapshot,
+            snapshot_total_stake=snapshot_total_stake,
         )
         return {"ok": True, "proposal": proposal.to_dict()}
 
@@ -261,7 +270,13 @@ class GovernanceEngine:
         no_w = sum(v["weight"] for v in votes if v["option"] == VoteOption.NO.value)
         abstain_w = sum(v["weight"] for v in votes if v["option"] == VoteOption.ABSTAIN.value)
 
-        total_voting_power = self._get_total_stake()
+        # Use snapshot total stake when available to prevent manipulation
+        # between proposal creation and tally. Fall back to live stake for
+        # proposals created before the snapshot_total_stake migration.
+        if proposal.snapshot_total_stake > 0:
+            total_voting_power = proposal.snapshot_total_stake
+        else:
+            total_voting_power = self._get_total_stake()
         participated = yes_w + no_w + abstain_w
 
         quorum_reached = (
@@ -438,6 +453,11 @@ class GovernanceEngine:
                     stake_snapshot = {k: int(v) for k, v in parsed.items()}
         except (IndexError, KeyError, json.JSONDecodeError):
             pass
+        snapshot_total_stake = 0
+        try:
+            snapshot_total_stake = row["snapshot_total_stake"] or 0
+        except (IndexError, KeyError):
+            pass
         return Proposal(
             id=row["id"],
             proposer=row["proposer"],
@@ -451,6 +471,7 @@ class GovernanceEngine:
             created_at=row["created_at"],
             snapshot_height=snapshot_height,
             stake_snapshot=stake_snapshot,
+            snapshot_total_stake=snapshot_total_stake,
         )
 
     def _get_votes(self, proposal_id: str) -> List[Dict[str, Any]]:

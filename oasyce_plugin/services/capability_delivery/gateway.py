@@ -98,6 +98,9 @@ class InvocationResult:
         return d
 
 
+_DEFAULT_RATE_LIMIT = 60  # calls per minute
+
+
 class InvocationGateway:
     """Proxies capability invocations to provider HTTP endpoints.
 
@@ -114,6 +117,31 @@ class InvocationGateway:
         self._timeout = timeout
         self._max_retries = max_retries
         self._allow_private = allow_private
+        self._call_timestamps: Dict[str, list] = {}  # capability_id -> [timestamps]
+
+    def _check_rate_limit(self, capability_id: str, rate_limit: int) -> bool:
+        """Return True if the call is within rate limit, False if exceeded.
+
+        Cleans up timestamps older than 60 seconds as a side effect.
+        """
+        limit = rate_limit if rate_limit > 0 else _DEFAULT_RATE_LIMIT
+        now = time.monotonic()
+        window = 60.0  # 1 minute
+
+        if capability_id not in self._call_timestamps:
+            self._call_timestamps[capability_id] = []
+
+        # Clean up old timestamps (only keep last 60 seconds)
+        timestamps = self._call_timestamps[capability_id]
+        cutoff = now - window
+        self._call_timestamps[capability_id] = [t for t in timestamps if t > cutoff]
+        timestamps = self._call_timestamps[capability_id]
+
+        if len(timestamps) >= limit:
+            return False
+
+        timestamps.append(now)
+        return True
 
     def invoke(self, capability_id: str,
                input_payload: Dict[str, Any],
@@ -140,6 +168,15 @@ class InvocationGateway:
             return InvocationResult(
                 success=False, output={}, latency_ms=0,
                 error=f"capability is {endpoint.status}",
+            )
+
+        # Rate limit enforcement
+        if not self._check_rate_limit(capability_id, endpoint.rate_limit):
+            return InvocationResult(
+                success=False,
+                output={"ok": False, "error": "rate limit exceeded"},
+                latency_ms=0,
+                error="rate limit exceeded",
             )
 
         # SSRF protection: reject private/internal endpoints

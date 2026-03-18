@@ -531,3 +531,87 @@ class TestBackupProposer:
         stakes = {"v1": 999, "v2": 300, "v3": 200}
         backup = election.get_backup_proposer(0, "v2", validators, stakes=stakes)
         assert backup == "v1"
+
+
+class TestBackupProducerIntegration:
+    """Test that backup proposer actually takes over in the production loop."""
+
+    def test_backup_takes_over_when_primary_misses(self):
+        """When primary doesn't produce, backup proposer creates the block."""
+        engine = _make_engine()
+        mp = Mempool()
+        # This producer is the backup — not the primary
+        producer = BlockProducer(
+            engine, mp,
+            proposer_id="backup-node",
+            slot_timeout=0.1,  # short timeout for test
+        )
+
+        # Primary never delivers — backup should produce
+        block = producer.try_backup_produce(is_backup=True)
+        assert block is not None
+        assert block.proposer == "backup-node"
+        assert producer.missed_slots == 1
+        assert producer.blocks_produced == 1
+
+    def test_backup_does_not_produce_when_primary_delivers(self):
+        """When primary delivers on time, backup does not produce."""
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(
+            engine, mp,
+            proposer_id="backup-node",
+            slot_timeout=0.5,
+        )
+
+        # Simulate primary delivering quickly
+        def notify():
+            time.sleep(0.05)
+            producer.notify_primary_block()
+        threading.Thread(target=notify, daemon=True).start()
+
+        block = producer.try_backup_produce(is_backup=True)
+        assert block is None
+        assert producer.missed_slots == 0
+        assert producer.blocks_produced == 0
+
+    def test_backup_in_production_loop(self):
+        """Backup proposer logic works within start() loop."""
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(
+            engine, mp,
+            proposer_id="backup-node",
+            slot_timeout=0.1,
+        )
+
+        initial_height = producer.height
+
+        # Start as non-primary with explicit primary_proposer_id
+        # Primary never sends blocks, so backup should take over
+        producer.start(interval=0.2, primary_proposer_id="primary-node")
+        time.sleep(0.6)
+        producer.stop()
+
+        # Backup should have produced at least one block
+        assert producer.blocks_produced >= 1
+        assert producer.missed_slots >= 1
+        assert producer.height > initial_height
+
+    def test_primary_produces_normally_in_loop(self):
+        """When we ARE the primary, produce_block is called normally."""
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(
+            engine, mp,
+            proposer_id="primary-node",
+            slot_timeout=0.1,
+        )
+
+        producer.start(interval=0.2, primary_proposer_id="primary-node")
+        time.sleep(0.6)
+        producer.stop()
+
+        # Primary should have produced blocks normally (no missed slots)
+        assert producer.blocks_produced >= 1
+        assert producer.missed_slots == 0

@@ -30,13 +30,15 @@ class TestnetOnboarding:
     def faucet(self) -> Faucet:
         return self._faucet
 
-    def onboard(self, node_id: str, now: Optional[float] = None) -> dict:
+    def onboard(self, address: str) -> dict:
         """一键引导：领币 → 注册示例资产 → 质押
+
+        Args:
+            address: Wallet address to onboard.
 
         Returns dict with keys:
             faucet_result, sample_asset, stake_result, summary
         """
-        now = now if now is not None else time.time()
         result: dict = {
             "mode": "LOCAL_SIMULATION",
             "faucet_result": None,
@@ -46,7 +48,7 @@ class TestnetOnboarding:
         }
 
         # 1. 领取水龙头代币
-        faucet_result = self._faucet.claim(node_id, now=now)
+        faucet_result = self._faucet.claim(address)
         result["faucet_result"] = faucet_result
         if faucet_result["success"]:
             result["summary"].append(
@@ -58,14 +60,14 @@ class TestnetOnboarding:
             )
 
         # 2. 注册示例数据资产
-        sample_asset = self._register_sample_asset(node_id)
+        sample_asset = self._register_sample_asset(address)
         result["sample_asset"] = sample_asset
         result["summary"].append(
             f"Sample asset registered: {sample_asset['asset_id']}"
         )
 
         # 3. 尝试质押成为 validator
-        balance = self._faucet.balance(node_id)
+        balance = self._faucet.balance(address)
         min_stake = from_units(TESTNET_ECONOMICS["min_stake"])
         if balance >= min_stake:
             stake_result = {

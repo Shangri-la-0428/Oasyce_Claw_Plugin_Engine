@@ -164,7 +164,13 @@ class ConsensusEngine:
             halving_interval=economics.get("halving_interval", 10000),
         )
         self.asset_registry = AssetRegistry()
-        self._nonce_tracker = NonceTracker()
+        # Derive nonce DB path from the main db_path so nonces survive restarts.
+        if db_path and db_path != ":memory:":
+            import os
+            _nonce_db = os.path.join(os.path.dirname(db_path), "nonces.db")
+        else:
+            _nonce_db = None
+        self._nonce_tracker = NonceTracker(db_path=_nonce_db)
 
         # Governance
         self.param_registry = ParameterRegistry()
@@ -259,6 +265,14 @@ class ConsensusEngine:
         """Apply a single operation through the unified state machine."""
         return apply_operation(self, op, block_height)
 
+    def _next_nonce(self, sender: str) -> int:
+        """Return the next expected nonce for *sender*.
+
+        For an unseen sender the first nonce is 0; otherwise last + 1.
+        """
+        last = self._nonce_tracker.get_nonce(sender)
+        return 0 if last < 0 else last + 1
+
     @staticmethod
     def sign_op(op: Operation, secret_key_hex: str, public_key_hex: str) -> Operation:
         """Return a copy of *op* with sender, timestamp, and signature filled in."""
@@ -298,6 +312,7 @@ class ConsensusEngine:
             validator_id=validator_id,
             amount=amount,
             from_addr=delegator,
+            nonce=self._next_nonce(delegator),
         )
         return self.apply(op, block_height)
 
@@ -308,6 +323,7 @@ class ConsensusEngine:
             validator_id=validator_id,
             amount=amount,
             from_addr=delegator,
+            nonce=self._next_nonce(delegator),
         )
         return self.apply(op, block_height)
 
@@ -428,6 +444,7 @@ class ConsensusEngine:
             asset_type=asset_type,
             from_addr=from_addr,
             to_addr=to_addr,
+            nonce=self._next_nonce(from_addr),
         )
         return self.apply(op, block_height)
 
@@ -442,6 +459,7 @@ class ConsensusEngine:
             reason=name,
             commission_rate=decimals,
             from_addr=issuer,
+            nonce=self._next_nonce(issuer),
         )
         return self.apply(op, block_height)
 

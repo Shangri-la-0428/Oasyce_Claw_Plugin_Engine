@@ -262,17 +262,37 @@ class EscrowLedger:
     def expire_stale(self) -> int:
         """Refund all escrows that have exceeded their TTL.
 
+        When a ``balances`` instance is attached, each expired escrow's
+        amount is credited back to the consumer so that funds locked by
+        :meth:`lock` are not permanently burned.
+
         Returns the number of expired escrows.
         """
         now = int(time.time())
         with self._lock:
-            cur = self._conn.execute(
+            # First, collect the stale rows so we can refund consumers.
+            stale_rows = self._conn.execute(
+                "SELECT escrow_id, consumer_id, amount FROM escrow "
+                "WHERE status = 'locked' AND (created_at + ttl) < ?",
+                (now,),
+            ).fetchall()
+
+            if not stale_rows:
+                return 0
+
+            self._conn.execute(
                 "UPDATE escrow SET status = 'expired', resolved_at = ? "
                 "WHERE status = 'locked' AND (created_at + ttl) < ?",
                 (now, now),
             )
             self._conn.commit()
-            return cur.rowcount
+
+        # Credit consumer balances outside the lock (balances have their own).
+        if self._balances is not None:
+            for row in stale_rows:
+                self._balances.credit(row["consumer_id"], self._OAS_ASSET, row["amount"])
+
+        return len(stale_rows)
 
     def get(self, escrow_id: str) -> Optional[EscrowEntry]:
         """Get an escrow entry by ID."""

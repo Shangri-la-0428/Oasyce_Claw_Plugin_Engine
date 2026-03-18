@@ -307,7 +307,7 @@ class TestApplyOperation:
         engine.delegate("del1", "v1", to_units(100))
         result = engine.apply(
             Operation(op_type=OperationType.UNDELEGATE, validator_id="v1",
-                      amount=to_units(30), from_addr="del1"),
+                      amount=to_units(30), from_addr="del1", nonce=1),
             block_height=2,
         )
         assert result["ok"] is True

@@ -308,7 +308,7 @@ oasyce_core/
 
 | Parameter | Value |
 |-----------|-------|
-| Max supply | 100,000,000 OAS |
+| Max supply | No hard cap (block rewards converge via halving; supply reduced by slashing burns) |
 | Block reward | 4 OAS |
 | Fee factor (F) | 0.35 |
 | Fee split | Data owner 60% / Validator 20% / Protocol 15% / Burn 5% |

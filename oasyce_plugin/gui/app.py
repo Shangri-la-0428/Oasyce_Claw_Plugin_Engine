@@ -1308,9 +1308,11 @@ class _Handler(BaseHTTPRequestHandler):
 
         # ── Testnet faucet ─────────────────────────────────────────
         if path == "/api/faucet":
-            address = body.get("address", "")
+            # Always use the local wallet address — never allow arbitrary addresses
+            from oasyce_plugin.identity import Wallet as _FaucetWallet
+            address = _FaucetWallet.get_address() if _FaucetWallet.exists() else None
             if not address:
-                return _json_response(self, {"ok": False, "error": "address required"}, 400)
+                return _json_response(self, {"ok": False, "error": "no wallet — create one first via /api/identity/create"}, 400)
             try:
                 from oasyce_plugin.services.faucet import Faucet
                 from oasyce_plugin.config import get_data_dir, NetworkMode

@@ -129,6 +129,7 @@ class Proposal:
     created_at: int                      # block height
     snapshot_height: int = 0             # block height at proposal creation for voting power snapshot
     stake_snapshot: Optional[Dict[str, int]] = None  # {address: weight} at snapshot_height
+    snapshot_total_stake: int = 0        # sum of all stake at snapshot_height for quorum calculation
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -143,6 +144,7 @@ class Proposal:
             "voting_end": self.voting_end,
             "created_at": self.created_at,
             "snapshot_height": self.snapshot_height,
+            "snapshot_total_stake": self.snapshot_total_stake,
         }
         if self.stake_snapshot is not None:
             d["stake_snapshot"] = self.stake_snapshot

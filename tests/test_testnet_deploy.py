@@ -473,7 +473,7 @@ class TestFaucetWithGenesis:
         engine = initialize_chain(state, db_path=db_path)
 
         faucet = Faucet(tmp_dir)
-        result = faucet.claim("new-user", now=1000.0)
+        result = faucet.claim("new-user")
         assert result["success"] is True
         assert result["amount"] == Faucet.TESTNET_DRIP
 
@@ -482,17 +482,25 @@ class TestFaucetWithGenesis:
     def test_faucet_rate_limit(self, tmp_dir):
         """Faucet enforces 24h cooldown."""
         from oasyce_plugin.services.faucet import Faucet
+        from unittest.mock import patch
+        import time as _time
 
         faucet = Faucet(tmp_dir)
-        r1 = faucet.claim("user-a", now=1000.0)
-        assert r1["success"] is True
+        base = _time.time()
 
-        r2 = faucet.claim("user-a", now=1000.0 + 3600)  # 1 hour later
-        assert r2["success"] is False
-        assert "Cooldown" in r2["error"]
+        with patch("oasyce_plugin.services.faucet.time") as mock_time:
+            mock_time.time.return_value = base
+            r1 = faucet.claim("user-a")
+            assert r1["success"] is True
 
-        r3 = faucet.claim("user-a", now=1000.0 + 86401)  # 24h + 1s later
-        assert r3["success"] is True
+            mock_time.time.return_value = base + 3600  # 1 hour later
+            r2 = faucet.claim("user-a")
+            assert r2["success"] is False
+            assert "Cooldown" in r2["error"]
+
+            mock_time.time.return_value = base + 86401  # 24h + 1s later
+            r3 = faucet.claim("user-a")
+            assert r3["success"] is True
 
     def test_faucet_config_amount(self, testnet_config):
         """Testnet config faucet amount is reasonable."""

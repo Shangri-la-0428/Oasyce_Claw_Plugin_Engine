@@ -8,7 +8,8 @@ They return (True, None) on success or (False, error_message) on failure.
 from __future__ import annotations
 
 import os
-from typing import Dict, TYPE_CHECKING, Tuple
+import sqlite3
+from typing import Dict, Optional, TYPE_CHECKING, Tuple
 
 from oasyce_plugin.consensus.core.types import Operation, OperationType, MAX_COMMISSION_BPS
 
@@ -31,19 +32,55 @@ MAX_TIMESTAMP_DRIFT: int = 300  # 5 minutes
 class NonceTracker:
     """Lightweight per-sender nonce tracker for replay protection.
 
-    Tracks the last accepted nonce per sender address. When an operation
-    carries nonce > 0, it must equal last_nonce + 1 for that sender.
-    nonce == 0 means "skip check" (backward compat / unsigned dev ops).
+    Tracks the last accepted nonce per sender address.  The first
+    operation from any address must carry nonce=0, the second nonce=1,
+    and so on.  Operations with an empty sender identity (no ``sender``
+    and no ``from_addr``) bypass nonce validation because there is no
+    identity to track against.
+
+    If *db_path* is provided, nonces are persisted to a SQLite database
+    so that replay protection survives node restarts.  When *db_path* is
+    ``None`` (the default), nonces are kept only in memory — suitable
+    for tests and backward compatibility.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: Optional[str] = None) -> None:
         self._nonces: Dict[str, int] = {}
+        self._db: Optional[sqlite3.Connection] = None
+        if db_path is not None:
+            if db_path != ":memory:":
+                db_dir = os.path.dirname(db_path)
+                if db_dir:
+                    os.makedirs(db_dir, exist_ok=True)
+            self._db = sqlite3.connect(db_path, check_same_thread=False)
+            self._db.execute(
+                "CREATE TABLE IF NOT EXISTS nonces "
+                "(address TEXT PRIMARY KEY, last_nonce INTEGER NOT NULL)"
+            )
+            self._db.commit()
+            # Warm the in-memory cache from the database
+            for row in self._db.execute("SELECT address, last_nonce FROM nonces"):
+                self._nonces[row[0]] = row[1]
 
     def validate_nonce(self, sender: str, nonce: int) -> Tuple[bool, str]:
-        """Check that *nonce* is the expected next value for *sender*."""
-        if nonce == 0:
+        """Check that *nonce* is the expected next value for *sender*.
+
+        For a new sender (not yet tracked), nonce must be 0.
+        For an existing sender, nonce must equal last_nonce + 1.
+        If *sender* is empty, validation is skipped (no identity to
+        protect against replay).
+        """
+        if not sender:
             return True, ""
-        expected = self._nonces.get(sender, 0) + 1
+        if sender not in self._nonces:
+            # First operation from this sender — must use nonce 0.
+            if nonce != 0:
+                return False, (
+                    f"nonce mismatch for {sender}: "
+                    f"expected 0 (first operation), got {nonce}"
+                )
+            return True, ""
+        expected = self._nonces[sender] + 1
         if nonce != expected:
             return False, (
                 f"nonce mismatch for {sender}: "
@@ -53,12 +90,19 @@ class NonceTracker:
 
     def advance(self, sender: str, nonce: int) -> None:
         """Record a successfully applied nonce for *sender*."""
-        if nonce > 0:
+        if sender:
             self._nonces[sender] = nonce
+            if self._db is not None:
+                self._db.execute(
+                    "INSERT INTO nonces (address, last_nonce) VALUES (?, ?) "
+                    "ON CONFLICT(address) DO UPDATE SET last_nonce = excluded.last_nonce",
+                    (sender, nonce),
+                )
+                self._db.commit()
 
     def get_nonce(self, sender: str) -> int:
-        """Return the last accepted nonce for *sender* (0 if unseen)."""
-        return self._nonces.get(sender, 0)
+        """Return the last accepted nonce for *sender* (-1 if unseen)."""
+        return self._nonces.get(sender, -1)
 
 
 # Module-level default tracker; engines may supply their own.

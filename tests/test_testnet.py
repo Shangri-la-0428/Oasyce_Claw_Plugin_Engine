@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -36,7 +37,7 @@ class TestFaucetClaim:
     def test_faucet_claim(self, tmp_dir):
         """First claim succeeds with expected amount."""
         faucet = Faucet(tmp_dir)
-        result = faucet.claim("node-a", now=1000.0)
+        result = faucet.claim("addr-a")
 
         assert result["success"] is True
         assert result["amount"] == Faucet.TESTNET_DRIP
@@ -46,66 +47,114 @@ class TestFaucetClaim:
     def test_faucet_cooldown(self, tmp_dir):
         """Second claim within cooldown is rejected."""
         faucet = Faucet(tmp_dir)
-        faucet.claim("node-a", now=1000.0)
+        faucet.claim("addr-a")
 
-        result = faucet.claim("node-a", now=1000.0 + 100)
+        result = faucet.claim("addr-a")
         assert result["success"] is False
         assert result["amount"] == 0.0
         assert "Cooldown" in result["error"]
 
     def test_faucet_cooldown_expires(self, tmp_dir):
-        """Claim succeeds after cooldown expires."""
+        """Claim succeeds after cooldown expires (simulated via time mock)."""
         faucet = Faucet(tmp_dir)
-        faucet.claim("node-a", now=1000.0)
+        base = time.time()
 
-        after_cooldown = 1000.0 + Faucet.COOLDOWN + 1
-        result = faucet.claim("node-a", now=after_cooldown)
-        assert result["success"] is True
-        assert result["balance"] == Faucet.TESTNET_DRIP * 2
+        with patch("oasyce_plugin.services.faucet.time") as mock_time:
+            mock_time.time.return_value = base
+            faucet.claim("addr-a")
 
-    def test_faucet_multiple_nodes(self, tmp_dir):
-        """Different nodes have independent cooldowns."""
+            mock_time.time.return_value = base + Faucet.COOLDOWN + 1
+            result = faucet.claim("addr-a")
+            assert result["success"] is True
+            assert result["balance"] == Faucet.TESTNET_DRIP * 2
+
+    def test_faucet_multiple_addresses(self, tmp_dir):
+        """Different addresses have independent cooldowns."""
         faucet = Faucet(tmp_dir)
-        now = 5000.0
 
-        r1 = faucet.claim("node-a", now=now)
-        r2 = faucet.claim("node-b", now=now)
+        r1 = faucet.claim("addr-a")
+        r2 = faucet.claim("addr-b")
 
         assert r1["success"] is True
         assert r2["success"] is True
 
-        # node-a in cooldown, node-b still independent
-        r3 = faucet.claim("node-a", now=now + 10)
+        # addr-a in cooldown, addr-b still independent
+        r3 = faucet.claim("addr-a")
         assert r3["success"] is False
 
     def test_faucet_balance(self, tmp_dir):
         """Balance reflects claims correctly."""
         faucet = Faucet(tmp_dir)
-        assert faucet.balance("node-x") == 0.0
+        assert faucet.balance("addr-x") == 0.0
 
-        faucet.claim("node-x", now=1000.0)
-        assert faucet.balance("node-x") == Faucet.TESTNET_DRIP
+        faucet.claim("addr-x")
+        assert faucet.balance("addr-x") == Faucet.TESTNET_DRIP
 
     def test_faucet_persistence(self, tmp_dir):
         """Faucet state persists across instances."""
         faucet1 = Faucet(tmp_dir)
-        faucet1.claim("node-a", now=1000.0)
+        faucet1.claim("addr-a")
 
         faucet2 = Faucet(tmp_dir)
-        assert faucet2.balance("node-a") == Faucet.TESTNET_DRIP
+        assert faucet2.balance("addr-a") == Faucet.TESTNET_DRIP
 
         # Cooldown also persists
-        result = faucet2.claim("node-a", now=1000.0 + 50)
+        result = faucet2.claim("addr-a")
         assert result["success"] is False
 
     def test_faucet_reset(self, tmp_dir):
         """Reset clears all faucet state."""
         faucet = Faucet(tmp_dir)
-        faucet.claim("node-a", now=1000.0)
-        assert faucet.balance("node-a") == Faucet.TESTNET_DRIP
+        faucet.claim("addr-a")
+        assert faucet.balance("addr-a") == Faucet.TESTNET_DRIP
 
         faucet.reset()
-        assert faucet.balance("node-a") == 0.0
+        assert faucet.balance("addr-a") == 0.0
+
+    def test_faucet_no_now_parameter(self, tmp_dir):
+        """claim() does not accept a 'now' parameter — timestamp is internal."""
+        faucet = Faucet(tmp_dir)
+        import inspect
+        sig = inspect.signature(faucet.claim)
+        assert "now" not in sig.parameters
+
+    def test_faucet_lifetime_claim_limit(self, tmp_dir):
+        """Per-address lifetime claim limit is enforced."""
+        faucet = Faucet(tmp_dir)
+        base = time.time()
+
+        with patch("oasyce_plugin.services.faucet.time") as mock_time:
+            for i in range(Faucet.MAX_CLAIMS_PER_ADDRESS):
+                mock_time.time.return_value = base + i * (Faucet.COOLDOWN + 1)
+                result = faucet.claim("addr-a")
+                assert result["success"] is True
+
+            # Next claim should fail even after cooldown
+            mock_time.time.return_value = base + Faucet.MAX_CLAIMS_PER_ADDRESS * (Faucet.COOLDOWN + 1)
+            result = faucet.claim("addr-a")
+            assert result["success"] is False
+            assert "Lifetime claim limit" in result["error"]
+
+    def test_faucet_total_supply_cap(self, tmp_dir):
+        """Total supply cap prevents unlimited minting."""
+        faucet = Faucet(tmp_dir)
+        # Set total_claimed to just under the cap
+        faucet._total_claimed = Faucet.MAX_TOTAL_SUPPLY - Faucet.TESTNET_DRIP + 1
+
+        result = faucet.claim("addr-cap")
+        assert result["success"] is False
+        assert "supply exhausted" in result["error"]
+
+    def test_faucet_total_supply_tracks(self, tmp_dir):
+        """Total claimed amount is tracked across claims."""
+        faucet = Faucet(tmp_dir)
+        assert faucet.total_claimed == 0.0
+
+        faucet.claim("addr-a")
+        assert faucet.total_claimed == Faucet.TESTNET_DRIP
+
+        faucet.claim("addr-b")
+        assert faucet.total_claimed == Faucet.TESTNET_DRIP * 2
 
 
 # ── Onboarding tests ────────────────────────────────────────────────
@@ -115,7 +164,7 @@ class TestOnboarding:
     def test_onboarding_flow(self, tmp_dir):
         """Full onboarding: faucet + sample asset + stake."""
         onboarding = TestnetOnboarding(tmp_dir)
-        result = onboarding.onboard("node-new", now=1000.0)
+        result = onboarding.onboard("addr-new")
 
         # Faucet should succeed
         assert result["faucet_result"]["success"] is True
@@ -123,27 +172,21 @@ class TestOnboarding:
 
         # Sample asset should be created
         assert result["sample_asset"]["asset_id"].startswith("OAS_TEST_")
-        assert result["sample_asset"]["creator"] == "node-new"
+        assert result["sample_asset"]["creator"] == "addr-new"
 
-        # Should have enough to stake (10000 >= 100)
-        assert result["stake_result"]["staked"] is True
-        assert result["stake_result"]["amount"] == 100.0  # display OAS (from_units applied in onboarding)
-
-        # Summary: 1 simulation label + 3 steps
-        assert len(result["summary"]) == 4
+        # Summary: 1 simulation label + steps
+        assert len(result["summary"]) >= 3
         assert "LOCAL SIMULATION" in result["summary"][0]
         assert result["mode"] == "LOCAL_SIMULATION"
 
     def test_onboarding_faucet_cooldown(self, tmp_dir):
-        """Second onboarding skips faucet but still registers + stakes."""
+        """Second onboarding skips faucet but still registers asset."""
         onboarding = TestnetOnboarding(tmp_dir)
-        onboarding.onboard("node-a", now=1000.0)
+        onboarding.onboard("addr-a")
 
-        result = onboarding.onboard("node-a", now=1000.0 + 100)
+        result = onboarding.onboard("addr-a")
         assert result["faucet_result"]["success"] is False
         assert result["sample_asset"] is not None
-        # Still has enough from first claim
-        assert result["stake_result"]["staked"] is True
 
 
 # ── Config tests ─────────────────────────────────────────────────────

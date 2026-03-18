@@ -19,6 +19,7 @@ import json
 import os
 import sqlite3
 import threading
+from collections import OrderedDict
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from urllib.request import Request, urlopen
@@ -98,6 +99,7 @@ class SyncServer:
     """
 
     _DEFAULT_DB_PATH = os.path.join("~", ".oasyce", "blocks.db")
+    _MAX_ANNOUNCED_HASHES = 10_000
 
     def __init__(self, engine: ConsensusEngine,
                  host: str = "0.0.0.0", port: int = 9528,
@@ -115,7 +117,9 @@ class SyncServer:
         self._peers: List[str] = list(peers) if peers else []
         # Track hashes we have already announced so we don't re-announce
         # blocks that arrived via announcement themselves.
-        self._announced_hashes: set = set()
+        # Bounded LRU: when exceeding _MAX_ANNOUNCED_HASHES, oldest
+        # entries are evicted to prevent unbounded memory growth.
+        self._announced_hashes: OrderedDict = OrderedDict()
 
         # Persistent block store backed by SQLite.
         # If db_path is explicitly ":memory:", use in-memory DB.
@@ -142,6 +146,19 @@ class SyncServer:
         if block_store:
             for b in block_store:
                 self._db_insert_block(b)
+
+    def _record_announced_hash(self, block_hash: str) -> None:
+        """Record a hash in the bounded LRU set, evicting oldest if full."""
+        if block_hash in self._announced_hashes:
+            # Move to end (most recent)
+            self._announced_hashes.move_to_end(block_hash)
+            return
+        self._announced_hashes[block_hash] = None
+        if len(self._announced_hashes) > self._MAX_ANNOUNCED_HASHES:
+            # Evict oldest half to amortize eviction cost
+            to_remove = len(self._announced_hashes) // 2
+            for _ in range(to_remove):
+                self._announced_hashes.popitem(last=False)
 
     @property
     def url(self) -> str:
@@ -170,7 +187,7 @@ class SyncServer:
         # an announcement, which would cause a re-announce loop).
         block_hash = block.block_hash
         if not _from_announcement and block_hash not in self._announced_hashes:
-            self._announced_hashes.add(block_hash)
+            self._record_announced_hash(block_hash)
             self._push_announcement(block.block_number, block_hash)
 
     def _db_insert_block(self, block: Block) -> None:
@@ -244,7 +261,7 @@ class SyncServer:
 
         if row and row[0] == announced_hash:
             # We already have it — record and skip
-            self._announced_hashes.add(announced_hash)
+            self._record_announced_hash(announced_hash)
             body = json.dumps({"ok": True, "action": "already_have"}).encode()
             handler.send_response(200)
             handler.send_header("Content-Type", "application/json")
@@ -254,7 +271,7 @@ class SyncServer:
             return
 
         # We don't have this block — mark hash so we don't re-announce it
-        self._announced_hashes.add(announced_hash)
+        self._record_announced_hash(announced_hash)
 
         # Respond immediately; fetch the block asynchronously
         body = json.dumps({"ok": True, "action": "fetching"}).encode()

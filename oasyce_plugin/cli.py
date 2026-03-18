@@ -532,13 +532,108 @@ def cmd_demo(args):
     import tempfile
     import time
 
-    from oasyce_plugin.bridge.core_bridge import (
-        bridge_buy,
-        bridge_get_shares,
-        bridge_quote,
-        bridge_register,
-    )
+    try:
+        from oasyce_plugin.bridge.core_bridge import (
+            bridge_buy,
+            bridge_get_shares,
+            bridge_quote,
+            bridge_register,
+        )
+        _has_core = True
+    except ImportError:
+        _has_core = False
 
+    if not _has_core:
+        # ── Local-only demo (no oasyce-core) ─────────────────────────
+        if not args.json:
+            print("Running local demo (install oasyce-core for full protocol demo)\n")
+
+        from oasyce_plugin.engines.core_engines import UploadEngine, TradeEngine
+        from oasyce_plugin.services.pricing import DatasetPricingCurve
+
+        steps: dict = {}
+
+        def _banner_local(n, total, text):
+            if not args.json:
+                print(f"\nStep {n}/{total} — {text}")
+
+        # Step 1: create temp file
+        _banner_local(1, 4, "Creating temporary asset file...")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("Oasyce local demo data payload\n")
+            temp_path = f.name
+
+        try:
+            file_hash = hashlib.sha256(open(temp_path, "rb").read()).hexdigest()
+            asset_id = f"OAS_DEMO_{file_hash[:8].upper()}"
+            steps["file"] = {"path": temp_path, "hash": file_hash}
+            if not args.json:
+                print(f"   File:  {temp_path}")
+                print(f"   Hash:  {file_hash[:16]}...")
+
+            # Step 2: register using local engine
+            _banner_local(2, 4, "Registering asset locally...")
+            vault_dir = tempfile.mkdtemp(prefix="oasyce_demo_vault_")
+            metadata = {
+                "asset_id": asset_id,
+                "filename": os.path.basename(temp_path),
+                "owner": "demo_user",
+                "tags": ["Demo", "Genesis"],
+                "timestamp": int(time.time()),
+                "file_hash": file_hash,
+                "popc_signature": file_hash[:16],
+            }
+            reg_result = UploadEngine.register_asset(metadata, vault_dir)
+            reg_data = reg_result.value if hasattr(reg_result, 'value') else reg_result
+            steps["register"] = {"asset_id": asset_id, "status": "success"}
+            if not args.json:
+                print(f"   Registered: {asset_id}")
+                print(f"   Vault:      {vault_dir}")
+
+            # Step 3: calculate price quote using local pricing
+            _banner_local(3, 4, "Calculating price quote (local pricing)...")
+            curve = DatasetPricingCurve()
+            price_result = curve.calculate_price(
+                asset_id=asset_id,
+                base_price=1.0,
+                query_count=5,
+                similar_count=2,
+                contribution_score=0.7,
+                days_since_creation=0,
+                rights_type="original",
+            )
+            steps["quote"] = price_result
+            if not args.json:
+                fp = price_result.get("final_price", 0)
+                print(f"   Price: {fp:.6f} OAS")
+                for k in ("demand_factor", "scarcity_factor", "quality_factor", "freshness_factor"):
+                    if k in price_result:
+                        print(f"   {k}: {price_result[k]:.4f}")
+
+            # Step 4: simulate purchase using local settlement
+            _banner_local(4, 4, "Simulating purchase (local settlement)...")
+            spend = 10.0
+            simulated_shares = spend / max(price_result.get("final_price", 1.0), 0.001)
+            steps["buy"] = {
+                "spent_oas": spend,
+                "shares_received": round(simulated_shares, 6),
+                "price_per_share": price_result.get("final_price", 1.0),
+            }
+            if not args.json:
+                print(f"   Spent:          {spend} OAS")
+                print(f"   Shares recv'd:  {simulated_shares:.6f}")
+                print(f"   Price/share:    {price_result.get('final_price', 1.0):.6f} OAS")
+                print()
+                print("=" * 40)
+                print("Demo complete! Pipeline: register -> quote -> buy (local)")
+
+            if args.json:
+                print(json.dumps(steps, indent=2))
+        finally:
+            os.unlink(temp_path)
+        return
+
+    # ── Full demo with oasyce-core ───────────────────────────────
     steps = {}
 
     def _banner(n, total, text):

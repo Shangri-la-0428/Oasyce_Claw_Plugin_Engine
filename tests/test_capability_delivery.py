@@ -903,3 +903,50 @@ class TestEscrowBalanceIntegration:
                  + bal.get_balance("protocol_treasury", "OAS"))
         assert total == initial
         escrow.close()
+
+    def test_expire_stale_refunds_consumer(self):
+        """Expired escrows must credit funds back to the consumer (#36)."""
+        bal = self._make_balances()
+        initial = to_units(100)
+        bal.credit("consumer", "OAS", initial)
+
+        escrow = EscrowLedger(db_path=":memory:", balances=bal)
+        lock_result = escrow.lock(
+            "consumer", "provider", "CAP_1", amount=to_units(25), ttl=0,
+        )
+        assert lock_result["ok"] is True
+        # Consumer balance should have been debited.
+        assert bal.get_balance("consumer", "OAS") == initial - to_units(25)
+
+        # Force created_at into the past so the escrow is stale.
+        escrow._conn.execute(
+            "UPDATE escrow SET created_at = created_at - 10 WHERE escrow_id = ?",
+            (lock_result["escrow_id"],),
+        )
+        escrow._conn.commit()
+
+        expired = escrow.expire_stale()
+        assert expired == 1
+
+        entry = escrow.get(lock_result["escrow_id"])
+        assert entry.status == EscrowStatus.EXPIRED
+
+        # Consumer balance must be fully restored.
+        assert bal.get_balance("consumer", "OAS") == initial
+        escrow.close()
+
+    def test_expire_stale_no_balances_still_works(self):
+        """expire_stale works in ledger-only mode (no balances)."""
+        escrow = EscrowLedger(db_path=":memory:")
+        result = escrow.lock("c", "p", "cap", amount=1000, ttl=0)
+        eid = result["escrow_id"]
+        escrow._conn.execute(
+            "UPDATE escrow SET created_at = created_at - 10 WHERE escrow_id = ?",
+            (eid,),
+        )
+        escrow._conn.commit()
+
+        expired = escrow.expire_stale()
+        assert expired == 1
+        assert escrow.get(eid).status == EscrowStatus.EXPIRED
+        escrow.close()

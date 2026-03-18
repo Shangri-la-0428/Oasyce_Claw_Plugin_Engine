@@ -31,6 +31,7 @@ from oasyce_plugin.consensus.network.sync_protocol import (
 if TYPE_CHECKING:
     from oasyce_plugin.consensus import ConsensusEngine
     from oasyce_plugin.consensus.network.http_transport import SyncServer
+    from oasyce_plugin.consensus.proposer import ProposerElection
 
 
 # ── Mempool ──────────────────────────────────────────────────────
@@ -107,7 +108,9 @@ class BlockProducer:
                  proposer_id: str = "",
                  max_ops_per_block: int = 100,
                  on_block: Optional[Callable[[Block], None]] = None,
-                 slot_timeout: float = 3.0):
+                 slot_timeout: float = 3.0,
+                 election: Optional[ProposerElection] = None,
+                 validators: Optional[List[Dict[str, Any]]] = None):
         self._engine = engine
         self._mempool = mempool
         self._sync_server = sync_server
@@ -115,6 +118,8 @@ class BlockProducer:
         self._max_ops_per_block = max_ops_per_block
         self._on_block = on_block
         self._slot_timeout = slot_timeout
+        self._election = election
+        self._validators = validators or []
 
         self._lock = threading.Lock()
         self._height = -1  # will be initialized from chain
@@ -193,24 +198,60 @@ class BlockProducer:
         return block
 
     def start(self, interval: float = 5.0,
-              empty_blocks: bool = True) -> None:
+              empty_blocks: bool = True,
+              primary_proposer_id: Optional[str] = None) -> None:
         """Start producing blocks in a background thread.
 
         Args:
             interval: Seconds between block production attempts.
             empty_blocks: If True, produce blocks even when mempool is empty.
+            primary_proposer_id: If set, this node is NOT the primary.
+                When an election is configured, backup proposer logic is
+                used automatically based on the current slot.
         """
         if self._running:
             return
         self._running = True
 
         def loop():
+            slot = 0
             while self._running:
-                if empty_blocks or self._mempool.size > 0:
-                    try:
-                        self.produce_block()
-                    except Exception:
-                        pass  # log in production
+                produced = False
+                is_primary = True
+
+                # If we have an election, determine role for this slot
+                if self._election is not None and self._validators:
+                    # Use the election to find primary for the current slot
+                    # (epoch 0 for simplicity — real scheduling uses epoch manager)
+                    primary = self._election.get_current_leader(0, slot % self._election.slots_per_epoch)
+                    is_primary = (primary == self._proposer_id)
+
+                    if not is_primary:
+                        # We are not the primary — try backup production
+                        backup_id = self._election.get_backup_proposer(
+                            slot % self._election.slots_per_epoch,
+                            primary or "",
+                            self._validators,
+                        )
+                        is_backup = (backup_id == self._proposer_id)
+                        block = self.try_backup_produce(is_backup=is_backup)
+                        produced = block is not None
+                elif primary_proposer_id is not None:
+                    # Legacy mode: explicit primary_proposer_id
+                    is_primary = (primary_proposer_id == self._proposer_id)
+                    if not is_primary:
+                        backup = self.try_backup_produce(is_backup=True)
+                        produced = backup is not None
+
+                # Primary path: produce directly
+                if is_primary and not produced:
+                    if empty_blocks or self._mempool.size > 0:
+                        try:
+                            self.produce_block()
+                        except Exception:
+                            pass  # log in production
+
+                slot += 1
                 time.sleep(interval)
 
         self._thread = threading.Thread(

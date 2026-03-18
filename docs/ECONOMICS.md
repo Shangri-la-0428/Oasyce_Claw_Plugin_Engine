@@ -6,7 +6,7 @@ OAS is the native protocol token used for all transactions, staking, and settlem
 
 - **Decimal precision**: 1 OAS = 10^8 units (8 decimal places). All internal arithmetic uses integer units to avoid floating-point errors.
 - **Multi-asset support**: The protocol also supports `USDC` (6 decimals), `DATA_CREDIT` (0 decimals), and `CAPABILITY_TOKEN` (0 decimals), registered via the asset registry.
-- **Supply model**: Block rewards with halving schedule (see Staking Rewards below). No pre-defined hard cap; supply grows via block rewards and decreases via slashing burns.
+- **Supply model**: Block rewards with halving schedule (see Staking Rewards below). No pre-defined hard cap. Block reward issuance converges asymptotically to `halving_interval * base_reward * 2` total OAS (~8,000,000 OAS for mainnet parameters of 4.0 OAS/block with 1M-block halving interval). Effective supply is further reduced by slashing burns.
 
 ---
 
