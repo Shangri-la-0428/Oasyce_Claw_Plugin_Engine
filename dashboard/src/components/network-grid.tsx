@@ -74,6 +74,21 @@ export default function NetworkGrid() {
     let lastSpawn = 0;
     let lastRipple = 0;
 
+    // Cache computed CSS colors — only recalculate on theme change
+    let cachedBgR = 0, cachedBgG = 0, cachedBgB = 0;
+    function refreshCachedColors() {
+      const dark = isDark();
+      const rootStyle = getComputedStyle(document.documentElement);
+      const bgHex = rootStyle.getPropertyValue('--bg-0').trim();
+      cachedBgR = parseInt(bgHex.slice(1, 3), 16) || (dark ? 10 : 250);
+      cachedBgG = parseInt(bgHex.slice(3, 5), 16) || (dark ? 10 : 249);
+      cachedBgB = parseInt(bgHex.slice(5, 7), 16) || (dark ? 10 : 246);
+    }
+    refreshCachedColors();
+
+    const themeObserver = new MutationObserver(() => { refreshCachedColors(); });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
     const HEARTBEAT_MS = 4000;
     const IDLE_AFTER = 8000;
     const FADE_AFTER = 14000;
@@ -308,12 +323,10 @@ export default function NetworkGrid() {
 
       // --- Render ---
       const dark = isDark();
-      // Read actual bg color from design system CSS variable
-      const rootStyle = getComputedStyle(document.documentElement);
-      const bgHex = rootStyle.getPropertyValue('--bg-0').trim();
-      const bgR = parseInt(bgHex.slice(1, 3), 16) || (dark ? 10 : 250);
-      const bgG = parseInt(bgHex.slice(3, 5), 16) || (dark ? 10 : 249);
-      const bgB = parseInt(bgHex.slice(5, 7), 16) || (dark ? 10 : 246);
+      // Use cached CSS color values (refreshed on theme change via MutationObserver)
+      const bgR = cachedBgR;
+      const bgG = cachedBgG;
+      const bgB = cachedBgB;
       const sDim = dark ? 60 : 200;
       const sMid = dark ? 140 : 110;
       const sBright = dark ? 220 : 35;
@@ -419,7 +432,7 @@ export default function NetworkGrid() {
     let rt = 0;
     const onResize = () => { clearTimeout(rt); rt = window.setTimeout(init, 300); };
     window.addEventListener('resize', onResize);
-    return () => { stopLoop(); clearTimeout(rt); window.removeEventListener('resize', onResize); observer.disconnect(); };
+    return () => { stopLoop(); clearTimeout(rt); window.removeEventListener('resize', onResize); observer.disconnect(); themeObserver.disconnect(); };
   }, []);
 
   return <canvas ref={canvasRef} class="network-grid" aria-hidden="true" />;

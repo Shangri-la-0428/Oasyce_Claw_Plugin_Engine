@@ -24,7 +24,7 @@
   position: absolute; top: 12px; right: 12px;
   background: none; border: none;
   color: var(--fg-2); font-size: 18px;
-  cursor: pointer; min-width: 32px; min-height: 32px;
+  cursor: pointer; min-width: 44px; min-height: 44px;
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-s);
 }
@@ -39,7 +39,7 @@
   font-family: var(--mono); letter-spacing: 0.02em;
 }
 .about-badge {
-  font-size: 10px; color: var(--fg-2);
+  font-size: 11px; color: var(--fg-2);
   background: var(--bg-2);
   padding: 1px 7px; border-radius: 10px;
   font-family: var(--mono);
@@ -58,7 +58,7 @@
   overflow-x: auto;
 }
 .about-tab {
-  padding: 7px 10px;
+  padding: 7px 10px; min-height: 44px;
   font-size: 11px; font-weight: 500;
   color: var(--fg-2);
   background: none; border: none;

@@ -2,7 +2,7 @@
  * AboutPanel — tabbed info panel for all audiences
  * Slides in from the right when the "i" button is clicked.
  */
-import { useState } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { i18n } from '../store/ui';
 import './about-panel.css';
 
@@ -15,6 +15,18 @@ type Tab = 'overview' | 'start' | 'arch' | 'econ' | 'update' | 'links';
 export default function AboutPanel({ onClose }: Props) {
   const _ = i18n.value;
   const [tab, setTab] = useState<Tab>('overview');
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    panelRef.current?.focus();
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [onClose]);
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overview', label: _['about-tab-overview'] },
@@ -28,7 +40,7 @@ export default function AboutPanel({ onClose }: Props) {
   return (
     <div>
       <div class="about-overlay" onClick={onClose} />
-      <div class="about-panel">
+      <div class="about-panel" role="dialog" aria-modal="true" ref={panelRef} tabIndex={-1}>
         <button class="about-close" onClick={onClose}>&times;</button>
 
         <div class="about-header">
@@ -75,27 +87,27 @@ export default function AboutPanel({ onClose }: Props) {
         {/* Links */}
         <div class={`about-section ${tab === 'links' ? 'active' : ''}`}>
           <ul class="about-links">
-            <li><a href="https://oasyce.com" target="_blank" rel="noopener">
+            <li><a href="https://oasyce.com" target="_blank" rel="noopener noreferrer">
               <div class="about-link-label">{_['about-link-intro']}</div>
               <div class="about-link-desc">{_['about-link-intro-d']}</div>
             </a></li>
-            <li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank" rel="noopener">
+            <li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank" rel="noopener noreferrer">
               <div class="about-link-label">{_['about-link-whitepaper']}</div>
               <div class="about-link-desc">{_['about-link-whitepaper-d']}</div>
             </a></li>
-            <li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank" rel="noopener">
+            <li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank" rel="noopener noreferrer">
               <div class="about-link-label">{_['about-link-docs']}</div>
               <div class="about-link-desc">{_['about-link-docs-d']}</div>
             </a></li>
-            <li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank" rel="noopener">
+            <li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank" rel="noopener noreferrer">
               <div class="about-link-label">{_['about-link-github-project']}</div>
               <div class="about-link-desc">{_['about-link-github-project-d']}</div>
             </a></li>
-            <li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank" rel="noopener">
+            <li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank" rel="noopener noreferrer">
               <div class="about-link-label">{_['about-link-github-engine']}</div>
               <div class="about-link-desc">{_['about-link-github-engine-d']}</div>
             </a></li>
-            <li><a href="https://discord.gg/oasyce" target="_blank" rel="noopener">
+            <li><a href="https://discord.gg/oasyce" target="_blank" rel="noopener noreferrer">
               <div class="about-link-label">{_['about-link-discord']}</div>
               <div class="about-link-desc">{_['about-link-discord-d']}</div>
             </a></li>

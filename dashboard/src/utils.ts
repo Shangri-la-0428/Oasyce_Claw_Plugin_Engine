@@ -1,31 +1,48 @@
 /** Shared helper functions used across pages */
 
 /** 遮罩 asset_id：列表里前 8 位 + •••• */
-export function maskIdShort(id: string) {
-  if (!id || id.length <= 8) return id;
+export function maskIdShort(id: string | undefined | null): string {
+  if (!id) return '--';
+  if (id.length <= 8) return id;
   return id.slice(0, 8) + '••••';
 }
 
 /** 遮罩 asset_id：详情里前 16 位 + •••• */
-export function maskIdLong(id: string) {
-  if (!id || id.length <= 16) return id;
+export function maskIdLong(id: string | undefined | null): string {
+  if (!id) return '--';
+  if (id.length <= 16) return id;
   return id.slice(0, 16) + '••••';
 }
 
 /** 遮罩 owner：如果是长哈希，截断为前6位 */
-export function maskOwner(owner: string) {
-  if (!owner || owner.length <= 12) return owner;
+export function maskOwner(owner: string | undefined | null): string {
+  if (!owner) return '--';
+  if (owner.length <= 12) return owner;
   return owner.slice(0, 6) + '••••';
 }
 
-/** 格式化价格：>= 1 显示 2 位，< 1 显示 4 位 */
+/** 格式化价格：>= 1 显示 2 位，< 1 显示 4 位；handles NaN/Infinity */
 export function fmtPrice(p: number | undefined | null): string {
-  if (p == null) return '--';
+  if (p == null || !Number.isFinite(p)) return '--';
+  if (p === 0) return '0.00';
   return p >= 1 ? p.toFixed(2) : p.toFixed(4);
 }
 
-/** 递归读取 DataTransferItem 里的文件夹，返回所有 File */
-export async function readEntryFiles(entry: any): Promise<File[]> {
+/** Safe number formatting: returns '--' for null/undefined/NaN */
+export function safeNum(n: number | undefined | null, decimals = 2): string {
+  if (n == null || !Number.isFinite(n)) return '--';
+  return n.toFixed(decimals);
+}
+
+/** Safe percentage formatting from 0-1 fraction */
+export function safePct(n: number | undefined | null, decimals = 1): string {
+  if (n == null || !Number.isFinite(n)) return '--';
+  return (n * 100).toFixed(decimals) + '%';
+}
+
+/** 递归读取 DataTransferItem 里的文件夹，返回所有 File (带深度限制) */
+export async function readEntryFiles(entry: any, maxDepth = 5): Promise<File[]> {
+  if (maxDepth <= 0) return [];
   if (entry.isFile) {
     return new Promise(resolve => {
       entry.file((f: File) => resolve([f]), () => resolve([]));
@@ -33,10 +50,16 @@ export async function readEntryFiles(entry: any): Promise<File[]> {
   }
   if (entry.isDirectory) {
     const reader = entry.createReader();
-    const entries: any[] = await new Promise(resolve => {
-      reader.readEntries((e: any[]) => resolve(e), () => resolve([]));
-    });
-    const nested = await Promise.all(entries.map(readEntryFiles));
+    // readEntries may not return all entries at once; loop until empty
+    let allEntries: any[] = [];
+    let batch: any[];
+    do {
+      batch = await new Promise<any[]>(resolve => {
+        reader.readEntries((e: any[]) => resolve(e), () => resolve([]));
+      });
+      allEntries = allEntries.concat(batch);
+    } while (batch.length > 0);
+    const nested = await Promise.all(allEntries.map(e => readEntryFiles(e, maxDepth - 1)));
     return nested.flat();
   }
   return [];

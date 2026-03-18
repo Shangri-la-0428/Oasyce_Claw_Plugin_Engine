@@ -1,6 +1,31 @@
 /* Network — minimal overrides */
 .net-hero { max-width: var(--max-w); }
 .net-tools { display: flex; flex-direction: column; }
+
+/* Collapsible section toggle */
+.net-section-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 0; gap: 12px;
+  background: none; border: none; cursor: pointer;
+  font-family: var(--sans); text-align: left;
+  min-height: 44px;
+}
+.net-section-toggle:hover .net-section-chevron { color: var(--fg-0); }
+.net-section-header { flex: 1; min-width: 0; }
+.net-section-peek {
+  display: block; margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.net-section-chevron {
+  font-size: 18px; font-weight: 300; color: var(--fg-2);
+  transition: transform 0.2s var(--ease), color 0.15s var(--ease);
+  flex-shrink: 0; width: 20px; text-align: center;
+}
+.net-section-chevron-open { transform: rotate(90deg); }
+.net-section-body {
+  padding-top: 12px;
+  animation: field-in 0.2s var(--ease);
+}
 .nav-item-active { background: var(--bg-1); border-radius: var(--r-m); padding-left: 12px; }
 .net-tool-form {
   display: flex; flex-direction: column; gap: 10px;
@@ -45,6 +70,13 @@
 }
 .net-role-badge-title {
   font-size: 13px; font-weight: 500; color: var(--fg-0);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.net-role-badge > div {
+  min-width: 0; overflow: hidden;
+}
+.net-role-badge .caption {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* API key field with toggle */
@@ -79,3 +111,17 @@
   list-style: disc;
   line-height: 1.7;
 }
+
+/* Network utility overrides */
+.net-hero-light { color: var(--fg-1); }
+.net-tool-form-flush { padding-left: 0; }
+.net-tools-gap { margin-top: 4px; }
+.net-tools-gap-md { margin-top: 12px; }
+.net-work-recent-wrap { margin-top: 16px; }
+.kv-sm { font-size: 12px; }
+.kv-key-xs { font-size: 11px; }
+.kv-val-xs { font-size: 11px; word-break: break-all; }
+.kv-val-xs-nowrap { font-size: 11px; }
+.net-role-badge-active { border-color: var(--green); }
+.net-role-badge-icon-active { background: var(--green); color: var(--bg-0); }
+.label-flush { margin-bottom: 0; }

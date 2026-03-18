@@ -1,19 +1,7 @@
-/* MyData */
-.data-list { border-top: 1px solid var(--bg-2); }
+/* MyData — page-specific overrides (base list styles in design.css .item-*) */
 .data-item { border-bottom: 1px solid var(--bg-2); }
-.data-row {
-  display: flex; align-items: center; gap: 12px;
-  width: 100%; padding: 14px 0;
-  background: none; border: none; cursor: pointer;
-  text-align: left; font-family: var(--sans);
-  transition: transform 0.12s var(--ease);
-}
-.data-row:hover { transform: translateX(4px); }
-.data-name { font-size: 14px; font-weight: 500; color: var(--fg-0); margin-bottom: 2px; }
-.data-meta { display: flex; align-items: center; gap: 8px; }
-.data-id-inline { font-size: 12px; color: var(--fg-2); }
-.data-owner-inline { font-size: 12px; color: var(--fg-3); }
-.data-price-prominent { font-size: 16px; font-weight: 500; color: var(--fg-0); white-space: nowrap; }
+.data-id-inline { font-size: 12px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data-owner-inline { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .data-chevron {
   font-size: 16px; color: var(--fg-3);
   transition: transform 0.15s var(--ease);
@@ -37,12 +25,17 @@
   animation: field-in 0.2s var(--ease);
 }
 
-.mydata-reg-fields {
-  display: flex; flex-direction: column; gap: 16px;
-  animation: field-in 0.25s var(--ease);
-}
+/* .mydata-reg-fields moved to register-form.css as .register-fields */
 
-@media (max-width: 600px) {
-  .data-row { gap: 8px; }
-  .data-price-prominent { font-size: 13px; }
-}
+/* ── Co-creator list ── */
+.cocreator-list { margin-top: 8px; }
+.cocreator-list-inner { margin-top: 4px; }
+.cocreator-item { margin-left: 12px; }
+
+/* ── Dispute section ── */
+.dispute-box { margin-top: 8px; }
+.dispute-arb-wrap { margin-top: 6px; }
+.dispute-arb-item { margin-left: 8px; margin-bottom: 2px; }
+
+/* ── Re-register inline button ── */
+.btn-reregister { margin-left: 6px; font-size: 12px; }

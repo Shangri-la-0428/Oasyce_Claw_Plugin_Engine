@@ -1,22 +1,10 @@
-/* Explore */
-.explore-list { border-top: 1px solid var(--bg-2); }
+/* Explore — page-specific overrides (base list styles in design.css .item-*) */
 .explore-item { border-bottom: 1px solid var(--bg-2); }
-.explore-row {
-  display: flex; align-items: center; gap: 12px;
-  width: 100%; padding: 14px 0;
-  background: none; border: none; cursor: pointer;
-  text-align: left; font-family: var(--sans);
-  transition: transform 0.12s var(--ease);
-}
-.explore-row:hover { transform: translateX(4px); }
-.explore-name { font-size: 14px; font-weight: 500; color: var(--fg-0); margin-bottom: 2px; }
-.explore-meta { display: flex; align-items: center; gap: 8px; }
-.explore-id-inline { font-size: 12px; color: var(--fg-2); }
-.explore-owner-inline { font-size: 12px; color: var(--fg-3); }
-.explore-price-prominent { font-size: 16px; font-weight: 500; color: var(--fg-0); white-space: nowrap; }
+.explore-id-inline { font-size: 12px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explore-owner-inline { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .explore-inline {
-  padding: 16px 0 16px 16px;
+  padding: 16px;
   background: var(--bg-1);
   border-radius: var(--r-m);
   margin-bottom: 4px;
@@ -90,14 +78,10 @@
   color: var(--fg-0);
 }
 
-/* ── Stake card ── */
-.stake-card {
-  padding: 16px;
-}
+/* ── Invoke result value ── */
+.invoke-result-val { font-size: 12px; word-break: break-all; }
 
 @media (max-width: 600px) {
-  .explore-row { gap: 8px; }
-  .explore-price-prominent { font-size: 13px; }
   .portfolio-stats { gap: 12px; }
   .portfolio-row { flex-wrap: wrap; }
   .explore-inline .masked { word-break: break-all; }

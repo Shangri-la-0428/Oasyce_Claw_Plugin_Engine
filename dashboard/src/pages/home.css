@@ -34,6 +34,7 @@
   padding-bottom: 1px;
   background: none; border: none;
   font-family: var(--sans); font-size: 13px;
+  min-height: 44px;
 }
 .home-mode-tab:hover { color: var(--fg-1); }
 .home-mode-tab.active {
@@ -46,11 +47,7 @@
 /* ── Dropzone 选中状态（基础样式在 design.css）── */
 .dropzone-done { border-style: solid; border-color: var(--border-active); }
 
-/* ── Fields ── */
-.home-fields {
-  display: flex; flex-direction: column; gap: 16px; margin-top: 16px;
-  animation: field-in 0.25s var(--ease);
-}
+/* ── Fields (now in register-form.css as .register-fields) ── */
 
 
 /* ── Success ── */
@@ -74,7 +71,7 @@
   0% { transform: scale(0); opacity: 0; }
   100% { transform: scale(1); opacity: 1; }
 }
-.home-success-title { font-size: 18px; font-weight: 500; color: var(--fg-0); }
+.home-success-title { font-size: 15px; font-weight: 500; color: var(--fg-0); }
 .home-success-detail {
   display: flex; flex-direction: column; gap: 4px;
   width: 100%; max-width: 320px;
@@ -93,9 +90,9 @@
 .nav-row-title { font-size: 15px; font-weight: 500; color: var(--fg-0); }
 .nav-row-desc { font-size: 13px; color: var(--fg-2); }
 
+/* ── Fingerprint value ── */
+.fingerprint-val { font-size: 12px; }
+
 @media (max-width: 600px) {
   .home-hero .display { font-size: 28px; }
-  .home-fields .row.gap-8 { flex-wrap: wrap; }
-  .home-fields .row.gap-8 .input[style*="flex:2"] { flex: 1 1 100%; }
-  .home-fields .row.gap-8 .input[style*="flex:1"] { max-width: none; }
 }

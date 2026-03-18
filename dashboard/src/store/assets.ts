@@ -33,7 +33,9 @@ export const assets = signal<Asset[]>([]);
 
 export async function loadAssets() {
   const result = await get<Asset[]>('/assets');
-  if (result.success && result.data) assets.value = result.data;
+  if (result.success && Array.isArray(result.data)) {
+    assets.value = result.data;
+  }
 }
 
 export async function deleteAsset(id: string) {
