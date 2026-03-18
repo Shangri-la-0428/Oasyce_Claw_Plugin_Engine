@@ -69,6 +69,10 @@ def validate_operation(engine: ConsensusEngine, op: Operation,
         return True, ""  # Slash operations are system-generated
     elif op.op_type == OperationType.REWARD:
         return True, ""  # Reward operations are system-generated
+    elif op.op_type == OperationType.TRANSFER:
+        return _validate_transfer(engine, op)
+    elif op.op_type == OperationType.REGISTER_ASSET:
+        return _validate_register_asset(engine, op)
     else:
         return False, f"unknown operation type: {op.op_type}"
 
@@ -128,4 +132,43 @@ def _validate_unjail(engine: ConsensusEngine, op: Operation) -> Tuple[bool, str]
         return False, "validator not found"
     if val["status"] != "jailed":
         return False, f"validator is {val['status']}, not jailed"
+    return True, ""
+
+
+# ── Multi-asset validation ─────────────────────────────────────────
+
+
+def _validate_transfer(engine: ConsensusEngine, op: Operation) -> Tuple[bool, str]:
+    """Validate a multi-asset transfer operation."""
+    if op.amount <= 0:
+        return False, "transfer amount must be positive"
+    if not op.from_addr:
+        return False, "transfer requires from_addr"
+    if not op.to_addr:
+        return False, "transfer requires to_addr"
+    if op.from_addr == op.to_addr:
+        return False, "cannot transfer to self"
+
+    # Asset type must be registered
+    if not engine.asset_registry.is_registered(op.asset_type):
+        return False, f"unknown asset type: {op.asset_type}"
+
+    # Check balance
+    balance = engine.state.balances.get_balance(op.from_addr, op.asset_type)
+    if balance < op.amount:
+        return False, (
+            f"insufficient {op.asset_type} balance: "
+            f"have {balance}, need {op.amount}"
+        )
+    return True, ""
+
+
+def _validate_register_asset(engine: ConsensusEngine, op: Operation) -> Tuple[bool, str]:
+    """Validate an asset registration operation."""
+    if not op.asset_type:
+        return False, "asset_type cannot be empty"
+    if engine.asset_registry.is_registered(op.asset_type):
+        return False, f"asset type '{op.asset_type}' already registered"
+    if not op.from_addr:
+        return False, "register_asset requires issuer (from_addr)"
     return True, ""

@@ -7,9 +7,34 @@ No float is ever used for monetary amounts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Dict, List, Literal, Optional, Tuple
+
+
+# ── Multi-asset types ───────────────────────────────────────────────
+
+AssetType = Literal["OAS", "USDC", "DATA_CREDIT", "CAPABILITY_TOKEN"]
+
+KNOWN_ASSET_TYPES: Tuple[str, ...] = ("OAS", "USDC", "DATA_CREDIT", "CAPABILITY_TOKEN")
+
+# Default decimals per asset type
+ASSET_DECIMALS: Dict[str, int] = {
+    "OAS": 8,
+    "USDC": 6,
+    "DATA_CREDIT": 0,
+    "CAPABILITY_TOKEN": 0,
+}
+
+
+@dataclass(frozen=True)
+class Resource:
+    """A typed resource reference used in multi-asset operations."""
+    type: Literal["asset", "right"]
+    id: str           # e.g. "OAS", "USDC", "GPT4_INFERENCE"
+    amount: int
+    asset_type: str = "OAS"
+    metadata: dict = field(default_factory=dict)
 
 
 # ── Unit system ──────────────────────────────────────────────────────
@@ -49,6 +74,8 @@ class OperationType(str, Enum):
     REWARD = "reward"
     EXIT = "exit"
     UNJAIL = "unjail"
+    TRANSFER = "transfer"
+    REGISTER_ASSET = "register_asset"
 
 
 # ── Operation (frozen, immutable) ────────────────────────────────────

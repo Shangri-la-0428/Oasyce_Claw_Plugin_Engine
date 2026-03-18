@@ -41,6 +41,9 @@ class ConsensusState:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._create_tables()
+        # Multi-asset balance manager (lazy init shares conn + lock)
+        from oasyce_plugin.consensus.assets.balances import MultiAssetBalance
+        self.balances = MultiAssetBalance(self._conn, self._lock)
 
     @staticmethod
     def _default_path() -> str:

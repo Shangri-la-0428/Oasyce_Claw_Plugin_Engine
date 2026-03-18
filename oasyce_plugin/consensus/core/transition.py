@@ -68,4 +68,20 @@ def apply_operation(engine: ConsensusEngine, op: Operation,
         # Rewards are handled in bulk by distribute_epoch_rewards
         return {"ok": True, "note": "reward applied via epoch boundary"}
 
+    elif op.op_type == OperationType.TRANSFER:
+        return engine.state.balances.transfer(
+            op.from_addr, op.to_addr, op.asset_type, op.amount,
+            block_height=block_height,
+        )
+
+    elif op.op_type == OperationType.REGISTER_ASSET:
+        from oasyce_plugin.consensus.assets.registry import AssetDefinition
+        definition = AssetDefinition(
+            asset_type=op.asset_type,
+            name=op.reason or op.asset_type,
+            decimals=op.commission_rate,
+            issuer=op.from_addr,
+        )
+        return engine.asset_registry.register_asset(definition)
+
     return {"ok": False, "error": f"unhandled operation type: {op.op_type}"}

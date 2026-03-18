@@ -20,7 +20,9 @@ from oasyce_plugin.consensus.rewards import RewardEngine
 from oasyce_plugin.consensus.core.types import (
     OAS_DECIMALS, to_units, from_units,
     Operation, OperationType,
+    AssetType, KNOWN_ASSET_TYPES, ASSET_DECIMALS, Resource,
 )
+from oasyce_plugin.consensus.assets import AssetRegistry, AssetDefinition, MultiAssetBalance
 from oasyce_plugin.consensus.core.transition import apply_operation
 from oasyce_plugin.consensus.core.validation import validate_operation
 from oasyce_plugin.consensus.core.signature import (
@@ -47,6 +49,13 @@ __all__ = [
     "to_units",
     "from_units",
     "OAS_DECIMALS",
+    "AssetType",
+    "KNOWN_ASSET_TYPES",
+    "ASSET_DECIMALS",
+    "Resource",
+    "AssetRegistry",
+    "AssetDefinition",
+    "MultiAssetBalance",
 ]
 
 
@@ -93,6 +102,7 @@ class ConsensusEngine:
             block_reward=economics.get("block_reward", 4_000_000_000),
             halving_interval=economics.get("halving_interval", 10000),
         )
+        self.asset_registry = AssetRegistry()
 
     @staticmethod
     def _default_testnet_params() -> Dict[str, Any]:
@@ -260,6 +270,51 @@ class ConsensusEngine:
     def verify_proposer(self, epoch_number: int, slot_index: int,
                         validator_id: str) -> bool:
         return self.proposer.verify_proposer(epoch_number, slot_index, validator_id)
+
+    # ── Multi-asset operations ──────────────────────────────────────
+
+    def transfer_asset(self, from_addr: str, to_addr: str,
+                       asset_type: str, amount: int,
+                       block_height: int = 0) -> Dict[str, Any]:
+        """Transfer assets between addresses via the state machine."""
+        op = Operation(
+            op_type=OperationType.TRANSFER,
+            validator_id="",
+            amount=amount,
+            asset_type=asset_type,
+            from_addr=from_addr,
+            to_addr=to_addr,
+        )
+        return self.apply(op, block_height)
+
+    def register_asset_type(self, asset_type: str, name: str,
+                            decimals: int, issuer: str,
+                            block_height: int = 0) -> Dict[str, Any]:
+        """Register a new asset type via the state machine."""
+        op = Operation(
+            op_type=OperationType.REGISTER_ASSET,
+            validator_id="",
+            asset_type=asset_type,
+            reason=name,
+            commission_rate=decimals,
+            from_addr=issuer,
+        )
+        return self.apply(op, block_height)
+
+    def get_balance(self, address: str,
+                    asset_type: str = "OAS") -> int:
+        return self.state.balances.get_balance(address, asset_type)
+
+    def get_all_balances(self, address: str) -> Dict[str, int]:
+        return self.state.balances.get_all_balances(address)
+
+    def credit_balance(self, address: str, asset_type: str,
+                       amount: int) -> int:
+        """Directly credit an address (for faucet, rewards, etc.)."""
+        return self.state.balances.credit(address, asset_type, amount)
+
+    def list_asset_types(self) -> List[Dict[str, Any]]:
+        return self.asset_registry.to_dict_list()
 
     # ── Signature helpers ───────────────────────────────────────────
 

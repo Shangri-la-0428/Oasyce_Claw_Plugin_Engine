@@ -102,7 +102,7 @@ class TestUnits:
 
 class TestOperationTypes:
     def test_all_types(self):
-        assert len(OperationType) == 7
+        assert len(OperationType) == 9
         assert OperationType.REGISTER.value == "register"
         assert OperationType.DELEGATE.value == "delegate"
         assert OperationType.UNDELEGATE.value == "undelegate"
