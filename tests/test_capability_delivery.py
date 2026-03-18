@@ -128,7 +128,7 @@ class TestApiKeyEncryption:
 
 class TestEndpointRegistry:
     def test_register_and_get(self):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         result = reg.register(
             endpoint_url="https://api.example.com/translate",
             api_key="sk-test-key",
@@ -151,7 +151,7 @@ class TestEndpointRegistry:
         reg.close()
 
     def test_register_validation(self):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         assert reg.register("", "key", "p", "n")["ok"] is False
         assert reg.register("url", "key", "", "n")["ok"] is False
         assert reg.register("url", "key", "p", "")["ok"] is False
@@ -159,7 +159,7 @@ class TestEndpointRegistry:
         reg.close()
 
     def test_duplicate_id_rejected(self):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         reg.register("url", "key", "p", "n", capability_id="CAP_DUP")
         result = reg.register("url2", "key2", "p2", "n2", capability_id="CAP_DUP")
         assert result["ok"] is False
@@ -167,7 +167,7 @@ class TestEndpointRegistry:
         reg.close()
 
     def test_api_key_encrypted_at_rest(self):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         result = reg.register("url", "sk-secret-123", "p", "n")
         cap_id = result["capability_id"]
 
@@ -177,7 +177,7 @@ class TestEndpointRegistry:
         reg.close()
 
     def test_get_api_key_decrypts(self):
-        reg = EndpointRegistry(encryption_passphrase="my-node-key")
+        reg = EndpointRegistry(encryption_passphrase="my-node-key", allow_private=True)
         result = reg.register("url", "sk-secret-123", "p", "n")
         cap_id = result["capability_id"]
 
@@ -186,7 +186,7 @@ class TestEndpointRegistry:
         reg.close()
 
     def test_list_active(self):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         reg.register("url1", "k", "p1", "API-A", tags=["nlp"])
         reg.register("url2", "k", "p2", "API-B", tags=["vision"])
         reg.register("url3", "k", "p1", "API-C", tags=["nlp"])
@@ -202,7 +202,7 @@ class TestEndpointRegistry:
         reg.close()
 
     def test_suspend_and_delist(self):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         result = reg.register("url", "k", "p", "n")
         cap_id = result["capability_id"]
 
@@ -215,7 +215,7 @@ class TestEndpointRegistry:
         reg.close()
 
     def test_update_stats(self):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         result = reg.register("url", "k", "p", "n")
         cap_id = result["capability_id"]
 
@@ -231,7 +231,7 @@ class TestEndpointRegistry:
         reg.close()
 
     def test_to_dict_hides_api_key(self):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         result = reg.register("url", "sk-secret", "p", "n", tags=["ai"])
         ep = reg.get(result["capability_id"])
         d = ep.to_dict()
@@ -370,7 +370,7 @@ class TestInvocationGateway:
         port = _free_port()
         server = _start_mock_provider(port)
         try:
-            reg = EndpointRegistry()
+            reg = EndpointRegistry(allow_private=True)
             reg.register(
                 endpoint_url=f"http://127.0.0.1:{port}/translate",
                 api_key="sk-test",
@@ -379,7 +379,7 @@ class TestInvocationGateway:
                 capability_id="CAP_TEST",
             )
 
-            gw = InvocationGateway(reg, timeout=5.0)
+            gw = InvocationGateway(reg, timeout=5.0, allow_private=True)
             result = gw.invoke("CAP_TEST", {"text": "hello"})
 
             assert result.success is True
@@ -391,19 +391,19 @@ class TestInvocationGateway:
             reg.close()
 
     def test_invoke_not_found(self):
-        reg = EndpointRegistry()
-        gw = InvocationGateway(reg)
+        reg = EndpointRegistry(allow_private=True)
+        gw = InvocationGateway(reg, allow_private=True)
         result = gw.invoke("CAP_NONEXISTENT", {})
         assert result.success is False
         assert "not found" in result.error
         reg.close()
 
     def test_invoke_suspended_capability(self):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         reg.register("url", "k", "p", "n", capability_id="CAP_S")
         reg.suspend("CAP_S")
 
-        gw = InvocationGateway(reg)
+        gw = InvocationGateway(reg, allow_private=True)
         result = gw.invoke("CAP_S", {})
         assert result.success is False
         assert "suspended" in result.error
@@ -413,7 +413,7 @@ class TestInvocationGateway:
         port = _free_port()
         server = _start_mock_provider(port)
         try:
-            reg = EndpointRegistry()
+            reg = EndpointRegistry(allow_private=True)
             reg.register(
                 endpoint_url=f"http://127.0.0.1:{port}/translate",
                 api_key="sk-test",
@@ -422,7 +422,7 @@ class TestInvocationGateway:
                 capability_id="CAP_FAIL",
             )
 
-            gw = InvocationGateway(reg, timeout=5.0)
+            gw = InvocationGateway(reg, timeout=5.0, allow_private=True)
             result = gw.invoke("CAP_FAIL", {"_fail": True})
 
             assert result.success is False
@@ -433,7 +433,7 @@ class TestInvocationGateway:
             reg.close()
 
     def test_invoke_unreachable(self):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         reg.register(
             endpoint_url="http://127.0.0.1:1",  # unreachable
             api_key="k",
@@ -441,7 +441,7 @@ class TestInvocationGateway:
             name="n",
             capability_id="CAP_DEAD",
         )
-        gw = InvocationGateway(reg, timeout=2.0)
+        gw = InvocationGateway(reg, timeout=2.0, allow_private=True)
         result = gw.invoke("CAP_DEAD", {})
         assert result.success is False
         reg.close()
@@ -452,9 +452,9 @@ class TestInvocationGateway:
 
 class TestSettlementProtocol:
     def _make_protocol(self, port=None, price=to_units(1)):
-        reg = EndpointRegistry()
+        reg = EndpointRegistry(allow_private=True)
         escrow = EscrowLedger(db_path=":memory:")
-        gw = InvocationGateway(reg, timeout=5.0)
+        gw = InvocationGateway(reg, timeout=5.0, allow_private=True)
         protocol = SettlementProtocol(reg, escrow, gw, db_path=":memory:")
 
         if port:
@@ -616,9 +616,9 @@ class TestSettlementProtocol:
         port = _free_port()
         server = _start_mock_provider(port)
         try:
-            reg = EndpointRegistry()
+            reg = EndpointRegistry(allow_private=True)
             escrow = EscrowLedger(db_path=":memory:")
-            gw = InvocationGateway(reg, timeout=5.0)
+            gw = InvocationGateway(reg, timeout=5.0, allow_private=True)
             protocol = SettlementProtocol(reg, escrow, gw, db_path=":memory:")
 
             reg.register(
@@ -664,7 +664,7 @@ class TestE2ECapabilityDelivery:
 
         try:
             # Provider registers their API
-            reg = EndpointRegistry(encryption_passphrase="node-secret")
+            reg = EndpointRegistry(encryption_passphrase="node-secret", allow_private=True)
             result = reg.register(
                 endpoint_url=f"http://127.0.0.1:{port}/translate",
                 api_key="sk-provider-secret-key",
@@ -692,7 +692,7 @@ class TestE2ECapabilityDelivery:
 
             # Consumer invokes via settlement protocol
             escrow = EscrowLedger(db_path=":memory:")
-            gw = InvocationGateway(reg, timeout=10.0)
+            gw = InvocationGateway(reg, timeout=10.0, allow_private=True)
             protocol = SettlementProtocol(reg, escrow, gw, db_path=":memory:")
 
             invoke_result = protocol.invoke(
@@ -736,9 +736,9 @@ class TestE2ECapabilityDelivery:
         server2 = _start_mock_provider(port2)
 
         try:
-            reg = EndpointRegistry()
+            reg = EndpointRegistry(allow_private=True)
             escrow = EscrowLedger(db_path=":memory:")
-            gw = InvocationGateway(reg, timeout=5.0)
+            gw = InvocationGateway(reg, timeout=5.0, allow_private=True)
             protocol = SettlementProtocol(reg, escrow, gw, db_path=":memory:")
 
             # Provider 1: cheap but basic

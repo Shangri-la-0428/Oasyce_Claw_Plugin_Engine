@@ -537,3 +537,175 @@ class TestServerEdgeCases:
                             block_store=blocks, db_path=":memory:")
         assert len(server.blocks) == 3
         engine.close()
+
+
+# ── Block Gossip / Announcement Tests ───────────────────────────
+
+
+class TestBlockAnnouncement:
+    def test_announce_endpoint_exists(self):
+        """POST /sync/announce returns 200."""
+        engine = _make_engine()
+        port = _free_port()
+        chain_id = engine.chain_id
+        genesis = make_genesis_block(chain_id)
+        server = SyncServer(engine, host="127.0.0.1", port=port,
+                            block_store=[genesis], db_path=":memory:")
+        server.start()
+        try:
+            from urllib.request import Request, urlopen
+            payload = json.dumps({"height": 99, "hash": "abc123"}).encode()
+            req = Request(f"http://127.0.0.1:{port}/sync/announce",
+                          data=payload, method="POST")
+            req.add_header("Content-Type", "application/json")
+            resp = urlopen(req, timeout=3)
+            data = json.loads(resp.read())
+            assert data["ok"] is True
+        finally:
+            server.stop()
+            engine.close()
+
+    def test_announce_already_known_block(self):
+        """Announcing a block we already have returns already_have."""
+        engine = _make_engine()
+        port = _free_port()
+        chain_id = engine.chain_id
+        genesis = make_genesis_block(chain_id)
+        server = SyncServer(engine, host="127.0.0.1", port=port,
+                            block_store=[genesis], db_path=":memory:")
+        server.start()
+        try:
+            from urllib.request import Request, urlopen
+            payload = json.dumps({
+                "height": 0,
+                "hash": genesis.block_hash,
+            }).encode()
+            req = Request(f"http://127.0.0.1:{port}/sync/announce",
+                          data=payload, method="POST")
+            req.add_header("Content-Type", "application/json")
+            resp = urlopen(req, timeout=3)
+            data = json.loads(resp.read())
+            assert data["ok"] is True
+            assert data["action"] == "already_have"
+        finally:
+            server.stop()
+            engine.close()
+
+    def test_announce_duplicate_detection(self):
+        """Second announcement for the same hash returns already_known."""
+        engine = _make_engine()
+        port = _free_port()
+        server = SyncServer(engine, host="127.0.0.1", port=port,
+                            db_path=":memory:")
+        server.start()
+        try:
+            from urllib.request import Request, urlopen
+            payload = json.dumps({"height": 5, "hash": "dup_hash_xyz"}).encode()
+
+            # First announce
+            req1 = Request(f"http://127.0.0.1:{port}/sync/announce",
+                           data=payload, method="POST")
+            req1.add_header("Content-Type", "application/json")
+            resp1 = urlopen(req1, timeout=3)
+            data1 = json.loads(resp1.read())
+            assert data1["ok"] is True
+
+            # Second announce — same hash
+            req2 = Request(f"http://127.0.0.1:{port}/sync/announce",
+                           data=payload, method="POST")
+            req2.add_header("Content-Type", "application/json")
+            resp2 = urlopen(req2, timeout=3)
+            data2 = json.loads(resp2.read())
+            assert data2["ok"] is True
+            assert data2["action"] == "already_known"
+        finally:
+            server.stop()
+            engine.close()
+
+    def test_peers_parameter(self):
+        """SyncServer accepts peers list."""
+        engine = _make_engine()
+        server = SyncServer(engine, port=0, db_path=":memory:",
+                            peers=["http://peer1:9528", "http://peer2:9528"])
+        assert len(server._peers) == 2
+        engine.close()
+
+    def test_add_block_pushes_announcement(self):
+        """When add_block is called, announcement is pushed to peers."""
+        engine_a = _make_engine()
+        engine_b = _make_engine()
+        port_a = _free_port()
+        port_b = _free_port()
+        chain_id = engine_a.chain_id
+        genesis = make_genesis_block(chain_id)
+
+        # Server B is a peer of Server A; B also knows A so it can fetch blocks
+        server_b = SyncServer(engine_b, host="127.0.0.1", port=port_b,
+                              block_store=[genesis], db_path=":memory:",
+                              peers=[f"http://127.0.0.1:{port_a}"])
+        server_b.start()
+
+        # Server A knows about Server B as a peer
+        server_a = SyncServer(engine_a, host="127.0.0.1", port=port_a,
+                              block_store=[genesis], db_path=":memory:",
+                              peers=[f"http://127.0.0.1:{port_b}"])
+        server_a.start()
+
+        try:
+            # Create block 1 and add to server A — should announce to B
+            block1 = _make_block(chain_id, 1, genesis.block_hash)
+            server_a.add_block(block1)
+
+            # Give some time for the async announcement + fetch to complete
+            time.sleep(1.0)
+
+            # Server B should have fetched block 1 via the announcement
+            transport_b = HTTPPeerTransport(f"http://127.0.0.1:{port_b}")
+            info_b = transport_b.get_peer_info()
+            # B starts with genesis only but should now have block 1
+            # (fetched after receiving the announcement from A)
+            resp = transport_b.get_blocks(
+                GetBlocksRequest(from_height=1, to_height=1)
+            )
+            assert len(resp.blocks) == 1
+            assert resp.blocks[0].block_hash == block1.block_hash
+        finally:
+            server_a.stop()
+            server_b.stop()
+            engine_a.close()
+            engine_b.close()
+
+    def test_no_re_announce_on_received_block(self):
+        """Blocks received via announcement are not re-announced."""
+        engine = _make_engine()
+        server = SyncServer(engine, port=0, db_path=":memory:")
+        chain_id = engine.chain_id
+        genesis = make_genesis_block(chain_id)
+
+        block1 = _make_block(chain_id, 1, genesis.block_hash)
+
+        # Add with _from_announcement=True
+        server.add_block(block1, _from_announcement=True)
+        # The hash should NOT be in announced_hashes
+        assert block1.block_hash not in server._announced_hashes
+        engine.close()
+
+    def test_announce_invalid_json(self):
+        """POST /sync/announce with bad JSON returns 400."""
+        engine = _make_engine()
+        port = _free_port()
+        server = SyncServer(engine, host="127.0.0.1", port=port,
+                            db_path=":memory:")
+        server.start()
+        try:
+            from urllib.request import Request, urlopen
+            from urllib.error import HTTPError
+            req = Request(f"http://127.0.0.1:{port}/sync/announce",
+                          data=b"not json", method="POST")
+            req.add_header("Content-Type", "application/json")
+            with pytest.raises(HTTPError) as exc_info:
+                urlopen(req, timeout=3)
+            assert exc_info.value.code == 400
+        finally:
+            server.stop()
+            engine.close()

@@ -8,7 +8,7 @@ Uses SHA-256 based deterministic randomness seeded by previous epoch data.
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from oasyce_plugin.consensus.state import ConsensusState
@@ -118,6 +118,36 @@ class ProposerElection:
         """Verify that a validator is the legitimate proposer for a slot."""
         expected = self.state.get_slot_leader(epoch_number, slot_index)
         return expected == validator_id
+
+    def get_backup_proposer(self, slot_index: int,
+                            primary_proposer_id: str,
+                            validators: List[Dict[str, Any]],
+                            stakes: Optional[Dict[str, int]] = None) -> str | None:
+        """Return the next validator by stake weight, excluding the primary.
+
+        Args:
+            slot_index: The slot index (unused in selection, kept for API clarity).
+            primary_proposer_id: The validator to exclude.
+            validators: Active validators with 'validator_id' and 'total_stake'.
+            stakes: Optional override mapping validator_id -> stake.  If given,
+                    these values replace the 'total_stake' field for ranking.
+
+        Returns:
+            The validator_id of the backup proposer, or None if no candidate.
+        """
+        candidates = [v for v in validators
+                      if v["validator_id"] != primary_proposer_id]
+        if not candidates:
+            return None
+
+        def _stake(v: Dict[str, Any]) -> int:
+            if stakes:
+                return stakes.get(v["validator_id"], v["total_stake"])
+            return v["total_stake"]
+
+        # Highest stake first; ties broken by validator_id for determinism
+        candidates.sort(key=lambda v: (-_stake(v), v["validator_id"]))
+        return candidates[0]["validator_id"]
 
     def get_schedule(self, epoch_number: int) -> List[Dict[str, Any]]:
         """Get the stored leader schedule for an epoch."""

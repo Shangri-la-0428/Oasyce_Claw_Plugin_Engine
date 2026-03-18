@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from typing import Dict, Any, List, Optional
@@ -12,6 +13,8 @@ from oasyce_plugin.fingerprint import FingerprintEngine, FingerprintRegistry
 from oasyce_plugin.services.access.provider import DataAccessProvider
 from oasyce_plugin.services.reputation import ReputationEngine
 
+logger = logging.getLogger(__name__)
+
 
 class OasyceSkills:
     """Agent 可以调用的上层 API 能力集"""
@@ -23,7 +26,7 @@ class OasyceSkills:
             try:
                 os.makedirs(self.vault_path)
             except Exception as e:
-                print(f"[错误] 无法创建账本目录：{e}")
+                logger.error("无法创建账本目录：%s", e)
 
         # SQLite ledger (None = legacy JSON-only mode)
         if ledger is not None:

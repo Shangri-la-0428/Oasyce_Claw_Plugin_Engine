@@ -5,7 +5,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { assets, loadAssets, deleteAsset } from '../store/assets';
 // scanDirectory/lastScan/scanning available from '../store/scanner' if needed
-import { showToast, i18n } from '../store/ui';
+import { showToast, i18n, walletAddress } from '../store/ui';
 import { maskIdShort, maskIdLong, maskOwner, fmtPrice, safePct } from '../utils';
 import RegisterForm from '../components/register-form';
 import './mydata.css';
@@ -63,9 +63,9 @@ export default function MyData() {
 
   const loadMyCaps = async () => {
     setMyCapsLoading(true);
-    const res = await get<DeliveryEndpoint[]>('/delivery/endpoints?provider=gui_user');
+    const res = await get<DeliveryEndpoint[]>(`/delivery/endpoints?provider=${walletAddress()}`);
     if (res.success && Array.isArray(res.data)) setMyCaps(res.data);
-    const eres = await get<EarningsData>('/delivery/earnings?provider=gui_user');
+    const eres = await get<EarningsData>(`/delivery/earnings?provider=${walletAddress()}`);
     if (eres.success && eres.data && typeof eres.data === 'object') setEarnings(eres.data);
     setMyCapsLoading(false);
   };

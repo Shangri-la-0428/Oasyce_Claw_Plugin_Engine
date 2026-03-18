@@ -366,3 +366,168 @@ class TestBlockProducer:
         b2 = producer.produce_block()
 
         assert b1.merkle_root != b2.merkle_root
+
+
+# ── Proposer timeout / backup tests ─────────────────────────────
+
+
+class TestProposerTimeout:
+    def test_slot_timeout_default(self):
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(engine, mp)
+        assert producer.slot_timeout == 3.0
+
+    def test_slot_timeout_custom(self):
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(engine, mp, slot_timeout=5.0)
+        assert producer.slot_timeout == 5.0
+
+    def test_missed_slots_counter_starts_zero(self):
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(engine, mp)
+        assert producer.missed_slots == 0
+
+    def test_status_includes_missed_slots(self):
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(engine, mp, proposer_id="n1")
+        status = producer.status()
+        assert "missed_slots" in status
+        assert status["missed_slots"] == 0
+        assert "slot_timeout" in status
+
+    def test_notify_primary_block_prevents_timeout(self):
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(engine, mp, slot_timeout=1.0)
+
+        # Notify immediately in another thread
+        def notify():
+            time.sleep(0.05)
+            producer.notify_primary_block()
+        threading.Thread(target=notify, daemon=True).start()
+
+        arrived = producer.wait_for_primary(timeout=2.0)
+        assert arrived is True
+
+    def test_wait_for_primary_times_out(self):
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(engine, mp, slot_timeout=0.1)
+
+        arrived = producer.wait_for_primary()
+        assert arrived is False
+
+    def test_try_backup_produce_when_primary_arrives(self):
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(engine, mp, slot_timeout=0.5)
+
+        def notify():
+            time.sleep(0.05)
+            producer.notify_primary_block()
+        threading.Thread(target=notify, daemon=True).start()
+
+        block = producer.try_backup_produce(is_backup=True)
+        assert block is None
+        assert producer.missed_slots == 0
+
+    def test_try_backup_produce_on_timeout_as_backup(self):
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(engine, mp, proposer_id="backup-1",
+                                 slot_timeout=0.1)
+
+        block = producer.try_backup_produce(is_backup=True)
+        assert block is not None
+        assert block.proposer == "backup-1"
+        assert producer.missed_slots == 1
+        assert producer.blocks_produced == 1
+
+    def test_try_backup_produce_on_timeout_not_backup(self):
+        engine = _make_engine()
+        mp = Mempool()
+        producer = BlockProducer(engine, mp, proposer_id="other",
+                                 slot_timeout=0.1)
+
+        block = producer.try_backup_produce(is_backup=False)
+        assert block is None
+        assert producer.missed_slots == 1
+        assert producer.blocks_produced == 0
+
+
+# ── Backup proposer election tests ──────────────────────────────
+
+
+class TestBackupProposer:
+    def test_get_backup_proposer_returns_highest_stake(self):
+        from oasyce_plugin.consensus.proposer import ProposerElection
+        from oasyce_plugin.consensus.state import ConsensusState
+        state = ConsensusState(":memory:")
+        election = ProposerElection(state)
+
+        validators = [
+            {"validator_id": "v1", "total_stake": 100},
+            {"validator_id": "v2", "total_stake": 300},
+            {"validator_id": "v3", "total_stake": 200},
+        ]
+        backup = election.get_backup_proposer(0, "v2", validators)
+        assert backup == "v3"  # highest stake excluding primary
+
+    def test_get_backup_proposer_excludes_primary(self):
+        from oasyce_plugin.consensus.proposer import ProposerElection
+        from oasyce_plugin.consensus.state import ConsensusState
+        state = ConsensusState(":memory:")
+        election = ProposerElection(state)
+
+        validators = [
+            {"validator_id": "v1", "total_stake": 500},
+            {"validator_id": "v2", "total_stake": 100},
+        ]
+        backup = election.get_backup_proposer(0, "v1", validators)
+        assert backup == "v2"
+
+    def test_get_backup_proposer_no_candidates(self):
+        from oasyce_plugin.consensus.proposer import ProposerElection
+        from oasyce_plugin.consensus.state import ConsensusState
+        state = ConsensusState(":memory:")
+        election = ProposerElection(state)
+
+        validators = [
+            {"validator_id": "v1", "total_stake": 500},
+        ]
+        backup = election.get_backup_proposer(0, "v1", validators)
+        assert backup is None
+
+    def test_get_backup_proposer_tie_broken_by_id(self):
+        from oasyce_plugin.consensus.proposer import ProposerElection
+        from oasyce_plugin.consensus.state import ConsensusState
+        state = ConsensusState(":memory:")
+        election = ProposerElection(state)
+
+        validators = [
+            {"validator_id": "v_b", "total_stake": 200},
+            {"validator_id": "v_a", "total_stake": 200},
+            {"validator_id": "v_primary", "total_stake": 300},
+        ]
+        backup = election.get_backup_proposer(0, "v_primary", validators)
+        assert backup == "v_a"  # alphabetically first among tie
+
+    def test_get_backup_proposer_with_stakes_override(self):
+        from oasyce_plugin.consensus.proposer import ProposerElection
+        from oasyce_plugin.consensus.state import ConsensusState
+        state = ConsensusState(":memory:")
+        election = ProposerElection(state)
+
+        validators = [
+            {"validator_id": "v1", "total_stake": 100},
+            {"validator_id": "v2", "total_stake": 300},
+            {"validator_id": "v3", "total_stake": 200},
+        ]
+        # Override stakes so v1 has the highest
+        stakes = {"v1": 999, "v2": 300, "v3": 200}
+        backup = election.get_backup_proposer(0, "v2", validators, stakes=stakes)
+        assert backup == "v1"

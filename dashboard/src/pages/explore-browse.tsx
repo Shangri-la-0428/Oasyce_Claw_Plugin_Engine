@@ -3,7 +3,7 @@
  */
 import { useEffect, useState, useRef, useMemo } from 'preact/hooks';
 import { get, post } from '../api/client';
-import { showToast, i18n } from '../store/ui';
+import { showToast, i18n, walletAddress } from '../store/ui';
 import type { Asset } from '../store/assets';
 import { maskIdShort, maskIdLong, maskOwner, fmtPrice, safePct, safeNum } from '../utils';
 import './explore.css';
@@ -154,7 +154,7 @@ export default function ExploreBrowse({ subpath }: Props) {
   /* 购买 — uses POST /api/buy */
   const onBuy = async (assetId: string) => {
     setLoading(true);
-    const res = await post<BuyResult>('/buy', { asset_id: assetId, buyer_id: 'gui_user', amount: parseFloat(buyAmt) });
+    const res = await post<BuyResult>('/buy', { asset_id: assetId, buyer_id: walletAddress(), amount: parseFloat(buyAmt) });
     if (res.success && res.data) {
       setBuyResult(res.data);
       setBuyStep('success');
@@ -179,7 +179,7 @@ export default function ExploreBrowse({ subpath }: Props) {
     try { parsedInput = JSON.parse(invokeInput); } catch { parsedInput = { text: invokeInput }; }
     const res = await post<any>('/delivery/invoke', {
       capability_id: capId,
-      consumer: 'gui_user',
+      consumer: walletAddress(),
       input: parsedInput,
     });
     if (res.success && res.data?.ok) {

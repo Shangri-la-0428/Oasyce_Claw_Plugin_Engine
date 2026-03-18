@@ -46,6 +46,15 @@ _mempool: Any = None
 _block_producer: Any = None
 _consensus_engine: Any = None
 
+
+def _default_identity() -> str:
+    """Return the wallet address if available, otherwise 'anonymous'."""
+    try:
+        from oasyce_plugin.identity import Wallet
+        return Wallet.get_address() or "anonymous"
+    except Exception:
+        return "anonymous"
+
 # ── Security: API token + rate limiting ──────────────────────────────
 _api_token: str = ""
 
@@ -485,7 +494,7 @@ def _api_capability_invoke(body: Dict[str, Any]) -> Dict[str, Any]:
     _, escrow, shares, engine = _get_cap_stack()
 
     cap_id = body.get("capability_id", "")
-    consumer = body.get("consumer", "gui_user")
+    consumer = body.get("consumer") or _default_identity()
     input_payload = body.get("input", {})
     max_price = float(body.get("max_price", 100.0))
     amount = float(body.get("amount", 10.0))
@@ -577,7 +586,7 @@ def _api_delivery_invoke(body: Dict[str, Any]) -> Dict[str, Any]:
     protocol, _, _ = _get_delivery_stack()
 
     cap_id = body.get("capability_id", "")
-    consumer = body.get("consumer", "gui_user")
+    consumer = body.get("consumer") or _default_identity()
     input_payload = body.get("input", {})
 
     if not cap_id:
@@ -610,7 +619,7 @@ def _api_delivery_invocations(consumer_id=None, provider_id=None, limit=20):
     return [r.to_dict() for r in records]
 
 
-_AHRP_CORE_BASE = "http://localhost:8000"
+_AHRP_CORE_BASE = os.getenv("OASYCE_CORE_BASE", "http://localhost:8000")
 _AHRP_UNREACHABLE = json.dumps(
     {"ok": False, "error": "AHRP node not running. Start with: oasyce serve"}
 ).encode("utf-8")
@@ -725,7 +734,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         m = re.match(r"^/api/capability/shares$", path)
         if m:
-            holder = qs.get("holder", ["gui_user"])[0]
+            holder = qs.get("holder", [_default_identity()])[0]
             return _json_response(self, _api_capability_shares(holder))
 
         m = re.match(r"^/api/capability/(.+)$", path)
@@ -827,7 +836,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         # Portfolio (holdings)
         if path == "/api/portfolio":
-            buyer = qs.get("buyer", ["gui_user"])[0]
+            buyer = qs.get("buyer", [_default_identity()])[0]
             se = _get_settlement()
             holdings = []
             for asset_id, pool in se.pools.items():
@@ -863,20 +872,38 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/ahrp/"):
             return _proxy_ahrp(self, "GET", self.path)
 
-        # ── Identity ────────────────────────────────────────────
+        # ── Identity (node + wallet) ─────────────────────────────
         if path == "/api/identity":
-            if not _config or not _config.public_key:
-                return _json_response(self, {"error": "identity not initialized"}, 503)
-            key_dir = os.path.join(_config.data_dir, "keys")
-            created_at = None
-            pub_path = os.path.join(key_dir, "public.key")
-            if os.path.isfile(pub_path):
-                created_at = os.path.getctime(pub_path)
-            return _json_response(self, {
-                "public_key": _config.public_key,
-                "node_id": _config.public_key[:16],
-                "created_at": created_at,
-            })
+            from oasyce_plugin.identity import Wallet
+            result = {}
+            # Node identity
+            if _config and _config.public_key:
+                key_dir = os.path.join(_config.data_dir, "keys")
+                created_at = None
+                pub_path = os.path.join(key_dir, "public.key")
+                if os.path.isfile(pub_path):
+                    created_at = os.path.getctime(pub_path)
+                result.update({
+                    "public_key": _config.public_key,
+                    "node_id": _config.public_key[:16],
+                    "created_at": created_at,
+                })
+            # Wallet identity
+            wallet_address = Wallet.get_address()
+            result["wallet_exists"] = wallet_address is not None
+            if wallet_address:
+                result["wallet_address"] = wallet_address
+            if not result.get("public_key") and not wallet_address:
+                return _json_response(self, {"wallet_exists": False}, 200)
+            return _json_response(self, result)
+
+        # ── Wallet identity (standalone) ──────────────────────────
+        if path == "/api/identity/wallet":
+            from oasyce_plugin.identity import Wallet
+            wallet_address = Wallet.get_address()
+            if wallet_address:
+                return _json_response(self, {"exists": True, "address": wallet_address})
+            return _json_response(self, {"exists": False})
 
         # ── Node role ─────────────────────────────────────────────
         if path == "/api/node/role":
@@ -1211,6 +1238,22 @@ class _Handler(BaseHTTPRequestHandler):
             limit = int(qs.get("limit", ["10"])[0])
             return _json_response(self, scheduler.get_history(limit))
 
+        # ── Balance query ──────────────────────────────────────────
+        if path == "/api/balance":
+            address = qs.get("address", [""])[0]
+            if not address:
+                return _json_response(self, {"error": "address required"}, 400)
+            balance_oas = 0.0
+            try:
+                from oasyce_plugin.services.faucet import Faucet
+                from oasyce_plugin.config import get_data_dir, NetworkMode
+                data_dir = _config.data_dir if _config else get_data_dir(NetworkMode.TESTNET)
+                faucet = Faucet(data_dir)
+                balance_oas = faucet.balance(address)
+            except Exception:
+                pass
+            return _json_response(self, {"address": address, "balance_oas": balance_oas})
+
         # ── Static files from dashboard/dist/ ────────────────────
         if path.startswith('/assets/'):
             file_path = os.path.join(DASHBOARD_DIR, path.lstrip('/'))
@@ -1250,6 +1293,44 @@ class _Handler(BaseHTTPRequestHandler):
                 body = json.loads(self.rfile.read(length)) if length else {}
             except (json.JSONDecodeError, ValueError):
                 return _json_response(self, {"error": "invalid JSON body"}, 400)
+
+        # ── Wallet creation ────────────────────────────────────
+        if path == "/api/identity/create":
+            from oasyce_plugin.identity import Wallet
+            try:
+                if Wallet.exists():
+                    addr = Wallet.get_address()
+                    return _json_response(self, {"ok": True, "address": addr, "created": False})
+                wallet = Wallet.create()
+                return _json_response(self, {"ok": True, "address": wallet.address, "created": True})
+            except Exception as exc:
+                return _json_response(self, {"ok": False, "error": str(exc)}, 500)
+
+        # ── Testnet faucet ─────────────────────────────────────────
+        if path == "/api/faucet":
+            address = body.get("address", "")
+            if not address:
+                return _json_response(self, {"ok": False, "error": "address required"}, 400)
+            try:
+                from oasyce_plugin.services.faucet import Faucet
+                from oasyce_plugin.config import get_data_dir, NetworkMode
+                data_dir = _config.data_dir if _config else get_data_dir(NetworkMode.TESTNET)
+                faucet = Faucet(data_dir)
+                result = faucet.claim(address)
+                if result["success"]:
+                    return _json_response(self, {
+                        "ok": True,
+                        "amount": result["amount"],
+                        "new_balance": result["balance"],
+                    })
+                else:
+                    return _json_response(self, {
+                        "ok": False,
+                        "error": result["error"],
+                        "next_claim_at": result.get("next_claim_at"),
+                    }, 429)
+            except Exception as exc:
+                return _json_response(self, {"ok": False, "error": str(exc)}, 500)
 
         if path == "/api/register":
             try:
@@ -1553,7 +1634,7 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 se = _get_settlement()
                 aid = body.get("asset_id", "")
-                buyer = body.get("buyer", "anonymous")
+                buyer = body.get("buyer") or _default_identity()
                 amount = float(body.get("amount", 10))
                 if not aid:
                     return _json_response(self, {"error": "asset_id required"}, 400)
@@ -2959,6 +3040,10 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   function toast(msg,type){var c=document.getElementById('toast-c');if(!c){c=document.createElement('div');c.id='toast-c';c.className='toast-c';document.body.appendChild(c);}var el=document.createElement('div');el.className='tst'+(type==='error'?' error':'');el.textContent=msg;c.appendChild(el);setTimeout(function(){el.remove();},3000);}
   window.toast=toast;
 
+  /* ── Wallet identity ──────────── */
+  window.__oasyce_wallet='anonymous';
+  api('/api/identity/wallet').then(function(r){if(r&&r.exists&&r.address)window.__oasyce_wallet=r.address;});
+
   /* ── Navigation ──────────── */
   var links=document.querySelectorAll('.nav-link');
   links.forEach(function(link){
@@ -4289,10 +4374,10 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   /* ── Quote & Buy ──────────── */
   document.getElementById('quote-btn').addEventListener('click',async function(){var aid=document.getElementById('buy-asset').value.trim();var amt=document.getElementById('buy-amount').value.trim()||'10';var div=document.getElementById('buy-result');if(!aid){div.innerHTML='<p class="err">Enter asset ID</p>';return;}var r=await api('/api/quote?asset_id='+encodeURIComponent(aid)+'&amount='+amt);if(!r||r.error){div.innerHTML='<p class="err">'+esc(r?r.error:'Failed')+'</p>';return;}div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Pay</span><span class="kv-v">'+r.payment+' OAS</span></div><div class="kv"><span class="kv-k">Get</span><span class="kv-v">'+r.tokens+' tokens</span></div><div class="kv"><span class="kv-k">Impact</span><span class="kv-v">'+r.impact_pct+'%</span></div><div class="kv"><span class="kv-k">Burned</span><span class="kv-v">'+r.burn+' OAS</span></div></div>';});
 
-  document.getElementById('buy-btn').addEventListener('click',async function(){if(!confirm('Confirm purchase?'))return;var btn=this;btn.textContent='Buying...';btn.disabled=true;var aid=document.getElementById('buy-asset').value.trim();var amt=document.getElementById('buy-amount').value.trim()||'10';var div=document.getElementById('buy-result');if(!aid){div.innerHTML='<p class="err">Enter asset ID</p>';btn.textContent='Buy';btn.disabled=false;return;}try{var r=await postApi('/api/buy',{asset_id:aid,buyer:'gui_user',amount:parseFloat(amt)});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Tokens</span><span class="kv-v ok">'+r.tokens+'</span></div><div class="kv"><span class="kv-k">New price</span><span class="kv-v">'+r.price_after+' OAS</span></div></div>';toast('Purchased');loadPortfolio();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Buy';btn.disabled=false;});
+  document.getElementById('buy-btn').addEventListener('click',async function(){if(!confirm('Confirm purchase?'))return;var btn=this;btn.textContent='Buying...';btn.disabled=true;var aid=document.getElementById('buy-asset').value.trim();var amt=document.getElementById('buy-amount').value.trim()||'10';var div=document.getElementById('buy-result');if(!aid){div.innerHTML='<p class="err">Enter asset ID</p>';btn.textContent='Buy';btn.disabled=false;return;}try{var r=await postApi('/api/buy',{asset_id:aid,buyer:(window.__oasyce_wallet||'anonymous'),amount:parseFloat(amt)});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Tokens</span><span class="kv-v ok">'+r.tokens+'</span></div><div class="kv"><span class="kv-k">New price</span><span class="kv-v">'+r.price_after+' OAS</span></div></div>';toast('Purchased');loadPortfolio();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Buy';btn.disabled=false;});
 
   /* ── Portfolio ──────────── */
-  async function loadPortfolio(){var list=await api('/api/portfolio?buyer=gui_user')||[];var c=document.getElementById('portfolio-list');if(!list.length){c.innerHTML='<div class="empty">No holdings yet</div>';return;}var h='';list.forEach(function(x){h+='<div class="p-row"><span class="p-id">'+esc(trunc(x.asset_id,24))+'</span><span class="p-v">'+x.shares+' shares &middot; '+x.value_oas+' OAS</span></div>';});c.innerHTML=h;}
+  async function loadPortfolio(){var list=await api('/api/portfolio?buyer='+(window.__oasyce_wallet||'anonymous'))||[];var c=document.getElementById('portfolio-list');if(!list.length){c.innerHTML='<div class="empty">No holdings yet</div>';return;}var h='';list.forEach(function(x){h+='<div class="p-row"><span class="p-id">'+esc(trunc(x.asset_id,24))+'</span><span class="p-v">'+x.shares+' shares &middot; '+x.value_oas+' OAS</span></div>';});c.innerHTML=h;}
 
   /* ── Stake ──────────── */
   document.getElementById('stake-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Staking...';btn.disabled=true;var nid=document.getElementById('stake-node').value.trim();var amt=document.getElementById('stake-amount').value.trim()||'10000';var div=document.getElementById('stake-result');if(!nid){div.innerHTML='<p class="err">Enter node ID</p>';btn.textContent='Stake';btn.disabled=false;return;}try{var r=await postApi('/api/stake',{node_id:nid,amount:parseFloat(amt)});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Staked</span><span class="kv-v">'+r.total_stake+' OAS</span></div></div>';toast('Staked');loadStakes();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Stake';btn.disabled=false;});

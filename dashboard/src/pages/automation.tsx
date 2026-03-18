@@ -85,14 +85,14 @@ interface AgentConfig {
   icon: string;
   desc_zh: string;
   desc_en: string;
-  status: 'connected' | 'available' | 'unavailable';
+  status: 'connected' | 'coming_soon' | 'unavailable';
 }
 
 const KNOWN_AGENTS: AgentConfig[] = [
-  { id: 'openclaw', name: 'OpenClaw', icon: 'O', desc_zh: '本地 Agent Runtime，全功能', desc_en: 'Local agent runtime, full-featured', status: 'connected' },
-  { id: 'cursor', name: 'Cursor', icon: 'C', desc_zh: 'AI 代码编辑器，擅长代码类资产', desc_en: 'AI code editor, great for code assets', status: 'available' },
-  { id: 'claude-code', name: 'Claude Code', icon: 'CC', desc_zh: 'Anthropic CLI Agent', desc_en: 'Anthropic CLI Agent', status: 'available' },
-  { id: 'custom', name: 'Custom', icon: '?', desc_zh: '自定义 Agent（通过 API 接入）', desc_en: 'Custom agent (via API)', status: 'available' },
+  { id: 'openclaw', name: 'OpenClaw', icon: 'O', desc_zh: '本地 Agent Runtime，全功能', desc_en: 'Local agent runtime, full-featured', status: 'coming_soon' },
+  { id: 'cursor', name: 'Cursor', icon: 'C', desc_zh: 'AI 代码编辑器，擅长代码类资产（即将推出）', desc_en: 'AI code editor, great for code assets (coming soon)', status: 'coming_soon' },
+  { id: 'claude-code', name: 'Claude Code', icon: 'CC', desc_zh: 'Anthropic CLI Agent（即将推出）', desc_en: 'Anthropic CLI Agent (coming soon)', status: 'coming_soon' },
+  { id: 'custom', name: 'Custom', icon: '?', desc_zh: '自定义 Agent（通过 API 接入）', desc_en: 'Custom agent (via API)', status: 'coming_soon' },
 ];
 
 export default function Automation() {
@@ -477,7 +477,7 @@ export default function Automation() {
                   </div>
                   <div class="agent-name">{agent.name}</div>
                   <div class="caption">{lang.value === 'zh' ? agent.desc_zh : agent.desc_en}</div>
-                  {agent.status === 'connected' && <div class="agent-connected-tag">{_['agent-connected']}</div>}
+                  {agent.status === 'coming_soon' && <div class="agent-connected-tag" style="opacity:0.6">{_['coming-soon'] || 'Coming Soon'}</div>}
                 </button>
               ))}
             </div>

@@ -4,7 +4,7 @@
  */
 import { useState, useRef } from 'preact/hooks';
 import { post, postFile, postBundle } from '../api/client';
-import { showToast, i18n } from '../store/ui';
+import { showToast, i18n, walletAddress } from '../store/ui';
 import { loadAssets } from '../store/assets';
 import { readEntryFiles } from '../utils';
 import './register-form.css';
@@ -131,7 +131,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
     const tags = capTags.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
     const res = await post<{ ok?: boolean; capability_id?: string; error?: string }>('/delivery/register', {
       name: capName.trim(),
-      provider: 'gui_user',
+      provider: walletAddress(),
       description: capDesc.trim(),
       endpoint: capEndpoint.trim(),
       api_key: capApiKey.trim() || undefined,

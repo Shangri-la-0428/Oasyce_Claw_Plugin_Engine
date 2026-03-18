@@ -2,7 +2,7 @@
  * Nav — with about panel trigger
  */
 import { useState } from 'preact/hooks';
-import { theme, lang, toggleTheme, toggleLang, i18n } from '../store/ui';
+import { theme, lang, toggleTheme, toggleLang, i18n, balance } from '../store/ui';
 import type { Page } from '../hooks/use-route';
 import AboutPanel from './about-panel';
 import './nav.css';
@@ -27,6 +27,7 @@ export default function Nav({ current, go }: Props) {
           ))}
         </div>
         <div class="nav-end">
+          <span class="nav-balance" title={_['balance-label']}>{(balance.value ?? 0).toFixed(1)} OAS</span>
           <button class="nav-tool" onClick={() => setShowAbout(!showAbout)} aria-label="About Oasyce" title="About Oasyce">i</button>
           <button class="nav-tool" onClick={toggleLang} aria-label={lang.value === 'zh' ? 'Switch to English' : '切换到中文'}>{lang.value === 'zh' ? 'En' : '中'}</button>
           <button class="nav-tool" onClick={toggleTheme} aria-label={theme.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>{theme.value === 'dark' ? '☀' : '☾'}</button>

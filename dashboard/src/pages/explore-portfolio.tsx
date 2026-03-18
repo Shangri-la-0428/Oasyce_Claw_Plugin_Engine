@@ -3,7 +3,7 @@
  */
 import { useEffect, useState } from 'preact/hooks';
 import { get } from '../api/client';
-import { i18n } from '../store/ui';
+import { i18n, walletAddress } from '../store/ui';
 import { maskIdShort, fmtPrice } from '../utils';
 import './explore.css';
 
@@ -25,7 +25,7 @@ export default function ExplorePortfolio() {
 
   const loadPortfolio = async () => {
     setHoldingsLoading(true);
-    const res = await get<Holding[]>('/shares?owner=gui_user');
+    const res = await get<Holding[]>(`/shares?owner=${walletAddress()}`);
     if (res.success && Array.isArray(res.data)) setHoldings(res.data);
     setHoldingsLoading(false);
   };

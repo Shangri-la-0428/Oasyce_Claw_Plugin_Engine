@@ -8,6 +8,71 @@ export const theme = signal<'dark' | 'light'>('dark');
 export const lang = signal<'zh' | 'en'>('zh');
 export const toasts = signal<{ id: string; message: string; type: string }[]>([]);
 
+/** Wallet identity state */
+export const identity = signal<{ address: string; exists: boolean } | null>(null);
+
+/** OAS balance */
+export const balance = signal<number | null>(null);
+
+/** Faucet cooldown flag */
+export const faucetCooldown = signal<boolean>(false);
+
+/** Load wallet identity from backend */
+export async function loadIdentity(): Promise<void> {
+  try {
+    const res = await fetch('/api/identity/wallet');
+    if (res.ok) {
+      const data = await res.json();
+      identity.value = { address: data.address || '', exists: !!data.exists };
+    }
+  } catch {
+    // Backend not available — leave identity as null
+  }
+}
+
+/** Get the current wallet address, falling back to 'anonymous' */
+export function walletAddress(): string {
+  return identity.value?.exists ? identity.value.address : 'anonymous';
+}
+
+/** Load OAS balance from backend */
+export async function loadBalance(): Promise<void> {
+  const addr = walletAddress();
+  if (addr === 'anonymous') { balance.value = 0; return; }
+  try {
+    const res = await fetch(`/api/balance?address=${encodeURIComponent(addr)}`);
+    if (res.ok) {
+      const data = await res.json();
+      balance.value = data.balance_oas ?? 0;
+    }
+  } catch {
+    // Backend not available
+  }
+}
+
+/** Claim test OAS from faucet */
+export async function claimFaucet(): Promise<{ ok: boolean; amount?: number; error?: string }> {
+  const addr = walletAddress();
+  if (addr === 'anonymous') return { ok: false, error: 'no wallet' };
+  try {
+    const res = await fetch('/api/faucet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: addr }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      balance.value = data.new_balance ?? balance.value;
+      faucetCooldown.value = false;
+      return { ok: true, amount: data.amount };
+    }
+    faucetCooldown.value = true;
+    return { ok: false, error: data.error };
+  } catch {
+    return { ok: false, error: 'network error' };
+  }
+}
+
 /** Safe localStorage wrapper for private browsing / quota errors */
 function safeGetItem(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -24,6 +89,9 @@ export function initUI() {
   lang.value = savedLang || (navigator.language?.startsWith('zh') ? 'zh' : 'en');
 
   document.documentElement.setAttribute('data-theme', theme.value);
+
+  // Load wallet identity then balance in background
+  loadIdentity().then(() => loadBalance());
 }
 
 export function toggleTheme() {
@@ -323,6 +391,10 @@ const dict: Record<string, Record<string, string>> = {
     'agent-total-runs': '总执行次数', 'agent-total-registered': '总注册数', 'agent-total-errors': '总错误数',
     'agent-run-now': '立即执行', 'agent-history': '执行历史',
     'agent-save-config': '保存配置', 'agent-no-history': '暂无执行记录',
+    'balance-label': '余额',
+    'faucet-claim': '领取测试币',
+    'faucet-success': '已领取 {amount} OAS',
+    'faucet-cooldown': '请稍后再试',
   },
   en: {
     home: 'Home', mydata: 'My Data', explore: 'Market', auto: 'Automation', network: 'Network',
@@ -603,6 +675,10 @@ const dict: Record<string, Record<string, string>> = {
     'agent-total-runs': 'Total Runs', 'agent-total-registered': 'Total Registered', 'agent-total-errors': 'Total Errors',
     'agent-run-now': 'Run Now', 'agent-history': 'Run History',
     'agent-save-config': 'Save Config', 'agent-no-history': 'No runs yet',
+    'balance-label': 'Balance',
+    'faucet-claim': 'Claim Test OAS',
+    'faucet-success': 'Claimed {amount} OAS',
+    'faucet-cooldown': 'Please try again later',
   },
 };
 

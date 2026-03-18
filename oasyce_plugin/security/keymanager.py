@@ -4,10 +4,13 @@ Oasyce 密钥管理模块 - 安全生产级密钥生成与存储
 提供强随机密钥生成和系统集成密钥存储（macOS Keychain / 1Password）。
 """
 
+import logging
 import secrets
 import hashlib
 import subprocess
 import sys
+
+_logger = logging.getLogger(__name__)
 from typing import Optional, Tuple
 
 
@@ -64,7 +67,7 @@ class KeychainStorage:
             result = subprocess.run(cmd, capture_output=True, text=True)
             return result.returncode == 0
         except Exception as e:
-            print(f"Keychain 存储失败：{e}")
+            _logger.error("Keychain 存储失败：%s", e)
             return False
     
     def get_key(self, key_id: str) -> Optional[str]:
@@ -81,7 +84,7 @@ class KeychainStorage:
                 return result.stdout.strip()
             return None
         except Exception as e:
-            print(f"Keychain 读取失败：{e}")
+            _logger.error("Keychain 读取失败：%s", e)
             return None
     
     def delete_key(self, key_id: str) -> bool:
@@ -95,7 +98,7 @@ class KeychainStorage:
             result = subprocess.run(cmd, capture_output=True, text=True)
             return result.returncode == 0
         except Exception as e:
-            print(f"Keychain 删除失败：{e}")
+            _logger.error("Keychain 删除失败：%s", e)
             return False
 
 

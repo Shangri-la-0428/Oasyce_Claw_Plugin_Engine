@@ -24,7 +24,7 @@ class NetworkMode(str, Enum):
 # ── Bootstrap nodes ──────────────────────────────────────────────────
 BOOTSTRAP_NODES: List[Dict[str, object]] = [
     # 格式：{"host": "x.x.x.x", "port": 9527, "node_id": "..."}
-    # 初始：Shangrila 跑的公共 bootstrap 节点
+    # 公共 bootstrap 节点
     {"host": "bootstrap.oasyce.com", "port": 9527, "node_id": "bootstrap-0"},
 ]
 
@@ -237,7 +237,7 @@ class Config:
 
         return Config(
             vault_dir=vault_dir or env_vault or _default_vault_dir(),
-            owner=owner or env_owner or "Shangrila",
+            owner=owner or env_owner or "",
             tags=_parse_tags(tags or env_tags),
             signing_key=resolved_private,
             public_key=resolved_public,

@@ -2,270 +2,341 @@
 
 ![CI](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions/workflows/ci.yml/badge.svg) ![PyPI](https://img.shields.io/pypi/v/oasyce) ![Python](https://img.shields.io/pypi/pyversions/oasyce) ![License](https://img.shields.io/github/license/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
 
-**数据有了主权，能力有了价格。**
+> Chinese version: [README_CN.md](README_CN.md)
 
-Oasyce 是一个去中心化的**权利清算网络**——让 AI Agent 之间的数据访问和能力调用，每一笔都有定价、有担保、有结算。
+**Your data has sovereignty. Your capabilities have a price.**
 
-想象一下：你拍了一张照片，AI 想用它来训练。在传统世界里，你的数据被白嫖了。在 Oasyce 里，AI 必须付费获取访问权，你自动收到收益。就像 Stripe 让互联网有了支付，Oasyce 让 AI 世界有了**权利清算层**。
+Oasyce is a decentralized **rights settlement network** -- every data access and capability invocation between AI agents is priced, escrowed, and settled automatically.
+
+Think of it this way: you take a photo, and an AI wants to use it for training. Today, your data gets used for free. With Oasyce, the AI must pay for access, and you receive earnings automatically. Just as Stripe gave the internet a payment layer, Oasyce gives the AI world a **rights settlement layer**.
 
 ```bash
 pip install oasyce
 oasyce start
 ```
 
-打开 `http://localhost:8420`，完事。
-
-<!-- TODO: Dashboard 截图 -->
+Open `http://localhost:8420` and you're in.
 
 ---
 
-## 🤔 Oasyce能帮我做什么？
+## What Can Oasyce Do for Me?
 
-### 👤 我有数据（照片、文档、传感器数据……）
+### I have data (photos, documents, sensor data...)
 
-你的数据可以注册成链上资产，任何 AI 访问都需要付费。越多人用，价格越高（Bonding Curve 自动定价），你越早注册赚越多。
+Register your data as an on-chain asset. Any AI that accesses it must pay. The more people use it, the higher the price goes (automatic pricing via bonding curves). Register early, earn more.
 
 ```bash
 oasyce register myfile.csv --owner alice --tags medical,imaging
 ```
 
-### 🤖 我是 AI 开发者
+### I'm an AI developer
 
-你的 Agent 可以把能力挂载到网络上——比如"医学影像分析"、"翻译"、"代码审查"。其他 Agent 调用一次，你赚一次。质量有担保金兜底，不怕跑路。
+Your agent can publish capabilities to the network -- things like "medical image analysis", "translation", or "code review". Every time another agent calls your service, you earn. Quality is backed by staked collateral, so there's real accountability.
 
-### 🔌 我想接入协议
+### I want to build on the protocol
 
-Oasyce 是协议，不是平台。你可以在上面建任何东西——数据交易所、Agent 劳务市场、AI 能力商店。底层帮你搞定定价、清算、信誉、争议。
+Oasyce is a protocol, not a platform. You can build anything on top -- data exchanges, agent labor markets, AI capability stores. The protocol handles pricing, settlement, reputation, and disputes for you.
 
 ---
 
-## ✨ 30 秒体验
+## 30-Second Demo
 
 ```bash
 pip install oasyce
 oasyce demo
 ```
 
-一键跑完整个流程：**注册 → 定价 → 购买 → 结算 → 分润**。你会看到数据权利是怎么被创建和交易的。
+This runs the full pipeline end to end: **register -> price -> purchase -> settle -> distribute earnings**. You'll see how data rights are created and traded in real time.
 
 ---
 
-## 🚀 快速开始
+## Quick Start
 
-### 1. 安装
+### 1. Install
 
 ```bash
 pip install oasyce
 ```
 
-> 需要 Python 3.9+
+> Requires Python 3.9+
 
-### 2. 健康检查
+### 2. Health check
 
 ```bash
 oasyce doctor
 ```
 
-自动检查密钥、端口、依赖、网络连通性。有问题会告诉你怎么修。
+Checks your keys, ports, dependencies, and network connectivity. If something is wrong, it tells you how to fix it.
 
-### 3. 启动节点
+### 3. Start the node
 
 ```bash
 oasyce start
 ```
 
-这会启动：
-- **协议节点**（端口 8000）—— 匹配、竞价、结算
-- **Dashboard**（端口 8420）—— 注册数据、浏览资产、调用能力
+This launches:
+- **Protocol node** (port 8000) -- matching, bidding, settlement
+- **Dashboard** (port 8420) -- register data, browse assets, invoke capabilities
 
-### 4. 注册你的第一个资产
+### 4. Register your first asset
 
-命令行：
+Command line:
 ```bash
 oasyce register myfile.csv --owner alice --tags medical,imaging
 ```
 
-或者直接在 Dashboard 里拖拽上传。
+Or drag and drop in the Dashboard.
 
-### 5. 浏览和交易
+### 5. Browse and trade
 
-打开 `http://localhost:8420/explore`，你能看到网络上所有的数据资产和 AI 能力。查看报价、购买份额、调用服务。
+Open `http://localhost:8420/explore` to see all data assets and AI capabilities on the network. Check prices, buy shares, and invoke services.
 
 ---
 
-## 🧪 Testnet（测试网）
+## Testnet
 
-不想用真的 OAS？一键加入测试网：
+Don't want to use real OAS? Join the testnet:
 
 ```bash
-oasyce testnet onboard    # 加入测试网
-oasyce testnet faucet     # 领免费测试币
+oasyce testnet onboard    # Join the testnet
+oasyce testnet faucet     # Get free test tokens
 ```
 
 ---
 
-## 📋 CLI 速查
+## CLI Reference
 
 ```
-oasyce start              # 启动一切（推荐）
-oasyce demo               # 跑一遍完整演示
-oasyce doctor             # 健康检查
-oasyce info               # 项目信息、链接、架构、经济模型
-oasyce info --section economics    # 查看经济模型详情
-oasyce info --section architecture # 查看技术架构
-oasyce info --json        # JSON 格式输出完整信息
+oasyce start              # Start everything (recommended)
+oasyce demo               # Run the full demo pipeline
+oasyce doctor             # Health check
+oasyce info               # Project info, links, architecture, economics
+oasyce info --section economics    # Token economics details
+oasyce info --section architecture # Technical architecture
+oasyce info --json        # Full info as JSON
+```
 
-oasyce register <file>    # 注册数据资产
+### Data Assets
+
+```
+oasyce register <file>    # Register a data asset
   --rights-type original|co_creation|licensed|collection
   --co-creators '[{"address":"A","share":60},{"address":"B","share":40}]'
-oasyce search <tag>       # 按标签搜索
-oasyce quote <asset_id>   # 查看 Bonding Curve 报价
-oasyce buy <asset_id>     # 购买份额
+oasyce search <tag>       # Search by tag
+oasyce quote <asset_id>   # Get bonding curve price
+oasyce buy <asset_id>     # Buy shares
+```
 
-oasyce dispute <id> --reason "..."     # 对资产发起争议
-oasyce resolve <id> --remedy delist    # 裁决争议
+### Disputes
+
+```
+oasyce dispute <id> --reason "..."     # File a dispute against an asset
+oasyce resolve <id> --remedy delist    # Resolve a dispute
   --remedy delist|transfer|rights_correction|share_adjustment
   --details '{"new_owner":"0x..."}'
-
-oasyce discover --intents "翻译,文本处理"  # Recall→Rank 能力发现
-  --tags ai,nlp --limit 5
-
-oasyce node start         # 只启动 P2P 节点
-oasyce node info          # 查看节点身份
-oasyce node peers         # 列出已知节点
-oasyce node ping <host>   # Ping 另一个节点
-
-oasyce testnet onboard    # 一键加入测试网
-oasyce testnet faucet     # 领测试币
-
-oasyce gui                # 只启动 Dashboard（端口 8420）
-oasyce explorer           # 区块浏览器（端口 8421）
 ```
 
-所有命令支持 `--json` 输出，方便程序调用。
+### Capability Discovery
+
+```
+oasyce discover --intents "translation,text processing"  # Recall->Rank discovery
+  --tags ai,nlp --limit 5
+```
+
+### Consensus (PoS)
+
+```
+oasyce consensus status                             # Current epoch/slot/validators
+oasyce consensus register --stake 10000             # Register as validator
+oasyce consensus delegate <validator_id> --amount 500    # Delegate stake
+oasyce consensus undelegate <validator_id> --amount 200  # Undelegate
+oasyce consensus rewards [--epoch N]                # Reward history
+oasyce consensus exit                               # Voluntary exit
+```
+
+### Governance
+
+```
+oasyce governance propose --title "..." --description "..." --changes '[...]' --deposit 1000
+oasyce governance vote <proposal_id> --option yes|no|abstain
+oasyce governance list [--status voting|passed|rejected]
+```
+
+### Capability Marketplace
+
+```
+oasyce capability register --name "Translation API" \
+  --endpoint https://api.example.com/translate \
+  --api-key sk-xxx --price 0.5 --tags nlp,translation
+oasyce capability list [--tag nlp]
+oasyce capability invoke CAP_ID --input '{"text":"hello"}'
+oasyce capability earnings --provider addr
+```
+
+### Node Management
+
+```
+oasyce node start         # Start P2P node only
+oasyce node info          # Show node identity
+oasyce node peers         # List known peers
+oasyce node ping <host>   # Ping another node
+```
+
+### Other
+
+```
+oasyce testnet onboard    # Join the testnet
+oasyce testnet faucet     # Get test tokens
+oasyce gui                # Start Dashboard only (port 8420)
+oasyce explorer           # Block explorer (port 8421)
+oasyce keys generate      # Generate Ed25519 keypair
+oasyce keys show          # Show public key
+```
+
+All commands support `--json` output for programmatic use.
 
 ---
 
-## 🦞 OpenClaw 用户
+## OpenClaw Users
 
-如果你在用 [OpenClaw](https://github.com/openclaw/openclaw)，直接跟你的 Agent 说：
+If you're using [OpenClaw](https://github.com/openclaw/openclaw), just tell your agent:
 
 ```text
-帮我安装 oasyce skill
+Install the oasyce skill
 ```
 
-Agent 会自动安装 Oasyce Skill，你就能用自然语言注册数据、查询资产、调用能力了。不需要敲命令行。
+Your agent will install the Oasyce skill automatically, letting you register data, query assets, and invoke capabilities using natural language. No command line needed.
 
 ---
 
-## 💡 核心概念
+## Core Concepts
 
-### 用人话说
+| Concept | What it means | Analogy |
+|---------|--------------|---------|
+| **OAS** | The protocol token; all transactions settle in OAS | Arcade tokens for a game center |
+| **Bonding Curve** | Automatic pricing -- more buyers means a higher price | Concert tickets that get more expensive as they sell |
+| **Diminishing Returns** | Earnings taper: 100% -> 80% -> 60% -> 40% | Prevents any single party from taking the whole pie |
+| **Escrow** | Funds are locked first, released only after delivery | Like buyer protection on any e-commerce platform |
+| **Reputation** | A long-term trust score; bad behavior lowers it | A credit score that follows you |
+| **Capability** | A callable service published by an agent | A freelancer on a gig platform -- available for work, paid per job |
+| **Rights Type** | Declares data origin (original / co-creation / licensed / collection) | Like songwriter credits vs. cover versions in music |
+| **Dispute** | Challenge an asset for infringement; an arbitrator resolves it | A chargeback or formal complaint process |
 
-| 概念 | 一句话解释 | 生活类比 |
-|------|-----------|---------|
-| **OAS** | 协议代币，所有交易用它结算 | 就像游乐场的游戏币 |
-| **Bonding Curve** | 自动定价——买的人越多越贵 | 演唱会门票，越晚买越贵 |
-| **Diminishing Returns** | 100%→80%→60%→40% 递减分润 | 防止一个人把蛋糕全吃了 |
-| **Escrow** | 先锁钱，验收后才放款 | 淘宝的担保交易 |
-| **Reputation** | 长期信誉积分，做坏事会掉 | 芝麻信用分 |
-| **Capability** | Agent 挂载的可调用服务 | 外卖骑手接单——有活就干，按单收费 |
-| **Rights Type** | 声明数据权利来源（原创/共创/授权/收藏） | 音乐版权里的词曲原创 vs 翻唱 |
-| **Dispute** | 对侵权/盗用资产发起争议，仲裁者裁决 | 淘宝的售后投诉 + 仲裁 |
+### Five Rules
 
-### 五条铁律
+1. **Access requires collateral** -- Want to see the data? Put up a deposit first.
+2. **Exposure is irreversible** -- Once you've accessed data, the network remembers.
+3. **Identity has consequences** -- Bad behavior follows your identity permanently.
+4. **Data is traceable** -- Fingerprint watermarks track every copy.
+5. **Accountability never expires** -- Disputes can be raised at any time.
 
-1. **访问需要抵押** — 想看数据？先押钱
-2. **暴露不可逆** — 你看过的数据，网络永远记得
-3. **身份有代价** — 作恶记录跟着你，甩不掉
-4. **数据可溯源** — 指纹水印追踪每一份拷贝
-5. **责任不过期** — 出了事，不会因为时间久就没人管
+---
+
+## Dashboard
+
+After running `oasyce start`, open `http://localhost:8420` in your browser. The dashboard provides:
+
+- **Overview** -- Network status, registered assets, transaction volume
+- **Register** -- Register files as data assets (drag and drop supported)
+- **Explore** -- Browse all assets and capabilities, view prices, buy shares
+- **AHRP** -- Watch the full agent handshake and trade flow
+- **Watermark** -- Embed data fingerprints and trace leaks
+- **Stake** -- Stake OAS to become a validator
+
+A block explorer is also available at `http://localhost:8421`.
 
 ---
 
 <details>
-<summary><h2>🏗 架构与技术细节（点击展开）</h2></summary>
+<summary><h2>Architecture (click to expand)</h2></summary>
 
-### 系统架构
+### System Overview
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  oasyce (PE)                     │
-│  CLI · Dashboard · P2P Node · Skills · Bridge    │
-│  Schema Registry · Risk Engine · Feedback Loop   │
-├─────────────────────────────────────────────────┤
-│               oasyce-core (Protocol)             │
-│  AHRP · Settlement · Staking · Capabilities      │
-│  Crypto · Reputation · Access Control · Standards │
-└─────────────────────────────────────────────────┘
++-------------------------------------------------+
+|                  oasyce (PE)                     |
+|  CLI - Dashboard - P2P Node - Skills - Bridge   |
+|  Schema Registry - Risk Engine - Feedback Loop  |
++-------------------------------------------------+
+|               oasyce-core (Protocol)            |
+|  AHRP - Settlement - Staking - Capabilities    |
+|  Crypto - Reputation - Access Control - Standards|
++-------------------------------------------------+
 ```
 
-- **oasyce-core**: 协议引擎（678 tests）。匹配、托管、Bonding Curve 定价、费用分配、能力资产、争议仲裁。
-- **oasyce**: 用户层（590 tests）。CLI、Dashboard、P2P 组网、Schema Registry、Discovery Recall→Rank、Feedback Loop、Risk 自动分级。
+- **oasyce-core**: Protocol engine (678 tests). Matching, escrow, bonding curve pricing, fee distribution, capability assets, dispute arbitration.
+- **oasyce** (this repo): User-facing layer (590 tests). CLI, Dashboard, P2P networking, Schema Registry, Discovery (Recall -> Rank), Feedback Loop, automatic risk classification.
 
-### 协议模块一览
+### Module Map
 
 ```
 oasyce_plugin/
-├── schema_registry/  # 统一 Schema 验证（data / capability / oracle / identity）
-├── engines/
-│   ├── core_engines.py  # 扫描 → 分类 → 元数据 → PoPc → 注册（含自动风险分级）
-│   ├── schema.py        # 向后兼容入口（委托 schema_registry）
-│   └── risk.py          # 静态风险自动分级（public / internal / sensitive）
-├── services/
-│   ├── discovery/       # Recall→Rank 能力发现 + FeedbackStore 反馈循环
-│   ├── settlement/      # 结算引擎
-│   └── ...
-├── info.py           # 项目信息中心（GUI / CLI / API 共用）
-└── ...
++-- schema_registry/  # Unified schema validation (data / capability / oracle / identity)
++-- engines/
+|   +-- core_engines.py  # Scan -> Classify -> Metadata -> PoPc -> Register (+ auto risk)
+|   +-- schema.py        # Backward-compat entry (delegates to schema_registry)
+|   +-- risk.py          # Auto risk classification (public / internal / sensitive)
++-- consensus/           # PoS consensus engine (event-sourced)
+|   +-- core/            # Operation types, state transitions, validation
+|   +-- storage/         # Append-only event log
+|   +-- execution/       # Block production, mempool
+|   +-- governance/      # On-chain proposals, stake-weighted voting
+|   +-- network/         # HTTP sync, block download
+|   +-- enforcement/     # Content fingerprinting, infringement detection
++-- services/
+|   +-- discovery/       # Recall -> Rank capability discovery + feedback loop
+|   +-- capability_delivery/  # Endpoint registry, escrow, gateway, settlement
+|   +-- settlement/      # Settlement engine
++-- info.py              # Project info hub (shared by GUI / CLI / API)
++-- gui/app.py           # Dashboard SPA
 
 oasyce_core/
-├── ahrp/           # Agent 握手路由协议（匹配 + 竞价 + 结算）
-├── capabilities/   # 能力资产（注册 → 调用 → 托管 → 结算 → 争议 → 评分 → 份额 → Pipeline）
-├── oracle/         # 预言机框架（天气/价格/内部/聚合器）
-├── settlement/     # Bonding Curve + 费用分配 + 递减分润
-├── staking/        # 验证者质押 + Slashing
-├── network/        # P2P Gossip Mesh + 节点交换 + 评分
-├── services/       # 访问控制、信誉、暴露追踪、泄漏检测、验证
-├── standards/      # OAS 统一资产标准（data + capability + oracle + identity）
-├── crypto/         # Ed25519 签名 + Merkle 证明
-├── storage/        # 账本 + IPFS
-└── server.py       # FastAPI 入口
++-- ahrp/           # Agent Handshake Routing Protocol (match + bid + settle)
++-- capabilities/   # Capability assets (register -> invoke -> escrow -> settle -> dispute)
++-- oracle/         # Oracle framework (weather / price / internal / aggregator)
++-- settlement/     # Bonding curve + fee distribution + diminishing returns
++-- staking/        # Validator staking + slashing
++-- network/        # P2P gossip mesh + peer exchange + scoring
++-- services/       # Access control, reputation, exposure tracking, leak detection
++-- standards/      # OAS unified asset standard (data + capability + oracle + identity)
++-- crypto/         # Ed25519 signatures + Merkle proofs
++-- storage/        # Ledger + IPFS
++-- server.py       # FastAPI entry point
 ```
 
-### 经济参数
+### Economic Parameters
 
-| 参数 | 值 |
-|------|-----|
-| 最大供应量 | 100,000,000 OAS |
-| 区块奖励 | 4 OAS |
-| 费用因子 F | 0.35 |
-| 费用分配 | 数据方 60% · 验证者 20% · 协议 15% · Burn 5% |
-| 递减分润 | 100% → 80% → 60% → 40% |
-| 最低质押 | 10,000 OAS |
-| 首年通胀 | ~5.25% |
+| Parameter | Value |
+|-----------|-------|
+| Max supply | 100,000,000 OAS |
+| Block reward | 4 OAS |
+| Fee factor (F) | 0.35 |
+| Fee split | Data owner 60% / Validator 20% / Protocol 15% / Burn 5% |
+| Diminishing returns | 100% -> 80% -> 60% -> 40% |
+| Minimum stake | 10,000 OAS |
+| Year-1 inflation | ~5.25% |
 
-### 安全分级
+### Security Tiers
 
-| 级别 | 最低质押 | 最大数据量 | 责任窗口 |
-|------|---------|-----------|---------|
-| L0 | 10,000 OAS | 10 MB | 1 天 |
-| L1 | 50,000 OAS | 100 MB | 3 天 |
-| L2 | 200,000 OAS | 1 GB | 7 天 |
-| L3 | 1,000,000 OAS | 无限 | 30 天 |
+| Tier | Min Stake | Max Data Size | Liability Window |
+|------|-----------|---------------|-----------------|
+| L0 | 10,000 OAS | 10 MB | 1 day |
+| L1 | 50,000 OAS | 100 MB | 3 days |
+| L2 | 200,000 OAS | 1 GB | 7 days |
+| L3 | 1,000,000 OAS | Unlimited | 30 days |
 
-### 四种资产类型
+### Four Asset Types
 
-| 类型 | 说明 | 示例 |
-|------|------|------|
-| **data** | 文件/数据集 | 医学影像、CSV、PDF |
-| **capability** | 可调用 AI 服务 | 翻译、代码审查、图像分析 |
-| **oracle** | 数据源/预言机 | 价格 feed、天气数据 |
-| **identity** | 身份凭证 | DID、声誉证明 |
+| Type | Description | Examples |
+|------|------------|---------|
+| **data** | Files and datasets | Medical images, CSVs, PDFs |
+| **capability** | Callable AI services | Translation, code review, image analysis |
+| **oracle** | Data feeds | Price feeds, weather data |
+| **identity** | Identity credentials | DIDs, reputation proofs |
 
-由 Schema Registry 统一验证，每种类型独立 schema 版本管理。
+All types are validated by the Schema Registry, each with independent schema versioning.
 
-### 测试
+### Tests
 
 ```bash
 cd oasyce-core && pytest                    # 678 tests
@@ -276,17 +347,22 @@ cd oasyce-claw-plugin-engine && pytest      # 590 tests
 
 ---
 
-## 📚 更多文档
+## Documentation
 
-- [协议概览](docs/OASYCE_PROTOCOL_OVERVIEW.md)
-- [经济学设计](docs/ECONOMICS.md)
-- [协议规范](docs/PROTOCOL.md)
+- [Protocol Overview](docs/OASYCE_PROTOCOL_OVERVIEW.md)
+- [Economics](docs/ECONOMICS.md)
+- [Protocol Specification](docs/PROTOCOL.md)
+- [Testnet Guide](docs/TESTNET.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute.
+
+## Community
+
+- [Discord](https://discord.gg/tfrCn54yZW) -- Questions, feedback, chat
+- [GitHub Issues](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues) -- Bug reports and feature requests
 
 ## License
 
 MIT
-
-## Community
-
-- [Discord](https://discord.gg/tfrCn54yZW) — 提问、反馈、闲聊
-- [GitHub Issues](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues) — Bug 报告、功能建议

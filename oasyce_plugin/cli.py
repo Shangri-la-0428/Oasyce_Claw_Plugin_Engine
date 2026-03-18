@@ -76,8 +76,19 @@ def cmd_info(args):
 
 def cmd_register(args):
     """Register a file as an Oasyce asset."""
+    # Resolve owner: explicit flag > wallet address > error
+    owner = args.owner
+    if not owner:
+        from oasyce_plugin.identity import Wallet
+        wallet_addr = Wallet.get_address()
+        if wallet_addr:
+            owner = wallet_addr
+        else:
+            print("Error: --owner is required (or create a wallet with: oasyce keys generate)", file=sys.stderr)
+            sys.exit(1)
+
     config = Config.from_env(
-        owner=args.owner,
+        owner=owner,
         tags=args.tags,
         signing_key=args.signing_key,
         signing_key_id=args.signing_key_id,
@@ -451,7 +462,13 @@ def cmd_buy(args):
     """Buy an asset via oasyce_core (requires --use-core)."""
     from oasyce_plugin.bridge.core_bridge import bridge_buy
 
-    result = bridge_buy(args.asset_id, buyer=args.buyer, amount=args.amount)
+    # Resolve buyer: explicit flag > wallet address > "anonymous"
+    buyer = args.buyer
+    if not buyer:
+        from oasyce_plugin.identity import Wallet
+        buyer = Wallet.get_address() or "anonymous"
+
+    result = bridge_buy(args.asset_id, buyer=buyer, amount=args.amount)
     if "error" in result:
         print(f"❌ {result['error']}", file=sys.stderr)
         sys.exit(1)
@@ -2569,6 +2586,7 @@ def cmd_node_api_key(args):
 def cmd_keys_generate(args):
     """Generate a new Ed25519 keypair for consensus signing."""
     from oasyce_plugin.crypto.keys import generate_keypair, load_or_create_keypair
+    from oasyce_plugin.identity import Wallet
 
     config = Config.from_env()
     key_dir = os.path.join(config.data_dir, "keys")
@@ -2592,19 +2610,34 @@ def cmd_keys_generate(args):
     passphrase = getattr(args, "passphrase", None)
     priv_hex, pub_hex = load_or_create_keypair(key_dir, passphrase=passphrase)
 
+    # Also create/update the wallet identity
+    wallet_created = False
+    if not Wallet.exists() or force:
+        try:
+            wallet = Wallet.create(passphrase=passphrase)
+            wallet_created = True
+        except Exception:
+            pass  # Non-fatal: consensus keys are primary
+
     if args.json:
-        print(json.dumps({"ok": True, "public_key": pub_hex, "key_dir": key_dir}))
+        result = {"ok": True, "public_key": pub_hex, "key_dir": key_dir}
+        if wallet_created:
+            result["wallet_address"] = wallet.address
+        print(json.dumps(result))
     else:
         print(f"Ed25519 keypair generated.")
         print(f"  Public key: {pub_hex}")
         print(f"  Key dir:    {key_dir}")
         if passphrase:
             print(f"  Encrypted:  yes")
+        if wallet_created:
+            print(f"  Wallet:     {wallet.address}")
 
 
 def cmd_keys_show(args):
     """Show the current consensus signing key."""
     from oasyce_plugin.crypto.keys import load_or_create_keypair
+    from oasyce_plugin.identity import Wallet
 
     config = Config.from_env()
     key_dir = os.path.join(config.data_dir, "keys")
@@ -2621,18 +2654,26 @@ def cmd_keys_show(args):
     priv_exists = os.path.exists(os.path.join(key_dir, "private.key"))
     enc_exists = os.path.exists(os.path.join(key_dir, "private.key.enc"))
 
+    # Also show wallet address if it exists
+    wallet_address = Wallet.get_address()
+
     if args.json:
-        print(json.dumps({
+        result = {
             "ok": True,
             "public_key": pub_hex,
             "key_dir": key_dir,
             "encrypted": enc_exists and not priv_exists,
-        }))
+        }
+        if wallet_address:
+            result["wallet_address"] = wallet_address
+        print(json.dumps(result))
     else:
         print(f"Consensus signing key:")
         print(f"  Public key: {pub_hex}")
         print(f"  Key dir:    {key_dir}")
         print(f"  Encrypted:  {'yes' if enc_exists and not priv_exists else 'no'}")
+        if wallet_address:
+            print(f"  Wallet:     {wallet_address}")
 
 
 def _load_signing_key(config):
@@ -3966,7 +4007,7 @@ def main():
     # Register command
     reg_parser = subparsers.add_parser("register", help="Register a file as an asset")
     reg_parser.add_argument("file", help="Path to the file to register")
-    reg_parser.add_argument("--owner", required=True, help="Asset owner")
+    reg_parser.add_argument("--owner", required=False, default=None, help="Asset owner (defaults to wallet address if available)")
     reg_parser.add_argument("--tags", default="", help="Comma-separated tags")
     reg_parser.add_argument("--signing-key", help="Signing key (or OASYCE_SIGNING_KEY env)")
     reg_parser.add_argument("--signing-key-id", help="Signing key ID")
@@ -4023,7 +4064,7 @@ def main():
     # Buy command (requires oasyce_core)
     buy_parser = subparsers.add_parser("buy", help="Buy asset via oasyce_core")
     buy_parser.add_argument("asset_id", help="Core asset ID")
-    buy_parser.add_argument("--buyer", default="anonymous", help="Buyer identity")
+    buy_parser.add_argument("--buyer", default=None, help="Buyer identity (defaults to wallet address or 'anonymous')")
     buy_parser.add_argument("--amount", type=float, default=10.0, help="OAS to spend (default 10.0)")
     buy_parser.set_defaults(func=cmd_buy)
 

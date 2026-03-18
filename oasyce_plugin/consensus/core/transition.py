@@ -59,7 +59,10 @@ def apply_operation(engine: ConsensusEngine, op: Operation,
         result = engine.registry.exit(op.validator_id, block_height)
 
     elif op.op_type == OperationType.UNJAIL:
-        result = engine.registry.unjail(op.validator_id)
+        result = engine.registry.unjail(
+            op.validator_id,
+            current_height=block_height if block_height > 0 else None,
+        )
 
     elif op.op_type == OperationType.SLASH:
         result = engine.slashing.apply_slash(

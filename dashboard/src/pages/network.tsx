@@ -4,7 +4,7 @@
  */
 import { useEffect, useState, useCallback } from 'preact/hooks';
 import { get, post } from '../api/client';
-import { showToast, i18n } from '../store/ui';
+import { showToast, i18n, identity, loadIdentity } from '../store/ui';
 import { safeNum, safePct } from '../utils';
 import './network.css';
 
@@ -87,7 +87,7 @@ function Section({ id, title, desc, defaultOpen = false, forceOpen = false, chil
 interface NetworkProps { subpath?: string; }
 
 export default function Network({ subpath }: NetworkProps) {
-  const [identity, setIdentity] = useState<any>(null);
+  const [nodeIdentity, setNodeIdentity] = useState<any>(null);
   const [nodeRole, setNodeRole] = useState<NodeRole | null>(null);
   const [loading, setLoading] = useState(true);
   const [showPubkey, setShowPubkey] = useState(false);
@@ -135,7 +135,7 @@ export default function Network({ subpath }: NetworkProps) {
       get<any>('/work/tasks?limit=5'),
       get<ConsensusStatus>('/consensus/status'),
     ]);
-    if (idRes.success && idRes.data) setIdentity(idRes.data);
+    if (idRes.success && idRes.data) setNodeIdentity(idRes.data);
     if (roleRes.success && roleRes.data) {
       setNodeRole(roleRes.data);
       if (roleRes.data.api_provider) setApiProvider(roleRes.data.api_provider);
@@ -147,7 +147,7 @@ export default function Network({ subpath }: NetworkProps) {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); loadIdentity(); }, []);
 
   const copyText = async (text: string, label: string) => {
     try {
@@ -256,8 +256,8 @@ export default function Network({ subpath }: NetworkProps) {
     );
   }
 
-  const pubkey = identity?.public_key || nodeRole?.public_key || '';
-  const nodeId = identity?.node_id || nodeRole?.node_id || pubkey.slice(0, 16);
+  const pubkey = nodeIdentity?.public_key || nodeRole?.public_key || '';
+  const nodeId = nodeIdentity?.node_id || nodeRole?.node_id || pubkey.slice(0, 16);
 
   // Provider select helper
   const providerSelect = (
@@ -327,10 +327,38 @@ export default function Network({ subpath }: NetworkProps) {
             </span>
           </div>
 
-          {identity?.created_at && (
+          {/* Wallet address */}
+          {identity.value?.exists ? (
+            <div class="kv">
+              <span class="kv-key">Wallet</span>
+              <span class="kv-val mono row gap-8">
+                <span>{identity.value.address.slice(0, 16)}...{identity.value.address.slice(-8)}</span>
+                <button class="btn-copy" onClick={() => copyText(identity.value!.address, 'Wallet')}>{_['copy']}</button>
+              </span>
+            </div>
+          ) : (
+            <div class="kv">
+              <span class="kv-key">Wallet</span>
+              <span class="kv-val row gap-8">
+                <span class="caption fg-muted">{_['no-key']}</span>
+                <button class="btn btn-sm btn-ghost" onClick={async () => {
+                  const res = await post<any>('/identity/create', {});
+                  if (res.success && res.data?.ok) {
+                    showToast('Wallet created', 'success');
+                    loadIdentity();
+                    fetchData();
+                  } else {
+                    showToast(res.error || res.data?.error || _['error-generic'], 'error');
+                  }
+                }}>Create Wallet</button>
+              </span>
+            </div>
+          )}
+
+          {nodeIdentity?.created_at && (
             <div class="kv">
               <span class="kv-key">{_['net-created']}</span>
-              <span class="kv-val">{new Date(identity.created_at * 1000).toLocaleDateString()}</span>
+              <span class="kv-val">{new Date(nodeIdentity.created_at * 1000).toLocaleDateString()}</span>
             </div>
           )}
 
@@ -350,8 +378,33 @@ export default function Network({ subpath }: NetworkProps) {
       ) : (
         <div class="card mb-24">
           <div class="label">{_['net-identity']}</div>
-          <p class="body-text fg-muted">{_['net-no-identity']}</p>
-          <p class="caption mt-8">{_['net-init-hint']}</p>
+          {identity.value?.exists ? (
+            <>
+              <div class="kv">
+                <span class="kv-key">Wallet</span>
+                <span class="kv-val mono row gap-8">
+                  <span>{identity.value.address.slice(0, 16)}...{identity.value.address.slice(-8)}</span>
+                  <button class="btn-copy" onClick={() => copyText(identity.value!.address, 'Wallet')}>{_['copy']}</button>
+                </span>
+              </div>
+              <p class="caption mt-8">{_['net-init-hint']}</p>
+            </>
+          ) : (
+            <>
+              <p class="body-text fg-muted">{_['net-no-identity']}</p>
+              <p class="caption mt-8">{_['net-init-hint']}</p>
+              <button class="btn btn-primary btn-sm mt-12" onClick={async () => {
+                const res = await post<any>('/identity/create', {});
+                if (res.success && res.data?.ok) {
+                  showToast('Wallet created', 'success');
+                  loadIdentity();
+                  fetchData();
+                } else {
+                  showToast(res.error || res.data?.error || _['error-generic'], 'error');
+                }
+              }}>Create Wallet</button>
+            </>
+          )}
           <button class="btn btn-ghost btn-sm mt-12" onClick={fetchData}>{_['net-retry']}</button>
         </div>
       )}

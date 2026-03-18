@@ -106,13 +106,15 @@ class BlockProducer:
                  sync_server: Optional[SyncServer] = None,
                  proposer_id: str = "",
                  max_ops_per_block: int = 100,
-                 on_block: Optional[Callable[[Block], None]] = None):
+                 on_block: Optional[Callable[[Block], None]] = None,
+                 slot_timeout: float = 3.0):
         self._engine = engine
         self._mempool = mempool
         self._sync_server = sync_server
         self._proposer_id = proposer_id
         self._max_ops_per_block = max_ops_per_block
         self._on_block = on_block
+        self._slot_timeout = slot_timeout
 
         self._lock = threading.Lock()
         self._height = -1  # will be initialized from chain
@@ -120,6 +122,11 @@ class BlockProducer:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._blocks_produced = 0
+        self._missed_slots = 0
+
+        # Event that external code can set when the primary proposer's block
+        # arrives within the timeout window.  ``wait_for_primary`` checks it.
+        self._primary_block_event = threading.Event()
 
         # Initialize from genesis
         self._init_chain()
@@ -212,6 +219,50 @@ class BlockProducer:
         )
         self._thread.start()
 
+    def notify_primary_block(self) -> None:
+        """Signal that the primary proposer's block has been received.
+
+        Call this from sync/gossip code when a block from the expected
+        primary proposer arrives during the timeout window.
+        """
+        self._primary_block_event.set()
+
+    def wait_for_primary(self, timeout: Optional[float] = None) -> bool:
+        """Wait up to *timeout* seconds for the primary proposer's block.
+
+        Returns True if the block arrived in time, False on timeout.
+        The internal event is cleared before waiting so that each slot
+        gets a fresh wait.
+        """
+        if timeout is None:
+            timeout = self._slot_timeout
+        self._primary_block_event.clear()
+        return self._primary_block_event.wait(timeout)
+
+    def try_backup_produce(self, is_backup: bool) -> Optional[Block]:
+        """Attempt backup block production for the current slot.
+
+        Waits ``slot_timeout`` for the primary proposer's block.
+        If no block arrives and *is_backup* is True, produces a block
+        and increments the missed-slot counter.
+
+        Args:
+            is_backup: Whether this node is the backup proposer for
+                       the current slot.
+
+        Returns:
+            The produced Block if we acted as backup, otherwise None.
+        """
+        arrived = self.wait_for_primary()
+        if arrived:
+            return None  # primary delivered on time
+        # Primary missed the slot
+        with self._lock:
+            self._missed_slots += 1
+        if is_backup:
+            return self.produce_block()
+        return None
+
     def stop(self) -> None:
         self._running = False
         if self._thread:
@@ -229,16 +280,27 @@ class BlockProducer:
             return self._blocks_produced
 
     @property
+    def missed_slots(self) -> int:
+        with self._lock:
+            return self._missed_slots
+
+    @property
     def prev_hash(self) -> str:
         with self._lock:
             return self._prev_hash
+
+    @property
+    def slot_timeout(self) -> float:
+        return self._slot_timeout
 
     def status(self) -> Dict[str, Any]:
         return {
             "height": self.height,
             "blocks_produced": self.blocks_produced,
+            "missed_slots": self.missed_slots,
             "mempool_size": self._mempool.size,
             "prev_hash": self.prev_hash[:16] + "...",
             "proposer": self._proposer_id,
             "running": self._running,
+            "slot_timeout": self._slot_timeout,
         }

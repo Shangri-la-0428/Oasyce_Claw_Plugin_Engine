@@ -160,11 +160,15 @@ class SlashingEngine:
         if should_jail:
             jail_result = self.registry.jail(
                 validator_id, reason=reason, duration_multiplier=jail_mult,
+                block_height=block_height if block_height > 0 else None,
             )
 
         # Auto-jail if below min_stake
         if not should_jail and new_total < self.min_stake:
-            jail_result = self.registry.jail(validator_id, reason="below_min_stake")
+            jail_result = self.registry.jail(
+                validator_id, reason="below_min_stake",
+                block_height=block_height if block_height > 0 else None,
+            )
 
         return {
             "ok": True,

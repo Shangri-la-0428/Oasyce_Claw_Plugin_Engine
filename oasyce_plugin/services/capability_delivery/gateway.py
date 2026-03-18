@@ -12,14 +12,69 @@ Supports both synchronous (HTTP POST) and timeout-protected calls.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from oasyce_plugin.services.capability_delivery.registry import EndpointRegistry
+
+
+# ── SSRF protection ──────────────────────────────────────────────
+
+_BLOCKED_HOSTNAMES = frozenset({"localhost"})
+
+
+def _validate_endpoint_url(url: str) -> bool:
+    """Return True if *url* is safe to call, False if it targets a
+    private/internal/link-local address or uses a non-HTTP(S) scheme.
+
+    Rejects:
+      - Non-HTTP(S) schemes (ftp://, file://, etc.)
+      - localhost, 127.0.0.1, 0.0.0.0, ::1
+      - Private IP ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+      - Link-local: 169.254.x.x
+      - Cloud metadata endpoint: 169.254.169.254
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
+    # Scheme check
+    if parsed.scheme not in ("http", "https"):
+        return False
+
+    host = parsed.hostname
+    if not host:
+        return False
+
+    # Blocked literal hostnames
+    if host.lower() in _BLOCKED_HOSTNAMES:
+        return False
+
+    # Try to parse as IP address
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        # Not an IP literal — allow (DNS names other than "localhost" are OK)
+        return True
+
+    # Reject loopback, private, reserved, and link-local addresses
+    if addr.is_loopback:          # 127.0.0.0/8, ::1
+        return False
+    if addr.is_private:           # 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+        return False
+    if addr.is_reserved:
+        return False
+    if addr.is_link_local:        # 169.254.0.0/16
+        return False
+
+    return True
 
 
 @dataclass
@@ -53,10 +108,12 @@ class InvocationGateway:
 
     def __init__(self, registry: EndpointRegistry,
                  timeout: float = 30.0,
-                 max_retries: int = 0):
+                 max_retries: int = 0,
+                 allow_private: bool = False):
         self._registry = registry
         self._timeout = timeout
         self._max_retries = max_retries
+        self._allow_private = allow_private
 
     def invoke(self, capability_id: str,
                input_payload: Dict[str, Any],
@@ -83,6 +140,15 @@ class InvocationGateway:
             return InvocationResult(
                 success=False, output={}, latency_ms=0,
                 error=f"capability is {endpoint.status}",
+            )
+
+        # SSRF protection: reject private/internal endpoints
+        if not self._allow_private and not _validate_endpoint_url(endpoint.endpoint_url):
+            return InvocationResult(
+                success=False,
+                output={"ok": False, "error": "endpoint URL blocked: private/internal address not allowed"},
+                latency_ms=0,
+                error="endpoint URL blocked: private/internal address not allowed",
             )
 
         # Get decrypted API key

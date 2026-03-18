@@ -6,8 +6,9 @@ Provides:
   SyncServer        — lightweight HTTP server exposing sync endpoints
 
 Endpoints:
-  GET  /sync/info    → peer info (chain_id, height, genesis_hash)
-  POST /sync/blocks  → fetch blocks by height range
+  GET  /sync/info      → peer info (chain_id, height, genesis_hash)
+  POST /sync/blocks    → fetch blocks by height range
+  POST /sync/announce  → receive block announcement from peer
 
 Zero external dependencies — uses only stdlib (http.server, urllib).
 """
@@ -101,13 +102,20 @@ class SyncServer:
     def __init__(self, engine: ConsensusEngine,
                  host: str = "0.0.0.0", port: int = 9528,
                  block_store: Optional[List[Block]] = None,
-                 db_path: Optional[str] = None):
+                 db_path: Optional[str] = None,
+                 peers: Optional[List[str]] = None):
         self._engine = engine
         self._host = host
         self._port = port
         self._lock = threading.Lock()
         self._httpd: Optional[HTTPServer] = None
         self._thread: Optional[threading.Thread] = None
+
+        # Peer URLs for block announcements (gossip push)
+        self._peers: List[str] = list(peers) if peers else []
+        # Track hashes we have already announced so we don't re-announce
+        # blocks that arrived via announcement themselves.
+        self._announced_hashes: set = set()
 
         # Persistent block store backed by SQLite.
         # If db_path is explicitly ":memory:", use in-memory DB.
@@ -147,10 +155,23 @@ class SyncServer:
             ).fetchall()
         return [Block.from_dict(json.loads(r[0])) for r in rows]
 
-    def add_block(self, block: Block) -> None:
-        """Add a produced/synced block to the store."""
+    def add_block(self, block: Block, _from_announcement: bool = False) -> None:
+        """Add a produced/synced block to the store.
+
+        Args:
+            block: The block to store.
+            _from_announcement: If True, the block was fetched in response
+                to a peer announcement — skip re-announcing to peers.
+        """
         with self._lock:
             self._db_insert_block(block)
+
+        # Push announcement to peers (unless the block itself came from
+        # an announcement, which would cause a re-announce loop).
+        block_hash = block.block_hash
+        if not _from_announcement and block_hash not in self._announced_hashes:
+            self._announced_hashes.add(block_hash)
+            self._push_announcement(block.block_number, block_hash)
 
     def _db_insert_block(self, block: Block) -> None:
         """Insert a block into SQLite (caller must hold lock or be in __init__)."""
@@ -168,6 +189,103 @@ class SyncServer:
         )
         self._db.commit()
 
+    def _push_announcement(self, height: int, block_hash: str) -> None:
+        """Fire-and-forget block announcement to all known peers."""
+        payload = json.dumps({"height": height, "hash": block_hash}).encode()
+
+        def _announce(peer_url: str) -> None:
+            try:
+                url = peer_url.rstrip("/") + "/sync/announce"
+                req = Request(url, data=payload, method="POST")
+                req.add_header("Content-Type", "application/json")
+                with urlopen(req, timeout=2):
+                    pass
+            except Exception:
+                pass  # fire-and-forget
+
+        for peer in self._peers:
+            t = threading.Thread(target=_announce, args=(peer,), daemon=True)
+            t.start()
+
+    def _handle_announce(self, handler) -> None:
+        """Handle POST /sync/announce — a peer tells us about a new block."""
+        length = int(handler.headers.get("Content-Length", 0))
+        raw = handler.rfile.read(length) if length else b"{}"
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            body = json.dumps({"error": "invalid JSON"}).encode()
+            handler.send_response(400)
+            handler.send_header("Content-Type", "application/json")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.end_headers()
+            handler.wfile.write(body)
+            return
+
+        announced_height = data.get("height", -1)
+        announced_hash = data.get("hash", "")
+
+        # Duplicate detection: already have this hash?
+        if announced_hash in self._announced_hashes:
+            body = json.dumps({"ok": True, "action": "already_known"}).encode()
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/json")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.end_headers()
+            handler.wfile.write(body)
+            return
+
+        # Check if we already have this block by height
+        with self._lock:
+            row = self._db.execute(
+                "SELECT hash FROM blocks WHERE height = ?",
+                (announced_height,),
+            ).fetchone()
+
+        if row and row[0] == announced_hash:
+            # We already have it — record and skip
+            self._announced_hashes.add(announced_hash)
+            body = json.dumps({"ok": True, "action": "already_have"}).encode()
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/json")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.end_headers()
+            handler.wfile.write(body)
+            return
+
+        # We don't have this block — mark hash so we don't re-announce it
+        self._announced_hashes.add(announced_hash)
+
+        # Respond immediately; fetch the block asynchronously
+        body = json.dumps({"ok": True, "action": "fetching"}).encode()
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+
+        # Find which peer sent this — try to fetch the block from any peer
+        def _fetch_block() -> None:
+            for peer_url in self._peers:
+                try:
+                    transport = HTTPPeerTransport(peer_url, timeout=5.0)
+                    resp = transport.get_blocks(
+                        GetBlocksRequest(
+                            from_height=announced_height,
+                            to_height=announced_height,
+                        )
+                    )
+                    if resp.blocks:
+                        fetched = resp.blocks[0]
+                        if fetched.block_hash == announced_hash:
+                            self.add_block(fetched, _from_announcement=True)
+                            return
+                except Exception:
+                    continue
+
+        t = threading.Thread(target=_fetch_block, daemon=True)
+        t.start()
+
     def start(self) -> None:
         """Start serving in a background daemon thread."""
         server_ref = self
@@ -184,6 +302,8 @@ class SyncServer:
             def do_POST(self):
                 if self.path == "/sync/blocks":
                     server_ref._handle_blocks(self)
+                elif self.path == "/sync/announce":
+                    server_ref._handle_announce(self)
                 else:
                     self._json_response({"error": "not found"}, 404)
 

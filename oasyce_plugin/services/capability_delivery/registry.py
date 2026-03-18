@@ -25,6 +25,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Lazy import to avoid circular dependency — the validation function lives in
+# the gateway module.  We import at call-site instead.
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -143,11 +147,13 @@ class EndpointRegistry:
     """
 
     def __init__(self, db_path: str = ":memory:",
-                 encryption_passphrase: Optional[str] = None):
+                 encryption_passphrase: Optional[str] = None,
+                 allow_private: bool = False):
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         self._passphrase = encryption_passphrase or self._load_or_create_passphrase()
+        self._allow_private = allow_private
         self._create_tables()
 
     def _load_or_create_passphrase(self) -> str:
@@ -220,6 +226,13 @@ class EndpointRegistry:
         """
         if not endpoint_url:
             return {"ok": False, "error": "endpoint_url required"}
+
+        # SSRF protection: reject private/internal endpoint URLs at registration time
+        if not self._allow_private:
+            from oasyce_plugin.services.capability_delivery.gateway import _validate_endpoint_url
+            if not _validate_endpoint_url(endpoint_url):
+                return {"ok": False, "error": "endpoint URL blocked: private/internal address not allowed"}
+
         if not provider_id:
             return {"ok": False, "error": "provider_id required"}
         if not name:

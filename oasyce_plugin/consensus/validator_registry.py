@@ -109,20 +109,29 @@ class ValidatorRegistry:
         new_stake = self.state.get_validator_stake(validator_id)
         updated = self.state.get_validator(validator_id)
         if updated and updated["status"] == "active" and new_stake < self.min_stake:
-            self.jail(validator_id, reason="below_min_stake")
+            self.jail(validator_id, reason="below_min_stake",
+                      block_height=block_height if block_height > 0 else None)
 
         return {"ok": True, "delegator": delegator, "validator_id": validator_id,
                 "amount": amount, "unbonding_period": self.unbonding_period}
 
+    # Assumed block interval for converting wall-clock duration to blocks.
+    _SECONDS_PER_BLOCK = 6
+
     def jail(self, validator_id: str,
              reason: str = "offline",
              duration_multiplier: float = 1.0,
-             now: Optional[int] = None) -> Dict[str, Any]:
+             now: Optional[int] = None,
+             block_height: Optional[int] = None) -> Dict[str, Any]:
         """Jail a validator for a specified duration.
 
         Args:
             now: Current timestamp. Defaults to time.time() for P2P compat.
                  Pass explicitly for deterministic replay.
+                 DEPRECATED — prefer *block_height* for deterministic consensus.
+            block_height: Current block height.  When provided, jail duration
+                 is expressed in blocks (1 block ≈ 6 s) rather than wall-clock
+                 seconds, ensuring deterministic behaviour across nodes.
         """
         val = self.state.get_validator(validator_id)
         if val is None:
@@ -130,6 +139,17 @@ class ValidatorRegistry:
         if val["status"] == "exited":
             return {"ok": False, "error": "validator has exited"}
 
+        if block_height is not None:
+            # Deterministic path: compute jail release as a block height.
+            duration_blocks = int(
+                (self.jail_duration * duration_multiplier) / self._SECONDS_PER_BLOCK
+            )
+            jailed_until_height = block_height + duration_blocks
+            ok = self.state.jail_validator(validator_id, jailed_until_height)
+            return {"ok": ok, "validator_id": validator_id,
+                    "jailed_until_height": jailed_until_height, "reason": reason}
+
+        # DEPRECATED wall-clock fallback — kept for backward compatibility.
         now = now or int(time.time())
         until = now + int(self.jail_duration * duration_multiplier)
         ok = self.state.jail_validator(validator_id, until)
@@ -137,22 +157,35 @@ class ValidatorRegistry:
                 "reason": reason}
 
     def unjail(self, validator_id: str,
-               now: Optional[int] = None) -> Dict[str, Any]:
+               now: Optional[int] = None,
+               current_height: Optional[int] = None) -> Dict[str, Any]:
         """Unjail a validator if jail duration has passed and stake is sufficient.
 
         Args:
             now: Current timestamp. Defaults to time.time() for P2P compat.
-                 Pass explicitly for deterministic replay.
+                 DEPRECATED — prefer *current_height* for deterministic consensus.
+            current_height: Current block height. When provided, compares
+                 against *jailed_until* (which stores a block height when
+                 ``jail()`` was called with *block_height*).
         """
         val = self.state.get_validator(validator_id)
         if val is None:
             return {"ok": False, "error": "validator not found"}
         if val["status"] != "jailed":
             return {"ok": False, "error": f"validator is {val['status']}, not jailed"}
-        now = now or int(time.time())
-        if val["jailed_until"] > now:
-            return {"ok": False, "error": "jail duration not yet expired",
-                    "jailed_until": val["jailed_until"]}
+
+        if current_height is not None:
+            # Deterministic path — jailed_until stores a block height.
+            if val["jailed_until"] > current_height:
+                return {"ok": False, "error": "jail duration not yet expired",
+                        "jailed_until_height": val["jailed_until"]}
+        else:
+            # DEPRECATED wall-clock fallback.
+            now = now or int(time.time())
+            if val["jailed_until"] > now:
+                return {"ok": False, "error": "jail duration not yet expired",
+                        "jailed_until": val["jailed_until"]}
+
         total_stake = self.state.get_validator_stake(validator_id)
         if total_stake < self.min_stake:
             return {"ok": False, "error": f"total_stake {total_stake} below min {self.min_stake}"}

@@ -1,9 +1,12 @@
 import hashlib
+import logging
 import time
 import json
 from typing import Dict, Any
 
 from oasyce_plugin.models import EngineResult, AssetMetadata
+
+_logger = logging.getLogger(__name__)
 
 class TEEComputeEngine:
     """
@@ -14,8 +17,8 @@ class TEEComputeEngine:
 
     @staticmethod
     def execute_blind_compute(asset: AssetMetadata, ai_prompt: str) -> EngineResult:
-        print(f"[TEE Enclave] Securely loaded Asset: {asset.asset_id} into memory.")
-        print(f"[TEE Enclave] Loading AI compute logic: '{ai_prompt}'")
+        _logger.info("[TEE Enclave] Securely loaded Asset: %s into memory.", asset.asset_id)
+        _logger.info("[TEE Enclave] Loading AI compute logic: '%s'", ai_prompt)
         
         # Simulate heavy private computation
         time.sleep(1.5)
@@ -30,7 +33,7 @@ class TEEComputeEngine:
         poe_payload = f"{asset.asset_id}:{ai_prompt}:{time.time()}".encode('utf-8')
         zk_proof = f"zkPoE_0x{hashlib.sha3_256(poe_payload).hexdigest()}"
         
-        print(f"[TEE Enclave] Computation finished. Initiating memory physical shredding for {asset.asset_id}...")
+        _logger.info("[TEE Enclave] Computation finished. Initiating memory physical shredding for %s...", asset.asset_id)
         
         return EngineResult(success=True, data={
             "result": compute_result,
