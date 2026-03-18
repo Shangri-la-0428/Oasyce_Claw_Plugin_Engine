@@ -8,11 +8,19 @@ export const theme = signal<'dark' | 'light'>('dark');
 export const lang = signal<'zh' | 'en'>('zh');
 export const toasts = signal<{ id: string; message: string; type: string }[]>([]);
 
-export function initUI() {
-  const savedTheme = localStorage.getItem('oasyce-theme') as 'dark' | 'light' | null;
-  const savedLang = localStorage.getItem('oasyce-lang') as 'zh' | 'en' | null;
+/** Safe localStorage wrapper for private browsing / quota errors */
+function safeGetItem(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function safeSetItem(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* quota/private mode */ }
+}
 
-  theme.value = savedTheme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+export function initUI() {
+  const savedTheme = safeGetItem('oasyce-theme') as 'dark' | 'light' | null;
+  const savedLang = safeGetItem('oasyce-lang') as 'zh' | 'en' | null;
+
+  theme.value = savedTheme || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   lang.value = savedLang || (navigator.language?.startsWith('zh') ? 'zh' : 'en');
 
   document.documentElement.setAttribute('data-theme', theme.value);
@@ -21,32 +29,32 @@ export function initUI() {
 export function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', theme.value);
-  localStorage.setItem('oasyce-theme', theme.value);
+  safeSetItem('oasyce-theme', theme.value);
 }
 
 export function toggleLang() {
   lang.value = lang.value === 'zh' ? 'en' : 'zh';
-  localStorage.setItem('oasyce-lang', lang.value);
+  safeSetItem('oasyce-lang', lang.value);
 }
 
 export function showToast(message: string, type = 'info') {
-  const id = Date.now().toString();
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   toasts.value = [...toasts.value, { id, message, type }];
   setTimeout(() => toasts.value = toasts.value.filter(t => t.id !== id), 3000);
 }
 
 const dict: Record<string, Record<string, string>> = {
   zh: {
-    home: '首页', mydata: '资产', explore: '探索', auto: '自动化', network: '网络',
-    'hero-title-light': '数据的权利',
-    'hero-title-bold': '由你掌控',
-    'hero-sub': '注册、追踪、清算。你的数据在 Oasyce 网络上拥有不可篡改的身份。',
+    home: '首页', mydata: '资产', explore: '市场', auto: '自动化', network: '网络',
+    'hero-title-light': '智能的价值',
+    'hero-title-bold': '自由交易',
+    'hero-sub': '注册数据资产，上架 AI 能力，在去中心化市场中定价、交易、结算。',
     protect: '注册数据', protecting: '注册中...', protected: '已注册',
     'drop-hint': '拖入文件', 'drop-folder': '或文件夹', 'drop-browse': '选择文件',
     'folder-scan-hint': '将扫描此文件夹，发现的资产进入审批队列',
     'describe': '描述', 'describe-hint': '例如：医疗影像、研究数据、创意作品',
     'value': '当前价值', 'owner': '所有者', 'id': '编号',
-    'search': '搜索你的数据...', 'no-data': '还没有数据', 'first-data': '注册你的第一份数据',
+    'search': '搜索你的数据...', 'no-data': '还没有数据', 'first-data': '注册你的第一份资产，开始参与市场',
     'delete': '移除', 'delete-confirm': '确定移除这份数据？移除后无法恢复。',
     'get-access': '获取访问权', 'quote': '查看报价', 'quoting': '计算中...',
     'pay': '需要支付', 'receive': '获得份额', 'impact': '价格影响',
@@ -57,14 +65,14 @@ const dict: Record<string, Record<string, string>> = {
     'advanced': '详细信息',
     'again': '继续注册',
     'nav-mydata': '资产', 'nav-mydata-desc': '查看已注册的数据资产',
-    'nav-explore': '探索', 'nav-explore-desc': '搜索网络上的数据资产',
+    'nav-explore': '市场', 'nav-explore-desc': '浏览和交易数据与 AI 能力',
     'nav-network': '网络', 'nav-network-desc': '节点状态与网络信息',
     'cancel': '取消', 'confirm-remove': '确认移除',
     'get-desc': '输入数据编号，查看报价并获取访问权',
-    'explore-title': '探索数据',
-    'explore-desc': '发现网络上的数据资产，获取访问权',
+    'explore-title': '能力市场',
+    'explore-desc': '浏览数据资产与 AI 能力，获取访问权或调用服务',
     'explore-search': '搜索数据编号或描述...',
-    'explore-empty': '输入编号或关键词开始搜索',
+    'explore-empty': '输入编号或关键词，搜索市场中的资产与能力',
     'categories': '分类',
     'browse-all': '浏览全部',
     'all': '全部',
@@ -85,8 +93,8 @@ const dict: Record<string, Record<string, string>> = {
     'validator': '验证者', 'staked': '已质押', 'reputation': '信誉',
     'validator-id': '验证者 ID', 'stake-amount': '质押金额',
     'no-validators': '暂无验证者',
-    'net-hero-light': '你的', 'net-hero-bold': '网络身份',
-    'net-hero-sub': '所有注册与交易都用此身份签名',
+    'net-hero-light': '连接全球', 'net-hero-bold': '智能市场',
+    'net-hero-sub': '运行节点，提供算力，在市场中赚取收益',
     'net-identity': '身份', 'net-node-id': '节点 ID', 'net-pubkey': '公钥', 'net-created': '创建时间',
     'net-show': '显示', 'net-hide': '隐藏',
     'net-chain-height': '链高度', 'net-peers': '已连接节点',
@@ -232,12 +240,29 @@ const dict: Record<string, Record<string, string>> = {
     'no-arbitrators': '暂无可用仲裁者', 'arbitrator-auto': '系统自动匹配仲裁者',
     'dispute-status': '争议状态', 'dispute-pending': '待仲裁',
     'drop-folder-hint': '支持拖入文件夹',
-    'register-data': '注册数据', 'publish-cap': '发布能力',
+    'price-model': '定价方式',
+    'price-model-auto': '自动定价', 'price-model-fixed': '固定价格', 'price-model-floor': '保底价格',
+    'price-model-auto-desc': '由市场供需自动确定价格',
+    'price-model-fixed-desc': '你设定价格，买家按此价购买',
+    'price-model-floor-desc': '市场定价，但不低于你设定的底价',
+    'price-input': '价格 (OAS)', 'price-input-hint': '输入你期望的价格', 'price-floor-hint': '输入最低价格',
+    'register-data': '注册数据', 'publish-cap': '上架能力',
     'cap-name': '名称', 'cap-name-hint': '例如：图像风格迁移',
     'cap-desc-hint': '输入图片，输出指定风格的新图片',
     'cap-desc-guide': '描述输入输出，帮助别人理解如何使用',
-    'cap-guide': '将你的 AI 能力发布到网络，其他人可以发现和调用。',
-    'cap-published': '能力已发布',
+    'cap-guide': '将你的 AI 能力上架到市场，供全网发现和调用。',
+    'cap-published': '能力已上架',
+    'cap-endpoint': '端点 URL', 'cap-endpoint-hint': '例如：https://api.example.com/translate',
+    'cap-api-key': 'API Key', 'cap-api-key-hint': '将加密存储，不会暴露给调用者',
+    'cap-price': '每次调用价格 (OAS)', 'cap-tags': '标签', 'cap-tags-hint': '逗号分隔，例如：nlp,翻译',
+    'cap-rate-limit': '速率限制', 'cap-rate-limit-hint': '每分钟最大调用次数',
+    'cap-advanced': '高级设置',
+    'my-caps': '我的能力', 'my-data-tab': '数据资产',
+    'cap-total-calls': '总调用', 'cap-success-rate': '成功率', 'cap-avg-latency': '平均延迟',
+    'cap-earnings': '收益统计', 'cap-total-earned': '总收益',
+    'cap-endpoint-url': '端点', 'cap-no-caps': '还没有上架能力',
+    'cap-no-caps-hint': '在首页上架你的第一个 AI 能力',
+    'cap-invoke-input': '输入 (JSON)', 'cap-invoke-input-hint': '例如：{"text": "hello"}',
     'dispute-resolved': '已裁决', 'dispute-dismissed': '已驳回',
     'remedy-delist': '下架', 'remedy-transfer': '转移所有权', 'remedy-rights_correction': '更正权利类型', 'remedy-share_adjustment': '调整份额',
     'delisted': '已下架',
@@ -247,8 +272,8 @@ const dict: Record<string, Record<string, string>> = {
     'error-unauthorized': '操作未授权，请刷新页面重试',
     'error-rate-limit': '操作过于频繁，请稍后再试',
     'error-cooldown': '请稍等片刻再购买同一资产',
-    'explore-browse': '浏览网络上的资产',
-    'portfolio-hint': '在探索页购买资产后，持仓将显示在这里',
+    'explore-browse': '浏览市场中的数据与 AI 能力',
+    'portfolio-hint': '在市场中交易后，持仓将显示在这里',
     'stake-hint': '质押 OAS 到验证者节点，参与网络治理并获得收益',
     'co-creators-sum': '份额合计',
     'removed': '已移除',
@@ -256,16 +281,18 @@ const dict: Record<string, Record<string, string>> = {
     're-register': '重新注册',
     'file-missing': '文件丢失',
     'error-generic': '操作失败，请重试',
+    'invoke-result': '返回结果',
+    'net-consensus-loading': '加载共识数据...',
     // About panel
     'about-version': 'v1.5.0',
-    'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
+    'about-desc': '去中心化 AI 能力自由市场。代理自主注册数据、上架能力、定价交易、结算清分。',
     'about-tab-overview': '概览',
     'about-tab-start': '快速开始',
     'about-tab-arch': '技术架构',
     'about-tab-econ': '经济模型',
     'about-tab-update': '维护更新',
     'about-tab-links': '链接',
-    'about-how': 'Oasyce 是一个去中心化协议，AI 代理在其中自主注册、发现、许可和结算数据权利。数据所有者注册文件并获得加密来源证明证书 (PoPc)。AI 代理通过 Recall-Rank 管道发现数据，通过联合曲线协商价格，并使用托管保护的 OAS 代币进行结算。',
+    'about-how': 'Oasyce 是一个去中心化的 AI 能力自由市场。数据所有者注册资产并获得加密来源证明 (PoPc)，AI 开发者上架智能服务。代理通过 Recall-Rank 管道发现资产，通过联合曲线自动定价，使用 OAS 代币在托管保护下完成交易结算。',
     'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # 验证安装\n3. oasyce start           # 启动节点 + 仪表盘\n4. 浏览器打开 http://localhost:8420',
     'about-arch': '核心层级:\n\u2022 Schema Registry \u2014 统一验证 data/capability/oracle/identity 四种资产\n\u2022 引擎管道 \u2014 扫描 \u2192 分类 \u2192 元数据 \u2192 PoPc 证书 \u2192 注册\n\u2022 发现引擎 \u2014 Recall (广召回) \u2192 Rank (信任+经济) + 反馈循环\n\u2022 结算引擎 \u2014 联合曲线定价、托管、份额分配\n\u2022 访问控制 \u2014 L0 元数据 / L1 采样 / L2 计算 / L3 完整\n\u2022 P2P 网络 \u2014 Ed25519 身份、gossip 同步、PoS 共识\n\u2022 风险引擎 \u2014 自动分级 (public / internal / sensitive)',
     'about-econ': '代币: OAS\n\n定价: 联合曲线 (储备率 0.35) \u2014 买家越多价格越高\n份额: 早期买家获利更多 (递减: 100% \u2192 80% \u2192 60% \u2192 40%)\n权利系数: 原创 1.0x / 共创 0.9x / 授权 0.7x / 收藏 0.3x\n质押: 验证者质押 OAS 出块并获得奖励\n区块奖励: 4.0 OAS (主网)，每约 100 万块减半\n托管: 执行前锁定资金，质量验证后释放',
@@ -283,18 +310,31 @@ const dict: Record<string, Record<string, string>> = {
     'about-link-discord': 'Discord 社区',
     'about-link-discord-d': '聊天、支持与治理',
     'about-link-contact': '联系我们',
+    // Agent Scheduler
+    'agent-schedule': '定时任务', 'agent-schedule-desc': '让插件自主运行，定时扫描、注册和交易',
+    'agent-enabled': '启用定时任务', 'agent-disabled': '已停用',
+    'agent-running': '运行中', 'agent-interval': '执行间隔', 'agent-interval-hours': '小时',
+    'agent-scan-paths': '扫描目录', 'agent-scan-paths-hint': '每行一个目录路径',
+    'agent-auto-register': '自动注册', 'agent-auto-trade': '自动交易',
+    'agent-auto-trade-desc': '自动购买匹配标签的能力',
+    'agent-trade-tags': '交易标签', 'agent-trade-tags-hint': '逗号分隔，如 nlp,translation',
+    'agent-trade-max': '单次最大花费',
+    'agent-last-run': '上次执行', 'agent-next-run': '下次执行',
+    'agent-total-runs': '总执行次数', 'agent-total-registered': '总注册数', 'agent-total-errors': '总错误数',
+    'agent-run-now': '立即执行', 'agent-history': '执行历史',
+    'agent-save-config': '保存配置', 'agent-no-history': '暂无执行记录',
   },
   en: {
-    home: 'Home', mydata: 'My Data', explore: 'Explore', auto: 'Automation', network: 'Network',
-    'hero-title-light': 'Data rights,',
-    'hero-title-bold': 'settled.',
-    'hero-sub': 'Register. Track. Clear. Your data gets an immutable identity on the Oasyce network.',
+    home: 'Home', mydata: 'My Data', explore: 'Market', auto: 'Automation', network: 'Network',
+    'hero-title-light': 'Intelligence has',
+    'hero-title-bold': 'a price.',
+    'hero-sub': 'Register data assets. List AI capabilities. Price, trade, and settle in a decentralized market.',
     protect: 'Register', protecting: 'Registering...', protected: 'Registered',
     'drop-hint': 'Drop file', 'drop-folder': 'or folder', 'drop-browse': 'choose file',
     'folder-scan-hint': 'This folder will be scanned. Discovered assets go to the approval queue.',
     'describe': 'Description', 'describe-hint': 'e.g. medical imaging, research data, creative work',
     'value': 'Value', 'owner': 'Owner', 'id': 'ID',
-    'search': 'Search your data...', 'no-data': 'No data yet', 'first-data': 'Register your first file',
+    'search': 'Search your data...', 'no-data': 'No data yet', 'first-data': 'Register your first asset to join the market',
     'delete': 'Remove', 'delete-confirm': 'Remove this data? This cannot be undone.',
     'get-access': 'Get access', 'quote': 'Get quote', 'quoting': 'Calculating...',
     'pay': 'You pay', 'receive': 'You receive', 'impact': 'Price impact',
@@ -305,14 +345,14 @@ const dict: Record<string, Record<string, string>> = {
     'advanced': 'Details',
     'again': 'Register another',
     'nav-mydata': 'My data', 'nav-mydata-desc': 'View your registered data assets',
-    'nav-explore': 'Explore', 'nav-explore-desc': 'Search data assets on the network',
+    'nav-explore': 'Market', 'nav-explore-desc': 'Browse and trade data & AI capabilities',
     'nav-network': 'Network', 'nav-network-desc': 'Node status and network info',
     'cancel': 'Cancel', 'confirm-remove': 'Confirm remove',
     'get-desc': 'Enter a data ID to get a quote and gain access',
-    'explore-title': 'Explore data',
-    'explore-desc': 'Discover data assets on the network and get access',
+    'explore-title': 'Capability Market',
+    'explore-desc': 'Browse data assets and AI capabilities. Get access or invoke services.',
     'explore-search': 'Search by ID or description...',
-    'explore-empty': 'Enter an ID or keyword to start',
+    'explore-empty': 'Search the market by ID or keyword',
     'categories': 'Categories',
     'browse-all': 'Browse all',
     'all': 'All',
@@ -333,8 +373,8 @@ const dict: Record<string, Record<string, string>> = {
     'validator': 'Validator', 'staked': 'Staked', 'reputation': 'Reputation',
     'validator-id': 'Validator ID', 'stake-amount': 'Stake amount',
     'no-validators': 'No validators yet',
-    'net-hero-light': 'Your', 'net-hero-bold': 'Network Identity',
-    'net-hero-sub': 'Every registration and transaction is signed with this identity',
+    'net-hero-light': 'Connected to the', 'net-hero-bold': 'intelligence market.',
+    'net-hero-sub': 'Run a node, contribute compute, earn from the market.',
     'net-identity': 'IDENTITY', 'net-node-id': 'Node ID', 'net-pubkey': 'Public Key', 'net-created': 'Created',
     'net-show': 'Show', 'net-hide': 'Hide',
     'net-chain-height': 'Chain height', 'net-peers': 'Connected peers',
@@ -480,12 +520,29 @@ const dict: Record<string, Record<string, string>> = {
     'no-arbitrators': 'No arbitrators available', 'arbitrator-auto': 'System auto-matches arbitrators',
     'dispute-status': 'Dispute status', 'dispute-pending': 'Pending arbitration',
     'drop-folder-hint': 'Supports folder drag-and-drop',
-    'register-data': 'Register data', 'publish-cap': 'Publish capability',
+    'price-model': 'Pricing Model',
+    'price-model-auto': 'Auto (Bonding Curve)', 'price-model-fixed': 'Fixed Price', 'price-model-floor': 'Floor Price',
+    'price-model-auto-desc': 'Price determined by market supply and demand',
+    'price-model-fixed-desc': 'You set the price, buyers pay this amount',
+    'price-model-floor-desc': 'Market pricing, but never below your floor',
+    'price-input': 'Price (OAS)', 'price-input-hint': 'Enter your desired price', 'price-floor-hint': 'Enter minimum price',
+    'register-data': 'Register data', 'publish-cap': 'List capability',
     'cap-name': 'Name', 'cap-name-hint': 'e.g. Image style transfer',
     'cap-desc-hint': 'Input image, output restyled image',
     'cap-desc-guide': 'Describe inputs and outputs so others know how to use it',
-    'cap-guide': 'Publish your AI capability to the network. Others can discover and invoke it.',
-    'cap-published': 'Capability published',
+    'cap-guide': 'List your AI capability on the market. Others can discover and invoke it.',
+    'cap-published': 'Capability listed',
+    'cap-endpoint': 'Endpoint URL', 'cap-endpoint-hint': 'e.g. https://api.example.com/translate',
+    'cap-api-key': 'API Key', 'cap-api-key-hint': 'Encrypted at rest, never exposed to consumers',
+    'cap-price': 'Price per call (OAS)', 'cap-tags': 'Tags', 'cap-tags-hint': 'Comma-separated, e.g. nlp,translation',
+    'cap-rate-limit': 'Rate limit', 'cap-rate-limit-hint': 'Max calls per minute',
+    'cap-advanced': 'Advanced',
+    'my-caps': 'My Capabilities', 'my-data-tab': 'Data Assets',
+    'cap-total-calls': 'Total calls', 'cap-success-rate': 'Success rate', 'cap-avg-latency': 'Avg latency',
+    'cap-earnings': 'Earnings', 'cap-total-earned': 'Total earned',
+    'cap-endpoint-url': 'Endpoint', 'cap-no-caps': 'No capabilities listed yet',
+    'cap-no-caps-hint': 'List your first AI capability from the Home page',
+    'cap-invoke-input': 'Input (JSON)', 'cap-invoke-input-hint': 'e.g. {"text": "hello"}',
     'dispute-resolved': 'Resolved', 'dispute-dismissed': 'Dismissed',
     'remedy-delist': 'Delist', 'remedy-transfer': 'Transfer ownership', 'remedy-rights_correction': 'Correct rights type', 'remedy-share_adjustment': 'Adjust shares',
     'delisted': 'Delisted',
@@ -495,8 +552,8 @@ const dict: Record<string, Record<string, string>> = {
     'error-unauthorized': 'Unauthorized. Please refresh the page.',
     'error-rate-limit': 'Too many requests. Please wait.',
     'error-cooldown': 'Please wait before buying the same asset again',
-    'explore-browse': 'Browse assets on the network',
-    'portfolio-hint': 'Buy assets on the Browse tab to see your holdings here',
+    'explore-browse': 'Browse and trade data & AI capabilities',
+    'portfolio-hint': 'Trade on the Market tab to see your holdings here',
     'stake-hint': 'Stake OAS to validator nodes to participate in governance and earn rewards',
     'co-creators-sum': 'Total shares',
     'removed': 'Removed',
@@ -504,16 +561,18 @@ const dict: Record<string, Record<string, string>> = {
     're-register': 'Re-register',
     'file-missing': 'File missing',
     'error-generic': 'Something went wrong. Please try again.',
+    'invoke-result': 'Result',
+    'net-consensus-loading': 'Loading consensus data...',
     // About panel
     'about-version': 'v1.5.0',
-    'about-desc': 'Data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
+    'about-desc': 'Decentralized AI capability marketplace. Agents register data, list capabilities, price, trade, and settle autonomously.',
     'about-tab-overview': 'Overview',
     'about-tab-start': 'Quick Start',
     'about-tab-arch': 'Architecture',
     'about-tab-econ': 'Economics',
     'about-tab-update': 'Maintain',
     'about-tab-links': 'Links',
-    'about-how': 'Oasyce is a decentralized protocol where AI agents autonomously register, discover, license, and settle data rights. Data owners register files and receive a cryptographic proof-of-provenance certificate (PoPc). AI agents discover data via a Recall-Rank pipeline, negotiate prices through bonding curves, and settle transactions with escrow-protected OAS tokens.',
+    'about-how': 'Oasyce is a decentralized AI capability marketplace. Data owners register assets and receive a cryptographic proof-of-provenance certificate (PoPc). AI developers list intelligent services. Agents discover assets via a Recall-Rank pipeline, auto-price through bonding curves, and settle transactions with escrow-protected OAS tokens.',
     'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # verify setup\n3. oasyce start           # launch node + dashboard\n4. Open http://localhost:8420',
     'about-arch': 'Core Layers:\n\u2022 Schema Registry \u2014 unified validation for data/capability/oracle/identity\n\u2022 Engine Pipeline \u2014 Scan \u2192 Classify \u2192 Metadata \u2192 PoPc Certificate \u2192 Register\n\u2022 Discovery \u2014 Recall (broad retrieval) \u2192 Rank (trust + economics) + feedback loop\n\u2022 Settlement \u2014 bonding curve pricing, escrow, share distribution\n\u2022 Access Control \u2014 L0 metadata / L1 sample / L2 compute / L3 full\n\u2022 P2P Network \u2014 Ed25519 identity, gossip sync, PoS consensus\n\u2022 Risk Engine \u2014 auto-classification (public / internal / sensitive)',
     'about-econ': 'Token: OAS\n\nPricing: Bonding curve (reserve ratio 0.35) \u2014 more buyers = higher price\nShares: Early buyers earn more (diminishing: 100% \u2192 80% \u2192 60% \u2192 40%)\nRights multiplier: original 1.0x / co_creation 0.9x / licensed 0.7x / collection 0.3x\nStaking: Validators stake OAS to produce blocks and earn rewards\nBlock reward: 4.0 OAS (mainnet), halving every ~1M blocks\nEscrow: Funds locked before execution, released after quality verification',
@@ -531,11 +590,34 @@ const dict: Record<string, Record<string, string>> = {
     'about-link-discord': 'Discord Community',
     'about-link-discord-d': 'Chat, support, and governance',
     'about-link-contact': 'Contact',
+    // Agent Scheduler
+    'agent-schedule': 'Scheduled Tasks', 'agent-schedule-desc': 'Let the plugin run autonomously — scan, register, and trade on schedule',
+    'agent-enabled': 'Enable Scheduler', 'agent-disabled': 'Disabled',
+    'agent-running': 'Running', 'agent-interval': 'Interval', 'agent-interval-hours': 'hours',
+    'agent-scan-paths': 'Scan Directories', 'agent-scan-paths-hint': 'One directory path per line',
+    'agent-auto-register': 'Auto Register', 'agent-auto-trade': 'Auto Trade',
+    'agent-auto-trade-desc': 'Auto-buy capabilities matching tags',
+    'agent-trade-tags': 'Trade Tags', 'agent-trade-tags-hint': 'Comma-separated, e.g. nlp,translation',
+    'agent-trade-max': 'Max Spend Per Cycle',
+    'agent-last-run': 'Last Run', 'agent-next-run': 'Next Run',
+    'agent-total-runs': 'Total Runs', 'agent-total-registered': 'Total Registered', 'agent-total-errors': 'Total Errors',
+    'agent-run-now': 'Run Now', 'agent-history': 'Run History',
+    'agent-save-config': 'Save Config', 'agent-no-history': 'No runs yet',
   },
 };
 
 /**
- * i18n computed — 返回一个 computed signal
+ * i18n computed — 返回一个 Proxy 包裹的 dict
  * 组件里用 i18n.value['key'] 来读取，确保 signal tracking
+ * 如果 key 不存在，返回 fallback 链：当前语言 → en → key 本身
+ * 这样即使翻译缺失也不会渲染 undefined
  */
-export const i18n = computed(() => dict[lang.value] || dict['en']);
+export const i18n = computed(() => {
+  const current = dict[lang.value] || dict['en'];
+  const fallback = dict['en'];
+  return new Proxy(current, {
+    get(target, prop: string) {
+      return target[prop] ?? fallback[prop] ?? prop;
+    },
+  });
+});

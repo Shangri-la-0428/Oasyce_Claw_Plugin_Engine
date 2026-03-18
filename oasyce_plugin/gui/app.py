@@ -122,6 +122,40 @@ def _get_staking():
     return _staking
 
 
+_delivery_protocol = None
+_delivery_registry = None
+_delivery_escrow = None
+
+def _get_delivery_stack():
+    """Lazy-init capability delivery protocol stack."""
+    global _delivery_protocol, _delivery_registry, _delivery_escrow
+    if _delivery_protocol is None:
+        from oasyce_plugin.services.capability_delivery.registry import EndpointRegistry
+        from oasyce_plugin.services.capability_delivery.escrow import EscrowLedger
+        from oasyce_plugin.services.capability_delivery.gateway import InvocationGateway
+        from oasyce_plugin.services.capability_delivery.settlement import SettlementProtocol
+
+        config = Config.from_env()
+        db_dir = config.data_dir
+        os.makedirs(db_dir, exist_ok=True)
+
+        _delivery_registry = EndpointRegistry(
+            db_path=os.path.join(db_dir, "capability_endpoints.db"),
+            encryption_passphrase=config.signing_key or "oasyce-default-key",
+        )
+        _delivery_escrow = EscrowLedger(
+            db_path=os.path.join(db_dir, "escrow.db"),
+        )
+        gateway = InvocationGateway(_delivery_registry, timeout=30.0)
+        _delivery_protocol = SettlementProtocol(
+            registry=_delivery_registry,
+            escrow=_delivery_escrow,
+            gateway=gateway,
+            db_path=os.path.join(db_dir, "invocations.db"),
+        )
+    return _delivery_protocol, _delivery_registry, _delivery_escrow
+
+
 def _get_cap_stack():
     """Lazy-init capability stack (registry + escrow + shares + engine)."""
     global _cap_registry, _cap_escrow, _cap_shares, _cap_engine
@@ -502,6 +536,80 @@ def _api_capability_shares(holder: str) -> list:
     return holdings
 
 
+# ── Capability Delivery Protocol API ─────────────────────────────
+
+def _api_delivery_endpoints(provider_id=None, tag=None, limit=50):
+    """List capability endpoints from the delivery registry."""
+    _, reg, _ = _get_delivery_stack()
+    endpoints = reg.list_active(provider_id=provider_id, tag=tag, limit=limit)
+    return [ep.to_dict() for ep in endpoints]
+
+
+def _api_delivery_register(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Register a capability endpoint via the delivery protocol."""
+    from oasyce_plugin.consensus.core.types import to_units
+    _, reg, _ = _get_delivery_stack()
+
+    name = body.get("name", "")
+    endpoint_url = body.get("endpoint", "")
+    if not name or not endpoint_url:
+        return {"error": "name and endpoint required"}
+
+    tags = body.get("tags", [])
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+    result = reg.register(
+        endpoint_url=endpoint_url,
+        api_key=body.get("api_key", ""),
+        provider_id=body.get("provider", "self"),
+        name=name,
+        price_per_call=to_units(float(body.get("price", 0))),
+        rate_limit=int(body.get("rate_limit", 60)),
+        tags=tags,
+        description=body.get("description", ""),
+    )
+    return result
+
+
+def _api_delivery_invoke(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Invoke a capability via the delivery settlement protocol."""
+    protocol, _, _ = _get_delivery_stack()
+
+    cap_id = body.get("capability_id", "")
+    consumer = body.get("consumer", "gui_user")
+    input_payload = body.get("input", {})
+
+    if not cap_id:
+        return {"ok": False, "error": "capability_id required"}
+
+    result = protocol.invoke(cap_id, consumer, input_payload)
+    return result
+
+
+def _api_delivery_earnings(provider_id=None, consumer_id=None) -> Dict[str, Any]:
+    """Get earnings for a provider or spending for a consumer."""
+    protocol, _, _ = _get_delivery_stack()
+
+    if provider_id:
+        return protocol.provider_earnings(provider_id)
+    elif consumer_id:
+        return protocol.consumer_spending(consumer_id)
+    else:
+        return {"error": "specify provider or consumer"}
+
+
+def _api_delivery_invocations(consumer_id=None, provider_id=None, limit=20):
+    """List recent invocation records."""
+    protocol, _, _ = _get_delivery_stack()
+    records = protocol.list_invocations(
+        consumer_id=consumer_id,
+        provider_id=provider_id,
+        limit=limit,
+    )
+    return [r.to_dict() for r in records]
+
+
 _AHRP_CORE_BASE = "http://localhost:8000"
 _AHRP_UNREACHABLE = json.dumps(
     {"ok": False, "error": "AHRP node not running. Start with: oasyce serve"}
@@ -627,6 +735,24 @@ class _Handler(BaseHTTPRequestHandler):
                 return _json_response(self, {"error": "not found"}, 404)
             return _json_response(self, detail)
 
+        # ── Capability delivery routes (GET) ────────────────────────
+        if path == "/api/delivery/endpoints":
+            provider = qs.get("provider", [None])[0]
+            tag = qs.get("tag", [None])[0]
+            limit = int(qs.get("limit", ["50"])[0])
+            return _json_response(self, _api_delivery_endpoints(provider, tag, limit))
+
+        if path == "/api/delivery/earnings":
+            provider = qs.get("provider", [None])[0]
+            consumer = qs.get("consumer", [None])[0]
+            return _json_response(self, _api_delivery_earnings(provider, consumer))
+
+        if path == "/api/delivery/invocations":
+            consumer = qs.get("consumer", [None])[0]
+            provider = qs.get("provider", [None])[0]
+            limit = int(qs.get("limit", ["20"])[0])
+            return _json_response(self, _api_delivery_invocations(consumer, provider, limit))
+
         # Asset detail
         m = re.match(r"^/api/asset/(.+)$", path)
         if m:
@@ -651,19 +777,51 @@ class _Handler(BaseHTTPRequestHandler):
             if not asset_id:
                 return _json_response(self, {"error": "asset_id required"}, 400)
             try:
+                # Check if asset has a manual pricing model
+                asset_info = _ledger.get_asset(asset_id) if _ledger else None
+                asset_price_model = (asset_info or {}).get("price_model", "auto")
+                asset_manual_price = (asset_info or {}).get("manual_price")
+
+                if asset_price_model == "fixed" and asset_manual_price is not None:
+                    # Fixed price: bypass bonding curve entirely
+                    return _json_response(self, {
+                        "asset_id": asset_id, "payment": round(asset_manual_price, 6),
+                        "tokens": 1,
+                        "price_before": round(asset_manual_price, 6),
+                        "price_after": round(asset_manual_price, 6),
+                        "impact_pct": 0.0,
+                        "fee": 0.0,
+                        "burn": 0.0,
+                        "price_model": "fixed",
+                    })
+
                 se = _get_settlement()
                 if asset_id not in se.pools:
                     se.register_asset(asset_id, "protocol")
                 q = se.quote(asset_id, amount)
-                return _json_response(self, {
+
+                price_before = round(q.spot_price_before, 6)
+                price_after = round(q.spot_price_after, 6)
+
+                # Floor price: enforce manual_price as minimum
+                if asset_price_model == "floor" and asset_manual_price is not None:
+                    floor = float(asset_manual_price)
+                    price_before = max(price_before, floor)
+                    price_after = max(price_after, floor)
+
+                resp = {
                     "asset_id": q.asset_id, "payment": q.payment_oas,
                     "tokens": round(q.equity_minted, 4),
-                    "price_before": round(q.spot_price_before, 6),
-                    "price_after": round(q.spot_price_after, 6),
+                    "price_before": price_before,
+                    "price_after": price_after,
                     "impact_pct": round(q.price_impact_pct, 2),
                     "fee": round(q.protocol_fee, 4),
                     "burn": round(q.burn_amount, 4),
-                })
+                    "price_model": asset_price_model,
+                }
+                if asset_manual_price is not None:
+                    resp["manual_price"] = round(float(asset_manual_price), 6)
+                return _json_response(self, resp)
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
@@ -1033,6 +1191,26 @@ class _Handler(BaseHTTPRequestHandler):
                 return _json_response(self, {"error": "block producer not running"}, 503)
             return _json_response(self, _block_producer.status())
 
+        # ── Agent scheduler API (GET) ─────────────────────────────
+        if path == "/api/agent/status":
+            from oasyce_plugin.services.scheduler import get_scheduler
+            data_dir = _config.data_dir if _config else None
+            scheduler = get_scheduler(data_dir)
+            return _json_response(self, scheduler.status())
+
+        if path == "/api/agent/config":
+            from oasyce_plugin.services.scheduler import get_scheduler
+            data_dir = _config.data_dir if _config else None
+            scheduler = get_scheduler(data_dir)
+            return _json_response(self, scheduler.get_config().to_dict())
+
+        if path == "/api/agent/history":
+            from oasyce_plugin.services.scheduler import get_scheduler
+            data_dir = _config.data_dir if _config else None
+            scheduler = get_scheduler(data_dir)
+            limit = int(qs.get("limit", ["10"])[0])
+            return _json_response(self, scheduler.get_history(limit))
+
         # ── Static files from dashboard/dist/ ────────────────────
         if path.startswith('/assets/'):
             file_path = os.path.join(DASHBOARD_DIR, path.lstrip('/'))
@@ -1103,6 +1281,9 @@ class _Handler(BaseHTTPRequestHandler):
                     rights_type = form.getfirst("rights_type", "original")
                     co_creators_raw = form.getfirst("co_creators", "")
                     co_creators = json.loads(co_creators_raw) if co_creators_raw else None
+                    price_model = form.getfirst("price_model", "auto")
+                    price_raw = form.getfirst("price", "")
+                    manual_price = float(price_raw) if price_raw else None
                 else:
                     # legacy JSON fallback — body already parsed at top of do_POST
                     fp = body.get("file_path", "")
@@ -1110,6 +1291,8 @@ class _Handler(BaseHTTPRequestHandler):
                     tags = body.get("tags", [])
                     rights_type = body.get("rights_type", "original")
                     co_creators = body.get("co_creators", None)
+                    price_model = body.get("price_model", "auto")
+                    manual_price = body.get("price", None)
 
                 if not fp:
                     return _json_response(self, {"error": "file_path required"}, 400)
@@ -1124,6 +1307,13 @@ class _Handler(BaseHTTPRequestHandler):
                     total_share = sum(c.get("share", 0) for c in co_creators)
                     if abs(total_share - 100) > 0.01:
                         return _json_response(self, {"error": f"co_creators shares must sum to 100, got {total_share}"}, 400)
+
+                # Validate price_model and manual price
+                if price_model not in ("auto", "fixed", "floor"):
+                    return _json_response(self, {"error": f"invalid price_model: {price_model}. Must be auto, fixed, or floor."}, 400)
+                if price_model in ("fixed", "floor"):
+                    if manual_price is None or manual_price <= 0:
+                        return _json_response(self, {"error": f"price must be > 0 when price_model is '{price_model}'"}, 400)
 
                 # Path traversal prevention: resolve and check against allowed dirs
                 resolved_fp = os.path.realpath(fp)
@@ -1140,11 +1330,16 @@ class _Handler(BaseHTTPRequestHandler):
                     rights_type=rights_type, co_creators=co_creators,
                 )
                 metadata["file_path"] = os.path.abspath(fp)
+                # Store pricing model in metadata
+                metadata["price_model"] = price_model
+                if manual_price is not None:
+                    metadata["manual_price"] = manual_price
                 signed = skills.create_certificate_skill(metadata)
                 result = skills.register_data_asset_skill(signed)
                 return _json_response(self, {
                     "ok": True, "asset_id": signed.get("asset_id", ""),
                     "file_hash": file_info.get("file_hash", ""),
+                    "price_model": price_model,
                 })
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
@@ -1584,6 +1779,17 @@ class _Handler(BaseHTTPRequestHandler):
             status = 200 if result.get("ok") else 400
             return _json_response(self, result, status)
 
+        # ── Capability delivery routes (POST) ────────────────────────
+        if path == "/api/delivery/register":
+            result = _api_delivery_register(body)
+            status = 200 if result.get("ok") else 400
+            return _json_response(self, result, status)
+
+        if path == "/api/delivery/invoke":
+            result = _api_delivery_invoke(body)
+            status = 200 if result.get("ok") else 400
+            return _json_response(self, result, status)
+
         # ── Mempool POST route ─────────────────────────────────────
         if path == "/api/consensus/mempool/submit":
             if _mempool is None:
@@ -1908,6 +2114,26 @@ class _Handler(BaseHTTPRequestHandler):
                     )
                     added.append(item.item_id)
             return _json_response(self, {"ok": True, "scanned": len(results), "added": len(added)})
+
+        # ── Agent scheduler API (POST) ────────────────────────────
+        if path == "/api/agent/config":
+            from oasyce_plugin.services.scheduler import get_scheduler, SchedulerConfig
+            data_dir = _config.data_dir if _config else None
+            scheduler = get_scheduler(data_dir)
+            current = scheduler.get_config()
+            # Partial update: merge body into existing config
+            cfg_dict = current.to_dict()
+            cfg_dict.update(body)
+            new_cfg = SchedulerConfig.from_dict(cfg_dict)
+            scheduler.update_config(new_cfg)
+            return _json_response(self, scheduler.get_config().to_dict())
+
+        if path == "/api/agent/run":
+            from oasyce_plugin.services.scheduler import get_scheduler
+            data_dir = _config.data_dir if _config else None
+            scheduler = get_scheduler(data_dir)
+            result = scheduler.run_once()
+            return _json_response(self, result.to_dict())
 
         # ── AHRP proxy (POST) ────────────────────────────────────
         if path.startswith("/ahrp/"):

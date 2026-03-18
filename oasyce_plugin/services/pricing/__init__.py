@@ -79,9 +79,16 @@ class DatasetPricingCurve:
         contribution_score: float = 1.0,
         days_since_creation: float = 0,
         rights_type: str = "original",
+        price_model: str = "auto",
+        manual_price: float | None = None,
     ) -> dict:
         """
         计算最终价格。
+
+        price_model controls the pricing strategy:
+          - "auto":  bonding curve (default, unchanged behavior)
+          - "fixed": return manual_price directly, bypass bonding curve
+          - "floor": return max(bonding_curve_result, manual_price)
 
         price = base_price × demand_factor × scarcity_factor
                             × quality_factor × freshness_factor
@@ -90,6 +97,44 @@ class DatasetPricingCurve:
         Returns:
             dict with final_price, base_price, and each factor value + breakdown.
         """
+        # Validate manual pricing parameters
+        if price_model not in ("auto", "fixed", "floor"):
+            raise ValueError(f"Invalid price_model: {price_model!r}. Must be 'auto', 'fixed', or 'floor'.")
+        if price_model in ("fixed", "floor"):
+            if manual_price is None or manual_price <= 0:
+                raise ValueError(f"manual_price must be > 0 when price_model is '{price_model}'.")
+
+        # For fixed pricing, skip bonding curve entirely
+        if price_model == "fixed":
+            result = {
+                "final_price": round(manual_price, 6),
+                "base_price": round(manual_price, 6),
+                "price_model": "fixed",
+                "manual_price": round(manual_price, 6),
+                "demand_factor": 1.0,
+                "scarcity_factor": 1.0,
+                "quality_factor": 1.0,
+                "freshness_factor": 1.0,
+                "rights_type_factor": 1.0,
+                "breakdown": {
+                    "query_count": query_count,
+                    "similar_count": similar_count,
+                    "contribution_score": round(contribution_score, 6),
+                    "days_since_creation": round(days_since_creation, 2),
+                    "rights_type": rights_type,
+                    "price_model": "fixed",
+                },
+            }
+            # Record history
+            if asset_id not in self._price_history:
+                self._price_history[asset_id] = []
+            self._price_history[asset_id].append({
+                "timestamp": int(time.time()),
+                "final_price": result["final_price"],
+                "price_model": "fixed",
+            })
+            return result
+
         demand = self._demand_factor(query_count)
         scarcity = self._scarcity_factor(similar_count)
         quality = self._quality_factor(contribution_score)
@@ -99,9 +144,14 @@ class DatasetPricingCurve:
         raw_price = base_price * demand * scarcity * quality * freshness * rights
         final_price = max(raw_price, self.config.min_price)
 
+        # For floor pricing, enforce the manual_price as a minimum
+        if price_model == "floor" and manual_price is not None:
+            final_price = max(final_price, manual_price)
+
         result = {
             "final_price": round(final_price, 6),
             "base_price": round(base_price, 6),
+            "price_model": price_model,
             "demand_factor": round(demand, 6),
             "scarcity_factor": round(scarcity, 6),
             "quality_factor": round(quality, 6),
@@ -113,8 +163,12 @@ class DatasetPricingCurve:
                 "contribution_score": round(contribution_score, 6),
                 "days_since_creation": round(days_since_creation, 2),
                 "rights_type": rights_type,
+                "price_model": price_model,
             },
         }
+        if manual_price is not None:
+            result["manual_price"] = round(manual_price, 6)
+            result["breakdown"]["manual_price"] = round(manual_price, 6)
 
         # Record history
         if asset_id not in self._price_history:

@@ -1,22 +1,41 @@
 /**
  * MyData — 我的数据
  */
-import { useEffect, useRef, useState } from 'preact/hooks';
-import { post, postFile, postBundle } from '../api/client';
+import { useEffect, useState } from 'preact/hooks';
+import { get, post } from '../api/client';
 import { assets, loadAssets, deleteAsset } from '../store/assets';
 // scanDirectory/lastScan/scanning available from '../store/scanner' if needed
 import { showToast, i18n } from '../store/ui';
-import { readEntryFiles, maskIdShort, maskIdLong, maskOwner, fmtPrice } from '../utils';
+import { maskIdShort, maskIdLong, maskOwner, fmtPrice, safePct } from '../utils';
+import RegisterForm from '../components/register-form';
 import './mydata.css';
 
-const RIGHTS_COLORS: Record<string, string> = {
-  original: 'var(--green, #4ade80)',
-  co_creation: 'var(--blue, #60a5fa)',
-  licensed: 'var(--yellow, #facc15)',
-  collection: 'var(--fg-2, #888)',
+const RIGHTS_BADGE_CLASS: Record<string, string> = {
+  original: 'badge-green',
+  co_creation: 'badge-blue',
+  licensed: 'badge-yellow',
+  collection: '',
 };
 
 type SortBy = 'time' | 'value';
+type MyDataTab = 'data' | 'caps';
+
+interface DeliveryEndpoint {
+  capability_id: string;
+  name: string;
+  endpoint: string;
+  price: number;
+  total_calls: number;
+  success_rate: number;
+  avg_latency_ms: number;
+  tags?: string[];
+}
+
+interface EarningsData {
+  total_earned: number;
+  total_calls: number;
+  recent?: { capability_id: string; amount: number; timestamp: number }[];
+}
 
 export default function MyData() {
   const [q, setQ] = useState('');
@@ -27,88 +46,34 @@ export default function MyData() {
   const [sortBy, setSortBy] = useState<SortBy>('time');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
 
-  /* ── Registration state ── */
-  const [regFile, setRegFile] = useState('');
-  const [regFileObj, setRegFileObj] = useState<File | null>(null);
-  const [regDesc, setRegDesc] = useState('');
-  const [regLoading, setRegLoading] = useState(false);
-  const [dragging, setDragging] = useState(false);
   const [reregistering, setReregistering] = useState<string | null>(null);
   const [disputeTarget, setDisputeTarget] = useState<string | null>(null);
   const [disputeReason, setDisputeReason] = useState('');
   const [disputing, setDisputing] = useState(false);
-  const [droppedFolder, setDroppedFolder] = useState<string | null>(null);
-  const [folderFiles, setFolderFiles] = useState<File[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<MyDataTab>('data');
+
+  // My Capabilities state
+  const [myCaps, setMyCaps] = useState<DeliveryEndpoint[]>([]);
+  const [myCapsLoading, setMyCapsLoading] = useState(false);
+  const [earnings, setEarnings] = useState<EarningsData | null>(null);
 
   const _ = i18n.value;
 
-  useEffect(() => { loadAssets(); }, []);
-
-  const hasSelection = !!(regFile || droppedFolder);
-
-  const clearSelection = () => {
-    setRegFile(''); setRegFileObj(null); setRegDesc('');
-    setDroppedFolder(null); setFolderFiles([]);
+  const loadMyCaps = async () => {
+    setMyCapsLoading(true);
+    const res = await get<DeliveryEndpoint[]>('/delivery/endpoints?provider=gui_user');
+    if (res.success && Array.isArray(res.data)) setMyCaps(res.data);
+    const eres = await get<EarningsData>('/delivery/earnings?provider=gui_user');
+    if (eres.success && eres.data && typeof eres.data === 'object') setEarnings(eres.data);
+    setMyCapsLoading(false);
   };
 
-  const onFile = (name: string, fileObj?: File) => {
-    setRegFile(name);
-    setRegFileObj(fileObj ?? null);
-    setDroppedFolder(null); setFolderFiles([]);
-    if (!regDesc) {
-      const dot = name.lastIndexOf('.');
-      setRegDesc(dot > 0 ? name.slice(0, dot) : name);
-    }
-  };
+  useEffect(() => { loadAssets(); loadMyCaps(); }, []);
 
-  const onDrop = async (e: DragEvent) => {
-    e.preventDefault(); setDragging(false);
-    const items = e.dataTransfer?.items;
-    if (items && items.length > 0) {
-      const entry = (items[0] as any).webkitGetAsEntry?.();
-      if (entry?.isDirectory) {
-        const name = entry.name || 'folder';
-        const files = await readEntryFiles(entry);
-        setDroppedFolder(name); setFolderFiles(files);
-        setRegFile(''); setRegFileObj(null);
-        if (!regDesc) setRegDesc(name);
-        return;
-      }
-    }
-    setDroppedFolder(null); setFolderFiles([]);
-    const f = e.dataTransfer?.files[0];
-    if (f) onFile(f.name, f);
-  };
-
-  const submitBundle = async () => {
-    if (folderFiles.length === 0) return;
-    setRegLoading(true);
-    const tags = regDesc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean).join(',');
-    const res = await postBundle(folderFiles, { name: droppedFolder || 'bundle', tags });
-    if (res.success) {
-      showToast(_['protected'] + ' ✓', 'success');
-      loadAssets(); clearSelection();
-    } else {
-      showToast(res.error || _['error-generic'], 'error');
-    }
-    setRegLoading(false);
-  };
-
-  const submitReg = async () => {
-    if (!regFile.trim()) return;
-    setRegLoading(true);
-    const tags = regDesc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
-    const res = regFileObj
-      ? await postFile('/register', regFileObj, { tags: tags.join(',') })
-      : await post('/register', { file_path: regFile.trim(), tags });
-    if (res.success) {
-      showToast(_['protected'] + ' ✓', 'success');
-      loadAssets(); clearSelection();
-    } else {
-      showToast(res.error || _['error-generic'], 'error');
-    }
-    setRegLoading(false);
+  const handleRegisterSuccess = () => {
+    loadAssets();
   };
 
   const allTags = [...new Set(assets.value.flatMap(a => a.tags ?? []))];
@@ -130,9 +95,13 @@ export default function MyData() {
   const list = sorted.slice(0, pageSize);
   const hasMore = sorted.length > pageSize;
 
-  const copyText = (text: string) => {
-    navigator.clipboard.writeText(text);
-    showToast(_['copied'], 'success');
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(_['copied'], 'success');
+    } catch {
+      showToast(_['error-generic'], 'error');
+    }
   };
 
   const onDelete = async (id: string) => {
@@ -147,7 +116,7 @@ export default function MyData() {
     setReregistering(id);
     const res = await post<{ ok?: boolean; version?: number; message?: string }>('/re-register', { asset_id: id });
     if (res.success && res.data?.ok) {
-      showToast(`v${res.data.version} ✓`, 'success');
+      showToast(`v${res.data.version}`, 'success');
       loadAssets();
     } else {
       showToast(res.data?.message || res.error || _['error-generic'], 'error');
@@ -173,70 +142,26 @@ export default function MyData() {
     <div class="page">
       {/* Label 标题 + 计数 */}
       <div class="row between mb-24">
-        <h1 class="label" style="margin:0">{_['mydata']}</h1>
-        <span class="mono" style="color:var(--fg-2)">{assets.value.length}</span>
+        <h1 class="label m-0">{_['mydata']}</h1>
+        <span class="mono fg-muted">{activeTab === 'data' ? assets.value.length : myCaps.length}</span>
       </div>
 
+      {/* Tab switcher */}
+      <div class="tabs mb-24">
+        <button class={`tab ${activeTab === 'data' ? 'active' : ''}`} onClick={() => setActiveTab('data')}>
+          {_['my-data-tab']}
+        </button>
+        <button class={`tab ${activeTab === 'caps' ? 'active' : ''}`} onClick={() => setActiveTab('caps')}>
+          {_['my-caps']}
+          {myCaps.length > 0 && <span class="tab-count">{myCaps.length}</span>}
+        </button>
+      </div>
+
+      {activeTab === 'data' && <>
       {/* ── 注册区 ── */}
-      <div
-        class={`dropzone ${dragging ? 'dropzone-active' : ''} ${hasSelection ? 'dropzone-done' : ''} mb-24`}
-        onDrop={onDrop}
-        onDragOver={e => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
-        onClick={() => { if (!hasSelection) fileRef.current?.click(); }}
-      >
-        {hasSelection ? (
-          <div class="dropzone-selected">
-            <span class="dropzone-selected-name">
-              {droppedFolder ? `${droppedFolder}/` : regFile}
-            </span>
-            {droppedFolder && (
-              <span class="caption">{folderFiles.length} {_['files'] || '个文件'}</span>
-            )}
-            <button class="dropzone-clear" onClick={e => { e.stopPropagation(); clearSelection(); }} aria-label="clear">×</button>
-          </div>
-        ) : (
-          <>
-            <div class="dropzone-icon">↑</div>
-            <div class="dropzone-text">
-              <strong>{_['drop-browse'] || '选择文件'}</strong>
-            </div>
-            <div class="caption" style="margin-top:6px">
-              {_['drop-folder-hint'] || '支持拖入文件夹'}
-            </div>
-          </>
-        )}
-        <input ref={fileRef} type="file" style="display:none" onChange={e => {
-          const f = (e.target as HTMLInputElement).files?.[0];
-          if (f) onFile(f.name, f);
-        }} />
+      <div class="mb-24">
+        <RegisterForm mode="data" onSuccess={handleRegisterSuccess} compact />
       </div>
-
-      {/* 文件夹 → 打包注册 */}
-      {droppedFolder && (
-        <div class="mydata-reg-fields mb-24">
-          <div>
-            <label class="label">{_['describe']}</label>
-            <input class="input" value={regDesc} onInput={e => setRegDesc((e.target as HTMLInputElement).value)} placeholder={droppedFolder} />
-          </div>
-          <button class="btn btn-primary btn-full" onClick={submitBundle} disabled={regLoading}>
-            {regLoading ? _['protecting'] : _['protect']}
-          </button>
-        </div>
-      )}
-
-      {/* 单文件注册 */}
-      {regFile && (
-        <div class="mydata-reg-fields mb-24">
-          <div>
-            <label class="label">{_['describe']}</label>
-            <input class="input" value={regDesc} onInput={e => setRegDesc((e.target as HTMLInputElement).value)} placeholder={_['describe-hint']} />
-          </div>
-          <button class="btn btn-primary btn-full" onClick={submitReg} disabled={regLoading}>
-            {regLoading ? _['protecting'] : _['protect']}
-          </button>
-        </div>
-      )}
 
       {/* 搜索框 + 排序按钮 */}
       {assets.value.length > 0 && (
@@ -262,42 +187,42 @@ export default function MyData() {
       {/* 数据列表 */}
       {list.length === 0 ? (
         <div class="center p-0-64">
-          <div style="font-size:14px;color:var(--fg-2);margin-bottom:8px">{q ? _['inbox-no-match'] : _['no-data']}</div>
+          <div class="empty-text mb-8">{q ? _['inbox-no-match'] : _['no-data']}</div>
           {!q && <div class="caption">{_['first-data']}</div>}
         </div>
       ) : (
-        <div class="data-list">
+        <div class="item-list">
           {list.map(a => {
             const isOpen = expanded === a.asset_id;
             const isDel = confirmDel === a.asset_id;
             return (
               <div key={a.asset_id} class="data-item">
-                <button class="data-row" onClick={() => setExpanded(isOpen ? null : a.asset_id)}>
+                <button type="button" class="item-row" aria-expanded={isOpen} onClick={() => setExpanded(isOpen ? null : a.asset_id)}>
                   <div class="grow">
-                    <div class="data-name">
+                    <div class="item-name">
                       {a.tags?.length ? a.tags.join(' · ') : maskIdShort(a.asset_id)}
                       {a.rights_type && (
-                        <span class="badge" style={`color:${RIGHTS_COLORS[a.rights_type] || 'var(--fg-2)'};border-color:${RIGHTS_COLORS[a.rights_type] || 'var(--fg-2)'};margin-left:8px`}>
+                        <span class={`badge ml-8 ${RIGHTS_BADGE_CLASS[a.rights_type] || ''}`}>
                           {_[`rights-${a.rights_type}`] || a.rights_type}
                         </span>
                       )}
                       {a.disputed && (
-                        <span class="badge" style="color:var(--red, #f87171);border-color:var(--red, #f87171);margin-left:8px">{_['disputed']}</span>
+                        <span class="badge badge-red ml-8">{_['disputed']}</span>
                       )}
                       {a.hash_status === 'changed' && <>
-                        <span class="badge" style="color:var(--yellow);border-color:var(--yellow);margin-left:8px">{_['hash-changed']}</span>
-                        <button class="btn btn-sm btn-ghost" style="margin-left:6px;font-size:12px" disabled={reregistering === a.asset_id} onClick={e => { e.stopPropagation(); onReRegister(a.asset_id); }}>
+                        <span class="badge badge-yellow ml-8">{_['hash-changed']}</span>
+                        <button class="btn btn-sm btn-ghost btn-reregister" disabled={reregistering === a.asset_id} onClick={e => { e.stopPropagation(); onReRegister(a.asset_id); }}>
                           {reregistering === a.asset_id ? '…' : _['re-register']}
                         </button>
                       </>}
-                      {a.hash_status === 'missing' && <span class="badge" style="color:var(--red);border-color:var(--red);margin-left:8px">{_['file-missing']}</span>}
+                      {a.hash_status === 'missing' && <span class="badge badge-red ml-8">{_['file-missing']}</span>}
                     </div>
-                    <div class="data-meta">
+                    <div class="item-meta">
                       <span class="mono data-id-inline">{maskIdShort(a.asset_id)}</span>
                       {a.owner && <span class="data-owner-inline">{maskOwner(a.owner)}</span>}
                     </div>
                   </div>
-                  <span class="mono data-price-prominent">{fmtPrice(a.spot_price)} <span style="font-weight:400;font-size:11px">OAS</span></span>
+                  <span class="mono item-price">{fmtPrice(a.spot_price)} <span class="oas-unit">OAS</span></span>
                   <span class={`data-chevron ${isOpen ? 'open' : ''}`}>›</span>
                 </button>
 
@@ -326,12 +251,18 @@ export default function MyData() {
                     {a.rights_type && (
                       <div class="kv"><span class="kv-key">{_['rights-type']}</span><span class="kv-val">{_[`rights-${a.rights_type}`] || a.rights_type}</span></div>
                     )}
+                    {(a as any).price_model === 'fixed' && (
+                      <div class="kv"><span class="kv-key">{_['price-model']}</span><span class="kv-val">{_['price-model-fixed']}: <span class="mono">{(a as any).price ?? '—'} OAS</span></span></div>
+                    )}
+                    {(a as any).price_model === 'floor' && (
+                      <div class="kv"><span class="kv-key">{_['price-model']}</span><span class="kv-val">{_['price-model-floor']}: <span class="mono">{(a as any).price ?? '—'} OAS</span></span></div>
+                    )}
                     {a.co_creators && a.co_creators.length > 0 && (
-                      <div style="margin-top:8px">
+                      <div class="cocreator-list">
                         <span class="kv-key">{_['co-creators']}</span>
-                        <div style="margin-top:4px">
+                        <div class="cocreator-list-inner">
                           {a.co_creators.map((c: any, i: number) => (
-                            <div key={i} class="caption" style="margin-left:12px">
+                            <div key={i} class="caption cocreator-item">
                               {c.address || '—'} <span class="mono">{c.share}%</span>
                             </div>
                           ))}
@@ -341,15 +272,15 @@ export default function MyData() {
 
                     {/* Delisted badge */}
                     {a.delisted && (
-                      <div class="caption" style="margin-top:8px;padding:6px 10px;border:1px solid var(--red);color:var(--red);border-radius:var(--r-m);display:inline-block">
+                      <div class="caption mt-8 block-alert">
                         {_['delisted']}
                       </div>
                     )}
 
                     {/* Dispute section */}
                     {a.disputed && (
-                      <div style="margin-top:8px;padding:8px;border:1px solid var(--red, #f87171);border-radius:8px">
-                        <div class="caption" style="color:var(--red, #f87171);margin-bottom:4px">
+                      <div class="dispute-box block-dispute">
+                        <div class="caption color-red mb-4">
                           {_['dispute-status']}:{' '}
                           {a.dispute_status === 'resolved'
                             ? _['dispute-resolved']
@@ -358,40 +289,40 @@ export default function MyData() {
                               : _['dispute-pending']}
                         </div>
                         {a.dispute_reason && (
-                          <div class="caption" style="margin-bottom:4px">{_['dispute-reason']}: {a.dispute_reason}</div>
+                          <div class="caption mb-4">{_['dispute-reason']}: {a.dispute_reason}</div>
                         )}
                         {a.dispute_resolution && (
-                          <div class="caption" style="margin-bottom:4px;color:var(--green, #4ade80)">
+                          <div class="caption mb-4 color-green">
                             {_[`remedy-${a.dispute_resolution.remedy}`] || a.dispute_resolution.remedy}
                           </div>
                         )}
                         {a.dispute_status === 'open' && a.arbitrator_candidates && a.arbitrator_candidates.length > 0 && (
-                          <div style="margin-top:6px">
-                            <div class="caption" style="font-weight:600;margin-bottom:4px">{_['arbitrators']}</div>
+                          <div class="dispute-arb-wrap">
+                            <div class="caption fw-600 mb-4">{_['arbitrators']}</div>
                             {a.arbitrator_candidates.map((arb: any, i: number) => (
-                              <div key={i} class="caption" style="margin-left:8px;margin-bottom:2px">
-                                {arb.name || arb.capability_id.slice(0, 8) + '…'}
-                                <span class="mono" style="margin-left:8px;color:var(--fg-2)">{_['arbitrator-score']}: {(arb.score * 100).toFixed(0)}%</span>
+                              <div key={i} class="caption dispute-arb-item">
+                                {arb.name || (arb.capability_id ? arb.capability_id.slice(0, 8) + '...' : '--')}
+                                <span class="mono ml-8 fg-muted">{_['arbitrator-score']}: {safePct(arb.score, 0)}</span>
                               </div>
                             ))}
                           </div>
                         )}
                         {a.dispute_status === 'open' && (!a.arbitrator_candidates || a.arbitrator_candidates.length === 0) && (
-                          <div class="caption" style="color:var(--fg-2)">{_['no-arbitrators']}</div>
+                          <div class="caption fg-muted">{_['no-arbitrators']}</div>
                         )}
                       </div>
                     )}
                     {!a.disputed && disputeTarget !== a.asset_id && (
-                      <button class="btn btn-ghost btn-sm" style="margin-top:8px" onClick={e => { e.stopPropagation(); setDisputeTarget(a.asset_id); setDisputeReason(''); }}>
+                      <button class="btn btn-ghost btn-sm mt-8" onClick={e => { e.stopPropagation(); setDisputeTarget(a.asset_id); setDisputeReason(''); }}>
                         {_['dispute']}
                       </button>
                     )}
                     {disputeTarget === a.asset_id && (
-                      <div style="margin-top:8px">
-                        <input class="input" style="margin-bottom:6px" value={disputeReason}
+                      <div class="dispute-box">
+                        <input class="input mb-6" value={disputeReason}
                           onInput={e => setDisputeReason((e.target as HTMLInputElement).value)}
                           placeholder={_['dispute-reason-hint']} />
-                        <div class="caption" style="margin-bottom:6px;color:var(--fg-2)">{_['arbitrator-auto']}</div>
+                        <div class="caption mb-6 fg-muted">{_['arbitrator-auto']}</div>
                         <div class="row gap-8">
                           <button class="btn btn-ghost btn-sm" onClick={() => { setDisputeTarget(null); setDisputeReason(''); }}>{_['cancel']}</button>
                           <button class="btn btn-danger btn-sm" onClick={() => onDispute(a.asset_id)} disabled={disputing || !disputeReason.trim()}>
@@ -402,7 +333,7 @@ export default function MyData() {
                     )}
 
                     {!isDel ? (
-                      <button class="btn btn-danger" style="margin-top:12px" onClick={e => { e.stopPropagation(); setConfirmDel(a.asset_id); }}>{_['delete']}</button>
+                      <button class="btn btn-danger mt-12" onClick={e => { e.stopPropagation(); setConfirmDel(a.asset_id); }}>{_['delete']}</button>
                     ) : (
                       <div class="data-del-confirm">
                         <span class="caption">{_['delete-confirm']}</span>
@@ -432,6 +363,65 @@ export default function MyData() {
           )}
         </div>
       )}
+      </>}
+
+      {/* ── My Capabilities Tab ── */}
+      {activeTab === 'caps' && <>
+        {myCapsLoading ? (
+          <div>
+            <div class="skeleton skeleton-sm mb-8" />
+            <div class="skeleton skeleton-sm mb-8" />
+          </div>
+        ) : myCaps.length === 0 ? (
+          <div class="center p-0-64">
+            <div class="empty-text mb-8">{_['cap-no-caps']}</div>
+            <div class="caption">{_['cap-no-caps-hint']}</div>
+          </div>
+        ) : (
+          <div class="item-list">
+            {myCaps.map(cap => (
+              <div key={cap.capability_id} class="data-item">
+                <div class="item-row cursor-default">
+                  <div class="grow">
+                    <div class="item-name">
+                      <span class="type-badge cap-badge">⚡</span>
+                      {cap.name || maskIdShort(cap.capability_id)}
+                    </div>
+                    <div class="item-meta">
+                      <span class="mono data-id-inline">{maskIdShort(cap.capability_id)}</span>
+                      <span class="caption ml-8">{_['cap-endpoint-url']}: {cap.endpoint ? cap.endpoint.replace(/^(https?:\/\/[^/]+).*/, '$1/•••') : '—'}</span>
+                    </div>
+                  </div>
+                  <span class="mono item-price">{cap.price ?? 0} <span class="oas-unit">OAS</span></span>
+                </div>
+                <div class="cap-detail-pad">
+                  <div class="row gap-16 wrap">
+                    <div class="kv"><span class="kv-key">{_['cap-total-calls']}</span><span class="kv-val">{cap.total_calls ?? 0}</span></div>
+                    <div class="kv"><span class="kv-key">{_['cap-success-rate']}</span><span class="kv-val">{safePct(cap.success_rate)}</span></div>
+                    <div class="kv"><span class="kv-key">{_['cap-avg-latency']}</span><span class="kv-val">{cap.avg_latency_ms != null && Number.isFinite(cap.avg_latency_ms) ? cap.avg_latency_ms.toFixed(0) + ' ms' : '--'}</span></div>
+                  </div>
+                  {cap.tags && cap.tags.length > 0 && (
+                    <div class="tag-chips mt-8">
+                      {cap.tags.map(tag => <span key={tag} class="tag-chip">{tag}</span>)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Earnings section */}
+        {earnings && (
+          <div class="mt-24">
+            <h2 class="label-inline mb-12">{_['cap-earnings']}</h2>
+            <div class="row gap-16 wrap">
+              <div class="kv"><span class="kv-key">{_['cap-total-earned']}</span><span class="kv-val">{fmtPrice(earnings.total_earned)} OAS</span></div>
+              <div class="kv"><span class="kv-key">{_['cap-total-calls']}</span><span class="kv-val">{earnings.total_calls ?? 0}</span></div>
+            </div>
+          </div>
+        )}
+      </>}
     </div>
   );
 }

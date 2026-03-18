@@ -1,9 +1,11 @@
 /**
  * Network — 节点身份、AI 算力配置、角色管理、水印工具
+ * Sections are collapsible to reduce visual overload.
  */
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useState, useCallback } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { showToast, i18n } from '../store/ui';
+import { safeNum, safePct } from '../utils';
 import './network.css';
 
 type WmTool = null | 'embed' | 'extract' | 'trace';
@@ -31,7 +33,60 @@ interface NodeRole {
   peers: number;
 }
 
-export default function Network() {
+/* ── Collapsible section ── */
+function Section({ id, title, desc, defaultOpen = false, forceOpen = false, children }: {
+  id: string; title: string; desc?: string; defaultOpen?: boolean; forceOpen?: boolean; children: any;
+}) {
+  const storageKey = `net-section-${id}`;
+  const [open, setOpen] = useState(() => {
+    if (forceOpen) return true;
+    try {
+      const saved = localStorage.getItem(storageKey);
+      return saved !== null ? saved === '1' : defaultOpen;
+    } catch {
+      return defaultOpen;
+    }
+  });
+
+  // If forceOpen changes to true, open the section
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
+
+  const toggle = useCallback(() => {
+    setOpen(prev => {
+      try { localStorage.setItem(storageKey, prev ? '0' : '1'); } catch { /* quota/private mode */ }
+      return !prev;
+    });
+  }, [storageKey]);
+
+  return (
+    <div class="card mb-24">
+      <button
+        class="net-section-toggle"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={`section-${id}`}
+      >
+        <div class="net-section-header">
+          <div class="label label-flush">{title}</div>
+          {desc && !open && <span class="caption net-section-peek">{desc}</span>}
+        </div>
+        <span class={`net-section-chevron ${open ? 'net-section-chevron-open' : ''}`}>›</span>
+      </button>
+      {open && (
+        <div id={`section-${id}`} class="net-section-body">
+          {desc && <p class="caption mb-16">{desc}</p>}
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface NetworkProps { subpath?: string; }
+
+export default function Network({ subpath }: NetworkProps) {
   const [identity, setIdentity] = useState<any>(null);
   const [nodeRole, setNodeRole] = useState<NodeRole | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,9 +149,13 @@ export default function Network() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const copyText = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    showToast(label + ' ' + _['copied'], 'success');
+  const copyText = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(label + ' ' + _['copied'], 'success');
+    } catch {
+      showToast(_['error-generic'], 'error');
+    }
   };
 
   const isValidator = nodeRole?.roles?.includes('validator') ?? false;
@@ -160,7 +219,7 @@ export default function Network() {
     if (!wmFilePath.trim()) return;
     setWmLoading(true); setWmResult(null);
     const res = await post<any>('/fingerprint/embed', { file_path: wmFilePath.trim(), caller_id: wmCallerId.trim() || undefined });
-    if (res.success && res.data) { setWmResult(res.data); showToast(_['wm-embed-btn'] + ' ✓', 'success'); }
+    if (res.success && res.data) { setWmResult(res.data); showToast(_['wm-embed-btn'], 'success'); }
     else showToast(res.error || _['error-generic'], 'error');
     setWmLoading(false);
   };
@@ -192,7 +251,7 @@ export default function Network() {
     return (
       <div class="page">
         <h1 class="label">{_['network']}</h1>
-        <div class="skeleton" style="height:200px" />
+        <div class="skeleton skeleton-lg" />
       </div>
     );
   }
@@ -235,7 +294,7 @@ export default function Network() {
       {/* Hero */}
       <div class="net-hero">
         <h1 class="display">
-          <span style="color:var(--fg-1)">{_['net-hero-light']}</span>
+          <span class="net-hero-light">{_['net-hero-light']}</span>
           <br />
           <strong>{_['net-hero-bold']}</strong>
         </h1>
@@ -244,7 +303,7 @@ export default function Network() {
 
       <div class="spacer-48" />
 
-      {/* 身份卡片 */}
+      {/* ── 身份卡片 — always visible ── */}
       {pubkey ? (
         <div class="card mb-24">
           <div class="label">{_['net-identity']}</div>
@@ -291,21 +350,18 @@ export default function Network() {
       ) : (
         <div class="card mb-24">
           <div class="label">{_['net-identity']}</div>
-          <p class="body-text" style="color:var(--fg-2)">{_['net-no-identity']}</p>
+          <p class="body-text fg-muted">{_['net-no-identity']}</p>
           <p class="caption mt-8">{_['net-init-hint']}</p>
           <button class="btn btn-ghost btn-sm mt-12" onClick={fetchData}>{_['net-retry']}</button>
         </div>
       )}
 
-      {/* AI 算力配置 */}
-      <div class="card mb-24">
-        <div class="label">{_['net-ai']}</div>
-        <p class="caption mb-16">{_['net-ai-desc']}</p>
-
+      {/* ── AI 算力配置 — collapsible, default open ── */}
+      <Section id="ai" title={_['net-ai']} desc={_['net-ai-desc']} defaultOpen={true} forceOpen={subpath === 'ai'}>
         {/* 当前状态 */}
         {hasApiKey && (
-          <div class="net-role-badge mb-16" style="border-color:var(--green)">
-            <span class="net-role-badge-icon" style="background:var(--green);color:var(--bg-0)">✓</span>
+          <div class="net-role-badge mb-16 net-role-badge-active">
+            <span class="net-role-badge-icon net-role-badge-icon-active">✓</span>
             <div>
               <div class="net-role-badge-title">{_['net-key-active']}</div>
               <div class="caption">
@@ -333,7 +389,7 @@ export default function Network() {
           <p class="caption">{_['net-ai-supported-body']}</p>
         </div>
 
-        <div class="net-tool-form" style="padding-left:0">
+        <div class="net-tool-form net-tool-form-flush">
           <label class="label">{_['net-ai-provider']}</label>
           {providerSelect}
           <label class="label">{_['net-ai-key']}</label>
@@ -348,13 +404,10 @@ export default function Network() {
             {savingKey ? '...' : (hasApiKey ? _['net-key-update'] : _['net-key-save'])}
           </button>
         </div>
-      </div>
+      </Section>
 
-      {/* 节点角色 */}
-      <div class="card mb-24">
-        <div class="label">{_['net-role']}</div>
-        <p class="caption mb-16">{_['net-role-desc']}</p>
-
+      {/* ── 节点角色 — collapsible, default open ── */}
+      <Section id="role" title={_['net-role']} desc={_['net-role-desc']} defaultOpen={true} forceOpen={subpath === 'role'}>
         {/* 当前角色 */}
         {(isValidator || isArbitrator) && (
           <div class="net-roles-current mb-16">
@@ -422,7 +475,7 @@ export default function Network() {
 
         {/* 成为仲裁者 */}
         {!isArbitrator && (
-          <div class="net-tools" style="margin-top:4px">
+          <div class="net-tools net-tools-gap">
             <button class={`nav-item ${rolePanel === 'arbitrator' ? 'nav-item-active' : ''}`}
               onClick={() => setRolePanel(rolePanel === 'arbitrator' ? null : 'arbitrator')}>
               <span class="nav-item-title">{_['net-become-arbitrator']} {rolePanel === 'arbitrator' ? '↓' : '→'}</span>
@@ -459,16 +512,13 @@ export default function Network() {
         )}
 
         {!isValidator && !isArbitrator && rolePanel === null && (
-          <div class="caption" style="color:var(--fg-2);margin-top:8px">{_['net-role-none']}</div>
+          <div class="caption fg-muted mt-8">{_['net-role-none']}</div>
         )}
-      </div>
+      </Section>
 
-      {/* 工作收益 */}
+      {/* ── 工作收益 — collapsible, default collapsed ── */}
       {(isValidator || isArbitrator) && (
-        <div class="card mb-24">
-          <div class="label">{_['net-work']}</div>
-          <p class="caption mb-16">{_['net-work-desc']}</p>
-
+        <Section id="work" title={_['net-work']} desc={_['net-work-desc']} forceOpen={subpath === 'work'}>
           {workStats?.worker ? (
             <div>
               <div class="kv">
@@ -481,11 +531,11 @@ export default function Network() {
               </div>
               <div class="kv">
                 <span class="kv-key">{_['net-work-earned']}</span>
-                <span class="kv-val mono" style="color:var(--green)">{workStats.worker.total_earned.toFixed(4)} OAS</span>
+                <span class="kv-val mono color-green">{safeNum(workStats.worker.total_earned, 4)} OAS</span>
               </div>
               <div class="kv">
                 <span class="kv-key">{_['net-work-quality']}</span>
-                <span class="kv-val mono">{(workStats.worker.avg_quality * 100).toFixed(1)}%</span>
+                <span class="kv-val mono">{safePct(workStats.worker.avg_quality)}</span>
               </div>
               <div class="kv">
                 <span class="kv-key">{_['net-work-failed']}</span>
@@ -493,33 +543,30 @@ export default function Network() {
               </div>
             </div>
           ) : (
-            <div class="caption" style="color:var(--fg-2)">{_['net-work-no-tasks']}</div>
+            <div class="caption fg-muted">{_['net-work-no-tasks']}</div>
           )}
 
           {workTasks.length > 0 && (
-            <div style="margin-top:16px">
-              <div class="label" style="font-size:11px;margin-bottom:8px">{_['net-work-recent']}</div>
+            <div class="net-work-recent-wrap">
+              <div class="label-inline mb-8">{_['net-work-recent']}</div>
               {workTasks.map((t: any) => (
-                <div key={t.task_id} class="kv" style="font-size:12px">
-                  <span class="kv-key mono" style="font-size:11px">{t.task_id.slice(0, 12)}</span>
+                <div key={t.task_id} class="kv kv-sm">
+                  <span class="kv-key mono kv-key-xs">{t.task_id.slice(0, 12)}</span>
                   <span class="kv-val">
                     <span>{_[`net-work-type-${t.task_type}`] || t.task_type}</span>
                     {' · '}
-                    <span style={t.status === 'settled' ? 'color:var(--green)' : ''}>{t.status}</span>
-                    {t.final_value > 0 && <span class="mono"> · {t.final_value.toFixed(2)} OAS</span>}
+                    <span class={t.status === 'settled' ? 'color-green' : ''}>{t.status}</span>
+                    {t.final_value > 0 && <span class="mono"> &middot; {safeNum(t.final_value)} OAS</span>}
                   </span>
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </Section>
       )}
 
-      {/* 共识状态 */}
-      <div class="card mb-24">
-        <div class="label">{_['net-consensus']}</div>
-        <p class="caption mb-16">{_['net-consensus-desc']}</p>
-
+      {/* ── 共识状态 — collapsible, default collapsed ── */}
+      <Section id="consensus" title={_['net-consensus']} desc={_['net-consensus-desc']} forceOpen={subpath === 'consensus'}>
         {consensus ? (
           <div>
             <div class="kv">
@@ -536,7 +583,7 @@ export default function Network() {
             </div>
             <div class="kv">
               <span class="kv-key">{_['net-consensus-staked']}</span>
-              <span class="kv-val mono">{(consensus.total_staked ?? 0).toFixed(2)} OAS</span>
+              <span class="kv-val mono">{safeNum(consensus.total_staked)} OAS</span>
             </div>
             <div class="kv">
               <span class="kv-key">{_['net-consensus-next-epoch']}</span>
@@ -544,11 +591,11 @@ export default function Network() {
             </div>
           </div>
         ) : (
-          <div class="caption" style="color:var(--fg-2)">Loading consensus data...</div>
+          <div class="caption fg-muted">{_['net-consensus-loading'] || (_['net-consensus'] + '...')}</div>
         )}
 
         {/* Delegate / Undelegate actions */}
-        <div class="net-tools" style="margin-top:12px">
+        <div class="net-tools net-tools-gap-md">
           <button class={`nav-item ${csAction === 'delegate' ? 'nav-item-active' : ''}`}
             onClick={() => { setCsAction(csAction === 'delegate' ? null : 'delegate'); setCsValidatorId(''); setCsAmount(''); }}>
             <span class="nav-item-title">{_['net-consensus-delegate']} {csAction === 'delegate' ? '↓' : '→'}</span>
@@ -567,7 +614,7 @@ export default function Network() {
                   setCsSubmitting(true);
                   const res = await post<any>('/consensus/delegate', { validator_id: csValidatorId.trim(), amount: parseFloat(csAmount) });
                   if (res.success && res.data?.ok) { showToast(_['net-consensus-delegate'] + ' OK', 'success'); fetchData(); }
-                  else showToast(res.error || res.data?.error || 'Error', 'error');
+                  else showToast(res.error || res.data?.error || _['error-generic'], 'error');
                   setCsSubmitting(false);
                 }}>
                 {csSubmitting ? _['net-consensus-submitting'] : _['net-consensus-submit']}
@@ -593,7 +640,7 @@ export default function Network() {
                   setCsSubmitting(true);
                   const res = await post<any>('/consensus/undelegate', { validator_id: csValidatorId.trim(), amount: parseFloat(csAmount) });
                   if (res.success && res.data?.ok) { showToast(_['net-consensus-undelegate'] + ' OK', 'success'); fetchData(); }
-                  else showToast(res.error || res.data?.error || 'Error', 'error');
+                  else showToast(res.error || res.data?.error || _['error-generic'], 'error');
                   setCsSubmitting(false);
                 }}>
                 {csSubmitting ? _['net-consensus-submitting'] : _['net-consensus-submit']}
@@ -601,13 +648,10 @@ export default function Network() {
             </div>
           )}
         </div>
-      </div>
+      </Section>
 
-      {/* 水印工具 */}
-      <div class="card mb-24">
-        <div class="label">{_['net-watermark']}</div>
-        <p class="caption mb-16">{_['net-watermark-desc']}</p>
-
+      {/* ── 水印工具 — collapsible, default collapsed ── */}
+      <Section id="watermark" title={_['net-watermark']} desc={_['net-watermark-desc']} forceOpen={subpath === 'watermark'}>
         <div class="net-tools">
           <button class={`nav-item ${activeTool === 'embed' ? 'nav-item-active' : ''}`} onClick={() => selectTool('embed')}>
             <span class="nav-item-title">{_['net-embed']} {activeTool === 'embed' ? '↓' : '→'}</span>
@@ -622,8 +666,8 @@ export default function Network() {
               </button>
               {wmResult && (
                 <div class="net-tool-result">
-                  {wmResult.watermarked_path && <div class="kv"><span class="kv-key">{_['wm-watermarked-path']}</span><span class="kv-val mono" style="font-size:11px;word-break:break-all">{wmResult.watermarked_path}</span></div>}
-                  {wmResult.fingerprint && <div class="kv"><span class="kv-key">{_['wm-fingerprint']}</span><span class="kv-val mono" style="font-size:11px">{wmResult.fingerprint.slice(0, 16)}…</span></div>}
+                  {wmResult.watermarked_path && <div class="kv"><span class="kv-key">{_['wm-watermarked-path']}</span><span class="kv-val mono kv-val-xs">{wmResult.watermarked_path}</span></div>}
+                  {wmResult.fingerprint && <div class="kv"><span class="kv-key">{_['wm-fingerprint']}</span><span class="kv-val mono kv-val-xs-nowrap">{wmResult.fingerprint.slice(0, 16)}…</span></div>}
                 </div>
               )}
             </div>
@@ -641,10 +685,10 @@ export default function Network() {
               </button>
               {wmResult && (
                 <div class="net-tool-result">
-                  {wmResult.fingerprint && <div class="kv"><span class="kv-key">{_['wm-fingerprint']}</span><span class="kv-val mono" style="font-size:11px">{wmResult.fingerprint}</span></div>}
+                  {wmResult.fingerprint && <div class="kv"><span class="kv-key">{_['wm-fingerprint']}</span><span class="kv-val mono kv-val-xs-nowrap">{wmResult.fingerprint}</span></div>}
                   {wmResult.caller_id && <div class="kv"><span class="kv-key">{_['wm-caller']}</span><span class="kv-val mono">{wmResult.caller_id}</span></div>}
                   {wmResult.timestamp && <div class="kv"><span class="kv-key">{_['wm-timestamp']}</span><span class="kv-val">{new Date(wmResult.timestamp * 1000).toLocaleString()}</span></div>}
-                  {!wmResult.fingerprint && !wmResult.caller_id && <div class="caption" style="color:var(--fg-2)">{_['wm-no-records']}</div>}
+                  {!wmResult.fingerprint && !wmResult.caller_id && <div class="caption fg-muted">{_['wm-no-records']}</div>}
                 </div>
               )}
             </div>
@@ -665,19 +709,19 @@ export default function Network() {
                   {Array.isArray(wmResult.distributions) && wmResult.distributions.length > 0 ? (
                     wmResult.distributions.map((d: any, i: number) => (
                       <div key={i} class="kv">
-                        <span class="kv-key mono" style="font-size:11px">{d.caller_id?.slice(0, 12) || '—'}</span>
+                        <span class="kv-key mono kv-key-xs">{d.caller_id?.slice(0, 12) || '—'}</span>
                         <span class="kv-val">{d.timestamp ? new Date(d.timestamp * 1000).toLocaleString() : '—'}</span>
                       </div>
                     ))
                   ) : (
-                    <div class="caption" style="color:var(--fg-2)">{_['wm-no-records']}</div>
+                    <div class="caption fg-muted">{_['wm-no-records']}</div>
                   )}
                 </div>
               )}
             </div>
           )}
         </div>
-      </div>
+      </Section>
     </div>
   );
 }

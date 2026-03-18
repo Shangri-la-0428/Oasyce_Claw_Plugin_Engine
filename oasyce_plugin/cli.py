@@ -99,8 +99,22 @@ def cmd_register(args):
         signed = skills.create_certificate_skill(metadata)
         result = skills.register_data_asset_skill(signed)
 
-        # If --free, mark as free asset (attribution only)
-        price_model = "free" if getattr(args, "free", False) else "bonding_curve"
+        # Determine pricing model
+        manual_price = None
+        if getattr(args, "free", False):
+            price_model = "free"
+        else:
+            price_model = getattr(args, "price_model", "auto")
+            manual_price = getattr(args, "price", None)
+            # Validate manual pricing
+            if price_model in ("fixed", "floor"):
+                if manual_price is None or manual_price <= 0:
+                    print(f"❌ Error: --price must be > 0 when --price-model is '{price_model}'", file=sys.stderr)
+                    sys.exit(1)
+            # Store pricing info in the signed metadata
+            signed["price_model"] = price_model
+            if manual_price is not None:
+                signed["manual_price"] = manual_price
 
         # If --use-core, also submit to oasyce_core
         core_result = None
@@ -122,7 +136,15 @@ def cmd_register(args):
             if signed.get('co_creators'):
                 for c in signed['co_creators']:
                     print(f"   Co-creator: {c['address']} ({c['share']}%)")
-            print(f"   Price: {'Free (attribution only)' if price_model == 'free' else 'Bonding Curve'}")
+            if price_model == "free":
+                price_display = "Free (attribution only)"
+            elif price_model == "fixed":
+                price_display = f"Fixed: {manual_price} OAS"
+            elif price_model == "floor":
+                price_display = f"Floor: {manual_price} OAS (bonding curve with minimum)"
+            else:
+                price_display = "Bonding Curve (auto)"
+            print(f"   Price: {price_display}")
             print(f"   Vault: {result['vault_path']}")
             if core_result:
                 print(f"   Core Valid: {core_result['valid']}")
@@ -2138,6 +2160,131 @@ def cmd_trust(args):
         print(f"Auto-approve threshold: {inbox.get_auto_threshold()} OAS")
 
 
+def _get_agent_scheduler():
+    """Lazy-load the agent scheduler singleton."""
+    from oasyce_plugin.services.scheduler import get_scheduler
+    return get_scheduler()
+
+
+def cmd_agent_start(args):
+    """Enable and start the agent scheduler."""
+    scheduler = _get_agent_scheduler()
+    scheduler.start()
+    if getattr(args, "json", False):
+        print(json.dumps(scheduler.status()))
+    else:
+        print("Agent scheduler started.")
+        s = scheduler.status()
+        print(f"  Interval: {s['config']['interval_hours']}h")
+        print(f"  Scan paths: {', '.join(s['config']['scan_paths']) or '(none)'}")
+
+
+def cmd_agent_stop(args):
+    """Disable and stop the agent scheduler."""
+    scheduler = _get_agent_scheduler()
+    scheduler.stop()
+    if getattr(args, "json", False):
+        print(json.dumps(scheduler.status()))
+    else:
+        print("Agent scheduler stopped.")
+
+
+def cmd_agent_status(args):
+    """Show agent scheduler status."""
+    scheduler = _get_agent_scheduler()
+    s = scheduler.status()
+    if getattr(args, "json", False):
+        print(json.dumps(s, indent=2))
+        return
+    print()
+    print(f"  Running:          {s['running']}")
+    if s["last_run"]:
+        import datetime
+        lr = datetime.datetime.fromtimestamp(s["last_run"]).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"  Last run:         {lr}")
+    else:
+        print("  Last run:         never")
+    if s["next_run"]:
+        import datetime
+        nr = datetime.datetime.fromtimestamp(s["next_run"]).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"  Next run:         {nr}")
+    else:
+        print("  Next run:         —")
+    print(f"  Total runs:       {s['total_runs']}")
+    print(f"  Total registered: {s['total_registered']}")
+    print(f"  Total errors:     {s['total_errors']}")
+    if s["last_result"]:
+        lr = s["last_result"]
+        print(f"  Last result:      scanned={lr['scan_count']} registered={lr['register_count']} "
+              f"traded={lr['trade_count']} errors={len(lr['errors'])} ({lr['duration_ms']}ms)")
+    print()
+
+
+def cmd_agent_run(args):
+    """Trigger one immediate agent cycle."""
+    scheduler = _get_agent_scheduler()
+    result = scheduler.run_once()
+    if getattr(args, "json", False):
+        print(json.dumps(result.to_dict(), indent=2))
+        return
+    print(f"\n  Scan:     {result.scan_count} asset(s) found")
+    print(f"  Register: {result.register_count} auto-approved")
+    print(f"  Trade:    {result.trade_count} purchases queued")
+    print(f"  Duration: {result.duration_ms}ms")
+    if result.errors:
+        print(f"  Errors:   {len(result.errors)}")
+        for e in result.errors[:5]:
+            print(f"    - {e}")
+    print()
+
+
+def cmd_agent_config(args):
+    """Show or update agent scheduler config."""
+    from oasyce_plugin.services.scheduler import SchedulerConfig
+    scheduler = _get_agent_scheduler()
+    current = scheduler.get_config()
+
+    changed = False
+    if args.interval is not None:
+        current.interval_hours = args.interval
+        changed = True
+    if args.scan_paths is not None:
+        current.scan_paths = [p.strip() for p in args.scan_paths.split(",") if p.strip()]
+        changed = True
+    if args.auto_trade is True:
+        current.auto_trade = True
+        changed = True
+    if args.no_auto_trade is True:
+        current.auto_trade = False
+        changed = True
+    if args.trade_tags is not None:
+        current.trade_tags = [t.strip() for t in args.trade_tags.split(",") if t.strip()]
+        changed = True
+    if args.trade_max_spend is not None:
+        current.trade_max_spend = args.trade_max_spend
+        changed = True
+
+    if changed:
+        scheduler.update_config(current)
+
+    cfg = scheduler.get_config().to_dict()
+    if getattr(args, "json", False):
+        print(json.dumps(cfg, indent=2))
+        return
+
+    if changed:
+        print("  Config updated.\n")
+    print("  Agent Scheduler Config:")
+    print(f"    enabled:         {cfg['enabled']}")
+    print(f"    interval_hours:  {cfg['interval_hours']}")
+    print(f"    scan_paths:      {', '.join(cfg['scan_paths']) or '(none)'}")
+    print(f"    auto_register:   {cfg['auto_register']}")
+    print(f"    auto_trade:      {cfg['auto_trade']}")
+    print(f"    trade_tags:      {', '.join(cfg['trade_tags']) or '(none)'}")
+    print(f"    trade_max_spend: {cfg['trade_max_spend']} OAS")
+    print()
+
+
 def cmd_doctor(args):
     """Run security and readiness checks for the Oasyce node."""
     import platform
@@ -3822,6 +3969,11 @@ def main():
     reg_parser.add_argument("--signing-key", help="Signing key (or OASYCE_SIGNING_KEY env)")
     reg_parser.add_argument("--signing-key-id", help="Signing key ID")
     reg_parser.add_argument("--free", action="store_true", help="Register as free asset (attribution only, no Bonding Curve)")
+    reg_parser.add_argument("--price-model", default="auto",
+                            choices=["auto", "fixed", "floor"],
+                            help="Pricing strategy: auto (bonding curve), fixed (exact price), floor (curve with minimum)")
+    reg_parser.add_argument("--price", type=float, default=None,
+                            help="Manual price in OAS (required for fixed/floor price-model)")
     reg_parser.add_argument("--rights-type", default="original",
                             choices=["original", "co_creation", "licensed", "collection"],
                             help="Rights type (default: original)")
@@ -4518,6 +4670,42 @@ def main():
     enf_list.add_argument("--json", action="store_true")
     enf_list.set_defaults(func=cmd_enforcement_list)
 
+    # ── agent (autonomous scheduler) ────────────────────────────────
+    agent_parser = subparsers.add_parser("agent", help="Autonomous agent scheduler")
+    agent_sub = agent_parser.add_subparsers(dest="agent_command", help="Agent sub-commands")
+
+    agent_start_parser = agent_sub.add_parser("start", help="Enable and start the scheduler")
+    agent_start_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    agent_start_parser.set_defaults(func=cmd_agent_start)
+
+    agent_stop_parser = agent_sub.add_parser("stop", help="Disable and stop the scheduler")
+    agent_stop_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    agent_stop_parser.set_defaults(func=cmd_agent_stop)
+
+    agent_status_parser = agent_sub.add_parser("status", help="Show scheduler status")
+    agent_status_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    agent_status_parser.set_defaults(func=cmd_agent_status)
+
+    agent_run_parser = agent_sub.add_parser("run", help="Trigger one immediate cycle")
+    agent_run_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    agent_run_parser.set_defaults(func=cmd_agent_run)
+
+    agent_config_parser = agent_sub.add_parser("config", help="Show/update scheduler config")
+    agent_config_parser.add_argument("--interval", type=int, default=None,
+                                     help="Interval in hours between cycles")
+    agent_config_parser.add_argument("--scan-paths", default=None,
+                                     help="Comma-separated directories to scan")
+    agent_config_parser.add_argument("--auto-trade", action="store_true", default=None,
+                                     help="Enable auto-trade")
+    agent_config_parser.add_argument("--no-auto-trade", action="store_true", default=None,
+                                     help="Disable auto-trade")
+    agent_config_parser.add_argument("--trade-tags", default=None,
+                                     help="Comma-separated tags for auto-trade")
+    agent_config_parser.add_argument("--trade-max-spend", type=float, default=None,
+                                     help="Max OAS per trade cycle")
+    agent_config_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    agent_config_parser.set_defaults(func=cmd_agent_config)
+
     # ── doctor ──────────────────────────────────────────────────────
     doctor_parser = subparsers.add_parser("doctor", help="Security and readiness check")
     doctor_parser.set_defaults(func=cmd_doctor)
@@ -4592,6 +4780,10 @@ def main():
 
     if args.command == "enforcement" and getattr(args, "enforcement_command", None) is None:
         enf_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "agent" and getattr(args, "agent_command", None) is None:
+        agent_parser.print_help()
         sys.exit(0)
 
     args.func(args)
