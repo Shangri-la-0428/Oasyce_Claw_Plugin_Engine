@@ -895,6 +895,117 @@ class _Handler(BaseHTTPRequestHandler):
                 if engine:
                     engine.close()
 
+        # ── Governance API (GET) ───────────────────────────────
+        if path == "/api/governance/proposals":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                status_filter = qs.get("status", [None])[0]
+                proposals = engine.list_proposals(status=status_filter)
+                return _json_response(self, proposals)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
+
+        if path.startswith("/api/governance/proposal/"):
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode
+                proposal_id = path.split("/")[-1]
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                proposal = engine.get_proposal(proposal_id)
+                if proposal is None:
+                    return _json_response(self, {"error": "not found"}, 404)
+                return _json_response(self, proposal)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
+
+        if path == "/api/governance/params":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                module = qs.get("module", [None])[0]
+                params = engine.list_governable_params(module=module)
+                return _json_response(self, params)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
+
+        # ── Slashing & Sync API (GET) ──────────────────────────────
+        if path == "/api/consensus/slashing":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                validator_id = qs.get("validator", [None])[0]
+                slashing = engine.get_slashing(validator_id=validator_id)
+                return _json_response(self, slashing)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
+
+        if path == "/api/consensus/sync":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            try:
+                from oasyce_plugin.consensus.network.sync_protocol import make_genesis_block
+                from oasyce_plugin.consensus.network.protocol import SyncState, SyncInfo
+                from oasyce_plugin.config import get_consensus_params, NetworkMode
+                params = get_consensus_params(NetworkMode.TESTNET)
+                chain_id = params.get("chain_id", "oasyce-testnet-1")
+                genesis_hash = make_genesis_block(chain_id).block_hash
+                info = SyncInfo(
+                    state=SyncState.IDLE,
+                    chain_id=chain_id,
+                    genesis_hash=genesis_hash,
+                )
+                return _json_response(self, info.to_dict())
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+
         # ── Static files from dashboard/dist/ ────────────────────
         if path.startswith('/assets/'):
             file_path = os.path.join(DASHBOARD_DIR, path.lstrip('/'))
@@ -1495,6 +1606,67 @@ class _Handler(BaseHTTPRequestHandler):
                 if not validator_id or amount <= 0:
                     return _json_response(self, {"error": "validator_id and amount required"}, 400)
                 result = engine.undelegate(pubkey, validator_id, to_units(amount))
+                status_code = 200 if result.get("ok") else 400
+                return _json_response(self, result, status_code)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
+
+        # ── Governance POST routes ────────────────────────────────
+        if path == "/api/governance/propose":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine, ParameterChange
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode, load_or_create_node_identity
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                _priv, pubkey = load_or_create_node_identity(_config.data_dir)
+                title = body.get("title", "")
+                description = body.get("description", "")
+                changes_raw = body.get("changes", [])
+                deposit = int(body.get("deposit", 0))
+                if not title:
+                    return _json_response(self, {"error": "title required"}, 400)
+                changes = [ParameterChange(**c) for c in changes_raw]
+                result = engine.submit_proposal(
+                    pubkey, title, description, changes, deposit,
+                )
+                status_code = 200 if result.get("ok") else 400
+                return _json_response(self, result, status_code)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            finally:
+                if engine:
+                    engine.close()
+
+        if path == "/api/governance/vote":
+            if not _config:
+                return _json_response(self, {"error": "server not configured"}, 503)
+            engine = None
+            try:
+                from oasyce_plugin.consensus import ConsensusEngine, VoteOption
+                from oasyce_plugin.config import get_consensus_params, get_economics, NetworkMode, load_or_create_node_identity
+                consensus_db = os.path.join(_config.data_dir, "consensus.db")
+                engine = ConsensusEngine(
+                    db_path=consensus_db,
+                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
+                    economics=get_economics(NetworkMode.TESTNET),
+                )
+                _priv, pubkey = load_or_create_node_identity(_config.data_dir)
+                proposal_id = body.get("proposal_id", "")
+                option = body.get("option", "")
+                if not proposal_id or not option:
+                    return _json_response(self, {"error": "proposal_id and option required"}, 400)
+                vote_option = VoteOption(option)
+                result = engine.cast_vote(proposal_id, pubkey, vote_option)
                 status_code = 200 if result.get("ok") else 400
                 return _json_response(self, result, status_code)
             except Exception as e:
