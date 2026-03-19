@@ -1,16 +1,18 @@
 """Tests for Discovery refactor (Items 2-3): Recall/Rank + FeedbackStore."""
+
 import time
 import pytest
-from oasyce_plugin.services.discovery import (
+from oasyce.services.discovery import (
     SkillDiscoveryEngine,
     DiscoveryCandidate,
     RecallCandidate,
     DiscoveryWeights,
 )
-from oasyce_plugin.services.discovery.feedback import ExecutionRecord, FeedbackStore
+from oasyce.services.discovery.feedback import ExecutionRecord, FeedbackStore
 
 
 # ── Fixtures ──────────────────────────────────────────────────────
+
 
 def _make_capabilities():
     return [
@@ -53,6 +55,7 @@ def _make_engine(caps=None, feedback_store=None):
 
 # ── Recall tests ──────────────────────────────────────────────────
 
+
 class TestRecall:
     def test_intent_recall(self):
         engine = _make_engine()
@@ -87,6 +90,7 @@ class TestRecall:
 
 # ── Rank tests ────────────────────────────────────────────────────
 
+
 class TestRank:
     def test_sorted_by_score(self):
         engine = _make_engine()
@@ -97,6 +101,7 @@ class TestRank:
 
     def test_trust_filter(self):
         """Candidates below min_trust_score should be filtered out."""
+
         def low_rep(provider_id):
             return 0.0  # very low reputation
 
@@ -126,9 +131,14 @@ class TestRank:
         store = FeedbackStore()
         # Record great feedback for cap_a
         for _ in range(10):
-            store.record(ExecutionRecord(
-                skill_id="cap_a", success=True, latency_ms=100, caller_rating=5.0,
-            ))
+            store.record(
+                ExecutionRecord(
+                    skill_id="cap_a",
+                    success=True,
+                    latency_ms=100,
+                    caller_rating=5.0,
+                )
+            )
         engine = _make_engine(feedback_store=store)
         results = engine.discover(intents=["translate_text"])
         cap_a = next((c for c in results if c.capability_id == "cap_a"), None)
@@ -137,6 +147,7 @@ class TestRank:
 
 
 # ── FeedbackStore tests ──────────────────────────────────────────
+
 
 class TestFeedbackStore:
     def test_record_and_stats(self):
@@ -174,16 +185,26 @@ class TestFeedbackStore:
         now = int(time.time())
         # Old bad records
         for _ in range(5):
-            store.record(ExecutionRecord(
-                "s1", success=False, latency_ms=100, caller_rating=1.0,
-                timestamp=now - 90 * 86400,  # 90 days ago
-            ))
+            store.record(
+                ExecutionRecord(
+                    "s1",
+                    success=False,
+                    latency_ms=100,
+                    caller_rating=1.0,
+                    timestamp=now - 90 * 86400,  # 90 days ago
+                )
+            )
         # Recent good records
         for _ in range(5):
-            store.record(ExecutionRecord(
-                "s1", success=True, latency_ms=50, caller_rating=5.0,
-                timestamp=now,
-            ))
+            store.record(
+                ExecutionRecord(
+                    "s1",
+                    success=True,
+                    latency_ms=50,
+                    caller_rating=5.0,
+                    timestamp=now,
+                )
+            )
         trust = store.learned_trust("s1")
         assert trust is not None
         # Should be closer to good (recent) than bad (old)
@@ -204,6 +225,7 @@ class TestFeedbackStore:
 
 
 # ── discover() backward compatibility ─────────────────────────────
+
 
 class TestDiscoverAPI:
     def test_signature_unchanged(self):

@@ -1,7 +1,8 @@
 """Tests for risk auto-classification (Item 4)."""
+
 import pytest
-from oasyce_plugin.engines.risk import auto_classify_risk, RISK_TO_ACCESS
-from oasyce_plugin.engines.core_engines import DataEngine, MetadataEngine
+from oasyce.engines.risk import auto_classify_risk, RISK_TO_ACCESS
+from oasyce.engines.core_engines import DataEngine, MetadataEngine
 
 
 class TestAutoClassifyRisk:
@@ -77,7 +78,10 @@ class TestGenerateMetadataRiskInjection:
         # Override path to avoid macOS /private/ prefix triggering PrivacyFilter
         scan.data["path"] = "data.csv"
         meta = MetadataEngine.generate_metadata(
-            scan.data, ["test"], "Alice", rights_type="collection",
+            scan.data,
+            ["test"],
+            "Alice",
+            rights_type="collection",
         )
         assert meta.ok
         assert meta.data["risk_level"] == "internal"

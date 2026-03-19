@@ -11,13 +11,14 @@ from typing import Optional
 
 import pytest
 
-from oasyce_plugin.crypto.keys import generate_keypair
-from oasyce_plugin.fingerprint.engine import FingerprintEngine
-from oasyce_plugin.fingerprint.registry import FingerprintRegistry
-from oasyce_plugin.storage.ledger import Ledger
+from oasyce.crypto.keys import generate_keypair
+from oasyce.fingerprint.engine import FingerprintEngine
+from oasyce.fingerprint.registry import FingerprintRegistry
+from oasyce.storage.ledger import Ledger
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def signing_key() -> str:
@@ -61,6 +62,7 @@ LONG_TEXT = "\n".join(f"line {i}: some content here" for i in range(2000))
 
 # ── Fingerprint generation ───────────────────────────────────────────
 
+
 class TestFingerprintGeneration:
     def test_deterministic(self, engine: FingerprintEngine) -> None:
         fp1 = engine.generate_fingerprint("asset1", "caller1", 1000)
@@ -98,6 +100,7 @@ class TestFingerprintGeneration:
 
 
 # ── Text steganography ───────────────────────────────────────────────
+
 
 class TestTextSteganography:
     def test_roundtrip(self, engine: FingerprintEngine) -> None:
@@ -143,6 +146,7 @@ class TestTextSteganography:
         lines = watermarked.split("\n")
         # Corrupt ~5% of lines by stripping their trailing whitespace
         import random
+
         random.seed(42)
         for _ in range(150):
             idx = random.randint(0, len(lines) - 1)
@@ -158,6 +162,7 @@ class TestTextSteganography:
 
 # ── Binary watermarking ──────────────────────────────────────────────
 
+
 class TestBinarySteganography:
     def test_roundtrip(self, engine: FingerprintEngine) -> None:
         fp = engine.generate_fingerprint("asset1", "caller1", 1000)
@@ -171,7 +176,7 @@ class TestBinarySteganography:
         data = os.urandom(1024)
         watermarked = FingerprintEngine.embed_binary(data, fp)
         # Original data is a prefix of watermarked
-        assert watermarked[:len(data)] == data
+        assert watermarked[: len(data)] == data
 
     def test_extract_from_unwatermarked_returns_none(self) -> None:
         data = os.urandom(1024)
@@ -204,6 +209,7 @@ class TestBinarySteganography:
 
 
 # ── Registry ─────────────────────────────────────────────────────────
+
 
 class TestFingerprintRegistry:
     def test_record_and_trace(self, registry: FingerprintRegistry) -> None:
@@ -245,10 +251,11 @@ class TestFingerprintRegistry:
 
 # ── CLI integration ──────────────────────────────────────────────────
 
+
 class TestFingerprintCLI:
     def _run_cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [sys.executable, "-m", "oasyce_plugin.cli", "--json", *args],
+            [sys.executable, "-m", "oasyce.cli", "--json", *args],
             capture_output=True,
             text=True,
             cwd=os.path.dirname(os.path.dirname(__file__)),
@@ -260,15 +267,20 @@ class TestFingerprintCLI:
         out = tmp_path / "watermarked.txt"
 
         result = self._run_cli(
-            "fingerprint", "embed", str(src),
-            "--caller", "testuser",
-            "--output", str(out),
+            "fingerprint",
+            "embed",
+            str(src),
+            "--caller",
+            "testuser",
+            "--output",
+            str(out),
         )
         assert result.returncode == 0, result.stderr
 
         result2 = self._run_cli("fingerprint", "extract", str(out))
         assert result2.returncode == 0, result2.stderr
         import json
+
         data = json.loads(result2.stdout)
         assert data["fingerprint"] is not None
         assert len(data["fingerprint"]) == 64
@@ -279,9 +291,13 @@ class TestFingerprintCLI:
         out = tmp_path / "watermarked.bin"
 
         result = self._run_cli(
-            "fingerprint", "embed", str(src),
-            "--caller", "binuser",
-            "--output", str(out),
+            "fingerprint",
+            "embed",
+            str(src),
+            "--caller",
+            "binuser",
+            "--output",
+            str(out),
         )
         assert result.returncode == 0, result.stderr
 
@@ -301,6 +317,7 @@ class TestFingerprintCLI:
 
 
 # ── Fingerprint table in Ledger ──────────────────────────────────────
+
 
 class TestLedgerFingerprintTable:
     def test_table_exists(self) -> None:

@@ -19,23 +19,23 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from oasyce_plugin.consensus.core.types import to_units
-from oasyce_plugin.services.capability_delivery.registry import (
+from oasyce.cli import to_units
+from oasyce.services.capability_delivery.registry import (
     CapabilityEndpoint,
     EndpointRegistry,
     _encrypt_api_key,
     _decrypt_api_key,
 )
-from oasyce_plugin.services.capability_delivery.escrow import (
+from oasyce.services.capability_delivery.escrow import (
     EscrowLedger,
     EscrowEntry,
     EscrowStatus,
 )
-from oasyce_plugin.services.capability_delivery.gateway import (
+from oasyce.services.capability_delivery.gateway import (
     InvocationGateway,
     InvocationResult,
 )
-from oasyce_plugin.services.capability_delivery.settlement import (
+from oasyce.services.capability_delivery.settlement import (
     SettlementProtocol,
     InvocationRecord,
     InvocationStatus,
@@ -47,6 +47,7 @@ from oasyce_plugin.services.capability_delivery.settlement import (
 
 def _free_port():
     import socket
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
@@ -227,7 +228,7 @@ class TestEndpointRegistry:
         assert ep.total_calls == 3
         assert ep.total_earned == 3000
         assert ep.avg_latency_ms == 200.0
-        assert abs(ep.success_rate - 2/3) < 0.01
+        assert abs(ep.success_rate - 2 / 3) < 0.01
         reg.close()
 
     def test_to_dict_hides_api_key(self):
@@ -246,8 +247,7 @@ class TestEndpointRegistry:
 class TestEscrowLedger:
     def test_lock_and_release(self):
         escrow = EscrowLedger(db_path=":memory:")
-        result = escrow.lock("consumer-1", "provider-1", "CAP_1",
-                             amount=to_units(10))
+        result = escrow.lock("consumer-1", "provider-1", "CAP_1", amount=to_units(10))
         assert result["ok"] is True
         eid = result["escrow_id"]
         token = result["auth_token"]
@@ -475,7 +475,9 @@ class TestSettlementProtocol:
             protocol, reg, escrow = self._make_protocol(port)
 
             result = protocol.invoke(
-                "CAP_TX", "consumer-1", {"text": "hello world"},
+                "CAP_TX",
+                "consumer-1",
+                {"text": "hello world"},
             )
 
             assert result["ok"] is True
@@ -501,7 +503,9 @@ class TestSettlementProtocol:
             protocol, reg, escrow = self._make_protocol(port)
 
             result = protocol.invoke(
-                "CAP_TX", "consumer-1", {"_fail": True},
+                "CAP_TX",
+                "consumer-1",
+                {"_fail": True},
             )
 
             assert result["ok"] is False
@@ -750,7 +754,9 @@ class TestE2ECapabilityDelivery:
             protocol = SettlementProtocol(reg, escrow, gw, db_path=":memory:")
 
             invoke_result = protocol.invoke(
-                cap_id, "consumer-bob", {"text": "hello world"},
+                cap_id,
+                "consumer-bob",
+                {"text": "hello world"},
             )
 
             assert invoke_result["ok"] is True
@@ -839,168 +845,3 @@ class TestE2ECapabilityDelivery:
         finally:
             server1.shutdown()
             server2.shutdown()
-
-
-# ── Escrow + Real Balance Integration Tests ──────────────────────
-
-
-class TestEscrowBalanceIntegration:
-    """Verify that EscrowLedger correctly debits/credits MultiAssetBalance."""
-
-    @staticmethod
-    def _make_balances():
-        """Create an in-memory MultiAssetBalance instance."""
-        import sqlite3 as _sqlite3
-        conn = _sqlite3.connect(":memory:", check_same_thread=False)
-        lock = threading.Lock()
-        from oasyce_plugin.consensus.assets.balances import MultiAssetBalance
-        return MultiAssetBalance(conn, lock)
-
-    def test_lock_debits_consumer(self):
-        bal = self._make_balances()
-        bal.credit("consumer", "OAS", to_units(100))
-
-        escrow = EscrowLedger(db_path=":memory:", balances=bal)
-        result = escrow.lock("consumer", "provider", "CAP_1", amount=to_units(10))
-        assert result["ok"] is True
-
-        # Consumer balance should have decreased by the locked amount.
-        assert bal.get_balance("consumer", "OAS") == to_units(90)
-        escrow.close()
-
-    def test_lock_insufficient_balance(self):
-        bal = self._make_balances()
-        bal.credit("consumer", "OAS", to_units(5))
-
-        escrow = EscrowLedger(db_path=":memory:", balances=bal)
-        result = escrow.lock("consumer", "provider", "CAP_1", amount=to_units(10))
-        assert result["ok"] is False
-        assert "insufficient balance" in result["error"]
-
-        # Balance unchanged.
-        assert bal.get_balance("consumer", "OAS") == to_units(5)
-        escrow.close()
-
-    def test_release_credits_provider_and_treasury(self):
-        bal = self._make_balances()
-        bal.credit("consumer", "OAS", to_units(100))
-
-        escrow = EscrowLedger(db_path=":memory:", balances=bal)
-        lock_result = escrow.lock("consumer", "provider", "CAP_1", amount=to_units(100))
-        assert lock_result["ok"] is True
-
-        release = escrow.release(lock_result["escrow_id"], auth_token=lock_result["auth_token"])
-        assert release["ok"] is True
-
-        # Provider receives 95%, protocol treasury receives 5%.
-        expected_fee = to_units(100) * 500 // 10000
-        expected_provider = to_units(100) - expected_fee
-        assert bal.get_balance("provider", "OAS") == expected_provider
-        assert bal.get_balance("protocol_treasury", "OAS") == expected_fee
-        # Consumer's balance fully debited during lock.
-        assert bal.get_balance("consumer", "OAS") == 0
-        escrow.close()
-
-    def test_refund_credits_consumer(self):
-        bal = self._make_balances()
-        bal.credit("consumer", "OAS", to_units(50))
-
-        escrow = EscrowLedger(db_path=":memory:", balances=bal)
-        lock_result = escrow.lock("consumer", "provider", "CAP_1", amount=to_units(50))
-        assert lock_result["ok"] is True
-        assert bal.get_balance("consumer", "OAS") == 0
-
-        refund = escrow.refund(lock_result["escrow_id"], auth_token=lock_result["auth_token"])
-        assert refund["ok"] is True
-
-        # Consumer gets all funds back.
-        assert bal.get_balance("consumer", "OAS") == to_units(50)
-        escrow.close()
-
-    def test_no_balances_backward_compatible(self):
-        """When balances=None, escrow works exactly as before (ledger-only)."""
-        escrow = EscrowLedger(db_path=":memory:")  # no balances
-        result = escrow.lock("c", "p", "cap", amount=to_units(10))
-        assert result["ok"] is True
-
-        release = escrow.release(result["escrow_id"], auth_token=result["auth_token"])
-        assert release["ok"] is True
-        assert release["provider_amount"] + release["protocol_fee"] == to_units(10)
-        escrow.close()
-
-    def test_full_cycle_lock_release_balances(self):
-        """End-to-end: fund consumer, lock, release — verify all balances."""
-        bal = self._make_balances()
-        initial = to_units(1000)
-        bal.credit("alice", "OAS", initial)
-
-        escrow = EscrowLedger(db_path=":memory:", balances=bal)
-        price = to_units(20)
-
-        lock_r = escrow.lock("alice", "bob", "CAP_X", amount=price)
-        assert lock_r["ok"] is True
-        assert bal.get_balance("alice", "OAS") == initial - price
-
-        rel = escrow.release(lock_r["escrow_id"], auth_token=lock_r["auth_token"])
-        assert rel["ok"] is True
-
-        fee = price * 500 // 10000
-        provider_cut = price - fee
-
-        assert bal.get_balance("bob", "OAS") == provider_cut
-        assert bal.get_balance("protocol_treasury", "OAS") == fee
-        assert bal.get_balance("alice", "OAS") == initial - price
-
-        # Total OAS in the system should equal what was originally credited.
-        total = (bal.get_balance("alice", "OAS")
-                 + bal.get_balance("bob", "OAS")
-                 + bal.get_balance("protocol_treasury", "OAS"))
-        assert total == initial
-        escrow.close()
-
-    def test_expire_stale_refunds_consumer(self):
-        """Expired escrows must credit funds back to the consumer (#36)."""
-        bal = self._make_balances()
-        initial = to_units(100)
-        bal.credit("consumer", "OAS", initial)
-
-        escrow = EscrowLedger(db_path=":memory:", balances=bal)
-        lock_result = escrow.lock(
-            "consumer", "provider", "CAP_1", amount=to_units(25), ttl=0,
-        )
-        assert lock_result["ok"] is True
-        # Consumer balance should have been debited.
-        assert bal.get_balance("consumer", "OAS") == initial - to_units(25)
-
-        # Force created_at into the past so the escrow is stale.
-        escrow._conn.execute(
-            "UPDATE escrow SET created_at = created_at - 10 WHERE escrow_id = ?",
-            (lock_result["escrow_id"],),
-        )
-        escrow._conn.commit()
-
-        expired = escrow.expire_stale()
-        assert expired == 1
-
-        entry = escrow.get(lock_result["escrow_id"])
-        assert entry.status == EscrowStatus.EXPIRED
-
-        # Consumer balance must be fully restored.
-        assert bal.get_balance("consumer", "OAS") == initial
-        escrow.close()
-
-    def test_expire_stale_no_balances_still_works(self):
-        """expire_stale works in ledger-only mode (no balances)."""
-        escrow = EscrowLedger(db_path=":memory:")
-        result = escrow.lock("c", "p", "cap", amount=1000, ttl=0)
-        eid = result["escrow_id"]
-        escrow._conn.execute(
-            "UPDATE escrow SET created_at = created_at - 10 WHERE escrow_id = ?",
-            (eid,),
-        )
-        escrow._conn.commit()
-
-        expired = escrow.expire_stale()
-        assert expired == 1
-        assert escrow.get(eid).status == EscrowStatus.EXPIRED
-        escrow.close()

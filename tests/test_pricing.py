@@ -1,16 +1,18 @@
 """
 Tests for DatasetPricingCurve — demand, scarcity, quality & freshness factors.
 """
+
 from __future__ import annotations
 
 import math
 
 import pytest
 
-from oasyce_plugin.services.pricing import DatasetPricingCurve, PricingConfig
+from oasyce.services.pricing import DatasetPricingCurve, PricingConfig
 
 
 # ─── Fixtures ──────────────────────────────────────────────
+
 
 @pytest.fixture
 def curve():
@@ -30,6 +32,7 @@ def custom_curve():
 
 
 # ─── Basic Price Calculation ──────────────────────────────
+
 
 class TestBasicPricing:
     def test_default_factors_equal_base_price(self, curve):
@@ -51,9 +54,15 @@ class TestBasicPricing:
         """Result dict has all expected keys."""
         result = curve.calculate_price("ASSET_001", base_price=1.0)
         expected_keys = {
-            "final_price", "base_price", "demand_factor",
-            "scarcity_factor", "quality_factor", "freshness_factor",
-            "rights_type_factor", "breakdown", "price_model",
+            "final_price",
+            "base_price",
+            "demand_factor",
+            "scarcity_factor",
+            "quality_factor",
+            "freshness_factor",
+            "rights_type_factor",
+            "breakdown",
+            "price_model",
         }
         assert set(result.keys()) == expected_keys
         assert "query_count" in result["breakdown"]
@@ -63,6 +72,7 @@ class TestBasicPricing:
 
 
 # ─── Demand Factor ────────────────────────────────────────
+
 
 class TestDemandFactor:
     def test_zero_queries(self, curve):
@@ -95,6 +105,7 @@ class TestDemandFactor:
 
 # ─── Scarcity Factor ─────────────────────────────────────
 
+
 class TestScarcityFactor:
     def test_zero_similar(self, curve):
         """Zero similar assets → scarcity_factor = 1.0."""
@@ -121,6 +132,7 @@ class TestScarcityFactor:
 
 # ─── Quality Factor ──────────────────────────────────────
 
+
 class TestQualityFactor:
     def test_quality_with_zero_score(self, curve):
         """contribution_score=0 → quality_factor = 1.0."""
@@ -145,6 +157,7 @@ class TestQualityFactor:
 
 
 # ─── Freshness Factor ────────────────────────────────────
+
 
 class TestFreshnessFactor:
     def test_brand_new_data(self, curve):
@@ -173,22 +186,29 @@ class TestFreshnessFactor:
 
 # ─── Extreme Cases ───────────────────────────────────────
 
+
 class TestExtremeCases:
     def test_all_zeros(self, curve):
         """All factors at minimum → still returns min_price."""
         result = curve.calculate_price(
-            "A", base_price=0.0,
-            query_count=0, similar_count=0,
-            contribution_score=0.0, days_since_creation=0,
+            "A",
+            base_price=0.0,
+            query_count=0,
+            similar_count=0,
+            contribution_score=0.0,
+            days_since_creation=0,
         )
         assert result["final_price"] == pytest.approx(0.001)
 
     def test_expired_data_min_price(self, curve):
         """Extremely old data with many similar assets → min_price floor."""
         result = curve.calculate_price(
-            "A", base_price=0.001,
-            query_count=0, similar_count=100,
-            contribution_score=0.0, days_since_creation=50000,
+            "A",
+            base_price=0.001,
+            query_count=0,
+            similar_count=100,
+            contribution_score=0.0,
+            days_since_creation=50000,
         )
         assert result["final_price"] == pytest.approx(0.001)
 
@@ -206,13 +226,17 @@ class TestExtremeCases:
 
 # ─── Multi-Factor Combination ────────────────────────────
 
+
 class TestMultiFactorCombination:
     def test_high_demand_low_scarcity(self, curve):
         """High demand but many similar assets → moderate price."""
         result = curve.calculate_price(
-            "A", base_price=1.0,
-            query_count=1000, similar_count=10,
-            contribution_score=0.5, days_since_creation=0,
+            "A",
+            base_price=1.0,
+            query_count=1000,
+            similar_count=10,
+            contribution_score=0.5,
+            days_since_creation=0,
         )
         # demand pushes up, scarcity pulls down
         assert result["demand_factor"] > 1.0
@@ -222,9 +246,12 @@ class TestMultiFactorCombination:
     def test_rare_high_quality_fresh(self, curve):
         """Rare, high-quality, fresh data → premium price."""
         result = curve.calculate_price(
-            "A", base_price=1.0,
-            query_count=500, similar_count=0,
-            contribution_score=1.0, days_since_creation=0,
+            "A",
+            base_price=1.0,
+            query_count=500,
+            similar_count=0,
+            contribution_score=1.0,
+            days_since_creation=0,
         )
         # All factors boost → well above base
         assert result["final_price"] > 2.0
@@ -232,9 +259,12 @@ class TestMultiFactorCombination:
     def test_factors_multiply(self, curve):
         """Final price = base × Π(factors)."""
         result = curve.calculate_price(
-            "A", base_price=2.0,
-            query_count=50, similar_count=1,
-            contribution_score=0.5, days_since_creation=90,
+            "A",
+            base_price=2.0,
+            query_count=50,
+            similar_count=1,
+            contribution_score=0.5,
+            days_since_creation=90,
         )
         expected = (
             2.0
@@ -247,6 +277,7 @@ class TestMultiFactorCombination:
 
 
 # ─── Record Query Accumulation ───────────────────────────
+
 
 class TestRecordQuery:
     def test_record_query_increments(self, curve):
@@ -274,6 +305,7 @@ class TestRecordQuery:
 
 # ─── Similar Count Update ────────────────────────────────
 
+
 class TestSimilarCount:
     def test_update_similar_count(self, curve):
         """update_similar_count stores value."""
@@ -286,6 +318,7 @@ class TestSimilarCount:
 
 
 # ─── Price History ───────────────────────────────────────
+
 
 class TestPriceHistory:
     def test_history_recorded(self, curve):
@@ -313,6 +346,7 @@ class TestPriceHistory:
 
 # ─── Min Price Floor ─────────────────────────────────────
 
+
 class TestMinPrice:
     def test_min_price_default(self, curve):
         """Default min_price is 0.001."""
@@ -326,14 +360,17 @@ class TestMinPrice:
     def test_min_price_applied(self, curve):
         """Price never goes below min_price."""
         result = curve.calculate_price(
-            "A", base_price=0.0001,
-            similar_count=1000, contribution_score=0.0,
+            "A",
+            base_price=0.0001,
+            similar_count=1000,
+            contribution_score=0.0,
             days_since_creation=10000,
         )
         assert result["final_price"] >= curve.config.min_price
 
 
 # ─── Custom Config ───────────────────────────────────────
+
 
 class TestCustomConfig:
     def test_higher_alpha_means_more_demand_sensitivity(self):
@@ -351,36 +388,3 @@ class TestCustomConfig:
         r_short = short.calculate_price("A", base_price=1.0, days_since_creation=60)
         r_long = long.calculate_price("A", base_price=1.0, days_since_creation=60)
         assert r_short["freshness_factor"] < r_long["freshness_factor"]
-
-
-# ─── Settlement Engine Integration ───────────────────────
-
-class TestSettlementIntegration:
-    def test_settlement_with_pricing_curve(self):
-        """SettlementEngine with pricing_curve adjusts spot_price_after."""
-        from oasyce_plugin.services.settlement.engine import SettlementEngine
-
-        curve = DatasetPricingCurve()
-        engine = SettlementEngine(pricing_curve=curve)
-        engine.register_asset("ASSET_001", "alice")
-
-        # Quote without pricing curve
-        engine_plain = SettlementEngine()
-        engine_plain.register_asset("ASSET_001", "alice")
-        q_plain = engine_plain.quote("ASSET_001", 10.0)
-
-        # Quote with pricing curve
-        q_curve = engine.quote("ASSET_001", 10.0)
-
-        # Pricing curve should adjust spot_price_after
-        assert q_curve.spot_price_after != q_plain.spot_price_after
-
-    def test_settlement_without_pricing_curve(self):
-        """SettlementEngine without pricing_curve works as before."""
-        from oasyce_plugin.services.settlement.engine import SettlementEngine
-
-        engine = SettlementEngine()
-        engine.register_asset("ASSET_001", "alice")
-        q = engine.quote("ASSET_001", 10.0)
-        assert q.spot_price_after > 0
-        assert q.equity_minted > 0

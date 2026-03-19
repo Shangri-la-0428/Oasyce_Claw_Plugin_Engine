@@ -21,9 +21,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install oasyce-core dependency
-        run: pip install oasyce-core
-
       - name: Install package
         run: |
           python -m pip install --upgrade pip
@@ -38,4 +35,4 @@ jobs:
 
       - name: Type check with mypy
         continue-on-error: true
-        run: mypy oasyce_plugin --ignore-missing-imports
+        run: mypy oasyce --ignore-missing-imports

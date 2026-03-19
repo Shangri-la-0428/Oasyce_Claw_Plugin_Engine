@@ -2,7 +2,7 @@
 
 import os
 import pytest
-from oasyce_plugin.crypto import generate_keypair, load_or_create_keypair, sign, verify
+from oasyce.crypto import generate_keypair, load_or_create_keypair, sign, verify
 
 
 class TestGenerateKeypair:

@@ -9,6 +9,7 @@ Covers:
   - Semantic fingerprint generation
   - Source type validation
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,7 @@ import time
 
 import pytest
 
-from oasyce_plugin.services.contribution import (
+from oasyce.services.contribution import (
     ContributionCertificate,
     ContributionEngine,
     SourceProof,
@@ -26,6 +27,7 @@ from oasyce_plugin.services.contribution import (
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def engine():
@@ -56,6 +58,7 @@ def sample_file_2():
 
 # ─── ContributionCertificate ─────────────────────────────────────
 
+
 class TestContributionCertificate:
     def test_to_dict_roundtrip(self, engine, sample_file):
         cert = engine.generate_proof(sample_file, "creator_key_abc")
@@ -80,6 +83,7 @@ class TestContributionCertificate:
 
 # ─── generate_proof ─────────────────────────────────────────────
 
+
 class TestGenerateProof:
     def test_basic_proof(self, engine, sample_file):
         cert = engine.generate_proof(sample_file, "creator_abc")
@@ -90,9 +94,7 @@ class TestGenerateProof:
 
     def test_all_source_types(self, engine, sample_file):
         for st in SourceProof:
-            cert = engine.generate_proof(
-                sample_file, "key", source_type=st.value
-            )
+            cert = engine.generate_proof(sample_file, "key", source_type=st.value)
             assert cert.source_type == st.value
 
     def test_invalid_source_type_raises(self, engine, sample_file):
@@ -110,13 +112,15 @@ class TestGenerateProof:
 
     def test_source_evidence_preserved(self, engine, sample_file):
         cert = engine.generate_proof(
-            sample_file, "key",
+            sample_file,
+            "key",
             source_evidence="https://example.com/provenance",
         )
         assert cert.source_evidence == "https://example.com/provenance"
 
 
 # ─── verify_proof ────────────────────────────────────────────────
+
 
 class TestVerifyProof:
     def test_valid_proof(self, engine, sample_file):
@@ -150,6 +154,7 @@ class TestVerifyProof:
 
 
 # ─── calculate_contribution_score ────────────────────────────────
+
 
 class TestContributionScore:
     def test_unique_content_scores_high(self, engine, sample_file):

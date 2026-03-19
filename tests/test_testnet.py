@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from oasyce_plugin.config import (
+from oasyce.config import (
     MAINNET_ECONOMICS,
     TESTNET_ECONOMICS,
     TESTNET_NETWORK_CONFIG,
@@ -18,9 +18,9 @@ from oasyce_plugin.config import (
     get_data_dir,
     get_economics,
 )
-from oasyce_plugin.consensus.core.types import to_units
-from oasyce_plugin.services.faucet import Faucet
-from oasyce_plugin.services.testnet import TestnetOnboarding
+from oasyce.cli import to_units
+from oasyce.services.faucet import Faucet
+from oasyce.services.testnet import TestnetOnboarding
 
 
 @pytest.fixture()
@@ -59,7 +59,7 @@ class TestFaucetClaim:
         faucet = Faucet(tmp_dir)
         base = time.time()
 
-        with patch("oasyce_plugin.services.faucet.time") as mock_time:
+        with patch("oasyce.services.faucet.time") as mock_time:
             mock_time.time.return_value = base
             faucet.claim("addr-a")
 
@@ -115,6 +115,7 @@ class TestFaucetClaim:
         """claim() does not accept a 'now' parameter — timestamp is internal."""
         faucet = Faucet(tmp_dir)
         import inspect
+
         sig = inspect.signature(faucet.claim)
         assert "now" not in sig.parameters
 
@@ -123,14 +124,16 @@ class TestFaucetClaim:
         faucet = Faucet(tmp_dir)
         base = time.time()
 
-        with patch("oasyce_plugin.services.faucet.time") as mock_time:
+        with patch("oasyce.services.faucet.time") as mock_time:
             for i in range(Faucet.MAX_CLAIMS_PER_ADDRESS):
                 mock_time.time.return_value = base + i * (Faucet.COOLDOWN + 1)
                 result = faucet.claim("addr-a")
                 assert result["success"] is True
 
             # Next claim should fail even after cooldown
-            mock_time.time.return_value = base + Faucet.MAX_CLAIMS_PER_ADDRESS * (Faucet.COOLDOWN + 1)
+            mock_time.time.return_value = base + Faucet.MAX_CLAIMS_PER_ADDRESS * (
+                Faucet.COOLDOWN + 1
+            )
             result = faucet.claim("addr-a")
             assert result["success"] is False
             assert "Lifetime claim limit" in result["error"]

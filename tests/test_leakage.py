@@ -10,6 +10,7 @@ Covers:
   - DataAccessProvider integration (leakage blocking)
   - Thread safety
 """
+
 from __future__ import annotations
 
 import threading
@@ -17,13 +18,14 @@ import time
 
 import pytest
 
-from oasyce_plugin.services.leakage import LeakageBudget, LeakageBudgetConfig
-from oasyce_plugin.services.access.provider import DataAccessProvider
-from oasyce_plugin.services.access.config import AccessControlConfig
-from oasyce_plugin.services.reputation import ReputationEngine
+from oasyce.services.leakage import LeakageBudget, LeakageBudgetConfig
+from oasyce.services.access.provider import DataAccessProvider
+from oasyce.services.access.config import AccessControlConfig
+from oasyce.services.reputation import ReputationEngine
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def budget():
@@ -37,6 +39,7 @@ def budget_fast_cooldown():
 
 
 # ─── Initialization ──────────────────────────────────────────────
+
 
 class TestBudgetInit:
     def test_initialize_budget(self, budget):
@@ -67,6 +70,7 @@ class TestBudgetInit:
 
 # ─── Information Gain Estimation ─────────────────────────────────
 
+
 class TestInformationGain:
     def test_l0_low_gain(self, budget):
         gain = budget.estimate_information_gain(100, 10000, "L0")
@@ -94,6 +98,7 @@ class TestInformationGain:
 
 
 # ─── Budget Consumption ─────────────────────────────────────────
+
 
 class TestConsume:
     def test_consume_within_budget(self, budget):
@@ -139,6 +144,7 @@ class TestConsume:
 
 # ─── Cooldown ────────────────────────────────────────────────────
 
+
 class TestCooldown:
     def test_cooldown_blocks_after_exhaustion(self, budget_fast_cooldown):
         b = budget_fast_cooldown
@@ -166,6 +172,7 @@ class TestCooldown:
 
 # ─── get_remaining ───────────────────────────────────────────────
 
+
 class TestGetRemaining:
     def test_uninitialized_pair(self, budget):
         r = budget.get_remaining("x", "y")
@@ -180,6 +187,7 @@ class TestGetRemaining:
 
 
 # ─── reset_budget ────────────────────────────────────────────────
+
 
 class TestResetBudget:
     def test_reset_restores_budget(self, budget):
@@ -198,6 +206,7 @@ class TestResetBudget:
 
 # ─── DataAccessProvider Integration ──────────────────────────────
 
+
 class TestProviderIntegration:
     def test_leakage_blocks_access(self):
         """Access is denied when leakage budget is exhausted."""
@@ -211,7 +220,9 @@ class TestProviderIntegration:
         provider.register_asset("data_1", value=100.0)
 
         # Initialize a tiny budget
-        provider.leakage.initialize_budget("agent_1", "data_1", dataset_size=1000, budget_ratio=0.01)
+        provider.leakage.initialize_budget(
+            "agent_1", "data_1", dataset_size=1000, budget_ratio=0.01
+        )
         # budget = 10
 
         # First L0 query should work (gain = 0.1% of 1000 = 1.0)
@@ -241,6 +252,7 @@ class TestProviderIntegration:
 
 
 # ─── Thread Safety ───────────────────────────────────────────────
+
 
 class TestThreadSafety:
     def test_concurrent_consume(self, budget):

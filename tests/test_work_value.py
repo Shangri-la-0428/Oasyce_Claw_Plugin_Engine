@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from oasyce_plugin.services.work_value import (
+from oasyce.services.work_value import (
     TaskType,
     TaskStatus,
     WorkTask,
@@ -24,6 +24,7 @@ def engine(tmp_path):
 
 
 # ── Value calculation ───────────────────────────────────────────────
+
 
 class TestCalculateTaskValue:
     def test_base_only(self):
@@ -45,8 +46,9 @@ class TestCalculateTaskValue:
 
     def test_full_formula(self):
         # 10 * 0.8 * 1.5 * (1 + 0.1) * 1.2 = 15.84
-        v = calculate_task_value(10.0, quality=0.8, complexity=1.5,
-                                 reputation_bonus=0.1, urgency=1.2)
+        v = calculate_task_value(
+            10.0, quality=0.8, complexity=1.5, reputation_bonus=0.1, urgency=1.2
+        )
         assert v == pytest.approx(15.84)
 
     def test_clamp_quality(self):
@@ -70,6 +72,7 @@ class TestCalculateTaskValue:
 
 # ── Base prices ─────────────────────────────────────────────────────
 
+
 class TestBasePrices:
     def test_validation_price(self):
         assert TASK_BASE_PRICES[TaskType.VALIDATION] == 2.0
@@ -85,6 +88,7 @@ class TestBasePrices:
 
 
 # ── Task lifecycle ──────────────────────────────────────────────────
+
 
 class TestTaskLifecycle:
     def test_create_task(self, engine):
@@ -129,8 +133,7 @@ class TestTaskLifecycle:
         task = engine.create_task(TaskType.ARBITRATION, "tx_dispute_01")
         engine.assign_task(task.task_id, "arb_1")
         engine.complete_task(task.task_id, '{"verdict": "delist"}')
-        evaluated = engine.evaluate_task(task.task_id, quality_score=0.9,
-                                         reputation_bonus=0.1)
+        evaluated = engine.evaluate_task(task.task_id, quality_score=0.9, reputation_bonus=0.1)
         assert evaluated is not None
         assert evaluated.status == TaskStatus.EVALUATED
         assert evaluated.quality_score == 0.9
@@ -158,8 +161,9 @@ class TestTaskLifecycle:
 
     def test_full_lifecycle(self, engine):
         """End-to-end: create → assign → complete → evaluate → settle."""
-        task = engine.create_task(TaskType.VALIDATION, "tx_register_01",
-                                  complexity=1.2, urgency=1.1)
+        task = engine.create_task(
+            TaskType.VALIDATION, "tx_register_01", complexity=1.2, urgency=1.1
+        )
         assert task.status == TaskStatus.PENDING
 
         task = engine.assign_task(task.task_id, "validator_node_x")
@@ -168,8 +172,7 @@ class TestTaskLifecycle:
         task = engine.complete_task(task.task_id, '{"valid": true}')
         assert task.status == TaskStatus.COMPLETED
 
-        task = engine.evaluate_task(task.task_id, quality_score=0.95,
-                                    reputation_bonus=0.05)
+        task = engine.evaluate_task(task.task_id, quality_score=0.95, reputation_bonus=0.05)
         assert task.status == TaskStatus.EVALUATED
         # 2.0 * 0.95 * 1.2 * 1.05 * 1.1 ≈ 2.6334
         assert task.final_value == pytest.approx(2.6334)
@@ -179,6 +182,7 @@ class TestTaskLifecycle:
 
 
 # ── Query methods ───────────────────────────────────────────────────
+
 
 class TestQueries:
     def test_get_task(self, engine):
@@ -229,6 +233,7 @@ class TestQueries:
 
 # ── Stats ───────────────────────────────────────────────────────────
 
+
 class TestStats:
     def test_worker_stats_empty(self, engine):
         stats = engine.worker_stats("nobody")
@@ -264,6 +269,7 @@ class TestStats:
 
 
 # ── WorkTask.to_dict ────────────────────────────────────────────────
+
 
 class TestWorkTaskDict:
     def test_to_dict(self, engine):

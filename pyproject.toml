@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oasyce"
-version = "1.11.0"
+version = "2.0.0"
 description = "Decentralized AI capability marketplace — register, price, trade, settle"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -35,9 +35,10 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=7.0", "pytest-cov>=4.0"]
 dev = ["black>=23.0", "flake8>=6.0", "mypy>=1.0"]
+server = ["fastapi>=0.100.0", "uvicorn>=0.20.0", "pydantic>=2.0.0"]
 
 [project.scripts]
-oasyce = "oasyce_plugin.cli:main"
+oasyce = "oasyce.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine"
@@ -46,7 +47,7 @@ Issues = "https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["oasyce_plugin*"]
+include = ["oasyce*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

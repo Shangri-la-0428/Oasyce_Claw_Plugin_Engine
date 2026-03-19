@@ -2,8 +2,9 @@ import os
 import sys
 
 # Mini test runner since pytest isn't available
-from oasyce_plugin.engines.core_engines import DataEngine, MetadataEngine, CertificateEngine, UploadEngine
-from oasyce_plugin.models import AssetMetadata, EngineResult
+from oasyce.engines.core_engines import DataEngine, MetadataEngine, CertificateEngine, UploadEngine
+from oasyce.models import AssetMetadata, EngineResult
+
 
 def run_tests():
     print("Running tests...")
@@ -31,6 +32,7 @@ def run_tests():
 
     os.remove(test_file)
     print("All tests passed!")
+
 
 if __name__ == "__main__":
     run_tests()

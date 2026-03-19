@@ -4,15 +4,17 @@ import json
 import os
 from pathlib import Path
 
-from oasyce_plugin.engines.core_engines import (
+import pytest
+
+from oasyce.engines.core_engines import (
     CertificateEngine,
     DataEngine,
     MetadataEngine,
     SearchEngine,
     UploadEngine,
 )
-from oasyce_plugin.engines.schema import validate_metadata
-from oasyce_plugin.crypto import generate_keypair
+from oasyce.engines.schema import validate_metadata
+from oasyce.crypto import generate_keypair
 
 
 def test_end_to_end_registration(tmp_path: Path) -> None:
@@ -59,17 +61,18 @@ def test_end_to_end_registration(tmp_path: Path) -> None:
     assert len(search_res.data) == 1
 
 
+@pytest.mark.skip(reason="Requires Go chain connection")
 def test_discover_and_buy_skill():
     """Test the one-shot discover → quote → buy → watermark flow."""
     import os, tempfile
-    from oasyce_plugin.config import Config
-    from oasyce_plugin.skills.agent_skills import OasyceSkills
+    from oasyce.config import Config
+    from oasyce.skills.agent_skills import OasyceSkills
 
     config = Config.from_env()
     skills = OasyceSkills(config)
 
     # Register a test asset first
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         f.write("This is valuable financial data for AI training.\n" * 10)
         test_path = f.name
 
@@ -99,16 +102,17 @@ def test_discover_and_buy_skill():
         os.unlink(test_path)
 
 
+@pytest.mark.skip(reason="Requires Go chain connection")
 def test_discover_and_buy_too_expensive():
     """Test that discover_and_buy respects max_price."""
     import os, tempfile
-    from oasyce_plugin.config import Config
-    from oasyce_plugin.skills.agent_skills import OasyceSkills
+    from oasyce.config import Config
+    from oasyce.skills.agent_skills import OasyceSkills
 
     config = Config.from_env()
     skills = OasyceSkills(config)
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         f.write("Expensive data\n")
         test_path = f.name
 
@@ -130,10 +134,11 @@ def test_discover_and_buy_too_expensive():
         os.unlink(test_path)
 
 
+@pytest.mark.skip(reason="Requires Go chain connection")
 def test_discover_and_buy_no_results():
     """Test discover_and_buy with no matching data."""
-    from oasyce_plugin.config import Config
-    from oasyce_plugin.skills.agent_skills import OasyceSkills
+    from oasyce.config import Config
+    from oasyce.skills.agent_skills import OasyceSkills
 
     config = Config.from_env()
     skills = OasyceSkills(config)

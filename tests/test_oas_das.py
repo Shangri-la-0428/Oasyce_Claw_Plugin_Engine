@@ -1,4 +1,5 @@
 """Tests for OAS-DAS (Oasyce Data Asset Standard)."""
+
 from __future__ import annotations
 
 import math
@@ -11,7 +12,7 @@ import time
 
 import pytest
 
-from oasyce_plugin.standards.oas_das import (
+from oasyce.standards.oas_das import (
     IdentityLayer,
     MetadataLayer,
     AccessPolicyLayer,
@@ -19,8 +20,8 @@ from oasyce_plugin.standards.oas_das import (
     ProvenanceLayer,
     OasDasAsset,
 )
-from oasyce_plugin.models import AssetMetadata
-from oasyce_plugin.skills.agent_skills import OasyceSkills
+from oasyce.models import AssetMetadata
+from oasyce.skills.agent_skills import OasyceSkills
 
 
 # ── Layer dataclass creation ────────────────────────────────────────
@@ -155,7 +156,13 @@ class TestSerialization:
 
     def test_to_dict_keys(self):
         d = self._make_asset().to_dict()
-        assert set(d.keys()) == {"identity", "metadata", "access_policy", "compute_interface", "provenance"}
+        assert set(d.keys()) == {
+            "identity",
+            "metadata",
+            "access_policy",
+            "compute_interface",
+            "provenance",
+        }
 
     def test_to_dict_values(self):
         d = self._make_asset().to_dict()
@@ -456,8 +463,8 @@ class TestCLI:
 
     @pytest.fixture
     def skills(self, temp_vault):
-        from oasyce_plugin.crypto.keys import generate_keypair
-        from oasyce_plugin.config import Config
+        from oasyce.crypto.keys import generate_keypair
+        from oasyce.config import Config
 
         priv_hex, pub_hex = generate_keypair()
         config = Config.from_env(
@@ -478,7 +485,7 @@ class TestCLI:
 
     def test_skills_get_asset_standard(self, skills, test_files):
         """Register an asset, then retrieve its OAS-DAS representation."""
-        from oasyce_plugin.skills.agent_skills import OasyceSkills
+        from oasyce.skills.agent_skills import OasyceSkills
 
         file_info = skills.scan_data_skill(test_files["txt"], skip_privacy_check=True)
         metadata = skills.generate_metadata_skill(file_info, ["Test", "OASDAS"], "TestUser")
@@ -497,7 +504,7 @@ class TestCLI:
 
     def test_skills_validate_asset_standard(self, skills, test_files):
         """Register an asset, then validate it against OAS-DAS."""
-        from oasyce_plugin.skills.agent_skills import OasyceSkills
+        from oasyce.skills.agent_skills import OasyceSkills
 
         file_info = skills.scan_data_skill(test_files["txt"], skip_privacy_check=True)
         metadata = skills.generate_metadata_skill(file_info, ["Test"], "TestUser")
@@ -528,8 +535,10 @@ class TestCLI:
         env["OASYCE_VAULT_DIR"] = skills.vault_path
 
         result = subprocess.run(
-            [sys.executable, "-m", "oasyce_plugin.cli", "asset-info", asset_id, "--json"],
-            capture_output=True, text=True, env=env,
+            [sys.executable, "-m", "oasyce.cli", "asset-info", asset_id, "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
         )
         # asset-info should not crash (exit 0 or print error JSON)
         # If asset search works via vault, it prints JSON; if env mismatch, prints error
@@ -547,7 +556,9 @@ class TestCLI:
         env["OASYCE_VAULT_DIR"] = skills.vault_path
 
         result = subprocess.run(
-            [sys.executable, "-m", "oasyce_plugin.cli", "asset-validate", asset_id, "--json"],
-            capture_output=True, text=True, env=env,
+            [sys.executable, "-m", "oasyce.cli", "asset-validate", asset_id, "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
         )
         assert result.returncode == 0 or "Error" in result.stderr

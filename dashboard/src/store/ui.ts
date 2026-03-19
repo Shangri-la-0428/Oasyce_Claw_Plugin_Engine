@@ -17,6 +17,67 @@ export const balance = signal<number | null>(null);
 /** Faucet cooldown flag */
 export const faucetCooldown = signal<boolean>(false);
 
+/** Notification state */
+export interface Notification {
+  id: string;
+  event_type: string;
+  message: string;
+  data: any;
+  read: boolean;
+  created_at: number;
+}
+export const notifications = signal<Notification[]>([]);
+export const unreadCount = signal<number>(0);
+
+/** Load notifications from backend */
+export async function loadNotifications(): Promise<void> {
+  const addr = walletAddress();
+  if (addr === 'anonymous') return;
+  try {
+    const res = await fetch(`/api/notifications?address=${encodeURIComponent(addr)}&limit=50`);
+    if (res.ok) {
+      const data = await res.json();
+      notifications.value = data.notifications || [];
+    }
+  } catch {
+    // Backend not available
+  }
+  // Also load unread count
+  try {
+    const res = await fetch(`/api/notifications/count?address=${encodeURIComponent(addr)}`);
+    if (res.ok) {
+      const data = await res.json();
+      unreadCount.value = data.unread_count ?? 0;
+    }
+  } catch {
+    // Backend not available
+  }
+}
+
+/** Mark notification(s) as read */
+export async function markNotificationsRead(notificationId?: string): Promise<void> {
+  const addr = walletAddress();
+  const body: any = notificationId ? { notification_id: notificationId } : { address: addr };
+  try {
+    await fetch('/api/notifications/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (notificationId) {
+      notifications.value = notifications.value.map(n =>
+        n.id === notificationId ? { ...n, read: true } : n
+      );
+      unreadCount.value = Math.max(0, unreadCount.value - 1);
+    } else {
+      notifications.value = notifications.value.map(n => ({ ...n, read: true }));
+      unreadCount.value = 0;
+    }
+  } catch {
+    // Best effort
+  }
+}
+
 /** Load wallet identity from backend */
 export async function loadIdentity(): Promise<void> {
   try {
@@ -90,8 +151,11 @@ export function initUI() {
 
   document.documentElement.setAttribute('data-theme', theme.value);
 
-  // Load wallet identity then balance in background
-  loadIdentity().then(() => loadBalance());
+  // Load wallet identity then balance + notifications in background
+  loadIdentity().then(() => {
+    loadBalance();
+    loadNotifications();
+  });
 }
 
 export function toggleTheme() {
@@ -128,6 +192,16 @@ const dict: Record<string, Record<string, string>> = {
     'pay': '需要支付', 'receive': '获得份额', 'impact': '价格影响',
     'confirm-buy': '确认获取', 'buying': '处理中...', 'back': '返回',
     'paste-id': '粘贴数据编号', 'amount': '金额',
+    // Access level system
+    'al-reputation': '你的信誉', 'al-risk': '风险等级', 'al-max': '最高可用层级',
+    'al-L0-name': '查询', 'al-L0-desc': '聚合统计，数据不离开安全区',
+    'al-L1-name': '采样', 'al-L1-desc': '脱敏水印样本片段',
+    'al-L2-name': '计算', 'al-L2-desc': '代码在安全区执行，仅输出离开',
+    'al-L3-name': '交付', 'al-L3-desc': '完整数据交付',
+    'al-locked': '信誉不足', 'al-reputation_too_low': '信誉不足',
+    'al-exceeds_max_level': '超出资产最高访问级别',
+    'al-liability': '保证金锁定', 'al-days': '天',
+    'al-granted': '已获得访问权', 'al-bond-paid': '保证金',
     'identity': '你的身份', 'identity-hint': '这是你在网络上的唯一标识',
     'no-key': '首次注册数据时自动生成', 'copy': '复制', 'copied': '已复制',
     'advanced': '详细信息',
@@ -405,6 +479,37 @@ const dict: Record<string, Record<string, string>> = {
     'total-earned': '总收入',
     'recent-transactions': '最近交易',
     'no-transactions': '暂无交易记录',
+    // Data Preview
+    'preview': '预览',
+    'preview-loading': '加载预览...',
+    'preview-metadata': '元数据',
+    'preview-content': '内容预览',
+    'preview-locked': '购买以查看更多',
+    'preview-full-access': '完整访问',
+    'preview-unavailable': '预览不可用',
+    'preview-truncated': '内容已截断',
+    'preview-level': '访问等级',
+    // Buyer Dispute/Refund
+    'dispute-file': '提交争议',
+    'dispute-reason-select': '选择原因',
+    'dispute-evidence': '证据描述',
+    'dispute-evidence-hint': '请详细描述问题...',
+    'dispute-reason-quality': '数据质量问题',
+    'dispute-reason-mismatch': '内容与描述不符',
+    'dispute-reason-copyright': '版权问题',
+    'dispute-reason-fraud': '欺诈行为',
+    'dispute-reason-other': '其他',
+    'dispute-filed': '争议已提交',
+    'my-disputes': '我的争议',
+    'dispute-no-disputes': '暂无争议记录',
+    'dispute-open': '处理中',
+    'dispute-detail': '争议详情',
+    'report-issue': '报告问题',
+    // Notifications
+    'notifications': '通知',
+    'notifications-empty': '暂无通知',
+    'notifications-mark-read': '全部已读',
+    'notifications-unread': '条未读',
   },
   en: {
     home: 'Home', mydata: 'My Data', explore: 'Market', auto: 'Automation', network: 'Network',
@@ -422,6 +527,16 @@ const dict: Record<string, Record<string, string>> = {
     'pay': 'You pay', 'receive': 'You receive', 'impact': 'Price impact',
     'confirm-buy': 'Confirm', 'buying': 'Processing...', 'back': 'Back',
     'paste-id': 'Paste data ID', 'amount': 'Amount',
+    // Access level system
+    'al-reputation': 'Your reputation', 'al-risk': 'Risk level', 'al-max': 'Max access level',
+    'al-L0-name': 'Query', 'al-L0-desc': 'Aggregated stats only, data stays in enclave',
+    'al-L1-name': 'Sample', 'al-L1-desc': 'Redacted & watermarked sample fragments',
+    'al-L2-name': 'Compute', 'al-L2-desc': 'Code runs in TEE, only outputs leave',
+    'al-L3-name': 'Deliver', 'al-L3-desc': 'Full data delivery',
+    'al-locked': 'Insufficient reputation', 'al-reputation_too_low': 'Insufficient reputation',
+    'al-exceeds_max_level': 'Exceeds asset max access level',
+    'al-liability': 'Bond lock', 'al-days': 'days',
+    'al-granted': 'Access granted', 'al-bond-paid': 'Bond paid',
     'identity': 'Your identity', 'identity-hint': 'Your unique ID on the network',
     'no-key': 'Auto-generated on first registration', 'copy': 'Copy', 'copied': 'Copied',
     'advanced': 'Details',
@@ -699,6 +814,37 @@ const dict: Record<string, Record<string, string>> = {
     'total-earned': 'Total Earned',
     'recent-transactions': 'Recent Transactions',
     'no-transactions': 'No transactions yet',
+    // Data Preview
+    'preview': 'Preview',
+    'preview-loading': 'Loading preview...',
+    'preview-metadata': 'Metadata',
+    'preview-content': 'Content Preview',
+    'preview-locked': 'Purchase to view more',
+    'preview-full-access': 'Full Access',
+    'preview-unavailable': 'Preview unavailable',
+    'preview-truncated': 'Content truncated',
+    'preview-level': 'Access Level',
+    // Buyer Dispute/Refund
+    'dispute-file': 'File Dispute',
+    'dispute-reason-select': 'Select reason',
+    'dispute-evidence': 'Evidence',
+    'dispute-evidence-hint': 'Describe the issue in detail...',
+    'dispute-reason-quality': 'Data quality issue',
+    'dispute-reason-mismatch': 'Content mismatch',
+    'dispute-reason-copyright': 'Copyright issue',
+    'dispute-reason-fraud': 'Fraudulent content',
+    'dispute-reason-other': 'Other',
+    'dispute-filed': 'Dispute filed',
+    'my-disputes': 'My Disputes',
+    'dispute-no-disputes': 'No disputes yet',
+    'dispute-open': 'Open',
+    'dispute-detail': 'Dispute Details',
+    'report-issue': 'Report Issue',
+    // Notifications
+    'notifications': 'Notifications',
+    'notifications-empty': 'No notifications',
+    'notifications-mark-read': 'Mark all read',
+    'notifications-unread': 'unread',
   },
 };
 

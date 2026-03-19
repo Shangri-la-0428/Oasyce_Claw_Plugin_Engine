@@ -1,6 +1,6 @@
-# CLAUDE.md — Oasyce Protocol Integration
+# CLAUDE.md — Oasyce Protocol Integration (v2.0.0)
 
-You have access to the `oasyce` CLI for data rights and AI capability trading on the Oasyce network.
+You have access to the `oasyce` CLI — a thin Python client for the Oasyce network. All consensus, settlement, and state are handled by the Go Cosmos SDK chain (`oasyce-chain`). This package communicates with the chain via gRPC/REST.
 
 ## Setup
 
@@ -39,68 +39,10 @@ oasyce resolve <asset_id> --remedy delist            # Resolve with remedy
 
 ### Node Management
 ```bash
-oasyce start                    # Start protocol node + Dashboard
-oasyce node info                # Show node identity (Ed25519 pubkey)
-oasyce node peers               # List connected peers
-oasyce node ping <host:port>    # Ping another node
-```
-
-### Consensus (PoS)
-```bash
-oasyce consensus status                             # Current epoch/slot/validators
-oasyce consensus validators [--all]                 # List validators (--all includes jailed/exited)
-oasyce consensus schedule [--epoch N]               # Leader schedule for an epoch
-oasyce consensus register --stake 10000             # Register as validator
-oasyce consensus exit                               # Voluntary exit
-oasyce consensus unjail                             # Unjail after penalty expires
-oasyce consensus delegate <validator_id> --amount 500    # Delegate stake
-oasyce consensus undelegate <validator_id> --amount 200  # Undelegate (enters unbonding queue)
-oasyce consensus rewards [--epoch N]                # Reward history
-oasyce consensus slashing [--validator X]           # Slashing history
-oasyce consensus delegations                        # Show your active delegations
-oasyce consensus unbondings                         # Show your pending unbondings
-```
-
-### Testnet
-```bash
-oasyce testnet onboard          # Join testnet
-oasyce testnet faucet           # Get free test OAS
-oasyce testnet init --validators 4 --output ./testnet  # Initialize multi-node testnet
-oasyce testnet genesis --config config.json --output genesis.json  # Create genesis
-oasyce testnet join --genesis genesis.json              # Join existing testnet
-oasyce testnet faucet-serve --port 8080                 # Start faucet HTTP server
-```
-
-### Governance
-```bash
-oasyce governance propose --title "..." --description "..." --changes '[...]' --deposit 1000
-oasyce governance vote <proposal_id> --option yes|no|abstain
-oasyce governance tally <proposal_id>                    # Tally votes
-oasyce governance list [--status voting|passed|rejected] # List proposals
-oasyce governance params [--module consensus]            # List governable params
-```
-
-### Block Sync
-```bash
-oasyce sync --status                                    # Show sync status
-oasyce sync --peers http://host:9528                    # Sync from HTTP peers
-oasyce sync --serve --sync-port 9528                    # Start sync server
-```
-
-### Keys
-```bash
-oasyce keys generate            # Generate Ed25519 keypair
-oasyce keys show                # Show public key
-```
-
-### Project Info
-```bash
-oasyce info                            # Show project info, links, asset types
-oasyce info --section architecture     # Technical architecture details
-oasyce info --section economics        # Token economics, bonding curves, staking
-oasyce info --section quickstart       # Quick start guide
-oasyce info --section update           # How to update and contribute
-oasyce info --json                     # Full info as JSON
+oasyce serve                   # Start thin-client API server + Dashboard
+oasyce node info               # Show node identity (Ed25519 pubkey)
+oasyce node peers              # List connected peers
+oasyce node ping <host:port>   # Ping another node
 ```
 
 ### Capability Marketplace
@@ -114,10 +56,56 @@ oasyce capability earnings --provider addr               # Provider earnings
 oasyce capability earnings --consumer addr               # Consumer spending
 ```
 
+### Reputation
+```bash
+oasyce reputation show <address>               # Show reputation score
+oasyce reputation feedback <target> --score 5   # Submit feedback
+```
+
+### Access & Fingerprint
+```bash
+oasyce access grant <asset_id> --to <address>   # Grant access
+oasyce access revoke <asset_id> --from <address> # Revoke access
+oasyce fingerprint <file>                        # Compute content fingerprint
+```
+
+### Discovery
+```bash
+oasyce discover --intents "翻译" --tags nlp     # Four-layer capability discovery
+```
+
+### Leakage & Contribution
+```bash
+oasyce leakage scan <asset_id>                  # Check for data leakage
+oasyce contribution show <address>              # Show contribution history
+```
+
+### Keys
+```bash
+oasyce keys generate            # Generate Ed25519 keypair
+oasyce keys show                # Show public key
+```
+
+### Testnet
+```bash
+oasyce testnet onboard          # Join testnet
+oasyce testnet faucet           # Get free test OAS
+```
+
 ### Diagnostics
 ```bash
 oasyce doctor                   # Health check (keys, ports, deps)
 oasyce demo                     # Run full pipeline demo
+```
+
+### Project Info
+```bash
+oasyce info                            # Show project info, links, asset types
+oasyce info --section architecture     # Technical architecture details
+oasyce info --section economics        # Token economics, bonding curves, staking
+oasyce info --section quickstart       # Quick start guide
+oasyce info --section update           # How to update and contribute
+oasyce info --json                     # Full info as JSON
 ```
 
 ## All commands support `--json` for structured output.
@@ -128,87 +116,67 @@ oasyce demo                     # Run full pipeline demo
 - **Bonding Curve**: Auto-pricing — more buyers = higher price. No order book.
 - **Escrow**: Funds lock before execution, release after quality verification.
 - **Reputation**: Long-term score. Bad behavior follows you.
-- **Shares**: Buying data/capabilities earns shares. Early buyers get more (diminishing returns: 100%→80%→60%→40%).
+- **Shares**: Buying data/capabilities earns shares. Early buyers get more (diminishing returns: 100%->80%->60%->40%).
 - **Rights Type**: Declare data rights origin — `original` (1.0x), `co_creation` (0.9x), `licensed` (0.7x), `collection` (0.3x). Affects pricing.
 - **Dispute**: File disputes against assets. Auto-matched arbitrators resolve with remedies: delist, transfer, rights correction, share adjustment.
-- **Schema Registry**: Unified validation for 4 asset types: `data`, `capability`, `oracle`, `identity`. Use `from oasyce_plugin.schema_registry import AssetType, validate`.
-- **Discovery Recall→Rank**: Broad recall (intent OR semantic OR tag) then ranked by trust + feedback-adjusted economics.
+- **Schema Registry**: Unified validation for 4 asset types: `data`, `capability`, `oracle`, `identity`.
+- **Discovery Recall->Rank**: Broad recall (intent OR semantic OR tag) then ranked by trust + feedback-adjusted economics.
 - **Risk Auto-Leveling**: Files auto-classified as `public`/`internal`/`sensitive` based on content, extension, and rights type.
-- **PoS Consensus**: Event-sourced consensus. All monetary values in integer units (1 OAS = 10^8 units). State derived from append-only `stake_events`. Single entry point: `apply_operation()`.
-- **Epoch/Slot**: Block-height based (`blocks_per_epoch=10` testnet). Wall-clock fallback for P2P timing. Leaders elected per slot via stake-weighted deterministic random.
-- **Delegation**: Stake OAS to validators. Undelegation enters unbonding queue. Commission in basis points (1000 = 10%). All changes recorded as events.
-- **Slashing**: Offline (100 bps + jail), double-sign (500 bps + 3x jail), low-quality (50 bps). Integer arithmetic, no float.
-- **Operation**: Frozen dataclass with `op_type`, `validator_id`, `amount` (int units), `asset_type` (default "OAS"). Immutable once created.
-- **Multi-Asset**: Asset registry (OAS, USDC, DATA_CREDIT, CAPABILITY_TOKEN). Per-address per-asset SQLite balances. Transfer/register via apply_operation.
-- **Governance**: Stake-weighted on-chain voting. Proposals with parameter changes. 40% quorum, 2/3 pass threshold. Auto-execution on approval.
-- **Fork Choice**: Longest-chain with stake-weighted tiebreaker. Reorg support via event-sourced rollback. Max reorg depth limit.
-- **Block Sync**: HTTP JSON transport (`SyncServer` port 9528 + `HTTPPeerTransport`). Genesis hash validation. Batch block download with verification.
-- **Offline Mode**: Feature tiers (CRITICAL/DEGRADED/UNAVAILABLE). Provider cache for offline browsing.
-- **Capability Delivery**: Provider registers endpoint + encrypted API key → consumer invokes via gateway → escrow lock → call → settle (release/refund). 5% protocol fee.
-- **Enforcement**: Content fingerprinting, infringement detection, bounty hunter system.
-- **Chain ID**: Operations include `chain_id` for replay protection. Validated during apply_operation.
+- **Capability Delivery**: Provider registers endpoint + encrypted API key -> consumer invokes via gateway -> escrow lock -> call -> settle (release/refund). 5% protocol fee.
+- **Go Chain (oasyce-chain)**: Consensus (CometBFT), staking, delegation, slashing, governance, multi-asset balances, block production, and sync are all handled by the Cosmos SDK appchain. Use the `oasyced` CLI for direct chain interaction.
 
 ## Dashboard
 
-After `oasyce start`, the web Dashboard is at `http://localhost:8420`.
+After `oasyce serve`, the web Dashboard is at `http://localhost:8420`.
 - `/explore` — Browse all data assets and capabilities
 - `/register` — Register new assets (drag & drop)
 - Supports both data assets and AI capabilities in unified view.
-- API: `/api/consensus/status`, `/api/consensus/validators`, `/api/consensus/rewards`, `/api/consensus/slashing`, `/api/consensus/sync`
-- API: `/api/consensus/mempool` (pending ops), `/api/consensus/producer` (block production status)
-- API: `/api/governance/proposals`, `/api/governance/proposal/:id`, `/api/governance/params`
-- API: POST `/api/governance/propose`, `/api/governance/vote`, `/api/consensus/delegate`, `/api/consensus/undelegate`
-- API: POST `/api/consensus/mempool/submit` (submit operation to mempool)
 
 ## Architecture (v2.0.0)
 
 ```
-oasyce_plugin/
-├── consensus/            # PoS consensus engine (event-sourced)
-│   ├── core/
-│   │   ├── types.py      # OAS_DECIMALS, Operation (frozen), OperationType
-│   │   ├── transition.py # apply_operation — single state mutation entry point
-│   │   └── validation.py # validate_operation — pure validation functions
-│   ├── storage/
-│   │   └── events.py     # append_event — single write function for stake
-│   ├── execution/
-│   │   ├── engine.py     # Block-height scheduling, compute_block_hash
-│   │   └── producer.py   # Mempool (op queue) + BlockProducer (builds & applies blocks)
-│   ├── state.py          # ConsensusState — event-derived views (no REAL, no UPDATE on stake)
-│   ├── epoch.py          # EpochManager — wall-clock fallback for P2P
-│   ├── proposer.py       # Stake-weighted leader election (integer arithmetic)
-│   ├── validator_registry.py  # Registration/delegation/exit (event-sourced)
-│   ├── slashing.py       # Three penalty conditions (basis points)
-│   ├── rewards.py        # Reward distribution (integer units)
-│   ├── assets/
-│   │   ├── registry.py   # Asset type registry (OAS, USDC, custom)
-│   │   └── balances.py   # Multi-asset per-address balance tracking
-│   ├── governance/
-│   │   ├── engine.py     # Proposal lifecycle, stake-weighted voting
-│   │   ├── registry.py   # Governable parameter registry
-│   │   └── types.py      # Proposal, Vote, VoteOption, ParameterChange
-│   ├── network/
-│   │   ├── http_transport.py  # HTTP JSON sync (SyncServer + HTTPPeerTransport)
-│   │   ├── sync_protocol.py   # Block, BlockHeader, wire types
-│   │   ├── block_sync.py      # PeerTransport protocol, sync logic
-│   │   ├── sync.py            # BlockSyncProtocol async coordinator
-│   │   └── protocol.py        # Extended messages (height, headers, status)
-│   ├── genesis.py        # Genesis state creation, validation, import/export
-│   ├── node.py           # ConsensusNode lifecycle (join, sync, produce)
-│   ├── offline_mode.py   # Graceful degradation (CRITICAL/DEGRADED/UNAVAILABLE)
-│   ├── provider_cache.py # SQLite-backed offline browsing cache
-│   ├── testnet_config.py # TestnetConfig with devnet/testnet profiles
-│   ├── enforcement/      # Content fingerprinting, infringement detection, bounty
-│   └── __init__.py       # ConsensusEngine facade + apply()
-├── schema_registry/      # Unified schema validation (data/capability/oracle/identity)
+                    ┌──────────────────────────┐
+                    │   oasyce-chain (Go)       │
+                    │   Cosmos SDK Appchain     │
+                    │   ─────────────────────   │
+                    │   CometBFT Consensus      │
+                    │   x/settlement             │
+                    │   x/capability             │
+                    │   x/reputation             │
+                    │   x/datarights             │
+                    │   gRPC :9090 / REST :1317  │
+                    └────────────┬───────────────┘
+                                 │ gRPC / REST
+                    ┌────────────▼───────────────┐
+                    │   oasyce (Python)           │
+                    │   Thin Client v2.0.0        │
+                    │   ─────────────────────     │
+                    │   chain_client.py (RPC)     │
+                    │   proto/ (type stubs)       │
+                    │   engines/ (scan/classify)  │
+                    │   services/discovery/       │
+                    │   services/capability/      │
+                    │   gui/app.py (Dashboard)    │
+                    │   Dashboard :8420             │
+                    └─────────────────────────────┘
+
+oasyce/
+├── chain_client.py          # gRPC/REST client to Go chain
+├── proto/                   # Proto-generated Python type stubs
+│   └── oasyce/
+│       ├── settlement/v1/   # MsgCreateEscrow, MsgReleaseEscrow, Escrow
+│       ├── capability/v1/   # MsgRegisterCapability, MsgInvokeCapability, Capability
+│       ├── reputation/v1/   # MsgSubmitFeedback, Reputation
+│       └── datarights/v1/   # MsgRegisterDataAsset, MsgBuyShares, DataAsset
+├── schema_registry/         # Unified schema validation (data/capability/oracle/identity)
 ├── engines/
-│   ├── core_engines.py   # Scan → Classify → Metadata → PoPc → Register (+ auto risk)
-│   ├── risk.py           # Auto risk classification (public/internal/sensitive)
-│   └── schema.py         # Backward-compat (delegates to schema_registry)
+│   ├── core_engines.py      # Scan -> Classify -> Metadata -> PoPc -> Register (+ auto risk)
+│   ├── risk.py              # Auto risk classification (public/internal/sensitive)
+│   └── schema.py            # Backward-compat (delegates to schema_registry)
 ├── services/capability_delivery/  # Endpoint registry, escrow, gateway, settlement
-├── services/discovery/   # Recall→Rank discovery + FeedbackStore
-├── info.py               # Project info hub (shared by GUI/CLI/API)
-└── gui/app.py            # Dashboard SPA with tabbed about panel
+├── services/discovery/      # Recall->Rank discovery + FeedbackStore
+├── info.py                  # Project info hub (shared by GUI/CLI/API)
+└── gui/app.py               # Dashboard SPA with tabbed about panel
 ```
 
 ## Tips
@@ -217,4 +185,5 @@ oasyce_plugin/
 - Use `--json` flag when you need to parse output programmatically.
 - Use `oasyce info` to see project links, architecture, economics, and update instructions.
 - For batch operations, prefer CLI over Dashboard.
-- The protocol node (port 8000) and Dashboard (port 8420) start together with `oasyce start`.
+- The Dashboard starts on port 8420 with `oasyce serve`.
+- For chain-level operations (staking, governance, transfers), use the `oasyced` CLI from `oasyce-chain`.

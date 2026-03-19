@@ -11,24 +11,26 @@ Covers:
   - Thread safety
   - rep_floor / sandbox alignment
 """
+
 import threading
 import time
 
 import pytest
 
-from oasyce_plugin.services.access import (
+from oasyce.services.access import (
     AccessLevel,
     access_level_index,
     parse_max_access_level,
 )
-from oasyce_plugin.services.access.config import AccessControlConfig
-from oasyce_plugin.services.access.provider import DataAccessProvider, AccessResult
-from oasyce_plugin.services.reputation import ReputationEngine
-from oasyce_plugin.services.exposure.registry import ExposureRegistry
-from oasyce_plugin.services.exposure.window import LiabilityWindow
+from oasyce.services.access.config import AccessControlConfig
+from oasyce.services.access.provider import DataAccessProvider, AccessResult
+from oasyce.services.reputation import ReputationEngine
+from oasyce.services.exposure.registry import ExposureRegistry
+from oasyce.services.exposure.window import LiabilityWindow
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def config():
@@ -62,6 +64,7 @@ def provider(config, reputation, exposure):
 #  AccessLevel Enum
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestAccessLevel:
     def test_enum_values(self):
         assert AccessLevel.L0_QUERY.value == "L0"
@@ -72,7 +75,9 @@ class TestAccessLevel:
     def test_ordering(self):
         assert access_level_index(AccessLevel.L0_QUERY) == 0
         assert access_level_index(AccessLevel.L3_DELIVER) == 3
-        assert access_level_index(AccessLevel.L1_SAMPLE) < access_level_index(AccessLevel.L2_COMPUTE)
+        assert access_level_index(AccessLevel.L1_SAMPLE) < access_level_index(
+            AccessLevel.L2_COMPUTE
+        )
 
     def test_parse_max_access_level(self):
         assert parse_max_access_level("L0") == AccessLevel.L0_QUERY
@@ -88,6 +93,7 @@ class TestAccessLevel:
 # ═══════════════════════════════════════════════════════════════════
 #  ReputationEngine
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestReputationEngine:
     def test_initial_score(self, reputation):
@@ -171,6 +177,7 @@ class TestReputationEngine:
 # ═══════════════════════════════════════════════════════════════════
 #  ExposureRegistry
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestExposureRegistry:
     def test_no_exposure(self, exposure):
@@ -296,6 +303,7 @@ class TestExposureRegistry:
 #  LiabilityWindow
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestLiabilityWindow:
     def test_lock_bond(self, window):
         record = window.lock_bond("agent-1", "ASSET_001", 500.0, "L0")
@@ -357,6 +365,7 @@ class TestLiabilityWindow:
 # ═══════════════════════════════════════════════════════════════════
 #  DataAccessProvider — Access Level Checks
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestDataAccessProviderAccess:
     def test_unknown_asset(self, provider):
@@ -424,6 +433,7 @@ class TestDataAccessProviderAccess:
 #  DataAccessProvider — Bond Calculation
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestBondCalculation:
     def test_l0_bond_public_new_agent(self, provider, reputation):
         """L0, public risk, new agent (rep=10), no prior exposure.
@@ -464,9 +474,7 @@ class TestBondCalculation:
     def test_bond_with_zero_rep(self, reputation, config, exposure):
         """Agent with rep=0 pays full bond (discount factor = 1.0)."""
         reputation.update("agent-1", leak_detected=True)  # rep → 0
-        provider = DataAccessProvider(
-            config=config, reputation=reputation, exposure=exposure
-        )
+        provider = DataAccessProvider(config=config, reputation=reputation, exposure=exposure)
         provider.register_asset("ASSET_X", value=100.0)
         # L0: 100 × 1.0 × 1.0 × 1.0 × 1.0 = 100
         result = provider.query("agent-1", "ASSET_X")
@@ -477,6 +485,7 @@ class TestBondCalculation:
 # ═══════════════════════════════════════════════════════════════════
 #  Config Helpers
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestAccessControlConfig:
     def test_multiplier_for(self, config):
@@ -501,11 +510,13 @@ class TestAccessControlConfig:
 #  OasyceSkills — Access Control Methods
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestSkillsAccessControl:
     @pytest.fixture
     def skills(self):
-        from oasyce_plugin.config import Config
-        from oasyce_plugin.skills.agent_skills import OasyceSkills
+        from oasyce.config import Config
+        from oasyce.skills.agent_skills import OasyceSkills
+
         config = Config.from_env()
         s = OasyceSkills(config)
         s.access_provider.register_asset("ASSET_S1", value=1000.0, risk_level="public")
@@ -571,6 +582,7 @@ class TestSkillsAccessControl:
 #  Fragmentation Check Integration
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestFragmentationIntegration:
     def test_fragmentation_upgrades_bond(self, provider):
         """Repeated L0 queries trigger fragmentation penalty on bond."""
@@ -606,6 +618,7 @@ class TestFragmentationIntegration:
 # ═══════════════════════════════════════════════════════════════════
 #  Thread Safety
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestThreadSafety:
     def test_reputation_concurrent_updates(self, reputation):
@@ -665,6 +678,7 @@ class TestThreadSafety:
 # ═══════════════════════════════════════════════════════════════════
 #  rep_floor / Sandbox Alignment
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestRepFloorAlignment:
     def test_rep_floor_at_sandbox_threshold(self, config):

@@ -6,6 +6,8 @@ import { useEffect, useState, useCallback } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { showToast, i18n, identity, loadIdentity } from '../store/ui';
 import { safeNum, safePct } from '../utils';
+import { useChain } from '../hooks/useChain';
+import { getValidators, type Validator } from '../api/chain';
 import './network.css';
 
 type WmTool = null | 'embed' | 'extract' | 'trace';
@@ -123,6 +125,23 @@ export default function Network({ subpath }: NetworkProps) {
   const [wmAssetId, setWmAssetId] = useState('');
   const [wmLoading, setWmLoading] = useState(false);
   const [wmResult, setWmResult] = useState<any>(null);
+
+  // Cosmos chain connectivity
+  const chain = useChain(true);
+  const [cosmosValidators, setCosmosValidators] = useState<Validator[]>([]);
+  const [cosmosValLoading, setCosmosValLoading] = useState(false);
+
+  // Fetch Cosmos validators when chain becomes available
+  useEffect(() => {
+    if (!chain.isChainConnected) { setCosmosValidators([]); return; }
+    let cancelled = false;
+    setCosmosValLoading(true);
+    getValidators('BOND_STATUS_BONDED')
+      .then(res => { if (!cancelled) setCosmosValidators(res.validators || []); })
+      .catch(() => { if (!cancelled) setCosmosValidators([]); })
+      .finally(() => { if (!cancelled) setCosmosValLoading(false); });
+    return () => { cancelled = true; };
+  }, [chain.isChainConnected, chain.blockHeight]);
 
   const _ = i18n.value;
 
@@ -617,6 +636,99 @@ export default function Network({ subpath }: NetworkProps) {
           )}
         </Section>
       )}
+
+      {/* ── Cosmos Chain Info — shown when chain REST API is available ── */}
+      <Section
+        id="cosmos-chain"
+        title="Cosmos Chain"
+        desc={chain.isChainConnected ? `Connected — Block #${chain.blockHeight ?? '...'}` : 'Checking chain...'}
+        defaultOpen={chain.isChainConnected}
+        forceOpen={subpath === 'chain'}
+      >
+        {chain.loading && !chain.isChainConnected && (
+          <div class="caption fg-muted">Connecting to Cosmos chain REST API...</div>
+        )}
+
+        {!chain.loading && !chain.isChainConnected && (
+          <div>
+            <div class="caption fg-muted mb-8">
+              Cosmos chain REST API is not reachable (localhost:1317).
+              Showing Python backend data as fallback.
+            </div>
+            {chain.error && <div class="caption fg-muted">Error: {chain.error}</div>}
+            <button class="btn btn-ghost btn-sm mt-8" onClick={chain.refresh}>Retry</button>
+          </div>
+        )}
+
+        {chain.isChainConnected && (
+          <div>
+            {/* Node info */}
+            {chain.chainInfo && (
+              <>
+                <div class="kv">
+                  <span class="kv-key">Chain ID</span>
+                  <span class="kv-val mono">{chain.chainId}</span>
+                </div>
+                <div class="kv">
+                  <span class="kv-key">Node ID</span>
+                  <span class="kv-val mono">{chain.chainInfo.default_node_info.default_node_id.slice(0, 16)}...</span>
+                </div>
+                <div class="kv">
+                  <span class="kv-key">Moniker</span>
+                  <span class="kv-val">{chain.chainInfo.default_node_info.moniker}</span>
+                </div>
+                <div class="kv">
+                  <span class="kv-key">Cosmos SDK</span>
+                  <span class="kv-val mono">{chain.chainInfo.application_version.cosmos_sdk_version}</span>
+                </div>
+                <div class="kv">
+                  <span class="kv-key">App Version</span>
+                  <span class="kv-val mono">{chain.chainInfo.application_version.version}</span>
+                </div>
+              </>
+            )}
+
+            {/* Latest block */}
+            {chain.latestBlock && (
+              <>
+                <div class="kv">
+                  <span class="kv-key">Block Height</span>
+                  <span class="kv-val mono">{chain.latestBlock.block.header.height}</span>
+                </div>
+                <div class="kv">
+                  <span class="kv-key">Block Time</span>
+                  <span class="kv-val">{new Date(chain.latestBlock.block.header.time).toLocaleString()}</span>
+                </div>
+                <div class="kv">
+                  <span class="kv-key">Block Hash</span>
+                  <span class="kv-val mono">{chain.latestBlock.block_id.hash.slice(0, 16)}...</span>
+                </div>
+              </>
+            )}
+
+            {/* Cosmos validators */}
+            <div class="label-inline mt-16 mb-8">Cosmos Validators ({cosmosValidators.length})</div>
+            {cosmosValLoading && <div class="caption fg-muted">Loading validators...</div>}
+            {!cosmosValLoading && cosmosValidators.length === 0 && (
+              <div class="caption fg-muted">No bonded validators found.</div>
+            )}
+            {cosmosValidators.map((v) => (
+              <div key={v.operator_address} class="kv kv-sm">
+                <span class="kv-key">
+                  {v.description.moniker || v.operator_address.slice(0, 12) + '...'}
+                  {v.jailed && <span class="caption fg-muted"> (jailed)</span>}
+                </span>
+                <span class="kv-val mono">
+                  {(Number(v.tokens) / 1_000_000).toFixed(2)} OAS
+                  <span class="caption fg-muted"> · {(Number(v.commission.commission_rates.rate) * 100).toFixed(1)}%</span>
+                </span>
+              </div>
+            ))}
+
+            <button class="btn btn-ghost btn-sm mt-12" onClick={chain.refresh}>Refresh</button>
+          </div>
+        )}
+      </Section>
 
       {/* ── 共识状态 — collapsible, default collapsed ── */}
       <Section id="consensus" title={_['net-consensus']} desc={_['net-consensus-desc']} forceOpen={subpath === 'consensus'}>

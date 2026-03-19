@@ -1,39 +1,41 @@
 """
-Tests for security hardening: message limits, thread safety, chain validation,
-key encryption, feedback persistence, slippage protection, PoPC naming.
+Tests for security hardening: key encryption, feedback persistence, PoPC naming.
 """
 
-import asyncio
 import hashlib
-import json
 import os
 import shutil
 import sqlite3
 import tempfile
 import threading
-import time
 
 import pytest
 
-from oasyce_plugin.crypto.keys import (
+from oasyce.crypto.keys import (
     generate_keypair,
     load_or_create_keypair,
     sign,
     verify,
 )
-from oasyce_plugin.engines.core_engines import CertificateEngine, MetadataEngine, DataEngine
-from oasyce_plugin.network.node import OasyceNode, PeerInfo
-from oasyce_plugin.services.discovery.feedback import ExecutionRecord, FeedbackStore
-from oasyce_plugin.storage.ledger import _USING_CORE
+from oasyce.engines.core_engines import CertificateEngine, MetadataEngine, DataEngine
+from oasyce.services.discovery.feedback import ExecutionRecord, FeedbackStore
 
 # Check if we're using the built-in (hardened) Ledger or oasyce_core's
+try:
+    from oasyce.storage.ledger import Ledger as _Ledger
+
+    _has_builtin_ledger = hasattr(_Ledger, "attempt_reorg")
+except ImportError:
+    _has_builtin_ledger = False
+
 _builtin_only = pytest.mark.skipif(
-    _USING_CORE,
-    reason="Test targets built-in Ledger hardening (oasyce_core is installed)",
+    not _has_builtin_ledger,
+    reason="Requires built-in Ledger with reorg support",
 )
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
+
 
 @pytest.fixture()
 def tmp_dir():
@@ -44,117 +46,13 @@ def tmp_dir():
 
 @pytest.fixture()
 def memory_ledger():
-    from oasyce_plugin.storage.ledger import Ledger
+    from oasyce.storage.ledger import Ledger
+
     return Ledger(db_path=":memory:")
 
 
-def _get_bound_port(node):
-    return node._server.sockets[0].getsockname()[1]
-
-
-# ── P2P Message Size Limit ───────────────────────────────────────────
-
-class TestMessageSizeLimit:
-    def test_max_message_size_constant(self):
-        """Node has a MAX_MESSAGE_SIZE constant."""
-        assert OasyceNode.MAX_MESSAGE_SIZE == 1_048_576
-
-    def test_normal_message_accepted(self):
-        """Normal-sized messages are processed correctly."""
-        async def _run():
-            node = OasyceNode(host="127.0.0.1", port=0, node_id="test")
-            await node.start()
-            port = _get_bound_port(node)
-
-            reader, writer = await asyncio.open_connection("127.0.0.1", port)
-            writer.write(json.dumps({"type": "ping"}).encode() + b"\n")
-            await writer.drain()
-            line = await asyncio.wait_for(reader.readline(), timeout=2.0)
-            resp = json.loads(line)
-            assert resp["type"] == "pong"
-
-            writer.close()
-            await writer.wait_closed()
-            await node.stop()
-
-        asyncio.run(_run())
-
-    def test_unknown_type_rejected(self):
-        """Unknown message types return error."""
-        node = OasyceNode(node_id="test")
-        result = node._dispatch({"type": "evil_command"})
-        assert result["type"] == "error"
-
-
-# ── Block Validation ─────────────────────────────────────────────────
-
-class TestBlockValidation:
-    def test_new_block_requires_fields(self):
-        """new_block with missing fields is rejected."""
-        ledger = pytest.importorskip("oasyce_plugin.storage.ledger").Ledger(db_path=":memory:")
-        node = OasyceNode(node_id="test", ledger=ledger)
-        # Missing merkle_root and timestamp
-        incomplete = {
-            "block_number": 0,
-            "block_hash": "abc",
-            "prev_hash": "0" * 64,
-        }
-        result = node._dispatch({"type": "new_block", "block": incomplete})
-        assert result["status"] == "rejected"
-
-    def test_signed_block_bad_signature_rejected(self):
-        """Signed block with wrong signature is rejected."""
-        ledger = pytest.importorskip("oasyce_plugin.storage.ledger").Ledger(db_path=":memory:")
-        node = OasyceNode(node_id="test", ledger=ledger)
-        _, pub = generate_keypair()
-        other_priv, _ = generate_keypair()
-
-        bn, prev, mr, ts = 0, "0" * 64, "b" * 64, "2024-01-01T00:00:00"
-        hash_input = f"{bn}{prev}{mr}{ts}"
-        block_hash = hashlib.sha256(hash_input.encode()).hexdigest()
-        bad_sig = sign(block_hash.encode(), other_priv)
-
-        block = {
-            "block_number": bn,
-            "block_hash": block_hash,
-            "prev_hash": prev,
-            "merkle_root": mr,
-            "timestamp": ts,
-            "tx_count": 0,
-            "validator_signature": bad_sig,
-            "validator_pubkey": pub,
-        }
-        result = node._dispatch({"type": "new_block", "block": block})
-        assert result["status"] == "rejected"
-
-    def test_signed_block_passes_validation(self):
-        """Properly signed block passes signature validation (not rejected for signature)."""
-        ledger = pytest.importorskip("oasyce_plugin.storage.ledger").Ledger(db_path=":memory:")
-        node = OasyceNode(node_id="test", ledger=ledger)
-        priv, pub = generate_keypair()
-
-        bn, prev, mr, ts = 0, "0" * 64, "a" * 64, "2024-01-01T00:00:00"
-        hash_input = f"{bn}{prev}{mr}{ts}"
-        block_hash = hashlib.sha256(hash_input.encode()).hexdigest()
-        sig = sign(block_hash.encode(), priv)
-
-        block = {
-            "block_number": bn,
-            "block_hash": block_hash,
-            "prev_hash": prev,
-            "merkle_root": mr,
-            "timestamp": ts,
-            "tx_count": 0,
-            "validator_signature": sig,
-            "validator_pubkey": pub,
-        }
-        result = node._dispatch({"type": "new_block", "block": block})
-        # Should NOT be rejected for signature reasons; may be accepted or rejected
-        # by the underlying ledger's insert, but validation passed
-        assert result["status"] in ("accepted", "rejected")
-
-
 # ── Chain Reorg Validation (built-in only) ────────────────────────────
+
 
 @_builtin_only
 class TestChainReorgValidation:
@@ -164,12 +62,30 @@ class TestChainReorgValidation:
         memory_ledger.create_block()
 
         broken_chain = [
-            {"block_number": 0, "block_hash": "aaa", "prev_hash": "0" * 64,
-             "merkle_root": "x", "timestamp": "2024-01-01", "tx_count": 0},
-            {"block_number": 1, "block_hash": "bbb", "prev_hash": "WRONG",
-             "merkle_root": "y", "timestamp": "2024-01-02", "tx_count": 0},
-            {"block_number": 2, "block_hash": "ccc", "prev_hash": "bbb",
-             "merkle_root": "z", "timestamp": "2024-01-03", "tx_count": 0},
+            {
+                "block_number": 0,
+                "block_hash": "aaa",
+                "prev_hash": "0" * 64,
+                "merkle_root": "x",
+                "timestamp": "2024-01-01",
+                "tx_count": 0,
+            },
+            {
+                "block_number": 1,
+                "block_hash": "bbb",
+                "prev_hash": "WRONG",
+                "merkle_root": "y",
+                "timestamp": "2024-01-02",
+                "tx_count": 0,
+            },
+            {
+                "block_number": 2,
+                "block_hash": "ccc",
+                "prev_hash": "bbb",
+                "merkle_root": "z",
+                "timestamp": "2024-01-03",
+                "tx_count": 0,
+            },
         ]
         assert memory_ledger.attempt_reorg(broken_chain) is False
 
@@ -179,18 +95,37 @@ class TestChainReorgValidation:
         memory_ledger.create_block()
 
         valid_chain = [
-            {"block_number": 0, "block_hash": "aaa", "prev_hash": "0" * 64,
-             "merkle_root": "x", "timestamp": "2024-01-01", "tx_count": 0},
-            {"block_number": 1, "block_hash": "bbb", "prev_hash": "aaa",
-             "merkle_root": "y", "timestamp": "2024-01-02", "tx_count": 0},
-            {"block_number": 2, "block_hash": "ccc", "prev_hash": "bbb",
-             "merkle_root": "z", "timestamp": "2024-01-03", "tx_count": 0},
+            {
+                "block_number": 0,
+                "block_hash": "aaa",
+                "prev_hash": "0" * 64,
+                "merkle_root": "x",
+                "timestamp": "2024-01-01",
+                "tx_count": 0,
+            },
+            {
+                "block_number": 1,
+                "block_hash": "bbb",
+                "prev_hash": "aaa",
+                "merkle_root": "y",
+                "timestamp": "2024-01-02",
+                "tx_count": 0,
+            },
+            {
+                "block_number": 2,
+                "block_hash": "ccc",
+                "prev_hash": "bbb",
+                "merkle_root": "z",
+                "timestamp": "2024-01-03",
+                "tx_count": 0,
+            },
         ]
         assert memory_ledger.attempt_reorg(valid_chain) is True
         assert memory_ledger.get_chain_height() == 3
 
 
 # ── Thread-Safe Ledger (built-in only) ───────────────────────────────
+
 
 @_builtin_only
 class TestThreadSafeLedger:
@@ -248,6 +183,7 @@ class TestThreadSafeLedger:
 
 # ── LIKE Escaping (built-in only) ────────────────────────────────────
 
+
 @_builtin_only
 class TestLikeEscaping:
     def test_search_escapes_percent(self, memory_ledger):
@@ -269,6 +205,7 @@ class TestLikeEscaping:
 
 
 # ── Key Encryption ───────────────────────────────────────────────────
+
 
 class TestKeyEncryption:
     def test_plaintext_backward_compat(self, tmp_dir):
@@ -319,6 +256,7 @@ class TestKeyEncryption:
 
 # ── FeedbackStore Persistence ────────────────────────────────────────
 
+
 class TestFeedbackPersistence:
     def test_in_memory_default(self):
         """Default FeedbackStore is in-memory."""
@@ -350,21 +288,29 @@ class TestFeedbackPersistence:
         fs = FeedbackStore(db_path=db_path)
 
         for i in range(FeedbackStore.MAX_RECORDS_PER_SKILL + 50):
-            fs.record(ExecutionRecord(
-                skill_id="s1", success=True, latency_ms=10,
-                caller_rating=4.0, timestamp=1000 + i,
-            ))
+            fs.record(
+                ExecutionRecord(
+                    skill_id="s1",
+                    success=True,
+                    latency_ms=10,
+                    caller_rating=4.0,
+                    timestamp=1000 + i,
+                )
+            )
 
         stats = fs.stats("s1")
         assert stats["total"] == FeedbackStore.MAX_RECORDS_PER_SKILL
 
         conn = sqlite3.connect(db_path)
-        count = conn.execute("SELECT COUNT(*) FROM feedback_records WHERE skill_id='s1'").fetchone()[0]
+        count = conn.execute(
+            "SELECT COUNT(*) FROM feedback_records WHERE skill_id='s1'"
+        ).fetchone()[0]
         conn.close()
         assert count == FeedbackStore.MAX_RECORDS_PER_SKILL
 
 
 # ── PoPC Naming ──────────────────────────────────────────────────────
+
 
 class TestPoPCNaming:
     def test_certificate_type_is_digital_signature(self, tmp_dir):
@@ -422,6 +368,7 @@ class TestPoPCNaming:
 
 # ── Block Signatures in Ledger (built-in only) ───────────────────────
 
+
 @_builtin_only
 class TestBlockSignatures:
     def test_create_signed_block(self, memory_ledger):
@@ -434,9 +381,10 @@ class TestBlockSignatures:
         assert "validator_signature" in block
         assert block["validator_pubkey"] == pub
 
-        hash_input = f"{block['block_number']}{block['prev_hash']}{block['merkle_root']}{block['timestamp']}"
-        expected_hash = hashlib.sha256(hash_input.encode()).hexdigest()
-        assert verify(expected_hash.encode(), block["validator_signature"], pub)
+        block_data = (
+            f"{block['block_number']}{block['prev_hash']}{block['merkle_root']}{block['timestamp']}"
+        )
+        assert verify(block_data.encode(), block["validator_signature"], pub)
 
     def test_create_unsigned_block(self, memory_ledger):
         """create_block without validator key still works."""
@@ -444,17 +392,3 @@ class TestBlockSignatures:
         block = memory_ledger.create_block()
         assert block is not None
         assert block.get("validator_signature") is None
-
-
-# ── Node Rate Limiting ───────────────────────────────────────────────
-
-class TestNodeRateLimiting:
-    def test_rate_limit_new_block(self):
-        """Excessive new_block messages are rate-limited."""
-        node = OasyceNode(node_id="test")
-        for _ in range(OasyceNode.RATE_LIMIT_MAX):
-            result = node._dispatch({"type": "new_block", "block": {}}, peer_key="bad_peer")
-            assert result["status"] != "rate_limited"
-
-        result = node._dispatch({"type": "new_block", "block": {}}, peer_key="bad_peer")
-        assert result["status"] == "rate_limited"

@@ -1,10 +1,12 @@
 """Tests for the Schema Registry (Item 1)."""
+
 import pytest
-from oasyce_plugin.schema_registry import AssetType, validate, register, get_schema
-from oasyce_plugin.engines.schema import validate_metadata
+from oasyce.schema_registry import AssetType, validate, register, get_schema
+from oasyce.engines.schema import validate_metadata
 
 
 # ── Helpers ───────────────────────────────────────────────────────
+
 
 def _valid_data_payload():
     return {
@@ -47,6 +49,7 @@ def _valid_identity_payload():
 
 # ── AssetType enum ────────────────────────────────────────────────
 
+
 class TestAssetType:
     def test_values(self):
         assert AssetType.DATA == "data"
@@ -65,6 +68,7 @@ class TestAssetType:
 
 # ── get_schema ────────────────────────────────────────────────────
 
+
 class TestGetSchema:
     def test_find_data_v1(self):
         schema = get_schema(AssetType.DATA, 1)
@@ -82,6 +86,7 @@ class TestGetSchema:
 
 
 # ── data/v1 validation ───────────────────────────────────────────
+
 
 class TestDataV1Validation:
     def test_valid_payload(self):
@@ -145,6 +150,7 @@ class TestDataV1Validation:
 
 # ── capability/v1, oracle/v1, identity/v1 ────────────────────────
 
+
 class TestOtherSchemas:
     def test_capability_valid(self):
         result = validate("capability", _valid_capability_payload())
@@ -167,6 +173,7 @@ class TestOtherSchemas:
 
 # ── register() ────────────────────────────────────────────────────
 
+
 class TestRegister:
     def test_stamps_asset_type(self):
         result = register("data", _valid_data_payload())
@@ -184,6 +191,7 @@ class TestRegister:
 
 
 # ── Backward compatibility: validate_metadata ─────────────────────
+
 
 class TestBackwardCompat:
     def test_validate_metadata_passes(self):

@@ -1,11 +1,12 @@
 """Tests for scanner and inbox services."""
+
 import os
 import json
 import tempfile
 import pytest
 
-from oasyce_plugin.services.scanner import AssetScanner, ScanResult
-from oasyce_plugin.services.inbox import (
+from oasyce.services.scanner import AssetScanner, ScanResult
+from oasyce.services.inbox import (
     ConfirmationInbox,
     InboxError,
     TRUST_MANUAL,
@@ -15,6 +16,7 @@ from oasyce_plugin.services.inbox import (
 
 
 # ── Scanner ───────────────────────────────────────────────────────────
+
 
 class TestAssetScanner:
 
@@ -100,6 +102,7 @@ class TestAssetScanner:
 
 # ── Inbox ─────────────────────────────────────────────────────────────
 
+
 class TestConfirmationInbox:
 
     def _make_inbox(self, tmp_path):
@@ -170,13 +173,17 @@ class TestConfirmationInbox:
     def test_semi_auto_register_public(self, tmp_path):
         inbox = self._make_inbox(tmp_path)
         inbox.set_trust_level(TRUST_SEMI_AUTO)
-        item = inbox.add_pending_register("/data/file.csv", "Test", sensitivity="public", confidence=0.8)
+        item = inbox.add_pending_register(
+            "/data/file.csv", "Test", sensitivity="public", confidence=0.8
+        )
         assert item.status == "approved"
 
     def test_semi_auto_register_internal_stays_pending(self, tmp_path):
         inbox = self._make_inbox(tmp_path)
         inbox.set_trust_level(TRUST_SEMI_AUTO)
-        item = inbox.add_pending_register("/data/file.csv", "Test", sensitivity="internal", confidence=0.8)
+        item = inbox.add_pending_register(
+            "/data/file.csv", "Test", sensitivity="internal", confidence=0.8
+        )
         assert item.status == "pending"
 
     def test_semi_auto_purchase_below_threshold(self, tmp_path):

@@ -26,8 +26,8 @@ from typing import Any, Dict
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from oasyce_plugin.services.faucet import Faucet
-from oasyce_plugin.consensus.core.types import OAS_DECIMALS
+from oasyce.services.faucet import Faucet
+from oasyce.utils import OAS_DECIMALS
 
 
 class FaucetHandler(BaseHTTPRequestHandler):
@@ -48,14 +48,16 @@ class FaucetHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/status":
-            self._send_json({
-                "chain_id": self.chain_id,
-                "faucet_enabled": True,
-                "drip_amount": Faucet.TESTNET_DRIP,
-                "drip_amount_units": int(Faucet.TESTNET_DRIP * OAS_DECIMALS),
-                "cooldown_seconds": Faucet.COOLDOWN,
-                "total_claims": FaucetHandler.total_claims,
-            })
+            self._send_json(
+                {
+                    "chain_id": self.chain_id,
+                    "faucet_enabled": True,
+                    "drip_amount": Faucet.TESTNET_DRIP,
+                    "drip_amount_units": int(Faucet.TESTNET_DRIP * OAS_DECIMALS),
+                    "cooldown_seconds": Faucet.COOLDOWN,
+                    "total_claims": FaucetHandler.total_claims,
+                }
+            )
         elif self.path == "/health":
             self._send_json({"ok": True})
         else:
@@ -115,7 +117,8 @@ def main():
 
     data_dir = args.data_dir
     if data_dir is None:
-        from oasyce_plugin.config import NetworkMode, get_data_dir
+        from oasyce.config import NetworkMode, get_data_dir
+
         data_dir = get_data_dir(NetworkMode.TESTNET)
 
     Path(data_dir).mkdir(parents=True, exist_ok=True)

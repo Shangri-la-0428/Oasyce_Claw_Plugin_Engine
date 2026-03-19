@@ -19,9 +19,9 @@ import pytest
 
 try:
     from fastapi.testclient import TestClient
-    from oasyce_plugin.services.verification.api import create_app
-    from oasyce_plugin.services.verification.engine import VerificationEngine
-    from oasyce_plugin.services.verification.models import (
+    from oasyce.services.verification.api import create_app
+    from oasyce.services.verification.engine import VerificationEngine
+    from oasyce.services.verification.models import (
         CaptureSource,
         DeviceAttestation,
         GeoProof,
@@ -30,6 +30,7 @@ try:
         VerificationStatus,
         VerifyRequest,
     )
+
     HAS_DEPS = True
 except ImportError:
     HAS_DEPS = False
@@ -39,6 +40,7 @@ pytestmark = pytest.mark.skipif(not HAS_DEPS, reason="fastapi or verification de
 # ──────────────────────────────────────────────
 # Fixtures / helpers
 # ──────────────────────────────────────────────
+
 
 def _now() -> int:
     return int(time.time())
@@ -108,9 +110,9 @@ def _make_otp(
 ) -> OTPPayload:
     content_hash = hashlib.sha256(b"test-image-data-" + str(time.time()).encode()).hexdigest()
     now = _now()
-    
+
     sensor = _make_sensor(sensor_entropy) if include_sensor else None
-    
+
     return OTPPayload(
         content_hash=content_hash,
         content_type="image",
@@ -121,7 +123,7 @@ def _make_otp(
         geo=_make_geo(valid_geo),
         sensor=sensor,
         signature="a" * 128,  # Mock ECDSA signature
-        public_key="b" * 64,   # Mock public key
+        public_key="b" * 64,  # Mock public key
         app_version="1.0.0",
     )
 
@@ -129,6 +131,7 @@ def _make_otp(
 # ──────────────────────────────────────────────
 # Engine Tests
 # ──────────────────────────────────────────────
+
 
 class TestVerificationEngine:
     """Test the core verification engine."""
@@ -140,7 +143,7 @@ class TestVerificationEngine:
         """A well-formed in-app capture should pass with VERIFIED status."""
         otp = _make_otp(source=CaptureSource.IN_APP_CAMERA, sensor_entropy="normal")
         report = self.engine.verify(otp)
-        
+
         assert report.status == VerificationStatus.VERIFIED
         assert report.overall_score >= 0.7
         assert report.trust_level == "FULL"
@@ -151,17 +154,17 @@ class TestVerificationEngine:
         """Album imports can pass verification but must be restricted."""
         otp = _make_otp(source=CaptureSource.ALBUM_IMPORT, include_sensor=False)
         report = self.engine.verify(otp)
-        
+
         # Should pass (no sensor required for album) or at least not be REJECTED
         if report.status == VerificationStatus.VERIFIED:
             assert report.trust_level == "RESTRICTED"
             assert report.can_be_public is False  # KEY: album content never public!
-    
+
     def test_emulator_sensor_flags_suspect(self):
         """Zero-entropy sensor data (emulator) should lower the score."""
         otp = _make_otp(sensor_entropy="zero")
         report = self.engine.verify(otp)
-        
+
         # Find the sensor check
         sensor_check = next((c for c in report.checks if c.check_name == "sensor_entropy"), None)
         assert sensor_check is not None
@@ -172,7 +175,7 @@ class TestVerificationEngine:
         """High-entropy random sensor data should be flagged."""
         otp = _make_otp(sensor_entropy="random")
         report = self.engine.verify(otp)
-        
+
         sensor_check = next((c for c in report.checks if c.check_name == "sensor_entropy"), None)
         assert sensor_check is not None
         # Random injection can score low or medium depending on distribution
@@ -183,8 +186,10 @@ class TestVerificationEngine:
         """Invalid device attestation should cause rejection."""
         otp = _make_otp(valid_device=False)
         report = self.engine.verify(otp)
-        
-        device_check = next((c for c in report.checks if c.check_name == "device_attestation"), None)
+
+        device_check = next(
+            (c for c in report.checks if c.check_name == "device_attestation"), None
+        )
         assert device_check is not None
         assert device_check.score < 0.5
 
@@ -192,7 +197,7 @@ class TestVerificationEngine:
         """Coordinates at (0,0) — Null Island — should be flagged."""
         otp = _make_otp(valid_geo=False)
         report = self.engine.verify(otp)
-        
+
         geo_check = next((c for c in report.checks if c.check_name == "geo_plausibility"), None)
         assert geo_check is not None
         assert geo_check.score < 0.5
@@ -201,7 +206,7 @@ class TestVerificationEngine:
         """In-app camera capture without sensor data should fail the sensor check."""
         otp = _make_otp(source=CaptureSource.IN_APP_CAMERA, include_sensor=False)
         report = self.engine.verify(otp)
-        
+
         sensor_check = next((c for c in report.checks if c.check_name == "sensor_entropy"), None)
         assert sensor_check is not None
         assert sensor_check.score == 0.0
@@ -211,7 +216,7 @@ class TestVerificationEngine:
         """Verify all expected checks are in the report."""
         otp = _make_otp()
         report = self.engine.verify(otp)
-        
+
         check_names = {c.check_name for c in report.checks}
         assert "device_attestation" in check_names
         assert "signature_verification" in check_names
@@ -224,8 +229,10 @@ class TestVerificationEngine:
         """Timestamps within 5s should score perfectly."""
         otp = _make_otp()
         report = self.engine.verify(otp)
-        
-        time_check = next((c for c in report.checks if c.check_name == "temporal_consistency"), None)
+
+        time_check = next(
+            (c for c in report.checks if c.check_name == "temporal_consistency"), None
+        )
         assert time_check is not None
         assert time_check.score >= 0.9
 
@@ -254,6 +261,7 @@ class TestSignalEntropy:
 # API Tests
 # ──────────────────────────────────────────────
 
+
 class TestVerificationAPI:
     """Test the FastAPI endpoints."""
 
@@ -278,7 +286,7 @@ class TestVerificationAPI:
         """Submit a valid OTP and get a verification report."""
         otp = _make_otp()
         request = VerifyRequest(otp=otp, owner="TestUser", tags=["test"])
-        
+
         resp = self.client.post("/api/v1/verify", json=request.model_dump())
         assert resp.status_code == 200
         data = resp.json()
@@ -291,12 +299,12 @@ class TestVerificationAPI:
         """Verify an OTP, then look it up by asset ID."""
         otp = _make_otp()
         request = VerifyRequest(otp=otp, owner="TestUser", tags=["test"])
-        
+
         # Verify
         resp1 = self.client.post("/api/v1/verify", json=request.model_dump())
         assert resp1.status_code == 200
         asset_id = resp1.json()["report"]["asset_id"]
-        
+
         # Lookup
         resp2 = self.client.get(f"/api/v1/verify/{asset_id}")
         assert resp2.status_code == 200
@@ -310,9 +318,9 @@ class TestVerificationAPI:
         """Stats should update after verification requests."""
         otp = _make_otp()
         request = VerifyRequest(otp=otp, owner="TestUser", tags=["test"])
-        
+
         self.client.post("/api/v1/verify", json=request.model_dump())
-        
+
         resp = self.client.get("/api/v1/stats")
         data = resp.json()
         assert data["total_requests"] == 1
@@ -322,10 +330,10 @@ class TestVerificationAPI:
         """Album imports should never be marked as public-eligible."""
         otp = _make_otp(source=CaptureSource.ALBUM_IMPORT, include_sensor=False)
         request = VerifyRequest(otp=otp, owner="TestUser", tags=["album"])
-        
+
         resp = self.client.post("/api/v1/verify", json=request.model_dump())
         data = resp.json()
-        
+
         # Regardless of pass/fail, can_be_public must be False
         assert data["report"]["can_be_public"] is False
 
@@ -334,6 +342,7 @@ class TestVerificationAPI:
 # Integration: Engine + Registry Bridge
 # ──────────────────────────────────────────────
 
+
 class TestVerificationRegistryBridge:
     """Test that verified assets can bridge to the existing Registry."""
 
@@ -341,11 +350,11 @@ class TestVerificationRegistryBridge:
         """Generated asset IDs should match the OAS_XXXXXXXX format."""
         otp = _make_otp()
         request = VerifyRequest(otp=otp, owner="TestUser", tags=["test"])
-        
+
         app = create_app()
         client = TestClient(app)
         resp = client.post("/api/v1/verify", json=request.model_dump())
-        
+
         if resp.json()["success"]:
             asset_id = resp.json()["report"]["asset_id"]
             assert len(asset_id) == 12  # "OAS_" + 8 hex chars
@@ -354,11 +363,11 @@ class TestVerificationRegistryBridge:
 
     def test_deterministic_asset_id(self):
         """Same content_hash + timestamp → same asset_id."""
-        from oasyce_plugin.services.verification.api import _generate_asset_id
-        
+        from oasyce.services.verification.api import _generate_asset_id
+
         id1 = _generate_asset_id("a" * 64, 1000000)
         id2 = _generate_asset_id("a" * 64, 1000000)
         id3 = _generate_asset_id("b" * 64, 1000000)
-        
+
         assert id1 == id2  # Deterministic
         assert id1 != id3  # Different content → different ID

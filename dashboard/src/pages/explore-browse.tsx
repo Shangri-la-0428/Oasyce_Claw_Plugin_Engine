@@ -1,30 +1,42 @@
 /**
- * Browse tab — search, type/tag filtering, asset list, quote/buy flow, capability invoke
+ * Browse tab — search, type/tag filtering, asset list, tiered access quote/buy, capability invoke
  */
 import { useEffect, useState, useRef, useMemo } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { showToast, i18n, walletAddress } from '../store/ui';
 import type { Asset } from '../store/assets';
 import { maskIdShort, maskIdLong, maskOwner, fmtPrice, safePct, safeNum } from '../utils';
+import DataPreview from '../components/data-preview';
 import './explore.css';
 
 type AssetFilter = 'all' | 'data' | 'capability';
 type SortBy = 'time' | 'value';
 type BuyStep = 'form' | 'quoted' | 'success';
+type AccessLevel = 'L0' | 'L1' | 'L2' | 'L3';
 
-interface QuoteData {
-  spot_price: number;
-  total_cost: number;
-  shares_received: number;
-  price_impact: number;
-  fee_breakdown?: { creator?: number; protocol?: number; router?: number };
+/** Per-level quote from /api/access/quote */
+interface LevelQuote {
+  level: AccessLevel;
+  bond: number;
+  available: boolean;
+  locked_reason?: string;   // e.g. "reputation_too_low", "exceeds_max_level"
+  liability_days: number;
+}
+
+/** Full quote response */
+interface AccessQuoteData {
+  asset_id: string;
+  levels: LevelQuote[];
+  reputation: number;
+  max_access_level: AccessLevel;
+  risk_level: string;
 }
 
 interface BuyResult {
   success: boolean;
-  shares: number;
-  cost: number;
-  new_price: number;
+  level: AccessLevel;
+  bond: number;
+  liability_days: number;
 }
 
 interface Props {
@@ -39,14 +51,15 @@ export default function ExploreBrowse({ subpath }: Props) {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<AssetFilter>('all');
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [buyAmt, setBuyAmt] = useState('10');
+  const [selectedLevel, setSelectedLevel] = useState<AccessLevel>('L1');
   const [buyStep, setBuyStep] = useState<BuyStep>('form');
-  const [quote, setQuote] = useState<QuoteData | null>(null);
+  const [accessQuote, setAccessQuote] = useState<AccessQuoteData | null>(null);
   const [buyResult, setBuyResult] = useState<BuyResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [invokeResult, setInvokeResult] = useState<any>(null);
   const [invokeInput, setInvokeInput] = useState('{"text": "hello"}');
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const debounceRef = useRef<number>(0);
 
   const _ = i18n.value;
@@ -88,9 +101,10 @@ export default function ExploreBrowse({ subpath }: Props) {
 
   const resetActive = () => {
     setActiveId(null);
-    setQuote(null);
+    setAccessQuote(null);
     setBuyResult(null);
     setBuyStep('form');
+    setSelectedLevel('L1');
     setInvokeResult(null);
     setInvokeInput('{"text": "hello"}');
   };
@@ -138,25 +152,43 @@ export default function ExploreBrowse({ subpath }: Props) {
     }
   };
 
-  /* 报价 — uses POST /api/quote */
-  const onQuote = async (assetId: string) => {
+  /* 获取所有层级报价 — GET /api/access/quote */
+  const onFetchQuote = async (assetId: string) => {
     setLoading(true);
-    const res = await post<QuoteData>('/quote', { asset_id: assetId, amount: parseFloat(buyAmt) });
+    const buyer = walletAddress();
+    const res = await get<AccessQuoteData>(
+      `/access/quote?asset_id=${encodeURIComponent(assetId)}&buyer=${encodeURIComponent(buyer)}`
+    );
     if (res.success && res.data) {
-      setQuote(res.data);
+      setAccessQuote(res.data);
       setBuyStep('quoted');
+      // Auto-select highest available level
+      const available = (res.data.levels || []).filter(l => l.available);
+      if (available.length > 0) {
+        setSelectedLevel(available[available.length - 1].level);
+      }
     } else {
       showToast(res.error || _['error-generic'], 'error');
     }
     setLoading(false);
   };
 
-  /* 购买 — uses POST /api/buy */
-  const onBuy = async (assetId: string) => {
+  /* 购买访问权 — POST /api/access/buy */
+  const onBuyAccess = async (assetId: string) => {
     setLoading(true);
-    const res = await post<BuyResult>('/buy', { asset_id: assetId, buyer_id: walletAddress(), amount: parseFloat(buyAmt) });
-    if (res.success && res.data) {
-      setBuyResult(res.data);
+    const res = await post<any>('/access/buy', {
+      asset_id: assetId,
+      buyer: walletAddress(),
+      level: selectedLevel,
+    });
+    if (res.success && res.data && res.data.ok) {
+      const lq = accessQuote?.levels.find(l => l.level === selectedLevel);
+      setBuyResult({
+        success: true,
+        level: selectedLevel,
+        bond: lq?.bond ?? res.data.bond ?? 0,
+        liability_days: lq?.liability_days ?? res.data.liability_days ?? 0,
+      });
       setBuyStep('success');
       showToast(_['buy-success'], 'success');
       // Refresh assets
@@ -166,7 +198,7 @@ export default function ExploreBrowse({ subpath }: Props) {
         setAllAssets(prev => [...dataAssets, ...prev.filter(a => a.asset_type === 'capability')]);
       }
     } else {
-      showToast(res.error || _['error-generic'], 'error');
+      showToast(res.data?.error || res.error || _['error-generic'], 'error');
     }
     setLoading(false);
   };
@@ -194,14 +226,13 @@ export default function ExploreBrowse({ subpath }: Props) {
   const toggleItem = (id: string) => {
     if (activeId === id) {
       resetActive();
-      setBuyAmt('10');
     } else {
       setActiveId(id);
-      setQuote(null);
+      setAccessQuote(null);
       setBuyResult(null);
       setBuyStep('form');
+      setSelectedLevel('L1');
       setInvokeResult(null);
-      setBuyAmt('10');
     }
   };
 
@@ -287,6 +318,7 @@ export default function ExploreBrowse({ subpath }: Props) {
                     </div>
                   </div>
                   <span class="mono item-price">{fmtPrice(a.spot_price)} <span class="oas-unit">OAS</span></span>
+                  <button class="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); setPreviewId(a.asset_id); }}>{_['preview']}</button>
                   <span class="btn btn-sm btn-ghost">{isCap ? _['invoke'] : _['get-access']}</span>
                 </button>
 
@@ -343,7 +375,7 @@ export default function ExploreBrowse({ subpath }: Props) {
                         </div>
                       )
                     ) : (
-                      /* ── Data asset buy flow ── */
+                      /* ── Data asset: tiered access flow ── */
                       buyStep === 'form' ? (
                         <div class="col gap-16">
                           {/* Asset info */}
@@ -365,35 +397,52 @@ export default function ExploreBrowse({ subpath }: Props) {
                           <div class="kv"><span class="kv-key">{_['type']}</span><span class="kv-val">{_['asset-type-data']}</span></div>
                           <div class="kv"><span class="kv-key">{_['spot-price']}</span><span class="kv-val">{fmtPrice(a.spot_price)} OAS</span></div>
 
-                          {/* Amount input */}
-                          <div>
-                            <label class="label">{_['amount']}</label>
-                            <input class="input" type="number" value={buyAmt} onInput={e => setBuyAmt((e.target as HTMLInputElement).value)} min="1" />
-                          </div>
-                          <button class="btn btn-primary btn-full" onClick={() => onQuote(a.asset_id)} disabled={loading}>
+                          <button class="btn btn-primary btn-full" onClick={() => onFetchQuote(a.asset_id)} disabled={loading}>
                             {loading ? _['quoting'] : _['quote']}
                           </button>
                         </div>
-                      ) : buyStep === 'quoted' && quote ? (
-                        <div class="col gap-8">
-                          {/* Quote details */}
-                          <div class="kv"><span class="kv-key">{_['spot-price']}</span><span class="kv-val">{fmtPrice(quote.spot_price)} OAS</span></div>
-                          <div class="kv"><span class="kv-key">{_['total-cost']}</span><span class="kv-val">{fmtPrice(quote.total_cost)} OAS</span></div>
-                          <div class="kv"><span class="kv-key">{_['shares-received']}</span><span class="kv-val">{quote.shares_received}</span></div>
-                          {(a as any).price_model !== 'fixed' && (
-                            <div class="kv"><span class="kv-key">{_['price-impact']}</span><span class="kv-val">{quote.price_impact}%</span></div>
-                          )}
-                          {quote.fee_breakdown && (
-                            <div class="quote-fees">
-                              <div class="label">{_['fees']}</div>
-                              {quote.fee_breakdown.creator != null && <div class="kv"><span class="kv-key">{_['creator-fee']}</span><span class="kv-val">{fmtPrice(quote.fee_breakdown.creator)} OAS</span></div>}
-                              {quote.fee_breakdown.protocol != null && <div class="kv"><span class="kv-key">{_['protocol-fee']}</span><span class="kv-val">{fmtPrice(quote.fee_breakdown.protocol)} OAS</span></div>}
-                              {quote.fee_breakdown.router != null && <div class="kv"><span class="kv-key">{_['router-fee']}</span><span class="kv-val">{fmtPrice(quote.fee_breakdown.router)} OAS</span></div>}
-                            </div>
-                          )}
-                          <div class="row gap-16 mt-24">
-                            <button class="btn btn-ghost grow" onClick={() => { setQuote(null); setBuyStep('form'); }}>{_['back']}</button>
-                            <button class="btn btn-primary grow" onClick={() => onBuy(a.asset_id)} disabled={loading}>
+                      ) : buyStep === 'quoted' && accessQuote ? (
+                        <div class="col gap-12">
+                          {/* Reputation & risk context */}
+                          <div class="row gap-16 wrap">
+                            <div class="kv"><span class="kv-key">{_['al-reputation']}</span><span class="kv-val">{accessQuote.reputation}</span></div>
+                            <div class="kv"><span class="kv-key">{_['al-risk']}</span><span class="kv-val badge">{accessQuote.risk_level}</span></div>
+                            <div class="kv"><span class="kv-key">{_['al-max']}</span><span class="kv-val">{accessQuote.max_access_level}</span></div>
+                          </div>
+
+                          {/* Access level cards */}
+                          <div class="access-levels-grid">
+                            {accessQuote.levels.map(lq => (
+                              <button
+                                key={lq.level}
+                                type="button"
+                                class={`access-level-card ${selectedLevel === lq.level ? 'access-level-selected' : ''} ${!lq.available ? 'access-level-locked' : ''}`}
+                                onClick={() => lq.available && setSelectedLevel(lq.level)}
+                                disabled={!lq.available}
+                              >
+                                <div class="access-level-header">
+                                  <span class="access-level-name">{lq.level}</span>
+                                  <span class="access-level-label">{_[`al-${lq.level}-name`]}</span>
+                                </div>
+                                <div class="access-level-desc">{_[`al-${lq.level}-desc`]}</div>
+                                {lq.available ? (
+                                  <div class="access-level-price">
+                                    <span class="access-level-bond">{fmtPrice(lq.bond)}</span>
+                                    <span class="oas-unit">OAS</span>
+                                  </div>
+                                ) : (
+                                  <div class="access-level-lock-reason">{_[lq.locked_reason || 'al-locked'] || _['al-locked']}</div>
+                                )}
+                                {lq.available && lq.liability_days > 0 && (
+                                  <div class="access-level-liability">{_['al-liability']} {lq.liability_days} {_['al-days']}</div>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div class="row gap-16 mt-16">
+                            <button class="btn btn-ghost grow" onClick={() => { setAccessQuote(null); setBuyStep('form'); }}>{_['back']}</button>
+                            <button class="btn btn-primary grow" onClick={() => onBuyAccess(a.asset_id)} disabled={loading}>
                               {loading ? _['buying'] : _['confirm-buy']}
                             </button>
                           </div>
@@ -401,10 +450,12 @@ export default function ExploreBrowse({ subpath }: Props) {
                       ) : buyStep === 'success' && buyResult ? (
                         <div class="col gap-8">
                           <div class="buy-success-banner">{_['buy-success']}</div>
-                          <div class="kv"><span class="kv-key">{_['shares-bought']}</span><span class="kv-val">{buyResult.shares}</span></div>
-                          <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val">{fmtPrice(buyResult.cost)} OAS</span></div>
-                          <div class="kv"><span class="kv-key">{_['new-price']}</span><span class="kv-val">{fmtPrice(buyResult.new_price)} OAS</span></div>
-                          <button class="btn btn-ghost btn-full mt-16" onClick={() => { resetActive(); setBuyAmt('10'); }}>{_['back']}</button>
+                          <div class="kv"><span class="kv-key">{_['al-granted']}</span><span class="kv-val">{buyResult.level}</span></div>
+                          <div class="kv"><span class="kv-key">{_['al-bond-paid']}</span><span class="kv-val">{fmtPrice(buyResult.bond)} OAS</span></div>
+                          {buyResult.liability_days > 0 && (
+                            <div class="kv"><span class="kv-key">{_['al-liability']}</span><span class="kv-val">{buyResult.liability_days} {_['al-days']}</span></div>
+                          )}
+                          <button class="btn btn-ghost btn-full mt-16" onClick={() => resetActive()}>{_['back']}</button>
                         </div>
                       ) : null
                     )}
@@ -423,6 +474,15 @@ export default function ExploreBrowse({ subpath }: Props) {
           ) : (
             <span class="caption">{_['no-more']}</span>
           )}
+        </div>
+      )}
+
+      {/* Data Preview overlay */}
+      {previewId && (
+        <div class="preview-overlay" onClick={() => setPreviewId(null)}>
+          <div class="preview-overlay-inner" onClick={e => e.stopPropagation()}>
+            <DataPreview assetId={previewId} onClose={() => setPreviewId(null)} />
+          </div>
         </div>
       )}
     </>

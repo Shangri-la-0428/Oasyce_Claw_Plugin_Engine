@@ -1,10 +1,10 @@
-"""Tests for oasyce_plugin.bridge.core_bridge integration with oasyce_core."""
+"""Tests for oasyce.bridge.core_bridge integration with oasyce."""
 
 import time
 import pytest
 
 try:
-    from oasyce_plugin.bridge.core_bridge import (
+    from oasyce.bridge.core_bridge import (
         bridge_buy,
         bridge_get_shares,
         bridge_quote,
@@ -13,11 +13,25 @@ try:
         metadata_to_capture_pack,
         reset_engine,
     )
+
     HAS_CORE = True
 except ImportError:
     HAS_CORE = False
 
-pytestmark = pytest.mark.skipif(not HAS_CORE, reason="oasyce_core not installed")
+
+def _chain_available():
+    try:
+        from oasyce.chain_client import OasyceClient
+
+        return OasyceClient().is_connected()
+    except Exception:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not HAS_CORE or not _chain_available(),
+    reason="Go chain not running (bridge tests require live chain)",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +56,7 @@ def _signed_metadata() -> dict:
 
 
 # -- metadata_to_capture_pack ------------------------------------------------
+
 
 class TestMetadataToCapturePack:
     def test_converts_with_unix_timestamp(self):
@@ -68,6 +83,7 @@ class TestMetadataToCapturePack:
 
 # -- bridge_register ---------------------------------------------------------
 
+
 class TestBridgeRegister:
     def test_successful_register(self):
         result = bridge_register(_signed_metadata())
@@ -86,6 +102,7 @@ class TestBridgeRegister:
 
 # -- bridge_quote -------------------------------------------------------------
 
+
 class TestBridgeQuote:
     def test_quote_for_registered_asset(self):
         reg = bridge_register(_signed_metadata())
@@ -102,6 +119,7 @@ class TestBridgeQuote:
 
 
 # -- bridge_buy ---------------------------------------------------------------
+
 
 class TestBridgeBuy:
     def test_buy_success(self):
@@ -130,6 +148,7 @@ class TestBridgeBuy:
 
 # -- bridge_stake / bridge_get_shares ----------------------------------------
 
+
 class TestBridgeStakeAndShares:
     def test_stake_returns_total(self):
         total = bridge_stake("validator_1", 150.0)
@@ -154,6 +173,7 @@ class TestBridgeStakeAndShares:
 
 
 # -- end-to-end: register → quote → buy → quote again ------------------------
+
 
 class TestEndToEnd:
     def test_full_pipeline(self):

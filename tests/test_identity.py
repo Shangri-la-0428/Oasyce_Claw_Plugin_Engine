@@ -1,5 +1,5 @@
 """
-Tests for oasyce_plugin.identity — Wallet identity module.
+Tests for oasyce.identity — Wallet identity module.
 """
 
 import json
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from oasyce_plugin.identity import Wallet, _load_or_create_encryption_key
+from oasyce.identity import Wallet, _load_or_create_encryption_key
 
 
 @pytest.fixture

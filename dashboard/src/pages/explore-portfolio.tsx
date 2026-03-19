@@ -5,6 +5,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { get } from '../api/client';
 import { i18n, walletAddress } from '../store/ui';
 import { maskIdShort, fmtPrice } from '../utils';
+import { DisputeForm, MyDisputes } from '../components/dispute-form';
 import './explore.css';
 
 interface Holding {
@@ -16,6 +17,7 @@ interface Holding {
 export default function ExplorePortfolio() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [holdingsLoading, setHoldingsLoading] = useState(false);
+  const [disputeAssetId, setDisputeAssetId] = useState<string | null>(null);
 
   const _ = i18n.value;
 
@@ -56,11 +58,35 @@ export default function ExplorePortfolio() {
                   <span class="portfolio-stat-label">{_['avg-price']}</span>
                   <span class="portfolio-stat-val">{fmtPrice(h.avg_price)}</span>
                 </div>
+                <button
+                  class="btn btn-sm btn-ghost"
+                  onClick={() => setDisputeAssetId(h.asset_id)}
+                  title={_['report-issue']}
+                >
+                  {_['report-issue']}
+                </button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* Dispute form overlay */}
+      {disputeAssetId && (
+        <div class="preview-overlay" onClick={() => setDisputeAssetId(null)}>
+          <div class="preview-overlay-inner" onClick={e => e.stopPropagation()}>
+            <DisputeForm
+              assetId={disputeAssetId}
+              onClose={() => setDisputeAssetId(null)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* My disputes section */}
+      <div class="mt-32">
+        <MyDisputes />
+      </div>
     </>
   );
 }
