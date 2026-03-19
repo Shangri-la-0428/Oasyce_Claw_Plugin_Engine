@@ -177,4 +177,22 @@ class ReputationEngine:
             agent.last_decay_check += periods * period_seconds
 
 
+    def decay_all(self) -> int:
+        """Apply time-based decay to ALL tracked agents.
+
+        Call this periodically (e.g., daily cron) to ensure inactive
+        agents don't retain stale reputation indefinitely.
+
+        Returns the number of agents whose scores changed.
+        """
+        changed = 0
+        with self._lock:
+            for agent_id, agent in list(self._agents.items()):
+                old_score = agent.score
+                self._decay(agent)
+                if agent.score != old_score:
+                    changed += 1
+        return changed
+
+
 __all__ = ["ReputationEngine", "AgentReputation"]

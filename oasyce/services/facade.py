@@ -207,6 +207,13 @@ class OasyceServiceFacade:
         Reputation constraints still apply: the granted level is capped
         by the agent's reputation tier.
 
+        **DESIGN NOTE -- live check, no caching.**  This method reads
+        equity and supply directly from the settlement engine on every
+        call.  If a user sells tokens, their equity % drops immediately
+        and subsequent access checks reflect the reduced level.  This
+        prevents the "buy access, sell tokens, keep access" race
+        condition without requiring session tracking or lock periods.
+
         Returns the level string ("L0"-"L3") or None if no equity or
         insufficient holdings.
         """
@@ -734,6 +741,21 @@ class OasyceServiceFacade:
             se = self._get_settlement()
             stats = se.protocol_stats()
             return ServiceResult(success=True, data=stats)
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    # -----------------------------------------------------------------------
+    # Reputation Decay (proactive)
+    # -----------------------------------------------------------------------
+    def decay_all_reputations(self) -> ServiceResult:
+        """Apply time-based reputation decay to all agents.
+
+        Should be called periodically (e.g., daily via cron or background task).
+        """
+        try:
+            rep = self._get_reputation()
+            changed = rep.decay_all()
+            return ServiceResult(success=True, data={"agents_decayed": changed})
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 

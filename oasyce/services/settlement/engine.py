@@ -32,6 +32,7 @@ RESERVE_RATIO = 0.5
 PROTOCOL_FEE_RATE = 0.05
 BURN_RATE = 0.02
 MIN_INITIAL_RESERVE = 100.0
+INITIAL_PRICE = 1.0  # OAS per token — fair bootstrap price for unfunded pools
 
 
 class SlippageError(Exception):
@@ -181,10 +182,11 @@ class SettlementEngine:
         if pool.reserve_balance > 0 and pool.supply > 0:
             tokens = pool.supply * ((1 + net_payment / pool.reserve_balance) ** RESERVE_RATIO - 1)
         elif pool.reserve_balance == 0:
-            # Unfunded pool: first buyer's net_payment becomes reserve, they get initial supply
-            tokens = net_payment * 10
+            # Bootstrap: price starts at INITIAL_PRICE (1.0 OAS/token).
+            # First buyer pays fair market rate — no 10x multiplier exploit.
+            tokens = net_payment / INITIAL_PRICE
         else:
-            tokens = net_payment * 10
+            tokens = net_payment / INITIAL_PRICE
 
         new_reserve = pool.reserve_balance + net_payment
         new_supply = pool.supply + tokens
@@ -353,7 +355,14 @@ class SettlementEngine:
         tokens_to_sell: float,
         max_slippage: Optional[float] = None,
     ) -> SettlementReceipt:
-        """Sell tokens back to the bonding curve and receive OAS payout."""
+        """Sell tokens back to the bonding curve and receive OAS payout.
+
+        Access-sell safety: equity-based access (get_equity_access_level) is
+        computed live from current holdings on every request — never cached.
+        Selling tokens immediately reduces equity %, so access level drops
+        the moment this sell settles.  No lock-period or session tracking is
+        needed because the facade re-checks equity on every access attempt.
+        """
         with self._lock:
             sq = self.sell_quote(asset_id, tokens_to_sell, seller, max_slippage)
             pool = self._pools[asset_id]
