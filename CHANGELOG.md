@@ -4,25 +4,37 @@ All notable changes to this project will be documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [2.0.0] - 2026-03-19
+## [2.1.0] - 2026-03-20
 
 ### Added
-- **Service Facade pattern**: unified entry point for CLI and GUI (consistent behavior across interfaces)
-- **Bonding Curve `sell()`**: inverse Bancor formula for selling shares back to the curve
-- **Slippage protection**: configurable max slippage on buy/sell, transactions revert if exceeded
-- **Settlement atomicity**: chain escrow is mandatory; full rollback on any failure (no partial settlements)
-- **Reputation hardening**: non-linear diminishing returns, Sybil-resistant scoring
-- **Dispute mechanism improvements**: fixed jury rewards, 5-juror collusion resistance threshold
-- **L0-L3 tiered access**: stake-based access levels with configurable requirements
-- **Auto-update command**: `oasyce update` for in-place upgrades
-- **Docker support**: Dockerfile and docker-compose for containerized deployment
-- **CI auto-publish**: GitHub Actions workflow publishes to PyPI on version tags (OIDC + fallback)
-- **Structured JSON error output**: all commands support `--json` for machine-readable errors
+- **Architecture enforcement tests**: CI-level guards prevent facade bypass, direct SQL writes, and direct engine instantiation
+- **Invariant tests**: explicit coverage for bootstrap pricing, self-dispute prevention, sell reserve validation, reputation decay
+- **Facade new methods**: `protocol_stats()`, `sell_quote()`, `get_pool_info()`, `list_pools()`, `get_portfolio()`, `update_asset_metadata()`, `delete_asset()`, `get_asset()`, `decay_all_reputations()`
+- **Ledger public API**: `get_asset_metadata()`, `set_asset_metadata()`, `update_asset_metadata()`, `update_asset_owner()`, `delete_asset()`, `list_assets()`, `list_blocks()`, `get_stakes_summary()`
+- **Proactive reputation decay**: `decay_all()` method for cron-based bulk decay of inactive agents
 
 ### Changed
-- Settlement engine now enforces escrow-first flow (breaking change from v1.x fire-and-forget)
-- Reputation scores use non-linear formula (existing scores recalculated on upgrade)
-- Dispute jury selection requires minimum 5 jurors with stake threshold
+- **Settlement bootstrap**: replaced exploitable 10x multiplier with fair `INITIAL_PRICE = 1.0 OAS/token`
+- **Settlement safety**: atomic state rollback on buy/sell failure, sell reserve validation (95% cap), `pools` property returns copy
+- **Dispute fairness**: self-dispute prevention, `log1p(rep)` juror selection (reduces high-rep bias), reputation callbacks on outcomes
+- **Facade thread safety**: double-checked locking on all lazy initializers
+- **Data access encapsulation**: facade has zero direct SQL — all through Ledger methods with thread locks
+- **GUI writes routed through Ledger**: re-register, tag update, delete now use Ledger API
+- **GUI settlement engine**: shares facade's instance (single source of truth)
+- **API /v1/buy**: routes through facade instead of direct engine
+- **Agent skills**: `discover_and_buy_skill()` routes through facade
+- **PBKDF2 iterations**: capability registry aligned to 480k (was 100k)
+- **Silent exceptions replaced with logging**: dispute manager callbacks now log warnings
+
+### Fixed
+- `sell_quote()` field name bug (`tokens_to_sell` → `tokens_sold`)
+- `get_equity_access_level()` uses safe accessors instead of mutable pool reference
+
+### Security
+- Reserve solvency invariant: gross payout capped at 95% of reserve
+- Fee accounting: protocol treasury + burn amounts tracked (no more fee black hole)
+- Equity-access mapping: live check on every request (no caching, instant revocation on sell)
+- Pool objects no longer directly mutable by external callers
 
 ## [2.0.0] - 2026-03-19
 

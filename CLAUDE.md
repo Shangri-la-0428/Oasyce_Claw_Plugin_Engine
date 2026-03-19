@@ -19,6 +19,7 @@ oasyce register <file> --owner <name> --tags <tag1,tag2>   # Register data asset
 oasyce search <keyword>                                      # Search assets
 oasyce quote <asset_id>                                      # Get price (Bonding Curve)
 oasyce buy <asset_id>                                        # Buy shares
+oasyce sell <asset_id> --tokens <n> --seller <name>          # Sell tokens back to bonding curve
 ```
 
 ### AI Capabilities
@@ -66,6 +67,7 @@ oasyce reputation feedback <target> --score 5   # Submit feedback
 ```bash
 oasyce access grant <asset_id> --to <address>   # Grant access
 oasyce access revoke <asset_id> --from <address> # Revoke access
+oasyce access buy <asset_id> --level L0|L1|L2|L3 --agent <name>  # Buy tiered access
 oasyce fingerprint <file>                        # Compute content fingerprint
 ```
 
@@ -123,6 +125,10 @@ oasyce info --json                     # Full info as JSON
 - **Discovery Recall->Rank**: Broad recall (intent OR semantic OR tag) then ranked by trust + feedback-adjusted economics.
 - **Risk Auto-Leveling**: Files auto-classified as `public`/`internal`/`sensitive` based on content, extension, and rights type.
 - **Capability Delivery**: Provider registers endpoint + encrypted API key -> consumer invokes via gateway -> escrow lock -> call -> settle (release/refund). 5% protocol fee.
+- **INITIAL_PRICE**: Fair bootstrap pricing — first buyer pays 1.0 OAS/token (no early-adopter exploit).
+- **Equity → Access**: Holding equity in an asset grants tiered access: ≥0.1% → L0, ≥1% → L1, ≥5% → L2, ≥10% → L3.
+- **Reputation Decay**: Scores decay over time (90-day cycle). Use `facade.decay_all_reputations()` for proactive bulk decay.
+- **Architecture Enforcement**: CI tests prevent direct SQL writes outside storage layer, direct engine instantiation outside facade, and ensure facade has zero raw SQL.
 - **Go Chain (oasyce-chain)**: Consensus (CometBFT), staking, delegation, slashing, governance, multi-asset balances, block production, and sync are all handled by the Cosmos SDK appchain. Use the `oasyced` CLI for direct chain interaction.
 
 ## Dashboard
@@ -179,6 +185,14 @@ oasyce/
 └── gui/app.py               # Dashboard SPA with tabbed about panel
 ```
 
+## Architecture Constraints (enforced by CI)
+
+- All business operations route through `OasyceServiceFacade` (single entry point).
+- No direct `_ledger._conn` WRITE access outside `oasyce/storage/`.
+- No `SettlementEngine()` instantiation outside facade.
+- Settlement engine shared between CLI, GUI, and API (single pool state).
+- Pool objects are read-only externally (safe accessors: `get_equity()`, `get_supply()`).
+
 ## Tips
 
 - Always run `oasyce doctor` first to verify setup.
@@ -187,3 +201,42 @@ oasyce/
 - For batch operations, prefer CLI over Dashboard.
 - The Dashboard starts on port 8420 with `oasyce serve`.
 - For chain-level operations (staking, governance, transfers), use the `oasyced` CLI from `oasyce-chain`.
+
+## Facade API (programmatic access)
+
+```python
+from oasyce.services.facade import OasyceServiceFacade, ServiceResult
+
+facade = OasyceServiceFacade()
+
+# Quote & Trade
+result = facade.quote("ASSET_ID", amount_oas=10.0)
+result = facade.buy("ASSET_ID", buyer="alice", amount_oas=10.0)
+result = facade.sell("ASSET_ID", seller="alice", tokens_to_sell=5.0)
+result = facade.sell_quote("ASSET_ID", tokens=5.0, seller="alice")
+
+# Access Control
+result = facade.access_quote("ASSET_ID", buyer="alice")
+result = facade.access_buy("ASSET_ID", buyer="alice", level="L2")
+
+# Portfolio & Pool Info
+result = facade.get_pool_info("ASSET_ID")
+result = facade.get_portfolio("alice")
+result = facade.list_pools()
+result = facade.protocol_stats()
+
+# Asset Management
+result = facade.register(file_path, owner, tags)
+result = facade.get_asset("ASSET_ID")
+result = facade.update_asset_metadata("ASSET_ID", {"tags": ["new"]})
+result = facade.delete_asset("ASSET_ID")
+
+# Disputes
+result = facade.dispute("ASSET_ID", consumer_id="bob", reason="...")
+result = facade.resolve_dispute(dispute_id="DIS_001")
+
+# Maintenance
+result = facade.decay_all_reputations()
+```
+
+All methods return `ServiceResult(success: bool, data: dict, error: str | None)`.
