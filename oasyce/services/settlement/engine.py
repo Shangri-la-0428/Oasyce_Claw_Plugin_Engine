@@ -8,6 +8,7 @@ Actual settlement operations go through the chain's settlement module.
 from __future__ import annotations
 
 import math
+import threading
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -95,7 +96,7 @@ class AssetPool:
     asset_id: str
     owner: str
     supply: float = 1.0
-    reserve_balance: float = MIN_INITIAL_RESERVE
+    reserve_balance: float = 0.0
     equity: Dict[str, float] = field(default_factory=dict)
 
     @property
@@ -117,18 +118,23 @@ class SettlementEngine:
         self._chain = OasyceClient(rest_url=self._config.rest_url)
         self._pools: Dict[str, AssetPool] = {}
         self.receipts: List[SettlementReceipt] = []
+        self._protocol_fees_collected: float = 0.0
+        self._total_burned: float = 0.0
+        self._lock = threading.Lock()
 
     @property
     def pools(self) -> Dict[str, AssetPool]:
         return self._pools
 
-    def register_asset(self, asset_id: str, owner: str) -> AssetPool:
+    def register_asset(self, asset_id: str, owner: str, initial_reserve: float = 0.0) -> AssetPool:
         if asset_id in self._pools:
             return self._pools[asset_id]
+        if initial_reserve > 0 and initial_reserve < MIN_INITIAL_RESERVE:
+            raise ValueError(f"Initial reserve must be >= {MIN_INITIAL_RESERVE} OAS or 0 (unfunded)")
         pool = AssetPool(
             asset_id=asset_id,
             owner=owner,
-            reserve_balance=self._config.min_initial_reserve,
+            reserve_balance=initial_reserve,
         )
         self._pools[asset_id] = pool
         return pool
@@ -159,6 +165,9 @@ class SettlementEngine:
 
         if pool.reserve_balance > 0 and pool.supply > 0:
             tokens = pool.supply * ((1 + net_payment / pool.reserve_balance) ** RESERVE_RATIO - 1)
+        elif pool.reserve_balance == 0:
+            # Unfunded pool: first buyer's net_payment becomes reserve, they get initial supply
+            tokens = net_payment * 10
         else:
             tokens = net_payment * 10
 
@@ -196,45 +205,53 @@ class SettlementEngine:
         Chain escrow creation is mandatory when chain_required=True (default).
         If chain escrow fails, local state is rolled back and receipt is FAILED.
         """
-        q = self.quote(asset_id, amount_oas, max_slippage=max_slippage)
-        pool = self._pools[asset_id]
+        with self._lock:
+            q = self.quote(asset_id, amount_oas, max_slippage=max_slippage)
+            pool = self._pools[asset_id]
 
-        # Update pool state
-        net = amount_oas - q.protocol_fee - q.burn_amount
-        pool.reserve_balance += net
-        pool.supply += q.equity_minted
-        pool.equity[buyer] = pool.equity.get(buyer, 0) + q.equity_minted
+            # Update pool state
+            net = amount_oas - q.protocol_fee - q.burn_amount
+            pool.reserve_balance += net
+            pool.supply += q.equity_minted
+            pool.equity[buyer] = pool.equity.get(buyer, 0) + q.equity_minted
 
-        receipt = SettlementReceipt(
-            receipt_id=uuid.uuid4().hex[:12],
-            status=TradeStatus.SETTLED,
-            asset_id=asset_id,
-            buyer=buyer,
-            amount_oas=amount_oas,
-            quote=q,
-        )
+            # Track fee accounting
+            self._protocol_fees_collected += q.protocol_fee
+            self._total_burned += q.burn_amount
 
-        # Chain escrow — mandatory for settlement integrity
-        try:
-            self._chain.chain.create_escrow(
-                creator=buyer,
-                provider=pool.owner,
-                amount_uoas=int(amount_oas * 1e8),
+            receipt = SettlementReceipt(
+                receipt_id=uuid.uuid4().hex[:12],
+                status=TradeStatus.SETTLED,
                 asset_id=asset_id,
+                buyer=buyer,
+                amount_oas=amount_oas,
+                quote=q,
             )
-        except (ChainClientError, Exception) as e:
-            if self._config.chain_required:
-                # Roll back local state
-                pool.reserve_balance -= net
-                pool.supply -= q.equity_minted
-                pool.equity[buyer] = pool.equity.get(buyer, 0) - q.equity_minted
-                if pool.equity.get(buyer, 0) <= 0:
-                    pool.equity.pop(buyer, None)
-                receipt.status = TradeStatus.FAILED
-                receipt.error = f"Chain escrow failed: {e}"
 
-        self.receipts.append(receipt)
-        return receipt
+            # Chain escrow — mandatory for settlement integrity
+            try:
+                self._chain.chain.create_escrow(
+                    creator=buyer,
+                    provider=pool.owner,
+                    amount_uoas=int(amount_oas * 1e8),
+                    asset_id=asset_id,
+                )
+            except (ChainClientError, Exception) as e:
+                if self._config.chain_required:
+                    # Roll back local state
+                    pool.reserve_balance -= net
+                    pool.supply -= q.equity_minted
+                    pool.equity[buyer] = pool.equity.get(buyer, 0) - q.equity_minted
+                    if pool.equity.get(buyer, 0) <= 0:
+                        pool.equity.pop(buyer, None)
+                    # Roll back fee accounting
+                    self._protocol_fees_collected -= q.protocol_fee
+                    self._total_burned -= q.burn_amount
+                    receipt.status = TradeStatus.FAILED
+                    receipt.error = f"Chain escrow failed: {e}"
+
+            self.receipts.append(receipt)
+            return receipt
 
     def execute(self, asset_id: str, buyer: str, payment_oas: float) -> SettlementReceipt:
         """Backward-compatible alias for buy()."""
@@ -273,6 +290,11 @@ class SettlementEngine:
         ratio = 1 - tokens_to_sell / pool.supply
         gross_payout = pool.reserve_balance * (1 - ratio ** (1 / RESERVE_RATIO))
 
+        # Invariant: payout cannot exceed 95% of reserve (keeps pool solvent)
+        max_payout = pool.reserve_balance * 0.95
+        if gross_payout > max_payout:
+            gross_payout = max_payout
+
         fee = gross_payout * PROTOCOL_FEE_RATE
         burn = gross_payout * BURN_RATE
         net_payout = gross_payout - fee - burn
@@ -307,48 +329,62 @@ class SettlementEngine:
         max_slippage: Optional[float] = None,
     ) -> SettlementReceipt:
         """Sell tokens back to the bonding curve and receive OAS payout."""
-        sq = self.sell_quote(asset_id, tokens_to_sell, seller, max_slippage)
-        pool = self._pools[asset_id]
+        with self._lock:
+            sq = self.sell_quote(asset_id, tokens_to_sell, seller, max_slippage)
+            pool = self._pools[asset_id]
 
-        # Update pool state
-        pool.reserve_balance -= sq.payout_oas + sq.protocol_fee + sq.burn_amount
-        pool.supply -= tokens_to_sell
-        pool.equity[seller] = pool.equity.get(seller, 0) - tokens_to_sell
-        if pool.equity.get(seller, 0) <= 0:
-            pool.equity.pop(seller, None)
+            # Update pool state
+            pool.reserve_balance -= sq.payout_oas + sq.protocol_fee + sq.burn_amount
+            pool.supply -= tokens_to_sell
+            pool.equity[seller] = pool.equity.get(seller, 0) - tokens_to_sell
+            if pool.equity.get(seller, 0) <= 0:
+                pool.equity.pop(seller, None)
 
-        receipt = SettlementReceipt(
-            receipt_id=uuid.uuid4().hex[:12],
-            status=TradeStatus.SETTLED,
-            asset_id=asset_id,
-            buyer=seller,  # seller in this context
-            amount_oas=sq.payout_oas,
-        )
+            # Track fee accounting
+            self._protocol_fees_collected += sq.protocol_fee
+            self._total_burned += sq.burn_amount
 
-        # Chain escrow refund — mandatory
-        try:
-            self._chain.chain.create_escrow(
-                creator=seller,
-                provider=pool.owner,
-                amount_uoas=int(sq.payout_oas * 1e8),
+            receipt = SettlementReceipt(
+                receipt_id=uuid.uuid4().hex[:12],
+                status=TradeStatus.SETTLED,
                 asset_id=asset_id,
+                buyer=seller,  # seller in this context
+                amount_oas=sq.payout_oas,
             )
-        except (ChainClientError, Exception) as e:
-            if self._config.chain_required:
-                # Roll back
-                pool.reserve_balance += sq.payout_oas + sq.protocol_fee + sq.burn_amount
-                pool.supply += tokens_to_sell
-                pool.equity[seller] = pool.equity.get(seller, 0) + tokens_to_sell
-                receipt.status = TradeStatus.FAILED
-                receipt.error = f"Chain escrow failed: {e}"
 
-        self.receipts.append(receipt)
-        return receipt
+            # Chain escrow refund — mandatory
+            try:
+                self._chain.chain.create_escrow(
+                    creator=seller,
+                    provider=pool.owner,
+                    amount_uoas=int(sq.payout_oas * 1e8),
+                    asset_id=asset_id,
+                )
+            except (ChainClientError, Exception) as e:
+                if self._config.chain_required:
+                    # Roll back
+                    pool.reserve_balance += sq.payout_oas + sq.protocol_fee + sq.burn_amount
+                    pool.supply += tokens_to_sell
+                    pool.equity[seller] = pool.equity.get(seller, 0) + tokens_to_sell
+                    # Roll back fee accounting
+                    self._protocol_fees_collected -= sq.protocol_fee
+                    self._total_burned -= sq.burn_amount
+                    receipt.status = TradeStatus.FAILED
+                    receipt.error = f"Chain escrow failed: {e}"
+
+            self.receipts.append(receipt)
+            return receipt
 
     # ── Stats ──────────────────────────────────────────────────────
 
-    def network_stats(self) -> Dict[str, Any]:
+    def protocol_stats(self) -> Dict[str, Any]:
         return {
+            "protocol_fees_collected": round(self._protocol_fees_collected, 6),
+            "total_burned": round(self._total_burned, 6),
             "pools": len(self._pools),
             "chain_connected": self._chain.is_chain_mode,
         }
+
+    def network_stats(self) -> Dict[str, Any]:
+        stats = self.protocol_stats()
+        return stats

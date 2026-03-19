@@ -46,6 +46,17 @@ REPUTATION_THRESHOLDS = {
     # R ≥ 50 → all levels
 }
 
+# Equity % thresholds → access level granted
+EQUITY_ACCESS_THRESHOLDS = [
+    (0.10, "L3"),   # >= 10% → L3 (Deliver)
+    (0.05, "L2"),   # >= 5%  → L2 (Compute)
+    (0.01, "L1"),   # >= 1%  → L1 (Sample)
+    (0.001, "L0"),  # >= 0.1% → L0 (Query)
+]
+
+# Map level string to numeric index for comparisons
+_LEVEL_INDEX = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
+
 
 # ---------------------------------------------------------------------------
 # Facade
@@ -156,6 +167,59 @@ class OasyceServiceFacade:
         return self._skills
 
     # -----------------------------------------------------------------------
+    # Equity → Access mapping
+    # -----------------------------------------------------------------------
+    def get_equity_access_level(self, asset_id: str, agent_id: str) -> Optional[str]:
+        """Determine access level granted by equity holdings.
+
+        Equity % of pool → access level:
+          >= 0.1% → L0 (Query)
+          >= 1%   → L1 (Sample)
+          >= 5%   → L2 (Compute)
+          >= 10%  → L3 (Deliver)
+
+        Reputation constraints still apply: the granted level is capped
+        by the agent's reputation tier.
+
+        Returns the level string ("L0"-"L3") or None if no equity or
+        insufficient holdings.
+        """
+        se = self._get_settlement()
+        pool = se.get_pool(asset_id)
+        if pool is None or pool.supply <= 0:
+            return None
+
+        holdings = pool.equity.get(agent_id, 0)
+        if holdings <= 0:
+            return None
+
+        pct = holdings / pool.supply
+
+        # Find highest qualifying level from equity
+        equity_level: Optional[str] = None
+        for threshold, level in EQUITY_ACCESS_THRESHOLDS:
+            if pct >= threshold:
+                equity_level = level
+                break
+
+        if equity_level is None:
+            return None
+
+        # Cap by reputation
+        rep = self._get_reputation()
+        score = rep.get_reputation(agent_id)
+        if score < REPUTATION_THRESHOLDS["sandbox"]:
+            max_idx = 0  # L0 only
+        elif score < REPUTATION_THRESHOLDS["limited"]:
+            max_idx = 1  # L0 + L1
+        else:
+            max_idx = 3  # all levels
+
+        equity_idx = _LEVEL_INDEX[equity_level]
+        capped_idx = min(equity_idx, max_idx)
+        return f"L{capped_idx}"
+
+    # -----------------------------------------------------------------------
     # Quote
     # -----------------------------------------------------------------------
     def quote(self, asset_id: str, amount_oas: float = 10.0) -> ServiceResult:
@@ -219,25 +283,25 @@ class OasyceServiceFacade:
             receipt = se.execute(asset_id, buyer, amount_oas)
             if receipt.status.value == "failed":
                 return ServiceResult(success=False, error=receipt.error or "Settlement failed")
-            return ServiceResult(
-                success=True,
-                data={
-                    "receipt_id": receipt.receipt_id,
-                    "asset_id": receipt.asset_id,
-                    "buyer": receipt.buyer,
-                    "amount_oas": receipt.amount_oas,
-                    "settled": True,
-                    "quote": (
-                        {
-                            "equity_minted": receipt.quote.equity_minted,
-                            "spot_price_after": receipt.quote.spot_price_after,
-                            "protocol_fee": receipt.quote.protocol_fee,
-                        }
-                        if receipt.quote
-                        else None
-                    ),
-                },
-            )
+            data = {
+                "receipt_id": receipt.receipt_id,
+                "asset_id": receipt.asset_id,
+                "buyer": receipt.buyer,
+                "amount_oas": receipt.amount_oas,
+                "settled": True,
+                "quote": (
+                    {
+                        "equity_minted": receipt.quote.equity_minted,
+                        "spot_price_after": receipt.quote.spot_price_after,
+                        "protocol_fee": receipt.quote.protocol_fee,
+                    }
+                    if receipt.quote
+                    else None
+                ),
+            }
+            # Equity → access: show what level the buyer now has
+            data["access_granted"] = self.get_equity_access_level(asset_id, buyer)
+            return ServiceResult(success=True, data=data)
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
@@ -311,12 +375,26 @@ class OasyceServiceFacade:
                     }
                 )
 
+            # Check what equity already grants
+            equity_level = self.get_equity_access_level(asset_id, buyer)
+            equity_idx = _LEVEL_INDEX.get(equity_level, -1) if equity_level else -1
+
+            # Mark levels covered by equity
+            for lv in levels:
+                lv_idx = _LEVEL_INDEX[lv["level"]]
+                if lv_idx <= equity_idx:
+                    lv["covered_by_equity"] = True
+                    lv["bond_oas"] = 0
+                else:
+                    lv["covered_by_equity"] = False
+
             return ServiceResult(
                 success=True,
                 data={
                     "asset_id": asset_id,
                     "buyer": buyer,
                     "reputation": round(score, 2),
+                    "equity_level": equity_level,
                     "levels": levels,
                 },
             )
@@ -351,6 +429,21 @@ class OasyceServiceFacade:
                 error=f"Access denied: {level_data['reason']}",
             )
 
+        # If equity already covers this level, skip bond purchase
+        if level_data.get("covered_by_equity"):
+            return ServiceResult(
+                success=True,
+                data={
+                    "asset_id": asset_id,
+                    "buyer": buyer,
+                    "level": level,
+                    "bond_oas": 0,
+                    "lock_days": 0,
+                    "via_equity": True,
+                    "receipt": None,
+                },
+            )
+
         # Execute the bond purchase
         bond_oas = level_data["bond_oas"]
         buy_result = self.buy(asset_id, buyer, bond_oas)
@@ -365,6 +458,7 @@ class OasyceServiceFacade:
                 "level": level,
                 "bond_oas": bond_oas,
                 "lock_days": level_data["lock_days"],
+                "via_equity": False,
                 "receipt": buy_result.data,
             },
         )

@@ -24,6 +24,7 @@ MAJORITY_THRESHOLD = 2 / 3  # 2/3 majority required
 MIN_JUROR_REPUTATION = 50.0
 JUROR_REWARD_FIXED = 2.0  # OAS per juror — fixed regardless of outcome
 JUROR_STAKE_REQUIRED = 10.0  # minimum stake to serve as juror
+VOTING_DEADLINE = 604800  # 7 days — disputes cannot hang forever
 
 # ── Liability-aligned dispute windows (seconds) ─────────────────────
 DISPUTE_WINDOWS_BY_LEVEL = {
@@ -82,6 +83,7 @@ class DisputeRecord:
     juror_ids: List[str] = field(default_factory=list)
     votes: List[JurorVote] = field(default_factory=list)
     juror_stakes: Dict[str, float] = field(default_factory=dict)
+    evidence: List[Dict[str, str]] = field(default_factory=list)
     outcome: Optional[ResolutionOutcome] = None
     slash_amount: float = 0.0
     created_at: int = field(default_factory=lambda: int(time.time()))
@@ -99,6 +101,8 @@ class DisputeResolution:
     slash_amount: float
     jury_reward: float
     jury_reward_per_juror: float
+    majority_jurors: List[str] = field(default_factory=list)
+    minority_jurors: List[str] = field(default_factory=list)
 
 
 class DisputeError(Exception):
@@ -335,6 +339,22 @@ class DisputeManager:
             outcome = ResolutionOutcome.NO_MAJORITY
             resolution = self._resolve_no_majority(dispute, inv)
 
+        # Populate majority/minority juror lists for reputation accountability
+        winning_verdict = (
+            Verdict.CONSUMER
+            if outcome == ResolutionOutcome.CONSUMER_WINS
+            else Verdict.PROVIDER
+            if outcome == ResolutionOutcome.PROVIDER_WINS
+            else None
+        )
+        if winning_verdict is not None:
+            resolution.majority_jurors = [
+                v.juror_id for v in dispute.votes if v.verdict == winning_verdict
+            ]
+            resolution.minority_jurors = [
+                v.juror_id for v in dispute.votes if v.verdict != winning_verdict
+            ]
+
         dispute.outcome = outcome
         dispute.state = DisputeState.RESOLVED
         dispute.resolved_at = int(time.time())
@@ -351,6 +371,123 @@ class DisputeManager:
         if dispute_id is None:
             return None
         return self._disputes.get(dispute_id)
+
+    def submit_evidence(
+        self,
+        dispute_id: str,
+        party_id: str,
+        evidence_hash: str,
+        description: str = "",
+    ) -> None:
+        """Submit evidence for a dispute. Both consumer and provider can submit."""
+        dispute = self._disputes.get(dispute_id)
+        if dispute is None:
+            raise DisputeError(f"dispute not found: {dispute_id}")
+
+        if dispute.state not in (DisputeState.OPEN, DisputeState.VOTING):
+            raise DisputeError(
+                f"cannot submit evidence in state {dispute.state.value}, "
+                "must be open or voting"
+            )
+
+        if party_id not in (dispute.consumer_id, dispute.provider_id):
+            raise DisputeError(
+                f"{party_id} is not a party to this dispute "
+                "(must be consumer or provider)"
+            )
+
+        dispute.evidence.append(
+            {
+                "party_id": party_id,
+                "evidence_hash": evidence_hash,
+                "description": description,
+                "submitted_at": str(int(time.time())),
+            }
+        )
+
+    def resolve_timeout(
+        self, dispute_id: str, now: Optional[int] = None
+    ) -> DisputeResolution:
+        """Auto-resolve if voting deadline has passed without all votes.
+
+        If current_time > dispute.created_at + VOTING_DEADLINE and not all
+        votes submitted:
+          - Count existing votes
+          - If majority exists among submitted votes, use that outcome
+          - If no majority (or no votes), outcome = NO_MAJORITY -> refund
+            consumer fee
+          - Mark dispute as RESOLVED
+        """
+        dispute = self._disputes.get(dispute_id)
+        if dispute is None:
+            raise DisputeError(f"dispute not found: {dispute_id}")
+        if dispute.state == DisputeState.RESOLVED:
+            raise DisputeError(f"dispute {dispute_id} is already resolved")
+        if dispute.state == DisputeState.CANCELLED:
+            raise DisputeError(f"dispute {dispute_id} is cancelled")
+
+        current_time = now if now is not None else int(time.time())
+        deadline = dispute.created_at + VOTING_DEADLINE
+
+        if current_time <= deadline:
+            raise DisputeError(
+                f"voting deadline has not passed yet "
+                f"({deadline - current_time}s remaining)"
+            )
+
+        jury_size = len(dispute.juror_ids)
+        # If all votes are in, use normal resolve()
+        if jury_size > 0 and len(dispute.votes) >= jury_size:
+            return self.resolve(dispute_id)
+
+        # Count existing votes
+        consumer_votes = sum(
+            1 for v in dispute.votes if v.verdict == Verdict.CONSUMER
+        )
+        provider_votes = sum(
+            1 for v in dispute.votes if v.verdict == Verdict.PROVIDER
+        )
+
+        inv = self._get_invocation(dispute.invocation_id)
+
+        # Determine outcome from submitted votes
+        total_votes = consumer_votes + provider_votes
+        if total_votes > 0 and consumer_votes > provider_votes:
+            outcome = ResolutionOutcome.CONSUMER_WINS
+            resolution = self._resolve_consumer_wins(dispute, inv)
+        elif total_votes > 0 and provider_votes > consumer_votes:
+            outcome = ResolutionOutcome.PROVIDER_WINS
+            resolution = self._resolve_provider_wins(dispute, inv)
+        else:
+            # No votes, tied, or no majority
+            outcome = ResolutionOutcome.NO_MAJORITY
+            resolution = self._resolve_no_majority(dispute, inv)
+
+        # Populate majority/minority juror lists
+        winning_verdict = (
+            Verdict.CONSUMER
+            if outcome == ResolutionOutcome.CONSUMER_WINS
+            else Verdict.PROVIDER
+            if outcome == ResolutionOutcome.PROVIDER_WINS
+            else None
+        )
+        if winning_verdict is not None:
+            resolution.majority_jurors = [
+                v.juror_id
+                for v in dispute.votes
+                if v.verdict == winning_verdict
+            ]
+            resolution.minority_jurors = [
+                v.juror_id
+                for v in dispute.votes
+                if v.verdict != winning_verdict
+            ]
+
+        dispute.outcome = outcome
+        dispute.state = DisputeState.RESOLVED
+        dispute.resolved_at = current_time
+
+        return resolution
 
     # ── Resolution helpers ───────────────────────────────────────────
 
