@@ -287,8 +287,8 @@ class TestDisputePath:
             handle.invocation_id, "consumer_bob", "output is garbage"
         )
 
-        # Select jury from eligible nodes
-        eligible = ["juror_1", "juror_2", "juror_3"]
+        # Select jury from eligible nodes (5 jurors for collusion resistance)
+        eligible = ["juror_1", "juror_2", "juror_3", "juror_4", "juror_5"]
         s["dispute"].select_jury(dispute_rec.dispute_id, eligible)
 
         # All jurors vote for consumer
@@ -309,7 +309,7 @@ class TestDisputePath:
         dispute_rec = s["dispute"].open_dispute(
             handle.invocation_id, "consumer_bob", "I don't like it"
         )
-        eligible = ["juror_1", "juror_2", "juror_3"]
+        eligible = ["juror_1", "juror_2", "juror_3", "juror_4", "juror_5"]
         s["dispute"].select_jury(dispute_rec.dispute_id, eligible)
 
         # All jurors vote for provider

@@ -97,81 +97,82 @@ class TestAccessLevel:
 
 class TestReputationEngine:
     def test_initial_score(self, reputation):
-        assert reputation.get_reputation("agent-1") == 10.0
+        assert reputation.get_reputation("agent-1") == 0.0
 
     def test_success_increases_score(self, reputation):
         score = reputation.update("agent-1", success=True)
-        assert score == 15.0  # 10 + 5
+        assert score == 2.0  # 0 + 2.0 * (1/(1+0/50)) = 2.0
 
     def test_damage_decreases_score(self, reputation):
-        # First boost the score so damage doesn't floor at 0
-        reputation.update("agent-1", success=True)
-        reputation.update("agent-1", success=True)
+        # Manually set score above damage penalty so it doesn't floor at 0
+        agent = reputation._ensure_agent("agent-1")
+        agent.score = 20.0
         score = reputation.update("agent-1", success=False)
-        # 10 + 5 + 5 - 10 = 10
+        # 20 + (-10) = 10
         assert score == 10.0
 
     def test_leak_penalty(self, reputation):
-        # Boost first — rate limit caps gain at 20/day
+        # Boost first — rate limit caps gain at 5/day
         for _ in range(12):
             reputation.update("agent-1", success=True)
-        # 10 + 20 (capped) = 30
+        # 0 + 5 (rate-limited) = 5
         score = reputation.update("agent-1", leak_detected=True)
-        # 30 - 50 = -20, floored at 0
+        # 5 - 50 = -45, floored at 0
         assert score == 0.0
 
     def test_score_floor_at_zero(self, reputation):
         score = reputation.update("agent-1", leak_detected=True)
-        # 10 - 50 = -40, floored at 0
+        # 0 - 50 = -50, floored at 0
         assert score == 0.0
 
     def test_time_decay(self, reputation):
-        # Boost: 10 + 20 (rate-limited) = 30
-        for _ in range(12):
-            reputation.update("agent-1", success=True)
-        # Apply 2 decay periods (180 days)
+        # Manually set score to test decay
+        agent = reputation._ensure_agent("agent-1")
+        agent.score = 30.0
+        # Apply 2 decay periods (180 days); success=False triggers damage too
         score = reputation.update("agent-1", time_since_last=180.0)
-        # 30 + (-10 damage) = 20, then -10 (2 periods) = 10, decay floor → max(10, 20) = 20
-        assert score == 20.0
+        # 30 + (-10 damage) = 20, then -10 (2 periods × -5) = 10
+        # decay floor → max(10, 0) = 10, hard floor → max(10, 0) = 10
+        assert score == 10.0
 
     def test_decay_floor(self, reputation):
-        # Boost: 10 + 20 (rate-limited) = 30
-        for _ in range(20):
-            reputation.update("agent-1", success=True)
+        # Manually set score to test massive decay
+        agent = reputation._ensure_agent("agent-1")
+        agent.score = 30.0
         # Apply massive decay (900 days = 10 periods)
         score = reputation.update("agent-1", time_since_last=900.0, success=True)
-        # 30 + 0 (rate-limited) - 50 (decay) = -20, decay floor → max(-20, 20) = 20
-        # hard floor → max(20, 0) = 20
-        assert score == 20.0
+        # 30 + gain (diminished, capped) - 50 (10 × -5 decay)
+        # With rep_floor=0, hard floor at 0
+        assert score == 0.0
 
     def test_bond_discount(self, reputation):
-        # Initial rep = 10 → discount = 1 - 10/100 = 0.9
+        # Initial rep = 0 → discount = 1 - 0/100 = 1.0
         discount = reputation.get_bond_discount("agent-1")
-        assert discount == 0.9
+        assert discount == 1.0
 
     def test_bond_discount_high_rep(self, reputation):
-        for _ in range(18):
-            reputation.update("agent-1", success=True)
-        # 10 + 20 (rate-limited) = 30, capped at 95
-        # discount = max(0.05, 1 - 30/100) = 0.7
+        # Manually set score to test discount
+        agent = reputation._ensure_agent("agent-1")
+        agent.score = 30.0
+        # discount = max(0.20, 1 - 30/100) = 0.7
         discount = reputation.get_bond_discount("agent-1")
         assert discount == 0.7
 
     def test_rep_cap_prevents_zero_bond(self, reputation):
-        """Security: even with maximum reputation (95), bond discount never reaches 0."""
+        """Security: even with maximum reputation (95), bond discount floor is 0.20."""
         # Manually set score near cap to bypass rate limit (internal test)
         agent = reputation._ensure_agent("agent-cap")
         agent.score = 95.0
         discount = reputation.get_bond_discount("agent-cap")
-        assert discount == 0.05  # floor
+        assert discount == 0.20  # floor (raised from 0.05)
         # Score can't exceed cap
         reputation.update("agent-cap", success=True)
         assert reputation.get_reputation("agent-cap") == 95.0
 
     def test_multiple_agents_independent(self, reputation):
         reputation.update("agent-1", success=True)
-        assert reputation.get_reputation("agent-1") == 15.0
-        assert reputation.get_reputation("agent-2") == 10.0
+        assert reputation.get_reputation("agent-1") == 2.0
+        assert reputation.get_reputation("agent-2") == 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -388,9 +389,9 @@ class TestDataAccessProviderAccess:
 
     def test_l1_allowed_after_reputation(self, provider, reputation):
         """After building reputation, L1 access is granted."""
-        for _ in range(3):
-            reputation.update("agent-1", success=True)
-        # rep = 10 + 15 = 25 > 20 threshold
+        # Manually set score above sandbox threshold (20)
+        agent = reputation._ensure_agent("agent-1")
+        agent.score = 25.0
         result = provider.sample("agent-1", "ASSET_001")
         assert result.success is True
 
@@ -404,9 +405,8 @@ class TestDataAccessProviderAccess:
 
     def test_l2_denied_for_limited_tier(self, provider, reputation):
         """Agents with 20 <= rep < 50 cannot access L2+."""
-        for _ in range(3):
-            reputation.update("agent-1", success=True)
-        # rep = 10 + 15 = 25, in limited tier (20-50)
+        agent = reputation._ensure_agent("agent-1")
+        agent.score = 25.0  # in limited tier (20-50)
         result = provider.compute("agent-1", "ASSET_001")
         assert result.success is False
 
@@ -436,33 +436,33 @@ class TestDataAccessProviderAccess:
 
 class TestBondCalculation:
     def test_l0_bond_public_new_agent(self, provider, reputation):
-        """L0, public risk, new agent (rep=10), no prior exposure.
+        """L0, public risk, new agent (rep=0), no prior exposure.
 
-        Bond = 1000 × 1.0 × 1.0 × 0.9 × 1.0 = 900.0
+        Bond = 1000 × 1.0 × 1.0 × 1.0 × 1.0 = 1000.0
         """
         result = provider.query("agent-1", "ASSET_001")
         assert result.success is True
-        assert result.bond_required == 900.0
+        assert result.bond_required == 1000.0
 
     def test_l3_bond_public(self, provider, reputation):
         """L3, public risk, rep set to 55 (above limited_threshold).
 
-        Bond = 1000 × 5.0 × 1.0 × (1 - 55/100) × 1.0 = 5000 × 0.45 = 2250
+        Bond = 1000 × 15.0 × 1.0 × (1 - 55/100) × 1.0 = 15000 × 0.45 = 6750
         """
         agent = reputation._ensure_agent("agent-l3")
         agent.score = 55.0
         result = provider.deliver("agent-l3", "ASSET_001")
         assert result.success is True
-        assert result.bond_required == 2250.0
+        assert result.bond_required == 6750.0
 
     def test_high_risk_multiplier(self, provider, reputation):
         """ASSET_002 has risk=high (2.0×) and value=500.
 
-        L0: Bond = 500 × 1.0 × 2.0 × 0.9 × 1.0 = 900.0
+        L0: Bond = 500 × 1.0 × 2.0 × 1.0 × 1.0 = 1000.0
         """
         result = provider.query("agent-1", "ASSET_002")
         assert result.success is True
-        assert result.bond_required == 900.0
+        assert result.bond_required == 1000.0
 
     def test_exposure_increases_bond(self, provider, reputation):
         """Repeated access increases exposure factor → higher bond."""
@@ -490,7 +490,7 @@ class TestBondCalculation:
 class TestAccessControlConfig:
     def test_multiplier_for(self, config):
         assert config.multiplier_for("L0") == 1.0
-        assert config.multiplier_for("L3") == 5.0
+        assert config.multiplier_for("L3") == 15.0
 
     def test_window_for(self, config):
         assert config.window_for("L0") == 86400
@@ -529,14 +529,15 @@ class TestSkillsAccessControl:
         assert result["bond_required"] > 0
 
     def test_skills_sample(self, skills):
-        # New agent (rep=10) is sandboxed → L1 denied
+        # New agent (rep=0) is sandboxed → L1 denied
         result = skills.sample_data_skill("agent-x", "ASSET_S1", sample_size=5)
         assert result["success"] is False
 
     def test_skills_sample_after_rep(self, skills):
         rep = skills.access_provider.reputation
-        for _ in range(3):
-            rep.update("agent-y", success=True)
+        # Manually set score above sandbox threshold (20)
+        agent = rep._ensure_agent("agent-y")
+        agent.score = 25.0
         result = skills.sample_data_skill("agent-y", "ASSET_S1", sample_size=5)
         assert result["success"] is True
         assert result["access_level"] == "L1"
@@ -544,8 +545,8 @@ class TestSkillsAccessControl:
     def test_skills_reputation(self, skills):
         result = skills.check_reputation_skill("agent-new")
         assert result["agent_id"] == "agent-new"
-        assert result["reputation"] == 10.0
-        assert result["bond_discount"] == 0.9
+        assert result["reputation"] == 0.0
+        assert result["bond_discount"] == 1.0
 
     def test_skills_query_unknown_asset(self, skills):
         result = skills.query_data_skill("agent-x", "NONEXIST", "")
@@ -571,9 +572,8 @@ class TestSkillsAccessControl:
     def test_skills_compute_denied_limited_tier(self, skills):
         """Agent with rep 20-50 (limited tier) cannot access L2."""
         rep = skills.access_provider.reputation
-        for _ in range(3):
-            rep.update("agent-lim", success=True)
-        # rep = 10 + 15 = 25, in limited tier
+        agent = rep._ensure_agent("agent-lim")
+        agent.score = 25.0  # in limited tier (20-50)
         result = skills.compute_data_skill("agent-lim", "ASSET_S1", "sum(col1)")
         assert result["success"] is False
 
@@ -681,50 +681,44 @@ class TestThreadSafety:
 
 
 class TestRepFloorAlignment:
-    def test_rep_floor_at_sandbox_threshold(self, config):
-        """rep_floor equals sandbox_threshold — decay stops at sandbox boundary."""
-        assert config.rep_floor == config.sandbox_threshold
+    def test_rep_floor_is_zero(self, config):
+        """rep_floor defaults to 0 — punished agents can decay to zero."""
+        assert config.rep_floor == 0.0
 
-    def test_rep_floor_is_twenty(self, config):
-        """rep_floor defaults to 20."""
-        assert config.rep_floor == 20.0
+    def test_sandbox_threshold(self, config):
+        """sandbox_threshold defaults to 20."""
+        assert config.sandbox_threshold == 20.0
 
     def test_limited_threshold(self, config):
         """limited_threshold defaults to 50."""
         assert config.limited_threshold == 50.0
 
-    def test_decay_stops_at_sandbox_boundary(self, reputation):
-        """With rep_floor=20, decay floors agent at sandbox threshold."""
-        # Boost to 30
-        for _ in range(5):
-            reputation.update("agent-1", success=True)
-        assert reputation.get_reputation("agent-1") >= 20.0
+    def test_decay_stops_at_floor(self, reputation):
+        """With rep_floor=0, decay floors agent at 0."""
+        # Manually set score to test decay
+        agent = reputation._ensure_agent("agent-1")
+        agent.score = 30.0
 
         # Heavy decay: 900 days = 10 periods × -5 = -50
         score = reputation.update("agent-1", time_since_last=900.0, success=True)
-        # 30 + 0 (rate-limited) then decay: -50 → 30-50 = -20, decay floor → max(-20, 20) = 20
-        # hard floor → max(20, 0) = 20
-        assert score == 20.0
-
-    def test_penalty_can_push_below_sandbox(self, reputation):
-        """Penalties (leak) can push rep below sandbox_threshold despite rep_floor."""
-        # Leak penalty bypasses decay floor, only hard-floor (0) applies
-        score = reputation.update("agent-1", leak_detected=True)
-        # 10 - 50 = -40, hard-floor → 0
+        # 30 + gain (small, diminished) - 50 (decay) → negative, floor at 0
         assert score == 0.0
 
-    def test_inactive_agent_decays_to_sandbox(self, reputation, config):
-        """Long-inactive agent decays to sandbox zone (rep_floor=20)."""
-        # Build reputation above sandbox threshold
-        for _ in range(5):
-            reputation.update("agent-1", success=True)
-        rep_before = reputation.get_reputation("agent-1")
-        assert rep_before >= config.sandbox_threshold
+    def test_penalty_pushes_to_zero(self, reputation):
+        """Penalties (leak) push rep to floor (0)."""
+        score = reputation.update("agent-1", leak_detected=True)
+        # 0 - 50 = -50, hard-floor → 0
+        assert score == 0.0
+
+    def test_inactive_agent_decays_to_zero(self, reputation, config):
+        """Long-inactive agent decays to rep_floor (0)."""
+        # Manually set reputation above sandbox threshold
+        agent = reputation._ensure_agent("agent-1")
+        agent.score = 30.0
+        assert agent.score >= config.sandbox_threshold
 
         # Simulate very long inactivity via manual decay
         score = reputation.update("agent-1", time_since_last=1800.0)
-        # Order: damage(-10) first → 30-10=20, then decay(-100) → 20-100=-80
-        # → decay floor max(-80, 20) = 20, hard floor max(20, 0) = 20
-        assert score == 20.0
-        # At sandbox boundary — agent is exactly at sandbox_threshold
-        assert score == config.sandbox_threshold
+        # damage(-10) → 20, then decay: int(1800/90)=20 periods × -5 = -100 → 20-100=-80
+        # decay floor max(-80, 0) = 0, hard floor max(0, 0) = 0
+        assert score == 0.0

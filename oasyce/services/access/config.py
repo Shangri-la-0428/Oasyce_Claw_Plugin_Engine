@@ -17,19 +17,24 @@ class AccessControlConfig:
     L0_multiplier: float = 1.0
     L1_multiplier: float = 2.0
     L2_multiplier: float = 3.0
-    L3_multiplier: float = 5.0
+    L3_multiplier: float = 15.0  # raised from 5.0 — reflects full data exposure risk
 
     # ─── Reputation parameters ────────────────────────────────────
-    rep_initial: float = 10.0
-    rep_success: float = 5.0  # α — successful access
+    rep_initial: float = 0.0  # start at 0, not sandbox — agents must earn trust
+    rep_success: float = 2.0  # α — successful access (lowered from 5.0 for Sybil resistance)
     rep_damage: float = -10.0  # β — data damage / error
     rep_leak: float = -50.0  # γ — watermark leak detected
     rep_decay_days: int = 90  # decay period
     rep_decay_amount: float = -5.0  # δ — per decay period
-    rep_floor: float = 20.0  # absolute minimum (after decay) — sandbox zone floor
+    rep_floor: float = 0.0  # absolute minimum — punished agents can decay to 0
     rep_cap: float = 95.0  # absolute maximum — prevents zero/negative bonds
-    rep_max_gain_per_day: float = 20.0  # max reputation gain in a 24h rolling window
-    bond_discount_floor: float = 0.05  # minimum bond discount factor (1 - R/100 ≥ this)
+    rep_max_gain_per_day: float = 5.0  # max reputation gain in 24h (lowered from 20)
+    rep_nonlinear_half: float = 50.0  # score at which gain rate halves (diminishing returns)
+    bond_discount_floor: float = 0.20  # minimum bond = 20% of base (raised from 5%)
+
+    # ─── Minimum stake for high-level access ────────────────────
+    min_stake_l2: float = 100.0  # OAS staked to access L2 (independent of reputation)
+    min_stake_l3: float = 500.0  # OAS staked to access L3
 
     # ─── Liability windows (seconds) ─────────────────────────────
     L0_window: int = 86400  # 1 day

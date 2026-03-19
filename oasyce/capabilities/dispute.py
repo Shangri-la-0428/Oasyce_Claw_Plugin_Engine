@@ -18,10 +18,20 @@ from typing import Any, Callable, Dict, List, Optional
 
 # ── Constants ────────────────────────────────────────────────────────
 DISPUTE_FEE = 5.0  # OAS — anti-spam, refunded if consumer wins
-DEFAULT_DISPUTE_WINDOW = 3600  # seconds (1 hour)
-DEFAULT_JURY_SIZE = 3
+DEFAULT_DISPUTE_WINDOW = 3600  # seconds (1 hour — overridden per access level)
+DEFAULT_JURY_SIZE = 5  # raised from 3 for collusion resistance
 MAJORITY_THRESHOLD = 2 / 3  # 2/3 majority required
 MIN_JUROR_REPUTATION = 50.0
+JUROR_REWARD_FIXED = 2.0  # OAS per juror — fixed regardless of outcome
+JUROR_STAKE_REQUIRED = 10.0  # minimum stake to serve as juror
+
+# ── Liability-aligned dispute windows (seconds) ─────────────────────
+DISPUTE_WINDOWS_BY_LEVEL = {
+    "L0": 86400,  # 1 day
+    "L1": 259200,  # 3 days
+    "L2": 604800,  # 7 days
+    "L3": 2592000,  # 30 days
+}
 
 
 class DisputeState(str, enum.Enum):
@@ -71,6 +81,7 @@ class DisputeRecord:
     state: DisputeState = DisputeState.OPEN
     juror_ids: List[str] = field(default_factory=list)
     votes: List[JurorVote] = field(default_factory=list)
+    juror_stakes: Dict[str, float] = field(default_factory=dict)
     outcome: Optional[ResolutionOutcome] = None
     slash_amount: float = 0.0
     created_at: int = field(default_factory=lambda: int(time.time()))
@@ -147,6 +158,7 @@ class DisputeManager:
         consumer_id: str,
         reason: str,
         dispute_window: int = DEFAULT_DISPUTE_WINDOW,
+        access_level: Optional[str] = None,
         now: Optional[int] = None,
     ) -> DisputeRecord:
         """Open a dispute for an invocation.
@@ -174,6 +186,10 @@ class DisputeManager:
         state_val = inv.state.value if hasattr(inv.state, "value") else str(inv.state)
         if state_val not in ("completed", "disputed"):
             raise DisputeError(f"can only dispute completed invocations, got {state_val}")
+
+        # Override dispute window to match access level liability window
+        if access_level and access_level in DISPUTE_WINDOWS_BY_LEVEL:
+            dispute_window = DISPUTE_WINDOWS_BY_LEVEL[access_level]
 
         # Check dispute window
         current_time = now if now is not None else int(time.time())
@@ -218,13 +234,14 @@ class DisputeManager:
         """
         dispute = self._require_dispute(dispute_id, DisputeState.OPEN)
 
-        # Filter eligible candidates
+        # Filter eligible candidates (reputation + stake)
         candidates: List[str] = []
         for node_id in eligible_nodes:
             if node_id in (dispute.consumer_id, dispute.provider_id):
                 continue
             rep = self._get_reputation(node_id)
-            if rep >= MIN_JUROR_REPUTATION:
+            stake = self._get_stake(node_id)
+            if rep >= MIN_JUROR_REPUTATION and stake >= JUROR_STAKE_REQUIRED:
                 candidates.append(node_id)
 
         if len(candidates) < jury_size:
@@ -367,10 +384,10 @@ class DisputeManager:
             escrow_amount = getattr(inv, "price", 0.0)
             self._deposit_fn(dispute.consumer_id, escrow_amount + dispute.dispute_fee)
 
-        # Jury reward from slashed amount
-        jury_reward = slash_amount
+        # Fixed jury reward — independent of outcome to eliminate bias
         jury_size = len(dispute.juror_ids)
-        jury_reward_per_juror = jury_reward / jury_size if jury_size > 0 else 0.0
+        jury_reward = JUROR_REWARD_FIXED * jury_size
+        jury_reward_per_juror = JUROR_REWARD_FIXED
 
         dispute.slash_amount = slash_amount
 
@@ -389,11 +406,13 @@ class DisputeManager:
         dispute: DisputeRecord,
         inv: Any,
     ) -> DisputeResolution:
-        """Provider wins: release escrow, consumer loses dispute fee (goes to jury)."""
-        # Consumer loses dispute fee — distributed to jury
+        """Provider wins: release escrow, consumer loses dispute fee.
+
+        Jury reward is fixed — same as consumer_wins to eliminate incentive bias.
+        """
         jury_size = len(dispute.juror_ids)
-        jury_reward = dispute.dispute_fee
-        jury_reward_per_juror = jury_reward / jury_size if jury_size > 0 else 0.0
+        jury_reward = JUROR_REWARD_FIXED * jury_size
+        jury_reward_per_juror = JUROR_REWARD_FIXED
 
         return DisputeResolution(
             dispute_id=dispute.dispute_id,
@@ -410,10 +429,14 @@ class DisputeManager:
         dispute: DisputeRecord,
         inv: Any,
     ) -> DisputeResolution:
-        """No majority: refund all, no slash."""
+        """No majority: refund all, no slash. Jurors still get fixed reward."""
         # Refund dispute fee to consumer
         if self._deposit_fn is not None:
             self._deposit_fn(dispute.consumer_id, dispute.dispute_fee)
+
+        jury_size = len(dispute.juror_ids)
+        jury_reward = JUROR_REWARD_FIXED * jury_size
+        jury_reward_per_juror = JUROR_REWARD_FIXED
 
         return DisputeResolution(
             dispute_id=dispute.dispute_id,
@@ -421,8 +444,8 @@ class DisputeManager:
             consumer_refunded=True,
             provider_paid=False,
             slash_amount=0.0,
-            jury_reward=0.0,
-            jury_reward_per_juror=0.0,
+            jury_reward=jury_reward,
+            jury_reward_per_juror=jury_reward_per_juror,
         )
 
     # ── Internal helpers ─────────────────────────────────────────────

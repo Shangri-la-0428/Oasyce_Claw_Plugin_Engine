@@ -37,7 +37,7 @@ ACCESS_LEVELS = {
     "L0": {"name": "Query", "multiplier": 1.0, "lock_days": 1},
     "L1": {"name": "Sample", "multiplier": 2.0, "lock_days": 3},
     "L2": {"name": "Compute", "multiplier": 3.0, "lock_days": 7},
-    "L3": {"name": "Deliver", "multiplier": 5.0, "lock_days": 30},
+    "L3": {"name": "Deliver", "multiplier": 15.0, "lock_days": 30},
 }
 
 REPUTATION_THRESHOLDS = {
@@ -157,6 +157,8 @@ class OasyceServiceFacade:
                     return ServiceResult(success=False, error=str(e))
 
             receipt = se.execute(asset_id, buyer, amount_oas)
+            if receipt.status.value == "failed":
+                return ServiceResult(success=False, error=receipt.error or "Settlement failed")
             return ServiceResult(
                 success=True,
                 data={
@@ -174,6 +176,35 @@ class OasyceServiceFacade:
                         if receipt.quote
                         else None
                     ),
+                },
+            )
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    # -----------------------------------------------------------------------
+    # Sell
+    # -----------------------------------------------------------------------
+    def sell(
+        self,
+        asset_id: str,
+        seller: str,
+        tokens_to_sell: float,
+        max_slippage: Optional[float] = None,
+    ) -> ServiceResult:
+        """Sell tokens back to the bonding curve for OAS payout."""
+        try:
+            se = self._get_settlement()
+            receipt = se.sell(asset_id, seller, tokens_to_sell, max_slippage)
+            if receipt.status.value == "failed":
+                return ServiceResult(success=False, error=receipt.error or "Sell failed")
+            return ServiceResult(
+                success=True,
+                data={
+                    "receipt_id": receipt.receipt_id,
+                    "asset_id": receipt.asset_id,
+                    "seller": seller,
+                    "payout_oas": receipt.amount_oas,
+                    "settled": True,
                 },
             )
         except Exception as e:

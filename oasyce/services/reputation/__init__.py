@@ -5,16 +5,19 @@ Tracks per-agent reputation scores that influence bond discounts and
 sandbox restrictions.
 
 Update formula:
-  R(t+1) = R(t) + α·S − β·D − γ·L − δ·T
+  R(t+1) = R(t) + α·S·D(R) − β·D − γ·L − δ·T
 
-  α = +5   successful access
+  α = +2   successful access (Sybil-resistant: lowered from 5)
   β = −10  data damage / wrong result
   γ = −50  watermark leak detected
   δ = −5   time decay (every 90 days)
 
-  Initial score = 10  (sandbox mode)
-  Floor          = 0  (after decay only — penalties can go lower)
-  Sandbox mode   = R < 20 → agent restricted to L0
+  D(R) = 1 / (1 + R/50)  — non-linear diminishing returns on gain
+
+  Initial score = 0   (must earn trust from scratch)
+  Floor         = 0   (punished agents can decay to 0)
+  Max gain/day  = 5   (prevents rapid Sybil farming)
+  Sandbox mode  = R < 20 → agent restricted to L0
 """
 
 from __future__ import annotations
@@ -126,10 +129,14 @@ class ReputationEngine:
     # ─── Internals ────────────────────────────────────────────────
 
     def _capped_gain(self, agent: AgentReputation, raw_gain: float) -> float:
-        """Apply per-day rate limit on reputation gains.
+        """Apply per-day rate limit and non-linear diminishing returns.
 
-        Resets the rolling window every 24 hours. Returns the actual gain
-        allowed (may be less than raw_gain if daily cap is reached).
+        Non-linear decay: actual_gain = raw_gain * (1 / (1 + score / half))
+        where half = rep_nonlinear_half (default 50). At score=50, gain is
+        halved; at score=100, gain is 1/3. This makes high reputation
+        progressively harder to reach, resisting Sybil farming.
+
+        Resets the rolling window every 24 hours.
         """
         now = time.time()
         window = 86400  # 24 hours
@@ -137,10 +144,14 @@ class ReputationEngine:
             agent.gain_today = 0.0
             agent.gain_window_start = now
 
+        # Non-linear diminishing returns
+        half = getattr(self.config, "rep_nonlinear_half", 50.0)
+        diminished = raw_gain * (1.0 / (1.0 + agent.score / half))
+
         remaining = self.config.rep_max_gain_per_day - agent.gain_today
         if remaining <= 0:
             return 0.0
-        actual = min(raw_gain, remaining)
+        actual = min(diminished, remaining)
         agent.gain_today += actual
         return actual
 

@@ -41,6 +41,7 @@ from oasyce.capabilities.dispute import (
     DISPUTE_FEE,
     DEFAULT_DISPUTE_WINDOW,
     MIN_JUROR_REPUTATION,
+    JUROR_REWARD_FIXED,
 )
 from oasyce.capabilities.escrow import (
     EscrowManager,
@@ -633,10 +634,10 @@ class TestJuryVoting:
 
     def _setup_voting(self):
         inv = _FakeInvocation()
-        reps = {"j1": 60.0, "j2": 70.0, "j3": 80.0}
+        reps = {"j1": 60.0, "j2": 70.0, "j3": 80.0, "j4": 65.0, "j5": 55.0}
         dm, slash_log, deposit_log = _make_dispute_manager({"inv-1": inv}, reputations=reps)
         dispute = dm.open_dispute("inv-1", "consumer-1", "bad")
-        jurors = dm.select_jury(dispute.dispute_id, ["j1", "j2", "j3"])
+        jurors = dm.select_jury(dispute.dispute_id, ["j1", "j2", "j3", "j4", "j5"])
         return dm, dispute, jurors, slash_log, deposit_log
 
     def test_submit_vote_success(self):
@@ -673,7 +674,7 @@ class TestDisputeResolution:
     def _setup_and_vote(self, votes_config):
         """votes_config: list of (juror_index, verdict_str)"""
         inv = _FakeInvocation()
-        reps = {"j1": 60.0, "j2": 70.0, "j3": 80.0}
+        reps = {"j1": 60.0, "j2": 70.0, "j3": 80.0, "j4": 65.0, "j5": 55.0}
         stakes = {"provider-1": 500.0}
         manifest = _make_manifest()
         dm, slash_log, deposit_log = _make_dispute_manager(
@@ -683,17 +684,19 @@ class TestDisputeResolution:
             manifests={manifest.capability_id: manifest},
         )
         dispute = dm.open_dispute("inv-1", "consumer-1", "bad")
-        jurors = dm.select_jury(dispute.dispute_id, ["j1", "j2", "j3"])
+        jurors = dm.select_jury(dispute.dispute_id, ["j1", "j2", "j3", "j4", "j5"])
         for idx, verdict in votes_config:
             dm.submit_vote(dispute.dispute_id, jurors[idx], verdict)
         return dm, dispute, jurors, slash_log, deposit_log
 
-    def test_consumer_wins_2_of_3(self):
+    def test_consumer_wins_4_of_5(self):
         dm, dispute, jurors, slash_log, deposit_log = self._setup_and_vote(
             [
                 (0, "consumer"),
                 (1, "consumer"),
-                (2, "provider"),
+                (2, "consumer"),
+                (3, "consumer"),
+                (4, "provider"),
             ]
         )
         res = dm.resolve(dispute.dispute_id)
@@ -708,23 +711,27 @@ class TestDisputeResolution:
         assert deposit_log[0][0] == "consumer-1"
         assert deposit_log[0][1] == 10.0 + DISPUTE_FEE  # price + fee
 
-    def test_consumer_wins_3_of_3(self):
+    def test_consumer_wins_5_of_5(self):
         dm, dispute, jurors, slash_log, deposit_log = self._setup_and_vote(
             [
                 (0, "consumer"),
                 (1, "consumer"),
                 (2, "consumer"),
+                (3, "consumer"),
+                (4, "consumer"),
             ]
         )
         res = dm.resolve(dispute.dispute_id)
         assert res.outcome == ResolutionOutcome.CONSUMER_WINS
 
-    def test_provider_wins_2_of_3(self):
+    def test_provider_wins_4_of_5(self):
         dm, dispute, jurors, slash_log, deposit_log = self._setup_and_vote(
             [
                 (0, "provider"),
                 (1, "provider"),
-                (2, "consumer"),
+                (2, "provider"),
+                (3, "provider"),
+                (4, "consumer"),
             ]
         )
         res = dm.resolve(dispute.dispute_id)
@@ -732,18 +739,20 @@ class TestDisputeResolution:
         assert res.consumer_refunded is False
         assert res.provider_paid is True
         assert res.slash_amount == 0.0
-        # Jury gets dispute fee
-        assert res.jury_reward == DISPUTE_FEE
-        assert res.jury_reward_per_juror == pytest.approx(DISPUTE_FEE / 3)
+        # Fixed jury reward — independent of outcome
+        assert res.jury_reward == pytest.approx(JUROR_REWARD_FIXED * 5)
+        assert res.jury_reward_per_juror == pytest.approx(JUROR_REWARD_FIXED)
         # No slash
         assert slash_log == []
 
-    def test_provider_wins_3_of_3(self):
+    def test_provider_wins_5_of_5(self):
         dm, dispute, jurors, slash_log, deposit_log = self._setup_and_vote(
             [
                 (0, "provider"),
                 (1, "provider"),
                 (2, "provider"),
+                (3, "provider"),
+                (4, "provider"),
             ]
         )
         res = dm.resolve(dispute.dispute_id)
@@ -763,12 +772,12 @@ class TestDisputeResolution:
 
     def test_resolve_incomplete_votes_rejected(self):
         inv = _FakeInvocation()
-        reps = {"j1": 60.0, "j2": 70.0, "j3": 80.0}
+        reps = {"j1": 60.0, "j2": 70.0, "j3": 80.0, "j4": 65.0, "j5": 55.0}
         dm, _, _ = _make_dispute_manager({"inv-1": inv}, reputations=reps)
         dispute = dm.open_dispute("inv-1", "consumer-1", "bad")
-        dm.select_jury(dispute.dispute_id, ["j1", "j2", "j3"])
+        dm.select_jury(dispute.dispute_id, ["j1", "j2", "j3", "j4", "j5"])
         dm.submit_vote(dispute.dispute_id, "j1", "consumer")
-        # Only 1 of 3 voted
+        # Only 1 of 5 voted
         with pytest.raises(DisputeError, match="not all jurors"):
             dm.resolve(dispute.dispute_id)
 
@@ -778,7 +787,9 @@ class TestDisputeResolution:
             [
                 (0, "consumer"),
                 (1, "consumer"),
-                (2, "provider"),
+                (2, "consumer"),
+                (3, "consumer"),
+                (4, "provider"),
             ]
         )
         res = dm.resolve(dispute.dispute_id)
@@ -786,17 +797,21 @@ class TestDisputeResolution:
         assert res.slash_amount == pytest.approx(500.0 * 0.20)
         assert slash_log[0][1] == pytest.approx(100.0)
 
-    def test_jury_rewarded_from_slash(self):
+    def test_jury_rewarded_fixed(self):
+        """Jury reward is fixed per juror, independent of outcome."""
         dm, dispute, jurors, slash_log, _ = self._setup_and_vote(
             [
                 (0, "consumer"),
                 (1, "consumer"),
-                (2, "provider"),
+                (2, "consumer"),
+                (3, "consumer"),
+                (4, "provider"),
             ]
         )
         res = dm.resolve(dispute.dispute_id)
-        assert res.jury_reward == res.slash_amount
-        assert res.jury_reward_per_juror == pytest.approx(res.slash_amount / 3)
+        # Fixed reward: JUROR_REWARD_FIXED (2.0) × 5 jurors = 10.0
+        assert res.jury_reward == pytest.approx(JUROR_REWARD_FIXED * 5)
+        assert res.jury_reward_per_juror == pytest.approx(JUROR_REWARD_FIXED)
 
     def test_dispute_state_after_resolve(self):
         dm, dispute, jurors, _, _ = self._setup_and_vote(
@@ -804,6 +819,8 @@ class TestDisputeResolution:
                 (0, "consumer"),
                 (1, "consumer"),
                 (2, "consumer"),
+                (3, "consumer"),
+                (4, "consumer"),
             ]
         )
         dm.resolve(dispute.dispute_id)
@@ -1022,7 +1039,7 @@ class TestFullDisputeFlow:
         # Open dispute via DisputeManager
         slash_log = []
         deposit_log = []
-        reps = {"j1": 60.0, "j2": 70.0, "j3": 80.0}
+        reps = {"j1": 60.0, "j2": 70.0, "j3": 80.0, "j4": 65.0, "j5": 55.0}
         dm = DisputeManager(
             get_invocation=lambda iid: engine.get_invocation(iid),
             get_reputation=lambda aid: reps.get(aid, 10.0),
@@ -1035,7 +1052,7 @@ class TestFullDisputeFlow:
         )
 
         dispute = dm.open_dispute(handle.invocation_id, "consumer-1", "bad output")
-        jurors = dm.select_jury(dispute.dispute_id, ["j1", "j2", "j3"])
+        jurors = dm.select_jury(dispute.dispute_id, ["j1", "j2", "j3", "j4", "j5"])
 
         # All jurors vote for consumer
         for j in jurors:
@@ -1058,7 +1075,7 @@ class TestFullDisputeFlow:
         engine.submit_result(handle.invocation_id, {"result": "ok"})
 
         slash_log = []
-        reps = {"j1": 60.0, "j2": 70.0, "j3": 80.0}
+        reps = {"j1": 60.0, "j2": 70.0, "j3": 80.0, "j4": 65.0, "j5": 55.0}
         dm = DisputeManager(
             get_invocation=lambda iid: engine.get_invocation(iid),
             get_reputation=lambda aid: reps.get(aid, 10.0),
@@ -1071,7 +1088,7 @@ class TestFullDisputeFlow:
         )
 
         dispute = dm.open_dispute(handle.invocation_id, "consumer-1", "bad")
-        jurors = dm.select_jury(dispute.dispute_id, ["j1", "j2", "j3"])
+        jurors = dm.select_jury(dispute.dispute_id, ["j1", "j2", "j3", "j4", "j5"])
         for j in jurors:
             dm.submit_vote(dispute.dispute_id, j, "provider", "looks fine")
 
