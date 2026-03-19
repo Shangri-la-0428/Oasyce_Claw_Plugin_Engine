@@ -302,68 +302,40 @@ def cmd_price_factors(args):
 
 def cmd_dispute(args):
     """File a dispute against an asset."""
+    from oasyce.services.facade import OasyceServiceFacade
+
     config = Config.from_env()
     from oasyce.storage.ledger import Ledger
 
     ledger = Ledger(config.db_path) if config.db_path else None
-    if not ledger:
-        print("❌ Ledger not available", file=sys.stderr)
+
+    facade = OasyceServiceFacade(config=config, ledger=ledger)
+    invocation_id = getattr(args, "invocation_id", None)
+    consumer_id = getattr(args, "consumer", None) or "local"
+
+    result = facade.dispute(
+        asset_id=args.asset_id,
+        consumer_id=consumer_id,
+        reason=args.reason,
+        invocation_id=invocation_id,
+    )
+
+    if not result.success:
+        _output_error(args, result.error, code="DISPUTE_FAILED")
         sys.exit(1)
 
-    try:
-        row = ledger._conn.execute(
-            "SELECT metadata FROM assets WHERE asset_id = ?", (args.asset_id,)
-        ).fetchone()
-        if not row:
-            print(f"❌ Asset not found: {args.asset_id}", file=sys.stderr)
-            sys.exit(1)
-
-        import time as _time
-
-        meta = json.loads(row["metadata"]) if row["metadata"] else {}
-        meta["disputed"] = True
-        meta["dispute_reason"] = args.reason
-        meta["dispute_time"] = int(_time.time())
-
-        # Attempt arbitrator discovery
-        arbitrators = []
-        try:
-            from oasyce.services.discovery import SkillDiscoveryEngine
-
-            discovery = SkillDiscoveryEngine(get_capabilities=lambda: [])
-            candidates = discovery.discover_arbitrators(
-                dispute_tags=meta.get("tags", []),
-                limit=3,
-            )
-            arbitrators = [
-                {"capability_id": c.capability_id, "name": c.name, "score": c.final_score}
-                for c in candidates
-            ]
-            meta["arbitrator_candidates"] = arbitrators
-        except Exception:
-            pass
-
-        ledger._conn.execute(
-            "UPDATE assets SET metadata = ? WHERE asset_id = ?",
-            (json.dumps(meta), args.asset_id),
-        )
-        ledger._conn.commit()
-
-        if args.json:
-            print(
-                json.dumps(
-                    {
-                        "ok": True,
-                        "asset_id": args.asset_id,
-                        "disputed": True,
-                        "arbitrators": arbitrators,
-                    },
-                    indent=2,
-                )
-            )
+    data = result.data
+    if args.json:
+        print(json.dumps(data, indent=2))
+    else:
+        if invocation_id:
+            print(f"⚠️  Dispute opened: {data.get('dispute_id', '')}")
+            print(f"   Invocation: {invocation_id}")
+            print(f"   State: {data.get('state', '')}")
         else:
             print(f"⚠️  Dispute filed for {args.asset_id}")
             print(f"   Reason: {args.reason}")
+            arbitrators = data.get("arbitrators", [])
             if arbitrators:
                 print(f"   Arbitrator candidates: {len(arbitrators)}")
                 for a in arbitrators:
@@ -372,96 +344,47 @@ def cmd_dispute(args):
                     )
             else:
                 print(f"   No arbitrators found (will be assigned later)")
-    except Exception as e:
-        print(f"❌ Error: {e}", file=sys.stderr)
-        sys.exit(1)
 
 
 def cmd_resolve(args):
     """Resolve a dispute with a remedy."""
-    from oasyce.models import VALID_REMEDY_TYPES
+    from oasyce.services.facade import OasyceServiceFacade
 
     config = Config.from_env()
     from oasyce.storage.ledger import Ledger
 
     ledger = Ledger(config.db_path) if config.db_path else None
-    if not ledger:
-        print("❌ Ledger not available", file=sys.stderr)
+
+    facade = OasyceServiceFacade(config=config, ledger=ledger)
+
+    details = json.loads(args.details) if args.details else {}
+    dispute_id = getattr(args, "dispute_id", None) or ""
+
+    result = facade.resolve_dispute(
+        dispute_id=dispute_id,
+        asset_id=args.asset_id,
+        remedy=args.remedy,
+        details=details,
+    )
+
+    if not result.success:
+        _output_error(args, result.error, code="RESOLVE_FAILED")
         sys.exit(1)
 
-    if args.remedy not in VALID_REMEDY_TYPES:
-        print(
-            f"❌ Invalid remedy. Must be one of: {', '.join(VALID_REMEDY_TYPES)}", file=sys.stderr
-        )
-        sys.exit(1)
-
-    try:
-        row = ledger._conn.execute(
-            "SELECT metadata FROM assets WHERE asset_id = ?", (args.asset_id,)
-        ).fetchone()
-        if not row:
-            print(f"❌ Asset not found: {args.asset_id}", file=sys.stderr)
-            sys.exit(1)
-
-        import time as _time
-
-        meta = json.loads(row["metadata"]) if row["metadata"] else {}
-        if not meta.get("disputed"):
-            print(f"❌ Asset is not disputed", file=sys.stderr)
-            sys.exit(1)
-
-        details = json.loads(args.details) if args.details else {}
-        resolution = {"remedy": args.remedy, "details": details, "resolved_at": int(_time.time())}
-        meta["dispute_status"] = "resolved"
-        meta["dispute_resolution"] = resolution
-
-        if args.remedy == "delist":
-            meta["delisted"] = True
-        elif args.remedy == "transfer":
-            new_owner = details.get("new_owner", "")
-            if new_owner:
-                meta["owner"] = new_owner
-                ledger._conn.execute(
-                    "UPDATE assets SET owner = ? WHERE asset_id = ?",
-                    (new_owner, args.asset_id),
-                )
-        elif args.remedy == "rights_correction":
-            from oasyce.models import VALID_RIGHTS_TYPES
-
-            new_rights = details.get("new_rights_type", "collection")
-            if new_rights in VALID_RIGHTS_TYPES:
-                meta["rights_type"] = new_rights
-        elif args.remedy == "share_adjustment":
-            new_co_creators = details.get("co_creators")
-            if new_co_creators:
-                meta["co_creators"] = new_co_creators
-
-        ledger._conn.execute(
-            "UPDATE assets SET metadata = ? WHERE asset_id = ?",
-            (json.dumps(meta), args.asset_id),
-        )
-        ledger._conn.commit()
-
-        if args.json:
-            print(
-                json.dumps(
-                    {
-                        "ok": True,
-                        "asset_id": args.asset_id,
-                        "remedy": args.remedy,
-                        "resolution": resolution,
-                    },
-                    indent=2,
-                )
-            )
+    data = result.data
+    if args.json:
+        print(json.dumps(data, indent=2))
+    else:
+        if dispute_id:
+            print(f"✅ Dispute resolved: {data.get('dispute_id', '')}")
+            print(f"   Outcome: {data.get('outcome', '')}")
+            print(f"   Consumer refunded: {data.get('consumer_refunded', False)}")
+            print(f"   Slash amount: {data.get('slash_amount', 0)}")
         else:
             print(f"✅ Dispute resolved: {args.asset_id}")
             print(f"   Remedy: {args.remedy}")
             if details:
                 print(f"   Details: {json.dumps(details)}")
-    except Exception as e:
-        print(f"❌ Error: {e}", file=sys.stderr)
-        sys.exit(1)
 
 
 def cmd_discover(args):

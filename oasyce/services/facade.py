@@ -62,6 +62,7 @@ class OasyceServiceFacade:
         self._access_provider = None
         self._reputation = None
         self._skills = None
+        self._dispute_manager = None
 
     # -- lazy accessors -----------------------------------------------------
 
@@ -87,6 +88,65 @@ class OasyceServiceFacade:
                 reputation=self._get_reputation(),
             )
         return self._access_provider
+
+    def _get_dispute_manager(self):
+        if self._dispute_manager is None:
+            from oasyce.capabilities.dispute import DisputeManager
+
+            # Wire callbacks using other facade services
+            def _get_invocation(invocation_id: str):
+                """Look up an invocation record from the ledger."""
+                if self._ledger is None:
+                    return None
+                try:
+                    row = self._ledger._conn.execute(
+                        "SELECT * FROM assets WHERE asset_id = ?", (invocation_id,)
+                    ).fetchone()
+                    if row is None:
+                        return None
+                    # Return a simple namespace object with expected attributes
+                    import types
+                    import json as _json
+
+                    meta = _json.loads(row["metadata"]) if row.get("metadata") else {}
+                    inv = types.SimpleNamespace(
+                        consumer_id=meta.get("consumer_id", ""),
+                        provider_id=meta.get("provider_id", row.get("owner", "")),
+                        capability_id=meta.get("capability_id", ""),
+                        state=types.SimpleNamespace(value=meta.get("state", "completed")),
+                        settled_at=meta.get("settled_at", 0),
+                        escrow_id=meta.get("escrow_id", ""),
+                        price=meta.get("price", 0.0),
+                    )
+                    return inv
+                except Exception:
+                    return None
+
+            def _get_reputation(agent_id: str) -> float:
+                try:
+                    rep_engine = self._get_reputation()
+                    return rep_engine.get_reputation(agent_id)
+                except Exception:
+                    return 0.0
+
+            def _get_stake(agent_id: str) -> float:
+                # Default stub — returns enough to qualify as juror
+                return 100.0
+
+            def _escrow_refund(escrow_id: str):
+                pass  # No-op stub for local mode
+
+            def _escrow_release(escrow_id: str):
+                pass  # No-op stub for local mode
+
+            self._dispute_manager = DisputeManager(
+                get_invocation=_get_invocation,
+                get_reputation=_get_reputation,
+                get_stake=_get_stake,
+                escrow_refund=_escrow_refund,
+                escrow_release=_escrow_release,
+            )
+        return self._dispute_manager
 
     def _get_skills(self):
         if self._skills is None:
@@ -359,5 +419,209 @@ class OasyceServiceFacade:
             )
 
             return ServiceResult(success=True, data=result)
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    # -----------------------------------------------------------------------
+    # Dispute
+    # -----------------------------------------------------------------------
+    def dispute(
+        self,
+        asset_id: str,
+        consumer_id: str,
+        reason: str,
+        invocation_id: Optional[str] = None,
+    ) -> ServiceResult:
+        """Open a dispute for an asset or invocation.
+
+        If *invocation_id* is provided, the full DisputeManager jury flow is
+        used.  Otherwise the dispute is stored as a simple metadata flag on
+        the asset in the ledger (backward-compatible path).
+        """
+        import json as _json
+
+        try:
+            # ── Full jury-based dispute (invocation_id provided) ──────
+            if invocation_id is not None:
+                dm = self._get_dispute_manager()
+                record = dm.open_dispute(invocation_id, consumer_id, reason)
+                return ServiceResult(
+                    success=True,
+                    data={
+                        "ok": True,
+                        "dispute_id": record.dispute_id,
+                        "invocation_id": record.invocation_id,
+                        "state": record.state.value,
+                        "consumer_id": record.consumer_id,
+                        "provider_id": record.provider_id,
+                    },
+                )
+
+            # ── Legacy asset-level dispute (no invocation_id) ─────────
+            if self._ledger is None:
+                return ServiceResult(success=False, error="Ledger not available")
+
+            row = self._ledger._conn.execute(
+                "SELECT metadata FROM assets WHERE asset_id = ?", (asset_id,)
+            ).fetchone()
+            if not row:
+                return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
+
+            meta = _json.loads(row["metadata"]) if row["metadata"] else {}
+            meta["disputed"] = True
+            meta["dispute_reason"] = reason
+            meta["dispute_time"] = int(time.time())
+            meta["dispute_status"] = "open"
+
+            # Best-effort arbitrator discovery
+            arbitrators: List[Dict[str, Any]] = []
+            try:
+                from oasyce.services.discovery import SkillDiscoveryEngine
+
+                discovery = SkillDiscoveryEngine(get_capabilities=lambda: [])
+                candidates = discovery.discover_arbitrators(
+                    dispute_tags=meta.get("tags", []),
+                    limit=3,
+                )
+                arbitrators = [
+                    {
+                        "capability_id": c.capability_id,
+                        "name": c.name,
+                        "score": c.final_score,
+                    }
+                    for c in candidates
+                ]
+                meta["arbitrator_candidates"] = arbitrators
+            except Exception:
+                pass
+
+            self._ledger._conn.execute(
+                "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+                (_json.dumps(meta), asset_id),
+            )
+            self._ledger._conn.commit()
+
+            return ServiceResult(
+                success=True,
+                data={
+                    "ok": True,
+                    "asset_id": asset_id,
+                    "disputed": True,
+                    "arbitrators": arbitrators,
+                },
+            )
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    # -----------------------------------------------------------------------
+    # Resolve dispute
+    # -----------------------------------------------------------------------
+    def resolve_dispute(
+        self,
+        dispute_id: str = "",
+        asset_id: str = "",
+        remedy: str = "",
+        details: Optional[Dict[str, Any]] = None,
+    ) -> ServiceResult:
+        """Resolve a dispute.
+
+        Two paths:
+        * If *dispute_id* is given — use DisputeManager.resolve() (jury tally).
+        * If *asset_id* + *remedy* are given — apply a simple remedy to the
+          ledger record (backward-compatible path).
+        """
+        import json as _json
+
+        try:
+            # ── Jury-based resolution (dispute_id provided) ───────────
+            if dispute_id:
+                dm = self._get_dispute_manager()
+                resolution = dm.resolve(dispute_id)
+                return ServiceResult(
+                    success=True,
+                    data={
+                        "ok": True,
+                        "dispute_id": resolution.dispute_id,
+                        "outcome": resolution.outcome.value,
+                        "consumer_refunded": resolution.consumer_refunded,
+                        "provider_paid": resolution.provider_paid,
+                        "slash_amount": resolution.slash_amount,
+                        "jury_reward": resolution.jury_reward,
+                    },
+                )
+
+            # ── Legacy asset-level resolution ─────────────────────────
+            if not asset_id:
+                return ServiceResult(success=False, error="dispute_id or asset_id required")
+
+            from oasyce.models import VALID_REMEDY_TYPES
+
+            if remedy not in VALID_REMEDY_TYPES:
+                return ServiceResult(
+                    success=False,
+                    error=f"Invalid remedy. Must be one of: {', '.join(VALID_REMEDY_TYPES)}",
+                )
+
+            if self._ledger is None:
+                return ServiceResult(success=False, error="Ledger not available")
+
+            row = self._ledger._conn.execute(
+                "SELECT metadata FROM assets WHERE asset_id = ?", (asset_id,)
+            ).fetchone()
+            if not row:
+                return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
+
+            meta = _json.loads(row["metadata"]) if row["metadata"] else {}
+            if not meta.get("disputed"):
+                return ServiceResult(success=False, error="Asset is not disputed")
+
+            if meta.get("dispute_status") == "resolved":
+                return ServiceResult(success=False, error="Dispute already resolved")
+
+            details = details or {}
+            resolution_rec = {
+                "remedy": remedy,
+                "details": details,
+                "resolved_at": int(time.time()),
+            }
+            meta["dispute_status"] = "resolved"
+            meta["dispute_resolution"] = resolution_rec
+
+            if remedy == "delist":
+                meta["delisted"] = True
+            elif remedy == "transfer":
+                new_owner = details.get("new_owner", "")
+                if new_owner:
+                    meta["owner"] = new_owner
+                    self._ledger._conn.execute(
+                        "UPDATE assets SET owner = ? WHERE asset_id = ?",
+                        (new_owner, asset_id),
+                    )
+            elif remedy == "rights_correction":
+                from oasyce.models import VALID_RIGHTS_TYPES
+
+                new_rights = details.get("new_rights_type", "collection")
+                if new_rights in VALID_RIGHTS_TYPES:
+                    meta["rights_type"] = new_rights
+            elif remedy == "share_adjustment":
+                new_co_creators = details.get("co_creators")
+                if new_co_creators:
+                    meta["co_creators"] = new_co_creators
+
+            self._ledger._conn.execute(
+                "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+                (_json.dumps(meta), asset_id),
+            )
+            self._ledger._conn.commit()
+
+            return ServiceResult(
+                success=True,
+                data={
+                    "ok": True,
+                    "asset_id": asset_id,
+                    "remedy": remedy,
+                    "resolution": resolution_rec,
+                },
+            )
         except Exception as e:
             return ServiceResult(success=False, error=str(e))

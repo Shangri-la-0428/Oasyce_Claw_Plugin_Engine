@@ -2046,125 +2046,46 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 aid = body.get("asset_id", "")
                 reason = body.get("reason", "").strip()
-                if not aid:
+                invocation_id = body.get("invocation_id") or None
+                consumer_id = body.get("consumer_id") or _default_identity()
+                if not aid and not invocation_id:
                     return _json_response(self, {"error": "asset_id required"}, 400)
                 if not reason:
                     return _json_response(self, {"error": "reason required"}, 400)
-                assert _ledger
-                row = _ledger._conn.execute(
-                    "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
-                ).fetchone()
-                if not row:
-                    return _json_response(self, {"error": "asset not found"}, 404)
-                meta = json.loads(row["metadata"]) if row["metadata"] else {}
-                meta["disputed"] = True
-                meta["dispute_reason"] = reason
-                meta["dispute_time"] = int(time.time())
-                meta["dispute_status"] = "open"
 
-                # Auto-discover arbitrator capabilities
-                arbitrators = []
-                try:
-                    discovery = _get_discovery()
-                    tags = meta.get("tags", [])
-                    candidates = discovery.discover_arbitrators(
-                        dispute_tags=tags + ["arbitration"],
-                        limit=3,
-                    )
-                    arbitrators = [
-                        {
-                            "capability_id": c.capability_id,
-                            "name": c.name,
-                            "provider": c.provider,
-                            "score": c.final_score,
-                        }
-                        for c in candidates
-                    ]
-                    meta["arbitrator_candidates"] = arbitrators
-                except Exception:
-                    pass  # discovery is best-effort
-
-                _ledger._conn.execute(
-                    "UPDATE assets SET metadata = ? WHERE asset_id = ?",
-                    (json.dumps(meta), aid),
+                facade = _get_facade()
+                result = facade.dispute(
+                    asset_id=aid,
+                    consumer_id=consumer_id,
+                    reason=reason,
+                    invocation_id=invocation_id,
                 )
-                _ledger._conn.commit()
-                return _json_response(
-                    self,
-                    {
-                        "ok": True,
-                        "asset_id": aid,
-                        "disputed": True,
-                        "arbitrators": arbitrators,
-                    },
-                )
+                if not result.success:
+                    return _json_response(self, {"error": result.error}, 400)
+                return _json_response(self, result.data)
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
         if path == "/api/dispute/resolve":
             try:
-                from oasyce.models import VALID_REMEDY_TYPES
-
                 aid = body.get("asset_id", "")
                 remedy = body.get("remedy", "")
                 details = body.get("details", {})
-                if not aid:
-                    return _json_response(self, {"error": "asset_id required"}, 400)
-                if remedy not in VALID_REMEDY_TYPES:
-                    return _json_response(
-                        self,
-                        {
-                            "error": f"invalid remedy, must be one of: {', '.join(VALID_REMEDY_TYPES)}"
-                        },
-                        400,
-                    )
-                if not _ledger:
-                    return _json_response(self, {"error": "ledger not initialized"}, 503)
-                row = _ledger._conn.execute(
-                    "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
-                ).fetchone()
-                if not row:
-                    return _json_response(self, {"error": "asset not found"}, 404)
-                meta = json.loads(row["metadata"]) if row["metadata"] else {}
-                if not meta.get("disputed"):
-                    return _json_response(self, {"error": "asset is not disputed"}, 400)
-                if meta.get("dispute_status") == "resolved":
-                    return _json_response(self, {"error": "dispute already resolved"}, 400)
+                dispute_id = body.get("dispute_id", "")
 
-                # Apply remedy
-                resolution = {"remedy": remedy, "details": details, "resolved_at": int(time.time())}
-                meta["dispute_status"] = "resolved"
-                meta["dispute_resolution"] = resolution
+                if not aid and not dispute_id:
+                    return _json_response(self, {"error": "asset_id or dispute_id required"}, 400)
 
-                if remedy == "delist":
-                    meta["delisted"] = True
-                elif remedy == "transfer":
-                    new_owner = details.get("new_owner", "")
-                    if new_owner:
-                        meta["owner"] = new_owner
-                        _ledger._conn.execute(
-                            "UPDATE assets SET owner = ? WHERE asset_id = ?",
-                            (new_owner, aid),
-                        )
-                elif remedy == "rights_correction":
-                    new_rights = details.get("new_rights_type", "collection")
-                    from oasyce.models import VALID_RIGHTS_TYPES
-
-                    if new_rights in VALID_RIGHTS_TYPES:
-                        meta["rights_type"] = new_rights
-                elif remedy == "share_adjustment":
-                    new_co_creators = details.get("co_creators")
-                    if new_co_creators:
-                        meta["co_creators"] = new_co_creators
-
-                _ledger._conn.execute(
-                    "UPDATE assets SET metadata = ? WHERE asset_id = ?",
-                    (json.dumps(meta), aid),
+                facade = _get_facade()
+                result = facade.resolve_dispute(
+                    dispute_id=dispute_id,
+                    asset_id=aid,
+                    remedy=remedy,
+                    details=details,
                 )
-                _ledger._conn.commit()
-                return _json_response(
-                    self, {"ok": True, "asset_id": aid, "remedy": remedy, "resolution": resolution}
-                )
+                if not result.success:
+                    return _json_response(self, {"error": result.error}, 400)
+                return _json_response(self, result.data)
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
