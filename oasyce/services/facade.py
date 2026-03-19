@@ -123,24 +123,21 @@ class OasyceServiceFacade:
                         if self._ledger is None:
                             return None
                         try:
-                            row = self._ledger._conn.execute(
-                                "SELECT * FROM assets WHERE asset_id = ?", (invocation_id,)
-                            ).fetchone()
-                            if row is None:
+                            asset = self._ledger.get_asset(invocation_id)
+                            if asset is None:
                                 return None
-                            # Return a simple namespace object with expected attributes
+                            # get_asset() merges parsed metadata into the dict,
+                            # so top-level keys include both columns and metadata fields.
                             import types
-                            import json as _json
 
-                            meta = _json.loads(row["metadata"]) if row.get("metadata") else {}
                             inv = types.SimpleNamespace(
-                                consumer_id=meta.get("consumer_id", ""),
-                                provider_id=meta.get("provider_id", row.get("owner", "")),
-                                capability_id=meta.get("capability_id", ""),
-                                state=types.SimpleNamespace(value=meta.get("state", "completed")),
-                                settled_at=meta.get("settled_at", 0),
-                                escrow_id=meta.get("escrow_id", ""),
-                                price=meta.get("price", 0.0),
+                                consumer_id=asset.get("consumer_id", ""),
+                                provider_id=asset.get("provider_id", asset.get("owner", "")),
+                                capability_id=asset.get("capability_id", ""),
+                                state=types.SimpleNamespace(value=asset.get("state", "completed")),
+                                settled_at=asset.get("settled_at", 0),
+                                escrow_id=asset.get("escrow_id", ""),
+                                price=asset.get("price", 0.0),
                             )
                             return inv
                         except Exception as e:
@@ -561,8 +558,6 @@ class OasyceServiceFacade:
         used.  Otherwise the dispute is stored as a simple metadata flag on
         the asset in the ledger (backward-compatible path).
         """
-        import json as _json
-
         try:
             # ── Full jury-based dispute (invocation_id provided) ──────
             if invocation_id is not None:
@@ -584,13 +579,10 @@ class OasyceServiceFacade:
             if self._ledger is None:
                 return ServiceResult(success=False, error="Ledger not available")
 
-            row = self._ledger._conn.execute(
-                "SELECT metadata FROM assets WHERE asset_id = ?", (asset_id,)
-            ).fetchone()
-            if not row:
+            meta = self._ledger.get_asset_metadata(asset_id)
+            if meta is None:
                 return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
 
-            meta = _json.loads(row["metadata"]) if row["metadata"] else {}
             meta["disputed"] = True
             meta["dispute_reason"] = reason
             meta["dispute_time"] = int(time.time())
@@ -618,11 +610,7 @@ class OasyceServiceFacade:
             except Exception:
                 pass
 
-            self._ledger._conn.execute(
-                "UPDATE assets SET metadata = ? WHERE asset_id = ?",
-                (_json.dumps(meta), asset_id),
-            )
-            self._ledger._conn.commit()
+            self._ledger.set_asset_metadata(asset_id, meta)
 
             return ServiceResult(
                 success=True,
@@ -653,8 +641,6 @@ class OasyceServiceFacade:
         * If *asset_id* + *remedy* are given — apply a simple remedy to the
           ledger record (backward-compatible path).
         """
-        import json as _json
-
         try:
             # ── Jury-based resolution (dispute_id provided) ───────────
             if dispute_id:
@@ -688,13 +674,10 @@ class OasyceServiceFacade:
             if self._ledger is None:
                 return ServiceResult(success=False, error="Ledger not available")
 
-            row = self._ledger._conn.execute(
-                "SELECT metadata FROM assets WHERE asset_id = ?", (asset_id,)
-            ).fetchone()
-            if not row:
+            meta = self._ledger.get_asset_metadata(asset_id)
+            if meta is None:
                 return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
 
-            meta = _json.loads(row["metadata"]) if row["metadata"] else {}
             if not meta.get("disputed"):
                 return ServiceResult(success=False, error="Asset is not disputed")
 
@@ -716,10 +699,7 @@ class OasyceServiceFacade:
                 new_owner = details.get("new_owner", "")
                 if new_owner:
                     meta["owner"] = new_owner
-                    self._ledger._conn.execute(
-                        "UPDATE assets SET owner = ? WHERE asset_id = ?",
-                        (new_owner, asset_id),
-                    )
+                    self._ledger.update_asset_owner(asset_id, new_owner)
             elif remedy == "rights_correction":
                 from oasyce.models import VALID_RIGHTS_TYPES
 
@@ -731,11 +711,7 @@ class OasyceServiceFacade:
                 if new_co_creators:
                     meta["co_creators"] = new_co_creators
 
-            self._ledger._conn.execute(
-                "UPDATE assets SET metadata = ? WHERE asset_id = ?",
-                (_json.dumps(meta), asset_id),
-            )
-            self._ledger._conn.commit()
+            self._ledger.set_asset_metadata(asset_id, meta)
 
             return ServiceResult(
                 success=True,
@@ -865,25 +841,11 @@ class OasyceServiceFacade:
 
         Only specified keys are merged; existing keys are preserved.
         """
-        import json as _json
-
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
         try:
-            row = self._ledger._conn.execute(
-                "SELECT metadata FROM assets WHERE asset_id = ?", (asset_id,)
-            ).fetchone()
-            if not row:
+            if not self._ledger.update_asset_metadata(asset_id, updates):
                 return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
-
-            meta = _json.loads(row["metadata"]) if row["metadata"] else {}
-            meta.update(updates)
-
-            self._ledger._conn.execute(
-                "UPDATE assets SET metadata = ? WHERE asset_id = ?",
-                (_json.dumps(meta), asset_id),
-            )
-            self._ledger._conn.commit()
             return ServiceResult(success=True, data={"asset_id": asset_id, "updated_keys": list(updates.keys())})
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
@@ -896,44 +858,20 @@ class OasyceServiceFacade:
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
         try:
-            row = self._ledger._conn.execute(
-                "SELECT asset_id FROM assets WHERE asset_id = ?", (asset_id,)
-            ).fetchone()
-            if not row:
+            if not self._ledger.delete_asset(asset_id):
                 return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
-
-            self._ledger._conn.execute(
-                "DELETE FROM assets WHERE asset_id = ?", (asset_id,)
-            )
-            # Clean up fingerprint records if table exists
-            try:
-                self._ledger._conn.execute(
-                    "DELETE FROM fingerprint_records WHERE asset_id = ?", (asset_id,)
-                )
-            except Exception:
-                pass  # table may not exist
-            self._ledger._conn.commit()
-
             return ServiceResult(success=True, data={"asset_id": asset_id, "deleted": True})
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
     def get_asset(self, asset_id: str) -> ServiceResult:
         """Get asset information by ID."""
-        import json as _json
-
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
         try:
-            row = self._ledger._conn.execute(
-                "SELECT * FROM assets WHERE asset_id = ?", (asset_id,)
-            ).fetchone()
-            if not row:
+            asset = self._ledger.get_asset(asset_id)
+            if asset is None:
                 return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
-
-            data = dict(row)
-            if data.get("metadata"):
-                data["metadata"] = _json.loads(data["metadata"])
-            return ServiceResult(success=True, data=data)
+            return ServiceResult(success=True, data=asset)
         except Exception as e:
             return ServiceResult(success=False, error=str(e))

@@ -2030,11 +2030,7 @@ class _Handler(BaseHTTPRequestHandler):
                 )
                 meta["versions"] = versions
                 meta["file_hash"] = new_hash
-                _ledger._conn.execute(
-                    "UPDATE assets SET metadata = ? WHERE asset_id = ?",
-                    (json.dumps(meta), aid),
-                )
-                _ledger._conn.commit()
+                _ledger.set_asset_metadata(aid, meta)
                 return _json_response(
                     self, {"ok": True, "version": new_version, "file_hash": new_hash}
                 )
@@ -2670,18 +2666,8 @@ class _Handler(BaseHTTPRequestHandler):
             new_tags = body.get("tags", [])
             if not _ledger:
                 return _json_response(self, {"error": "ledger not initialized"}, 503)
-            row = _ledger._conn.execute(
-                "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
-            ).fetchone()
-            if not row:
+            if not _ledger.update_asset_metadata(aid, {"tags": new_tags}):
                 return _json_response(self, {"error": "not found"}, 404)
-            meta = json.loads(row["metadata"]) if row["metadata"] else {}
-            meta["tags"] = new_tags
-            _ledger._conn.execute(
-                "UPDATE assets SET metadata = ? WHERE asset_id = ?",
-                (json.dumps(meta), aid),
-            )
-            _ledger._conn.commit()
             return _json_response(self, {"ok": True, "asset_id": aid, "tags": new_tags})
 
         # ── Inbox API (POST) ─────────────────────────────────────
@@ -2948,14 +2934,8 @@ class _Handler(BaseHTTPRequestHandler):
             aid = m.group(1)
             if not _ledger:
                 return _json_response(self, {"error": "ledger not initialized"}, 503)
-            row = _ledger._conn.execute(
-                "SELECT * FROM assets WHERE asset_id = ?", (aid,)
-            ).fetchone()
-            if not row:
+            if not _ledger.delete_asset(aid):
                 return _json_response(self, {"error": "Asset not found"}, 404)
-            _ledger._conn.execute("DELETE FROM assets WHERE asset_id = ?", (aid,))
-            _ledger._conn.execute("DELETE FROM fingerprint_records WHERE asset_id = ?", (aid,))
-            _ledger._conn.commit()
             return _json_response(self, {"ok": True, "deleted": aid})
         return _json_response(self, {"error": "not found"}, 404)
 

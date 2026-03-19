@@ -135,6 +135,69 @@ class Ledger:
             d.update(_json.loads(d["metadata"]))
         return d
 
+    def get_asset_metadata(self, asset_id: str) -> Optional[dict]:
+        """Return parsed metadata dict for an asset, or None if not found."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT metadata FROM assets WHERE asset_id = ?", (asset_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return _json.loads(row["metadata"]) if row["metadata"] else {}
+
+    def set_asset_metadata(self, asset_id: str, metadata: dict) -> bool:
+        """Replace the metadata JSON blob for an asset. Returns False if asset not found."""
+        meta_json = _json.dumps(metadata, ensure_ascii=False)
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+                (meta_json, asset_id),
+            )
+        return cursor.rowcount > 0
+
+    def update_asset_metadata(self, asset_id: str, updates: dict) -> bool:
+        """Merge *updates* into existing metadata. Returns False if asset not found."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT metadata FROM assets WHERE asset_id = ?", (asset_id,)
+            ).fetchone()
+            if row is None:
+                return False
+            meta = _json.loads(row["metadata"]) if row["metadata"] else {}
+            meta.update(updates)
+            meta_json = _json.dumps(meta, ensure_ascii=False)
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+                    (meta_json, asset_id),
+                )
+        return True
+
+    def update_asset_owner(self, asset_id: str, new_owner: str) -> bool:
+        """Change the owner column for an asset. Returns False if asset not found."""
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "UPDATE assets SET owner = ? WHERE asset_id = ?",
+                (new_owner, asset_id),
+            )
+        return cursor.rowcount > 0
+
+    def delete_asset(self, asset_id: str) -> bool:
+        """Delete an asset and its fingerprint_records. Returns False if not found."""
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM assets WHERE asset_id = ?", (asset_id,)
+            )
+            if cursor.rowcount == 0:
+                return False
+            try:
+                self._conn.execute(
+                    "DELETE FROM fingerprint_records WHERE asset_id = ?", (asset_id,)
+                )
+            except Exception:
+                pass  # table may not exist
+        return True
+
     def search_assets(self, query: str) -> List[Dict[str, Any]]:
         with self._lock:
             if query:
@@ -419,6 +482,49 @@ class Ledger:
                 "SELECT * FROM asset_versions WHERE asset_id = ? ORDER BY version", (asset_id,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Asset list ─────────────────────────────────────────────
+
+    def list_assets(self, order_by: str = "created_at", desc: bool = True) -> list:
+        """List all assets."""
+        direction = "DESC" if desc else "ASC"
+        # Whitelist column names to prevent SQL injection
+        allowed = {"created_at", "asset_id", "owner"}
+        col = order_by if order_by in allowed else "created_at"
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM assets ORDER BY {col} {direction}"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Fingerprint queries ───────────────────────────────────
+
+    def count_fingerprints(self) -> int:
+        """Count total fingerprint records."""
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) AS c FROM fingerprint_records").fetchone()
+            return row["c"] if row else 0
+
+    # ── Stakes queries ────────────────────────────────────────
+
+    def get_stakes_summary(self) -> list:
+        """Get stakes aggregated by validator."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT validator_id, SUM(amount) AS total FROM stakes GROUP BY validator_id"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Block queries ─────────────────────────────────────────
+
+    def list_blocks(self, limit: int = 10, offset: int = 0) -> list:
+        """List blocks with pagination, newest first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM blocks ORDER BY block_number DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     # ── Utility ────────────────────────────────────────────────
 
