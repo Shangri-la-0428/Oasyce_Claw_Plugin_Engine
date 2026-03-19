@@ -20,7 +20,7 @@ from oasyce.config import (
 )
 from oasyce.cli import to_units
 from oasyce.services.faucet import Faucet
-from oasyce.services.testnet import TestnetOnboarding
+from oasyce.services.testnet import OnboardingService
 
 
 @pytest.fixture()
@@ -166,7 +166,7 @@ class TestFaucetClaim:
 class TestOnboarding:
     def test_onboarding_flow(self, tmp_dir):
         """Full onboarding: faucet + sample asset + stake."""
-        onboarding = TestnetOnboarding(tmp_dir)
+        onboarding = OnboardingService(tmp_dir)
         result = onboarding.onboard("addr-new")
 
         # Faucet should succeed
@@ -184,7 +184,7 @@ class TestOnboarding:
 
     def test_onboarding_faucet_cooldown(self, tmp_dir):
         """Second onboarding skips faucet but still registers asset."""
-        onboarding = TestnetOnboarding(tmp_dir)
+        onboarding = OnboardingService(tmp_dir)
         onboarding.onboard("addr-a")
 
         result = onboarding.onboard("addr-a")

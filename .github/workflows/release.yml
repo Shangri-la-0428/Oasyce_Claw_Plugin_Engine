@@ -35,7 +35,9 @@ jobs:
           pip install pytest httpx
           pytest --tb=short -q
 
-      - name: Publish to PyPI (OIDC trusted publishing)
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        # OIDC trusted publishing is used by default (no token needed).
+        # Set PYPI_API_TOKEN secret as fallback if OIDC is not configured.
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}

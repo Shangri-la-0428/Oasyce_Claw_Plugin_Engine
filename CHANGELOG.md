@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.0.0] - 2026-03-19
+
+### Added
+- **Service Facade pattern**: unified entry point for CLI and GUI (consistent behavior across interfaces)
+- **Bonding Curve `sell()`**: inverse Bancor formula for selling shares back to the curve
+- **Slippage protection**: configurable max slippage on buy/sell, transactions revert if exceeded
+- **Settlement atomicity**: chain escrow is mandatory; full rollback on any failure (no partial settlements)
+- **Reputation hardening**: non-linear diminishing returns, Sybil-resistant scoring
+- **Dispute mechanism improvements**: fixed jury rewards, 5-juror collusion resistance threshold
+- **L0-L3 tiered access**: stake-based access levels with configurable requirements
+- **Auto-update command**: `oasyce update` for in-place upgrades
+- **Docker support**: Dockerfile and docker-compose for containerized deployment
+- **CI auto-publish**: GitHub Actions workflow publishes to PyPI on version tags (OIDC + fallback)
+- **Structured JSON error output**: all commands support `--json` for machine-readable errors
+
+### Changed
+- Settlement engine now enforces escrow-first flow (breaking change from v1.x fire-and-forget)
+- Reputation scores use non-linear formula (existing scores recalculated on upgrade)
+- Dispute jury selection requires minimum 5 jurors with stake threshold
+
+## [2.0.0] - 2026-03-19
+
+### Added
+- **Service Facade pattern**: unified entry point for CLI and GUI (single `OasyceService` layer)
+- **Bonding Curve `sell()`**: inverse Bancor formula for selling shares back to the curve
+- **Slippage protection**: configurable max-slippage guard on buy and sell operations
+- **Settlement atomicity**: chain escrow is mandatory; full rollback on any failure (no silent fund loss)
+- **Reputation hardening**: non-linear diminishing returns, Sybil-resistance scoring
+- **Dispute mechanism improvements**: fixed jury reward distribution, 5-juror collusion resistance threshold
+- **L0-L3 tiered access**: stake-based access levels with configurable requirements
+- **Auto-update command**: `oasyce update` checks PyPI and upgrades in-place
+- **Docker support**: production Dockerfile and docker-compose for containerised deployment
+- **CI auto-publish**: GitHub Actions workflow publishes to PyPI on `v*` tags (OIDC + fallback token)
+- **Structured JSON error output**: all CLI commands support `--json` for machine-readable errors
+
+### Changed
+- Settlement engine raises on escrow failure instead of returning partial success
+- Reputation score uses logarithmic diminishing returns instead of linear accumulation
+- Dispute jury rewards are fixed per dispute (not proportional to disputed amount)
+- Access tier thresholds rebalanced for mainnet readiness
+
 ## [1.11.0] - 2026-03-18
 
 ### Added

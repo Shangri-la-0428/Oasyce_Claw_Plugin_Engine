@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+
+pytest_asyncio = pytest.importorskip("pytest_asyncio", reason="pytest-asyncio required")
+
 from httpx import ASGITransport, AsyncClient
 
 from oasyce.api.main import app

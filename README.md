@@ -1,6 +1,9 @@
 # Oasyce
 
-![CI](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions/workflows/ci.yml/badge.svg) ![PyPI](https://img.shields.io/pypi/v/oasyce) ![Python](https://img.shields.io/pypi/pyversions/oasyce) ![License](https://img.shields.io/github/license/Shangri-la-0428/Oasyce_Claw_Plugin_Engine)
+[![CI](https://github.com/oasyce/oasyce/actions/workflows/ci.yml/badge.svg)](https://github.com/oasyce/oasyce/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/oasyce)](https://pypi.org/project/oasyce/)
+[![Python](https://img.shields.io/pypi/pyversions/oasyce)](https://pypi.org/project/oasyce/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > Chinese version: [README_CN.md](README_CN.md)
 
@@ -12,7 +15,8 @@ Think of it this way: you take a photo, and an AI wants to use it for training. 
 
 ```bash
 pip install oasyce
-oasyce start
+oasyce doctor            # Health check
+oasyce serve             # Dashboard at localhost:8420
 ```
 
 Open `http://localhost:8420` and you're in.
@@ -71,12 +75,18 @@ Checks your keys, ports, dependencies, and network connectivity. If something is
 ### 3. Start the node
 
 ```bash
-oasyce start
+oasyce serve
 ```
 
 This launches:
-- **Protocol node** (port 8000) -- matching, bidding, settlement
+- **API server** -- matching, bidding, settlement
 - **Dashboard** (port 8420) -- register data, browse assets, invoke capabilities
+
+Or use Docker:
+
+```bash
+docker compose up -d     # Start node
+```
 
 ### 4. Register your first asset
 
@@ -107,9 +117,10 @@ oasyce testnet faucet     # Get free test tokens
 ## CLI Reference
 
 ```
-oasyce start              # Start everything (recommended)
+oasyce serve              # Start API server + Dashboard (recommended)
 oasyce demo               # Run the full demo pipeline
 oasyce doctor             # Health check
+oasyce update             # Auto-update to latest version
 oasyce info               # Project info, links, architecture, economics
 oasyce info --section economics    # Token economics details
 oasyce info --section architecture # Technical architecture
@@ -125,6 +136,8 @@ oasyce register <file>    # Register a data asset
 oasyce search <tag>       # Search by tag
 oasyce quote <asset_id>   # Get bonding curve price
 oasyce buy <asset_id>     # Buy shares
+oasyce sell <asset_id> --amount <n>  # Sell shares back to the curve
+  --max-slippage 0.05               # Slippage protection (default 5%)
 ```
 
 ### Disputes
@@ -176,10 +189,19 @@ oasyce capability earnings --provider addr
 ### Node Management
 
 ```
-oasyce node start         # Start P2P node only
+oasyce node start         # Start P2P node only (use 'oasyce serve' for full stack)
 oasyce node info          # Show node identity
 oasyce node peers         # List known peers
 oasyce node ping <host>   # Ping another node
+```
+
+### Tiered Access
+
+```
+oasyce access quote <asset_id> --tier <tier>    # Quote access price for a tier
+oasyce access buy <asset_id> --tier <tier>      # Buy tiered access to an asset
+oasyce access grant <asset_id> --to <address>   # Grant access
+oasyce access revoke <asset_id> --from <address> # Revoke access
 ```
 
 ### Other
@@ -187,6 +209,7 @@ oasyce node ping <host>   # Ping another node
 ```
 oasyce testnet onboard    # Join the testnet
 oasyce testnet faucet     # Get test tokens
+oasyce update             # Auto-update to latest version
 oasyce gui                # Start Dashboard only (port 8420)
 oasyce explorer           # Block explorer (port 8421)
 oasyce keys generate      # Generate Ed25519 keypair
@@ -234,11 +257,12 @@ Your agent will install the Oasyce skill automatically, letting you register dat
 
 ## Dashboard
 
-After running `oasyce start`, open `http://localhost:8420` in your browser. The dashboard provides:
+After running `oasyce serve`, open `http://localhost:8420` in your browser. The dashboard provides:
 
 - **Overview** -- Network status, registered assets, transaction volume
 - **Register** -- Register files as data assets (drag and drop supported)
 - **Explore** -- Browse all assets and capabilities, view prices, buy shares
+- **Market** -- Tiered access marketplace with sell and slippage controls
 - **AHRP** -- Watch the full agent handshake and trade flow
 - **Watermark** -- Embed data fingerprints and trace leaks
 - **Stake** -- Stake OAS to become a validator

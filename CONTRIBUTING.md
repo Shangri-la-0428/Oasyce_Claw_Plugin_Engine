@@ -1,104 +1,68 @@
 # Contributing to Oasyce
 
-感谢你有兴趣参与 Oasyce！这份指南帮你快速上手。
+感谢你有兴趣参与 Oasyce！ / Thanks for your interest in contributing!
 
-## 🚀 快速开始
+## Setup / 开发环境
 
 ```bash
-# 1. Fork & Clone
 git clone https://github.com/<your-username>/Oasyce_Claw_Plugin_Engine.git
 cd Oasyce_Claw_Plugin_Engine
-
-# 2. 安装依赖
 pip install -e ".[dev]"
-
-# 3. 跑测试，确保环境正常
-pytest
 ```
 
-## 📋 提交流程
-
-1. **开 Issue 先讨论**（大改动必须，小 fix 可以跳过）
-2. 从 `main` 创建分支：`git checkout -b feat/your-feature`
-3. 写代码 + 写测试
-4. 本地跑通：`pytest`
-5. 提交 PR，描述清楚改了什么、为什么
-
-## 🔧 代码规范
-
-- Python 3.9+（用 `Optional[str]` 不是 `str | None`）
-- UTF-8，LF 换行
-- 缩进：4 空格（Python）
-- 提交信息格式：`类型: 简短描述`
-  - `feat:` 新功能
-  - `fix:` 修复
-  - `docs:` 文档
-  - `test:` 测试
-  - `refactor:` 重构
-
-## ✅ PR 要求
-
-- [ ] 所有现有测试通过
-- [ ] 新功能有对应测试
-- [ ] 没有引入敏感信息（密钥、私有路径等）
-
-## 🏗 项目结构
-
-```
-Oasyce_Claw_Plugin_Engine/     ← 你在这里（用户层）
-├── CLI、Dashboard、P2P、Skills
-└── 依赖 oasyce-core
-
-Oasyce_Project/oasyce_core/    ← 协议核心（单独仓库）
-├── AHRP、Settlement、Staking、Capabilities...
-└── 改协议逻辑去这个仓库
-```
-
-如果你的改动涉及协议核心逻辑，请去 [oasyce-core](https://github.com/Shangri-la-0428/Oasyce_Project) 提 PR。
-
-## 💬 交流
-
-- GitHub Issues（Bug 报告、功能建议）
-- [Discord](https://discord.gg/dPP5eZKs)（闲聊、提问）
-
-## 📦 发布流程
-
-### PyPI
+## Running Tests / 运行测试
 
 ```bash
-# 1. 更新 pyproject.toml 中的 version
-# 2. 构建
-python -m build
-# 3. 上传
-twine upload dist/*
+pytest                # run all tests
+pytest --tb=short -q  # quick summary
 ```
 
-包名 `oasyce`，发布到 https://pypi.org/project/oasyce/
+确保提交前所有测试通过。 / Make sure all tests pass before submitting.
 
-### ClawHub（OpenClaw Skill 市场）
+## Code Style / 代码规范
 
-```bash
-# Oasyce Skill 已内置，不需要单独发布
-# 如果你修改了 Skill 接口，确保兼容 OpenClaw ≥ 0.5.0
+- Formatter: **black** (default settings)
+- Type hints required for public APIs
+- Python 3.9+ (`Optional[str]`, not `str | None`)
+- UTF-8, LF line endings, 4-space indent
+- 提交信息 / Commit messages: `type: description`
+  - `feat:` / `fix:` / `docs:` / `test:` / `refactor:`
+
+## Submitting PRs / 提交 PR
+
+1. Open an issue first for large changes / 大改动先开 Issue 讨论
+2. Branch from `main`: `git checkout -b feat/your-feature`
+3. Write code + tests
+4. Run `pytest` and `black --check .`
+5. Push and open a PR with a clear description
+
+### PR checklist
+
+- [ ] All existing tests pass / 所有现有测试通过
+- [ ] New features have tests / 新功能有对应测试
+- [ ] No secrets committed / 没有提交敏感信息
+
+## Release Process / 发布流程
+
+1. Update `version` in `pyproject.toml`
+2. Update `CHANGELOG.md`
+3. Tag: `git tag v2.x.x && git push --tags`
+4. CI automatically builds and publishes to [PyPI](https://pypi.org/project/oasyce/)
+
+## Project Structure / 项目结构
+
+```
+Oasyce_Claw_Plugin_Engine/   <-- this repo (thin client, CLI, Dashboard)
+Oasyce_Project/oasyce_core/  <-- protocol core (separate repo)
 ```
 
-### Git 提交与 PR
+Protocol-level changes go to [oasyce-core](https://github.com/Shangri-la-0428/Oasyce_Project).
 
-```bash
-# 1. 确保测试通过
-pytest
+## Contact / 交流
 
-# 2. 提交（遵循 type: description 格式）
-git add .
-git commit -m "feat: add rights declaration system"
-
-# 3. 推送到你的 fork
-git push origin feat/your-feature
-
-# 4. 在 GitHub 上创建 PR
-# 5. CI 会自动跑测试（Python 3.9-3.12）
-```
+- [GitHub Issues](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues)
+- [Discord](https://discord.gg/dPP5eZKs)
 
 ## License
 
-贡献的代码遵循 MIT 协议。
+Contributions are licensed under MIT. / 贡献的代码遵循 MIT 协议。

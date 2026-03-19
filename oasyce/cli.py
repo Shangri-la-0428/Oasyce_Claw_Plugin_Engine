@@ -1757,13 +1757,13 @@ def cmd_testnet_status(args):
 def cmd_testnet_onboard(args):
     """One-click testnet onboarding."""
     from oasyce.config import NetworkMode, get_data_dir, load_or_create_node_identity
-    from oasyce.services.testnet import TestnetOnboarding
+    from oasyce.services.testnet import OnboardingService
 
     data_dir = get_data_dir(NetworkMode.TESTNET)
     _priv, node_id = load_or_create_node_identity(data_dir)
     node_id_short = node_id[:16]
 
-    onboarding = TestnetOnboarding(data_dir)
+    onboarding = OnboardingService(data_dir)
     result = onboarding.onboard(node_id_short)
 
     if args.json:

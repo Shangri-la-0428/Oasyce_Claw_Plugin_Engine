@@ -1,7 +1,10 @@
 """Tests for oasyce.bridge.core_bridge integration with oasyce."""
 
+import os
 import time
 import pytest
+
+CHAIN_AVAILABLE = os.getenv("OASYCE_CHAIN_URL") is not None
 
 try:
     from oasyce.bridge.core_bridge import (
@@ -19,18 +22,9 @@ except ImportError:
     HAS_CORE = False
 
 
-def _chain_available():
-    try:
-        from oasyce.chain_client import OasyceClient
-
-        return OasyceClient().is_connected()
-    except Exception:
-        return False
-
-
 pytestmark = pytest.mark.skipif(
-    not HAS_CORE or not _chain_available(),
-    reason="Go chain not running (bridge tests require live chain)",
+    not HAS_CORE or not CHAIN_AVAILABLE,
+    reason="Requires running oasyce-chain (set OASYCE_CHAIN_URL)",
 )
 
 

@@ -19,7 +19,7 @@ from oasyce.utils import from_units
 from oasyce.services.faucet import Faucet
 
 
-class TestnetOnboarding:
+class OnboardingService:
     """Testnet 新用户引导"""
 
     def __init__(self, data_dir: Optional[str] = None):
