@@ -165,3 +165,22 @@ def verify(message: bytes, signature_hex: str, public_key_hex: str) -> bool:
         return True
     except (InvalidSignature, ValueError):
         return False
+
+
+def verify_signature(agent_id: str, signature: str) -> bool:
+    """Verify that *signature* is a valid Ed25519 signature of *agent_id*.
+
+    The signature must be ``<public_key_hex>:<sig_hex>`` where the public key
+    signed ``agent_id`` encoded as UTF-8.  This is the lightweight identity
+    check used by the service facade when ``verify_identity=True``.
+
+    Returns:
+        ``True`` if the signature is valid, ``False`` otherwise.
+    """
+    try:
+        if ":" not in signature:
+            return False
+        public_key_hex, sig_hex = signature.split(":", 1)
+        return verify(agent_id.encode("utf-8"), sig_hex, public_key_hex)
+    except Exception:
+        return False

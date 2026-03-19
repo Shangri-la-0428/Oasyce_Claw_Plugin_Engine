@@ -96,3 +96,85 @@ def test_decay_all_applies_to_multiple_agents():
     assert changed == 2
     assert engine.get_reputation("agent_a") < score_a
     assert engine.get_reputation("agent_b") < score_b
+
+
+def test_cannot_delete_asset_with_equity_holders():
+    """Deleting an asset with active equity holders must be rejected."""
+    from oasyce.services.facade import OasyceServiceFacade
+    from oasyce.storage.ledger import Ledger
+
+    ledger = Ledger(db_path=":memory:")
+    ledger.register_asset("DEL_TEST", "creator", "hash123", {"tags": ["test"]})
+
+    facade = OasyceServiceFacade(ledger=ledger)
+    se = facade._get_settlement()
+
+    # Register and buy to create equity
+    se.register_asset("DEL_TEST", "creator", initial_reserve=100.0)
+    se.execute("DEL_TEST", "buyer", 10.0)
+
+    # Attempt to delete — should fail
+    result = facade.delete_asset("DEL_TEST")
+    assert not result.success
+    assert "equity holder" in result.error.lower()
+
+
+def test_sell_has_default_slippage_protection():
+    """Sell without explicit max_slippage should use safe default (10%)."""
+    from oasyce.services.facade import OasyceServiceFacade
+    from oasyce.services.settlement.engine import SettlementConfig
+
+    facade = OasyceServiceFacade()
+    se = facade._get_settlement()
+    se._config = SettlementConfig(chain_required=False)
+
+    se.register_asset("SLIP_TEST", "creator", initial_reserve=100.0)
+    se.execute("SLIP_TEST", "buyer", 50.0)
+
+    pool = se.get_pool("SLIP_TEST")
+    tokens_owned = pool.equity.get("buyer", 0)
+    assert tokens_owned > 0
+
+    # Sell a small fraction of owned tokens — should succeed with default slippage
+    result = facade.sell("SLIP_TEST", "buyer", tokens_owned * 0.1)
+    assert result.success  # Small sell should be within 10% slippage
+
+
+def test_share_adjustment_must_sum_to_100():
+    """Dispute resolution with share_adjustment must validate shares sum."""
+    from oasyce.services.facade import OasyceServiceFacade
+    from oasyce.storage.ledger import Ledger
+
+    ledger = Ledger(db_path=":memory:")
+    # Create a disputed asset in the ledger
+    ledger.register_asset(
+        "SHARE_TEST", "creator", "hash123",
+        {"tags": ["test"], "disputed": True, "dispute_status": "open"},
+    )
+
+    facade = OasyceServiceFacade(ledger=ledger)
+
+    result = facade.resolve_dispute(
+        asset_id="SHARE_TEST",
+        remedy="share_adjustment",
+        details={"co_creators": [
+            {"address": "alice", "share": 60},
+            {"address": "bob", "share": 60},  # Sum = 120, invalid
+        ]},
+    )
+    assert not result.success
+    assert "sum to 100" in result.error.lower()
+
+
+def test_identity_verification_rejects_unsigned():
+    """When verify_identity=True, operations without signature are rejected."""
+    from oasyce.services.facade import OasyceServiceFacade
+
+    facade = OasyceServiceFacade(verify_identity=True)
+    se = facade._get_settlement()
+    se.register_asset("AUTH_TEST", "creator", initial_reserve=100.0)
+
+    # Buy without signature — should fail
+    result = facade.buy("AUTH_TEST", "buyer", 10.0)
+    assert not result.success
+    assert "identity verification" in result.error.lower() or "signature" in result.error.lower()

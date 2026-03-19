@@ -68,9 +68,10 @@ _LEVEL_INDEX = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
 class OasyceServiceFacade:
     """Single entry point for quote, buy, access-control, and registration."""
 
-    def __init__(self, config=None, ledger=None):
+    def __init__(self, config=None, ledger=None, verify_identity: bool = False):
         self._config = config
         self._ledger = ledger
+        self._verify_identity = verify_identity
         self._init_lock = threading.Lock()
 
         # Lazy-initialised service instances
@@ -193,6 +194,30 @@ class OasyceServiceFacade:
         return self._skills
 
     # -----------------------------------------------------------------------
+    # Identity verification
+    # -----------------------------------------------------------------------
+    def _verify_agent(self, agent_id: str, signature: Optional[str] = None) -> bool:
+        """Verify agent identity via Ed25519 signature.
+
+        When verify_identity is False (default, local mode), all agents are trusted.
+        When True (network mode), signature must be valid for agent_id.
+        """
+        if not self._verify_identity:
+            return True
+        if signature is None:
+            return False
+        # Verify Ed25519 signature
+        try:
+            from oasyce.crypto.keys import verify_signature
+
+            return verify_signature(agent_id, signature)
+        except ImportError:
+            # Crypto module not available — fall back to trust
+            return True
+        except Exception:
+            return False
+
+    # -----------------------------------------------------------------------
     # Equity → Access mapping
     # -----------------------------------------------------------------------
     def get_equity_access_level(self, asset_id: str, agent_id: str) -> Optional[str]:
@@ -295,8 +320,11 @@ class OasyceServiceFacade:
     # -----------------------------------------------------------------------
     # Buy
     # -----------------------------------------------------------------------
-    def buy(self, asset_id: str, buyer: str, amount_oas: float = 10.0) -> ServiceResult:
+    def buy(self, asset_id: str, buyer: str, amount_oas: float = 10.0,
+            signature: Optional[str] = None) -> ServiceResult:
         """Execute a share purchase through the settlement engine."""
+        if not self._verify_agent(buyer, signature):
+            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
         try:
             se = self._get_settlement()
             pool = se.get_pool(asset_id)
@@ -347,8 +375,14 @@ class OasyceServiceFacade:
         seller: str,
         tokens_to_sell: float,
         max_slippage: Optional[float] = None,
+        signature: Optional[str] = None,
     ) -> ServiceResult:
         """Sell tokens back to the bonding curve for OAS payout."""
+        if not self._verify_agent(seller, signature):
+            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
+        # Default slippage protection: 10% max
+        if max_slippage is None:
+            max_slippage = 0.10
         try:
             se = self._get_settlement()
             receipt = se.sell(asset_id, seller, tokens_to_sell, max_slippage)
@@ -558,6 +592,7 @@ class OasyceServiceFacade:
         consumer_id: str,
         reason: str,
         invocation_id: Optional[str] = None,
+        signature: Optional[str] = None,
     ) -> ServiceResult:
         """Open a dispute for an asset or invocation.
 
@@ -565,6 +600,8 @@ class OasyceServiceFacade:
         used.  Otherwise the dispute is stored as a simple metadata flag on
         the asset in the ledger (backward-compatible path).
         """
+        if not self._verify_agent(consumer_id, signature):
+            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
         try:
             # ── Full jury-based dispute (invocation_id provided) ──────
             if invocation_id is not None:
@@ -716,6 +753,20 @@ class OasyceServiceFacade:
             elif remedy == "share_adjustment":
                 new_co_creators = details.get("co_creators")
                 if new_co_creators:
+                    # Validate shares sum to 100
+                    total_share = sum(c.get("share", 0) for c in new_co_creators)
+                    if abs(total_share - 100) > 0.01:
+                        return ServiceResult(
+                            success=False,
+                            error=f"Co-creator shares must sum to 100 (got {total_share})",
+                        )
+                    # Validate all addresses are non-empty
+                    for c in new_co_creators:
+                        if not c.get("address"):
+                            return ServiceResult(
+                                success=False,
+                                error="Each co-creator must have a non-empty address",
+                            )
                     meta["co_creators"] = new_co_creators
 
             self._ledger.set_asset_metadata(asset_id, meta)
@@ -857,12 +908,15 @@ class OasyceServiceFacade:
     # Asset Mutation — update / delete / get
     # -----------------------------------------------------------------------
     def update_asset_metadata(
-        self, asset_id: str, updates: Dict[str, Any]
+        self, asset_id: str, updates: Dict[str, Any],
+        signature: Optional[str] = None,
     ) -> ServiceResult:
         """Update asset metadata fields (tags, version, etc.).
 
         Only specified keys are merged; existing keys are preserved.
         """
+        if not self._verify_agent(asset_id, signature):
+            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
         try:
@@ -872,13 +926,28 @@ class OasyceServiceFacade:
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
-    def delete_asset(self, asset_id: str) -> ServiceResult:
+    def delete_asset(self, asset_id: str, signature: Optional[str] = None) -> ServiceResult:
         """Delete an asset and its associated records.
 
         Removes from ledger, fingerprint records, and settlement pool.
         """
+        if not self._verify_agent(asset_id, signature):
+            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
+
+        # Prevent deletion if anyone holds equity
+        se = self._get_settlement()
+        pool = se.get_pool(asset_id)
+        if pool is not None:
+            holders = {k: v for k, v in pool.equity.items() if v > 0}
+            if holders:
+                return ServiceResult(
+                    success=False,
+                    error=f"Cannot delete: {len(holders)} equity holder(s) have active positions. "
+                    f"All holders must sell before deletion.",
+                )
+
         try:
             if not self._ledger.delete_asset(asset_id):
                 return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
