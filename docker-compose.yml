@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  oasyce:
+    build: .
+    container_name: oasyce-node
+    ports:
+      - "8420:8420"   # Dashboard
+      - "9527:9527"   # P2P
+    volumes:
+      - oasyce-data:/root/.oasyce
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  oasyce-data:

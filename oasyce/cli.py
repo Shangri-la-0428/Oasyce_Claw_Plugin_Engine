@@ -18,6 +18,18 @@ from oasyce.skills.agent_skills import OasyceSkills
 OAS_DECIMALS = 10**8
 
 
+def _output_error(args, error_msg, code="ERROR"):
+    """Output an error in JSON or human-readable format.
+
+    If args.json is True, prints structured JSON to stdout for AI agents.
+    Otherwise prints the emoji error to stderr (existing behavior).
+    """
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": False, "error": str(error_msg), "code": code}))
+    else:
+        print(f"\u274c Error: {error_msg}", file=sys.stderr)
+
+
 def from_units(units: int) -> float:
     """Convert base units to OAS."""
     return units / OAS_DECIMALS
@@ -90,7 +102,9 @@ def cmd_info(args):
 
 
 def cmd_register(args):
-    """Register a file as an Oasyce asset."""
+    """Register a file as an Oasyce asset via unified service facade."""
+    from oasyce.services.facade import OasyceServiceFacade
+
     # Resolve owner: explicit flag > wallet address > error
     owner = args.owner
     if not owner:
@@ -100,11 +114,25 @@ def cmd_register(args):
         if wallet_addr:
             owner = wallet_addr
         else:
-            print(
-                "Error: --owner is required (or create a wallet with: oasyce keys generate)",
-                file=sys.stderr,
+            _output_error(
+                args,
+                "--owner is required (or create a wallet with: oasyce keys generate)",
+                code="OWNER_REQUIRED",
             )
             sys.exit(1)
+
+    # Parse co-creators if provided
+    co_creators = None
+    if getattr(args, "co_creators", None):
+        co_creators = json.loads(args.co_creators)
+
+    # Determine pricing model
+    manual_price = None
+    if getattr(args, "free", False):
+        price_model = "free"
+    else:
+        price_model = getattr(args, "price_model", "auto")
+        manual_price = getattr(args, "price", None)
 
     config = Config.from_env(
         owner=owner,
@@ -112,82 +140,59 @@ def cmd_register(args):
         signing_key=args.signing_key,
         signing_key_id=args.signing_key_id,
     )
-    skills = OasyceSkills(config)
+    facade = OasyceServiceFacade(config=config)
+    result = facade.register(
+        file_path=args.file,
+        owner=owner,
+        tags=config.tags,
+        rights_type=getattr(args, "rights_type", "original"),
+        co_creators=co_creators,
+        price_model=price_model,
+        manual_price=manual_price,
+        storage_backend=getattr(args, "storage_backend", None),
+    )
 
-    try:
-        # Parse co-creators if provided
-        co_creators = None
-        if getattr(args, "co_creators", None):
-            co_creators = json.loads(args.co_creators)
-
-        file_info = skills.scan_data_skill(args.file)
-        metadata = skills.generate_metadata_skill(
-            file_info,
-            config.tags,
-            config.owner,
-            rights_type=getattr(args, "rights_type", "original"),
-            co_creators=co_creators,
-        )
-        signed = skills.create_certificate_skill(metadata)
-        result = skills.register_data_asset_skill(signed)
-
-        # Determine pricing model
-        manual_price = None
-        if getattr(args, "free", False):
-            price_model = "free"
-        else:
-            price_model = getattr(args, "price_model", "auto")
-            manual_price = getattr(args, "price", None)
-            # Validate manual pricing
-            if price_model in ("fixed", "floor"):
-                if manual_price is None or manual_price <= 0:
-                    print(
-                        f"❌ Error: --price must be > 0 when --price-model is '{price_model}'",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
-            # Store pricing info in the signed metadata
-            signed["price_model"] = price_model
-            if manual_price is not None:
-                signed["manual_price"] = manual_price
-
-        # If --use-core, also submit to oasyce_core
-        core_result = None
-        if getattr(args, "use_core", False):
-            from oasyce.bridge.core_bridge import bridge_register
-
-            core_result = bridge_register(signed, creator=config.owner)
-
-        if args.json:
-            out = dict(signed)
-            if core_result:
-                out["core"] = core_result
-            print(json.dumps(out, indent=2))
-        else:
-            print(f"✅ Asset registered: {signed['asset_id']}")
-            print(f"   Owner: {signed['owner']}")
-            print(f"   File: {signed['filename']}")
-            print(f"   Tags: {', '.join(signed['tags'])}")
-            print(f"   Rights: {signed.get('rights_type', 'original')}")
-            if signed.get("co_creators"):
-                for c in signed["co_creators"]:
-                    print(f"   Co-creator: {c['address']} ({c['share']}%)")
-            if price_model == "free":
-                price_display = "Free (attribution only)"
-            elif price_model == "fixed":
-                price_display = f"Fixed: {manual_price} OAS"
-            elif price_model == "floor":
-                price_display = f"Floor: {manual_price} OAS (bonding curve with minimum)"
-            else:
-                price_display = "Bonding Curve (auto)"
-            print(f"   Price: {price_display}")
-            print(f"   Vault: {result['vault_path']}")
-            if core_result:
-                print(f"   Core Valid: {core_result['valid']}")
-                print(f"   Core Asset ID: {core_result['core_asset_id']}")
-    except RuntimeError as e:
-        print(f"❌ Error: {e}", file=sys.stderr)
+    if not result.success:
+        _output_error(args, result.error, code="REGISTER_FAILED")
         sys.exit(1)
+
+    signed = result.data
+
+    # If --use-core, also submit to oasyce_core
+    core_result = None
+    if getattr(args, "use_core", False):
+        from oasyce.bridge.core_bridge import bridge_register
+
+        core_result = bridge_register(signed, creator=owner)
+
+    if args.json:
+        out = dict(signed)
+        if core_result:
+            out["core"] = core_result
+        print(json.dumps(out, indent=2))
+    else:
+        print(f"✅ Asset registered: {signed['asset_id']}")
+        print(f"   Owner: {signed.get('owner', owner)}")
+        print(f"   File: {signed.get('filename', args.file)}")
+        print(f"   Tags: {', '.join(signed.get('tags', []))}")
+        print(f"   Rights: {signed.get('rights_type', 'original')}")
+        if signed.get("co_creators"):
+            for c in signed["co_creators"]:
+                print(f"   Co-creator: {c['address']} ({c['share']}%)")
+        if price_model == "free":
+            price_display = "Free (attribution only)"
+        elif price_model == "fixed":
+            price_display = f"Fixed: {manual_price} OAS"
+        elif price_model == "floor":
+            price_display = f"Floor: {manual_price} OAS (bonding curve with minimum)"
+        else:
+            price_display = "Bonding Curve (auto)"
+        print(f"   Price: {price_display}")
+        vault = signed.get("vault_path", "N/A")
+        print(f"   Vault: {vault}")
+        if core_result:
+            print(f"   Core Valid: {core_result['valid']}")
+            print(f"   Core Asset ID: {core_result['core_asset_id']}")
 
 
 def cmd_search(args):
@@ -221,7 +226,7 @@ def cmd_quote(args):
     result = facade.quote(args.asset_id, amount)
 
     if not result.success:
-        print(f"❌ {result.error}", file=sys.stderr)
+        _output_error(args, result.error, code="QUOTE_FAILED")
         sys.exit(1)
 
     if args.json:
@@ -539,7 +544,7 @@ def cmd_buy(args):
     result = facade.buy(args.asset_id, buyer=buyer, amount_oas=args.amount)
 
     if not result.success:
-        print(f"❌ {result.error}", file=sys.stderr)
+        _output_error(args, result.error, code="BUY_FAILED")
         sys.exit(1)
 
     if args.json:
@@ -560,6 +565,71 @@ def cmd_buy(args):
             print(f"   Equity: {q.get('equity_minted', 0):.6f}")
             print(f"   Fee:    {q.get('protocol_fee', 0):.6f} OAS")
             print(f"   Receipt: {d['receipt_id']}")
+
+
+def cmd_sell(args):
+    """Sell asset tokens back to the bonding curve via unified service facade."""
+    from oasyce.services.facade import OasyceServiceFacade
+
+    # Resolve seller: explicit flag > wallet address > "anonymous"
+    seller = args.seller
+    if not seller:
+        from oasyce.identity import Wallet
+
+        seller = Wallet.get_address() or "anonymous"
+
+    config = Config.from_env()
+    facade = OasyceServiceFacade(config=config)
+    result = facade.sell(
+        args.asset_id,
+        seller=seller,
+        tokens_to_sell=args.tokens,
+        max_slippage=getattr(args, "max_slippage", None),
+    )
+
+    if not result.success:
+        _output_error(args, result.error, code="SELL_FAILED")
+        sys.exit(1)
+
+    if args.json:
+        print(json.dumps(result.data, indent=2))
+    else:
+        d = result.data
+        print(f"💰 Sell {args.asset_id}:")
+        print(f"   Seller:    {d.get('seller', seller)}")
+        print(f"   Tokens:    {args.tokens}")
+        print(f"   Payout:    {d.get('payout_oas', 0):.6f} OAS")
+        print(f"   Receipt:   {d.get('receipt_id', 'N/A')}")
+
+
+def cmd_access_buy(args):
+    """Buy tiered access to an asset via unified service facade."""
+    from oasyce.services.facade import OasyceServiceFacade
+
+    # Resolve buyer: explicit flag > wallet address > "anonymous"
+    buyer = args.agent
+    if not buyer:
+        from oasyce.identity import Wallet
+
+        buyer = Wallet.get_address() or "anonymous"
+
+    config = Config.from_env()
+    facade = OasyceServiceFacade(config=config)
+    result = facade.access_buy(args.asset_id, buyer=buyer, level=args.level)
+
+    if not result.success:
+        print(f"❌ {result.error}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        print(json.dumps(result.data, indent=2))
+    else:
+        d = result.data
+        print(f"🔑 Access purchased for {d['asset_id']}:")
+        print(f"   Buyer:     {d['buyer']}")
+        print(f"   Level:     {d['level']}")
+        print(f"   Bond:      {d['bond_oas']:.4f} OAS")
+        print(f"   Lock days: {d['lock_days']}")
 
 
 def cmd_stake(args):
@@ -2817,6 +2887,161 @@ def cmd_serve(args):
     server_main()
 
 
+def _fetch_latest_pypi_version():
+    """Fetch the latest version of oasyce from PyPI. Returns None on failure."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            "https://pypi.org/pypi/oasyce/json",
+            headers={"Accept": "application/json", "User-Agent": "oasyce-cli"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            return data.get("info", {}).get("version")
+    except Exception:
+        return None
+
+
+def _parse_version_tuple(v):
+    """Parse a version string like '2.0.0' into a comparable tuple of ints."""
+    parts = []
+    for p in v.split("."):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(p)
+    return tuple(parts)
+
+
+def cmd_update(args):
+    """Check for updates and optionally upgrade oasyce."""
+    import subprocess
+
+    from oasyce import __version__ as current
+
+    use_json = getattr(args, "json", False)
+    check_only = getattr(args, "check", False)
+
+    latest = _fetch_latest_pypi_version()
+
+    if latest is None:
+        if use_json:
+            print(json.dumps({"error": "Failed to check PyPI for latest version"}))
+        else:
+            print("  Error: Could not reach PyPI to check for updates.")
+        sys.exit(1)
+
+    current_tuple = _parse_version_tuple(current)
+    latest_tuple = _parse_version_tuple(latest)
+
+    if latest_tuple <= current_tuple:
+        if use_json:
+            print(json.dumps({"current": current, "latest": latest, "up_to_date": True}))
+        else:
+            print(f"  Already up to date (v{current}).")
+        return
+
+    # Newer version available
+    if check_only:
+        if use_json:
+            print(
+                json.dumps(
+                    {
+                        "current": current,
+                        "latest": latest,
+                        "up_to_date": False,
+                        "upgrade_command": "pip install --upgrade oasyce",
+                    }
+                )
+            )
+        else:
+            print(f"  Update available: {current} -> {latest}")
+            print("  Run 'oasyce update' to upgrade.")
+        return
+
+    # Perform upgrade
+    if not use_json:
+        print(f"  Upgrading oasyce: {current} -> {latest} ...")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "oasyce"],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        if use_json:
+            print(
+                json.dumps(
+                    {"current": current, "latest": latest, "upgraded": True, "up_to_date": True}
+                )
+            )
+        else:
+            print(f"  Successfully upgraded to v{latest}.")
+    else:
+        if use_json:
+            print(
+                json.dumps(
+                    {
+                        "current": current,
+                        "latest": latest,
+                        "upgraded": False,
+                        "error": result.stderr,
+                    }
+                )
+            )
+        else:
+            print(f"  Upgrade failed: {result.stderr.strip()}")
+        sys.exit(1)
+
+
+def _maybe_check_for_update():
+    """Background version check -- prints a one-line notice if a newer version is available.
+
+    Only checks once per day. Fails silently on any error.
+    """
+    import time
+
+    try:
+        from oasyce import __version__ as current
+
+        cache_dir = Path.home() / ".oasyce"
+        cache_file = cache_dir / "update_check"
+
+        # Check if we already checked today
+        if cache_file.exists():
+            try:
+                data = json.loads(cache_file.read_text())
+                last_check = data.get("last_check", 0)
+                if time.time() - last_check < 86400:  # 24 hours
+                    # Show cached notice if there was one
+                    cached_latest = data.get("latest")
+                    if cached_latest and _parse_version_tuple(
+                        cached_latest
+                    ) > _parse_version_tuple(current):
+                        print(
+                            f"  Update available: {current} \u2192 {cached_latest}."
+                            f" Run 'oasyce update'\n"
+                        )
+                    return
+            except Exception:
+                pass
+
+        latest = _fetch_latest_pypi_version()
+
+        # Cache the result
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(
+            json.dumps({"last_check": time.time(), "latest": latest or current})
+        )
+
+        if latest and _parse_version_tuple(latest) > _parse_version_tuple(current):
+            print(f"  Update available: {current} \u2192 {latest}. Run 'oasyce update'\n")
+    except Exception:
+        pass  # Never block CLI execution
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="oasyce", description="Oasyce Claw Plugin Engine - Data Asset Management CLI"
@@ -2920,6 +3145,20 @@ def main():
         "--amount", type=float, default=10.0, help="OAS to spend (default 10.0)"
     )
     buy_parser.set_defaults(func=cmd_buy)
+
+    # Sell command
+    sell_parser = subparsers.add_parser("sell", help="Sell asset tokens back to bonding curve")
+    sell_parser.add_argument("asset_id", help="Core asset ID")
+    sell_parser.add_argument(
+        "--seller", default=None, help="Seller identity (defaults to wallet address or 'anonymous')"
+    )
+    sell_parser.add_argument(
+        "--tokens", type=float, required=True, help="Number of tokens to sell"
+    )
+    sell_parser.add_argument(
+        "--max-slippage", type=float, default=None, help="Max slippage tolerance (e.g. 0.05 for 5%%)"
+    )
+    sell_parser.set_defaults(func=cmd_sell)
 
     # Stake command
     stake_parser = subparsers.add_parser("stake", help="Stake OAS for a validator")
@@ -3055,6 +3294,18 @@ def main():
     access_quote_parser.add_argument("asset_id", help="Asset ID")
     access_quote_parser.add_argument("--agent", required=True, help="Agent/buyer ID")
     access_quote_parser.set_defaults(func=cmd_access_quote)
+
+    access_buy_parser = access_sub.add_parser(
+        "buy", help="Buy tiered access to an asset (L0-L3)"
+    )
+    access_buy_parser.add_argument("asset_id", help="Asset ID")
+    access_buy_parser.add_argument(
+        "--agent", default=None, help="Agent/buyer ID (defaults to wallet address)"
+    )
+    access_buy_parser.add_argument(
+        "--level", required=True, choices=["L0", "L1", "L2", "L3"], help="Access level"
+    )
+    access_buy_parser.set_defaults(func=cmd_access_buy)
 
     access_query_parser = access_sub.add_parser("query", help="L0 query (aggregated stats)")
     access_query_parser.add_argument("asset_id", help="Asset ID")
@@ -3460,7 +3711,17 @@ def main():
     doctor_parser = subparsers.add_parser("doctor", help="Security and readiness check")
     doctor_parser.set_defaults(func=cmd_doctor)
 
+    # Update command
+    update_parser = subparsers.add_parser("update", help="Check for updates and upgrade oasyce")
+    update_parser.add_argument(
+        "--check", action="store_true", help="Only check for updates, do not upgrade"
+    )
+    update_parser.set_defaults(func=cmd_update)
+
     args = parser.parse_args()
+
+    # Background version check (once per day, silent on errors)
+    _maybe_check_for_update()
 
     if args.command is None:
         # First-run welcome

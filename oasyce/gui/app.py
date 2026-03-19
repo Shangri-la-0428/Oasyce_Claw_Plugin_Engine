@@ -38,6 +38,7 @@ DASHBOARD_DIR = os.path.join(
 _ledger: Optional[Ledger] = None
 _config: Optional[Config] = None
 _settlement: Any = None
+_facade: Any = None
 _staking: Any = None
 _skills: Any = None
 _cap_registry: Any = None
@@ -177,6 +178,15 @@ def _get_settlement():
 
         _settlement = SettlementEngine()
     return _settlement
+
+
+def _get_facade():
+    global _facade
+    if _facade is None:
+        from oasyce.services.facade import OasyceServiceFacade
+
+        _facade = OasyceServiceFacade(config=_config, ledger=_ledger)
+    return _facade
 
 
 def _get_staking():
@@ -943,13 +953,14 @@ class _Handler(BaseHTTPRequestHandler):
                         },
                     )
 
-                se = _get_settlement()
-                if asset_id not in se.pools:
-                    se.register_asset(asset_id, "protocol")
-                q = se.quote(asset_id, amount)
+                facade = _get_facade()
+                result = facade.quote(asset_id, amount)
+                if not result.success:
+                    return _json_response(self, {"error": result.error}, 400)
 
-                price_before = round(q.spot_price_before, 6)
-                price_after = round(q.spot_price_after, 6)
+                d = result.data
+                price_before = round(d.get("spot_price_before", 0), 6)
+                price_after = round(d.get("spot_price_after", 0), 6)
 
                 # Floor price: enforce manual_price as minimum
                 if asset_price_model == "floor" and asset_manual_price is not None:
@@ -958,14 +969,14 @@ class _Handler(BaseHTTPRequestHandler):
                     price_after = max(price_after, floor)
 
                 resp = {
-                    "asset_id": q.asset_id,
-                    "payment": q.payment_oas,
-                    "tokens": round(q.equity_minted, 4),
+                    "asset_id": d.get("asset_id", asset_id),
+                    "payment": d.get("payment_oas", 0),
+                    "tokens": round(d.get("equity_minted", 0), 4),
                     "price_before": price_before,
                     "price_after": price_after,
-                    "impact_pct": round(q.price_impact_pct, 2),
-                    "fee": round(q.protocol_fee, 4),
-                    "burn": round(q.burn_amount, 4),
+                    "impact_pct": round(d.get("price_impact_pct", 0), 2),
+                    "fee": round(d.get("protocol_fee", 0), 4),
+                    "burn": round(d.get("burn_amount", 0), 4),
                     "price_model": asset_price_model,
                 }
                 if asset_manual_price is not None:
@@ -2207,7 +2218,6 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/api/buy":
             try:
-                se = _get_settlement()
                 aid = body.get("asset_id", "")
                 buyer = body.get("buyer") or _default_identity()
                 amount = float(body.get("amount", 10))
@@ -2256,19 +2266,25 @@ class _Handler(BaseHTTPRequestHandler):
                                 },
                                 409,
                             )
-                if aid not in se.pools:
-                    se.register_asset(aid, "protocol")
-                receipt = se.execute(aid, buyer, amount)
-                if receipt.status.value == "SETTLED":
+                facade = _get_facade()
+                result = facade.buy(aid, buyer, amount)
+                if not result.success:
+                    return _json_response(self, {"error": result.error}, 400)
+
+                d = result.data
+                settled = d.get("settled", False)
+                if settled:
                     _buy_cooldowns[cooldown_key] = time.time()
                     # Send purchase notification to buyer
                     try:
+                        quote_data = d.get("quote") or {}
+                        shares = round(quote_data.get("equity_minted", 0), 4)
                         ns = _get_notification_service()
                         ns.notify(
                             buyer,
                             "PURCHASE",
-                            f"Purchased {round(receipt.quote.equity_minted, 4)} shares of {aid[:12]}...",
-                            {"asset_id": aid, "shares": round(receipt.quote.equity_minted, 4)},
+                            f"Purchased {shares} shares of {aid[:12]}...",
+                            {"asset_id": aid, "shares": shares},
                         )
                         # Send sale notification to asset owner
                         if _ledger:
@@ -2284,17 +2300,16 @@ class _Handler(BaseHTTPRequestHandler):
                                 )
                     except Exception:
                         pass  # notifications are best-effort
+
+                quote_data = d.get("quote") or {}
                 resp = {
-                    "ok": receipt.status.value == "SETTLED",
-                    "receipt_id": receipt.receipt_id,
+                    "ok": settled,
+                    "receipt_id": d.get("receipt_id", ""),
                 }
-                if receipt.quote:
-                    resp["tokens"] = round(receipt.quote.equity_minted, 4)
-                    resp["price_after"] = round(receipt.quote.spot_price_after, 6)
-                else:
-                    resp["tokens"] = 0
-                    resp["price_after"] = 0
-                # equity balance from pool
+                resp["tokens"] = round(quote_data.get("equity_minted", 0), 4)
+                resp["price_after"] = round(quote_data.get("spot_price_after", 0), 6)
+                # equity balance from pool (use settlement engine for pool state lookup)
+                se = _get_settlement()
                 pool = se.get_pool(aid)
                 resp["equity_balance"] = round(pool.equity.get(buyer, 0), 4) if pool else 0
                 resp["error"] = None

@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from oasyce import __version__
+
 # ── Version & identity ────────────────────────────────────────────
 PROJECT_NAME = "Oasyce"
-VERSION = "1.5.0"
+VERSION = __version__
 TAGLINE_EN = "Data-rights clearing network for the machine economy"
 TAGLINE_ZH = "面向机器经济的数据权利清算网络"
 LICENSE = "MIT"
