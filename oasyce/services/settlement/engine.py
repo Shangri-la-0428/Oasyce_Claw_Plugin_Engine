@@ -124,7 +124,7 @@ class SettlementEngine:
 
     @property
     def pools(self) -> Dict[str, AssetPool]:
-        return self._pools
+        return dict(self._pools)
 
     def register_asset(self, asset_id: str, owner: str, initial_reserve: float = 0.0) -> AssetPool:
         if asset_id in self._pools:
@@ -140,7 +140,22 @@ class SettlementEngine:
         return pool
 
     def get_pool(self, asset_id: str) -> Optional[AssetPool]:
+        """Return the pool object. Internal use — prefer get_equity/get_supply for read access."""
         return self._pools.get(asset_id)
+
+    def get_equity(self, asset_id: str, agent_id: str) -> float:
+        """Return the equity held by *agent_id* in *asset_id* without exposing the pool."""
+        pool = self._pools.get(asset_id)
+        if pool is None:
+            return 0.0
+        return pool.equity.get(agent_id, 0.0)
+
+    def get_supply(self, asset_id: str) -> float:
+        """Return the current token supply for *asset_id*."""
+        pool = self._pools.get(asset_id)
+        if pool is None:
+            return 0.0
+        return pool.supply
 
     # ── Buy ────────────────────────────────────────────────────────
 
@@ -209,11 +224,20 @@ class SettlementEngine:
             q = self.quote(asset_id, amount_oas, max_slippage=max_slippage)
             pool = self._pools[asset_id]
 
-            # Update pool state
+            # Update pool state (atomic — roll back on any failure)
             net = amount_oas - q.protocol_fee - q.burn_amount
-            pool.reserve_balance += net
-            pool.supply += q.equity_minted
-            pool.equity[buyer] = pool.equity.get(buyer, 0) + q.equity_minted
+            old_reserve = pool.reserve_balance
+            old_supply = pool.supply
+            old_equity = pool.equity.get(buyer, 0)
+            try:
+                pool.reserve_balance = old_reserve + net
+                pool.supply = old_supply + q.equity_minted
+                pool.equity[buyer] = old_equity + q.equity_minted
+            except Exception:
+                pool.reserve_balance = old_reserve
+                pool.supply = old_supply
+                pool.equity[buyer] = old_equity
+                raise
 
             # Track fee accounting
             self._protocol_fees_collected += q.protocol_fee
@@ -238,12 +262,13 @@ class SettlementEngine:
                 )
             except (ChainClientError, Exception) as e:
                 if self._config.chain_required:
-                    # Roll back local state
-                    pool.reserve_balance -= net
-                    pool.supply -= q.equity_minted
-                    pool.equity[buyer] = pool.equity.get(buyer, 0) - q.equity_minted
-                    if pool.equity.get(buyer, 0) <= 0:
+                    # Roll back to saved state
+                    pool.reserve_balance = old_reserve
+                    pool.supply = old_supply
+                    if old_equity <= 0:
                         pool.equity.pop(buyer, None)
+                    else:
+                        pool.equity[buyer] = old_equity
                     # Roll back fee accounting
                     self._protocol_fees_collected -= q.protocol_fee
                     self._total_burned -= q.burn_amount
@@ -333,12 +358,28 @@ class SettlementEngine:
             sq = self.sell_quote(asset_id, tokens_to_sell, seller, max_slippage)
             pool = self._pools[asset_id]
 
-            # Update pool state
-            pool.reserve_balance -= sq.payout_oas + sq.protocol_fee + sq.burn_amount
-            pool.supply -= tokens_to_sell
-            pool.equity[seller] = pool.equity.get(seller, 0) - tokens_to_sell
-            if pool.equity.get(seller, 0) <= 0:
-                pool.equity.pop(seller, None)
+            # Validate reserve sufficiency
+            total_debit = sq.payout_oas + sq.protocol_fee + sq.burn_amount
+            if total_debit > pool.reserve_balance:
+                raise ValueError("Insufficient reserve for sell operation")
+
+            # Update pool state (atomic — roll back on any failure)
+            old_reserve = pool.reserve_balance
+            old_supply = pool.supply
+            old_equity = pool.equity.get(seller, 0)
+            try:
+                pool.reserve_balance = old_reserve - total_debit
+                pool.supply = old_supply - tokens_to_sell
+                new_equity = old_equity - tokens_to_sell
+                if new_equity <= 0:
+                    pool.equity.pop(seller, None)
+                else:
+                    pool.equity[seller] = new_equity
+            except Exception:
+                pool.reserve_balance = old_reserve
+                pool.supply = old_supply
+                pool.equity[seller] = old_equity
+                raise
 
             # Track fee accounting
             self._protocol_fees_collected += sq.protocol_fee
@@ -362,10 +403,10 @@ class SettlementEngine:
                 )
             except (ChainClientError, Exception) as e:
                 if self._config.chain_required:
-                    # Roll back
-                    pool.reserve_balance += sq.payout_oas + sq.protocol_fee + sq.burn_amount
-                    pool.supply += tokens_to_sell
-                    pool.equity[seller] = pool.equity.get(seller, 0) + tokens_to_sell
+                    # Roll back to saved state
+                    pool.reserve_balance = old_reserve
+                    pool.supply = old_supply
+                    pool.equity[seller] = old_equity
                     # Roll back fee accounting
                     self._protocol_fees_collected -= sq.protocol_fee
                     self._total_burned -= sq.burn_amount

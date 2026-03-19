@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import enum
 import hashlib
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -143,6 +144,7 @@ class DisputeManager:
         slash_fn: Optional[Callable] = None,
         deposit_fn: Optional[Callable] = None,
         get_manifest: Optional[Callable] = None,
+        reputation_update_fn: Optional[Callable[[str, float, str], None]] = None,
     ) -> None:
         self._get_invocation = get_invocation
         self._get_reputation = get_reputation
@@ -152,6 +154,10 @@ class DisputeManager:
         self._slash_fn = slash_fn
         self._deposit_fn = deposit_fn
         self._get_manifest = get_manifest
+        self._reputation_update_fn: Callable[[str, float, str], None] = (
+            reputation_update_fn if reputation_update_fn is not None
+            else lambda agent_id, delta, reason: None
+        )
         self._disputes: Dict[str, DisputeRecord] = {}
         self._by_invocation: Dict[str, str] = {}  # invocation_id → dispute_id
         self._counter = 0
@@ -181,6 +187,10 @@ class DisputeManager:
         inv = self._get_invocation(invocation_id)
         if inv is None:
             raise DisputeError(f"invocation not found: {invocation_id}")
+
+        # Cannot dispute own invocation
+        if inv.consumer_id == inv.provider_id:
+            raise DisputeError("Cannot dispute own invocation")
 
         # Consumer must match
         if inv.consumer_id != consumer_id:
@@ -258,8 +268,11 @@ class DisputeManager:
             seed = hashlib.sha256((dispute_id + node_id).encode()).hexdigest()
             hash_val = int(seed[:16], 16)  # first 64 bits
             rep = self._get_reputation(node_id)
-            # Higher reputation → higher effective score
-            score = hash_val * rep
+            # Normalize: use hash to create a [0,1) random value, then weight by rep
+            random_val = hash_val / (2**64)  # normalize to [0, 1)
+            # Use rep as a weight with diminishing returns to reduce bias
+            weight = math.log1p(rep)  # log(1+rep) smooths the advantage
+            score = random_val * weight
             scored.append((score, node_id))
 
         scored.sort(reverse=True)
@@ -354,6 +367,16 @@ class DisputeManager:
             resolution.minority_jurors = [
                 v.juror_id for v in dispute.votes if v.verdict != winning_verdict
             ]
+
+        # Reputation updates based on outcome
+        if outcome == ResolutionOutcome.CONSUMER_WINS:
+            self._reputation_update_fn(dispute.provider_id, -10.0, "lost dispute")
+        elif outcome == ResolutionOutcome.PROVIDER_WINS:
+            self._reputation_update_fn(dispute.consumer_id, -5.0, "lost dispute")
+        for juror_id in resolution.majority_jurors:
+            self._reputation_update_fn(juror_id, +1.0, "correct jury vote")
+        for juror_id in resolution.minority_jurors:
+            self._reputation_update_fn(juror_id, -2.0, "incorrect jury vote")
 
         dispute.outcome = outcome
         dispute.state = DisputeState.RESOLVED
@@ -482,6 +505,16 @@ class DisputeManager:
                 for v in dispute.votes
                 if v.verdict != winning_verdict
             ]
+
+        # Reputation updates based on outcome
+        if outcome == ResolutionOutcome.CONSUMER_WINS:
+            self._reputation_update_fn(dispute.provider_id, -10.0, "lost dispute")
+        elif outcome == ResolutionOutcome.PROVIDER_WINS:
+            self._reputation_update_fn(dispute.consumer_id, -5.0, "lost dispute")
+        for juror_id in resolution.majority_jurors:
+            self._reputation_update_fn(juror_id, +1.0, "correct jury vote")
+        for juror_id in resolution.minority_jurors:
+            self._reputation_update_fn(juror_id, -2.0, "incorrect jury vote")
 
         dispute.outcome = outcome
         dispute.state = DisputeState.RESOLVED

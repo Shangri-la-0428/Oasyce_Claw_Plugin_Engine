@@ -15,9 +15,13 @@ used SettlementEngine directly, producing different prices for the same asset.
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +71,7 @@ class OasyceServiceFacade:
     def __init__(self, config=None, ledger=None):
         self._config = config
         self._ledger = ledger
+        self._init_lock = threading.Lock()
 
         # Lazy-initialised service instances
         self._settlement = None
@@ -79,91 +84,115 @@ class OasyceServiceFacade:
 
     def _get_settlement(self):
         if self._settlement is None:
-            from oasyce.services.settlement.engine import SettlementEngine
+            with self._init_lock:
+                if self._settlement is None:  # double-check
+                    from oasyce.services.settlement.engine import SettlementEngine
 
-            self._settlement = SettlementEngine()
+                    self._settlement = SettlementEngine()
         return self._settlement
 
     def _get_reputation(self):
         if self._reputation is None:
-            from oasyce.services.reputation import ReputationEngine
+            with self._init_lock:
+                if self._reputation is None:  # double-check
+                    from oasyce.services.reputation import ReputationEngine
 
-            self._reputation = ReputationEngine()
+                    self._reputation = ReputationEngine()
         return self._reputation
 
     def _get_access_provider(self):
         if self._access_provider is None:
-            from oasyce.services.access.provider import DataAccessProvider
+            with self._init_lock:
+                if self._access_provider is None:  # double-check
+                    from oasyce.services.access.provider import DataAccessProvider
 
-            self._access_provider = DataAccessProvider(
-                reputation=self._get_reputation(),
-            )
+                    self._access_provider = DataAccessProvider(
+                        reputation=self._get_reputation(),
+                    )
         return self._access_provider
 
     def _get_dispute_manager(self):
         if self._dispute_manager is None:
-            from oasyce.capabilities.dispute import DisputeManager
+            with self._init_lock:
+                if self._dispute_manager is None:  # double-check
+                    from oasyce.capabilities.dispute import DisputeManager
 
-            # Wire callbacks using other facade services
-            def _get_invocation(invocation_id: str):
-                """Look up an invocation record from the ledger."""
-                if self._ledger is None:
-                    return None
-                try:
-                    row = self._ledger._conn.execute(
-                        "SELECT * FROM assets WHERE asset_id = ?", (invocation_id,)
-                    ).fetchone()
-                    if row is None:
-                        return None
-                    # Return a simple namespace object with expected attributes
-                    import types
-                    import json as _json
+                    # Wire callbacks using other facade services
+                    def _get_invocation(invocation_id: str):
+                        """Look up an invocation record from the ledger."""
+                        if self._ledger is None:
+                            return None
+                        try:
+                            row = self._ledger._conn.execute(
+                                "SELECT * FROM assets WHERE asset_id = ?", (invocation_id,)
+                            ).fetchone()
+                            if row is None:
+                                return None
+                            # Return a simple namespace object with expected attributes
+                            import types
+                            import json as _json
 
-                    meta = _json.loads(row["metadata"]) if row.get("metadata") else {}
-                    inv = types.SimpleNamespace(
-                        consumer_id=meta.get("consumer_id", ""),
-                        provider_id=meta.get("provider_id", row.get("owner", "")),
-                        capability_id=meta.get("capability_id", ""),
-                        state=types.SimpleNamespace(value=meta.get("state", "completed")),
-                        settled_at=meta.get("settled_at", 0),
-                        escrow_id=meta.get("escrow_id", ""),
-                        price=meta.get("price", 0.0),
+                            meta = _json.loads(row["metadata"]) if row.get("metadata") else {}
+                            inv = types.SimpleNamespace(
+                                consumer_id=meta.get("consumer_id", ""),
+                                provider_id=meta.get("provider_id", row.get("owner", "")),
+                                capability_id=meta.get("capability_id", ""),
+                                state=types.SimpleNamespace(value=meta.get("state", "completed")),
+                                settled_at=meta.get("settled_at", 0),
+                                escrow_id=meta.get("escrow_id", ""),
+                                price=meta.get("price", 0.0),
+                            )
+                            return inv
+                        except Exception as e:
+                            logger.warning("Failed to lookup invocation %s: %s", invocation_id, e)
+                            return None
+
+                    def _get_reputation(agent_id: str) -> float:
+                        try:
+                            rep_engine = self._get_reputation()
+                            return rep_engine.get_reputation(agent_id)
+                        except Exception as e:
+                            logger.warning("Failed to get reputation for %s: %s", agent_id, e)
+                            return 0.0
+
+                    def _get_stake(agent_id: str) -> float:
+                        # Default stub — returns enough to qualify as juror
+                        return 100.0
+
+                    def _escrow_refund(escrow_id: str):
+                        pass  # No-op stub for local mode
+
+                    def _escrow_release(escrow_id: str):
+                        pass  # No-op stub for local mode
+
+                    def _reputation_update(agent_id: str, delta: float, reason: str) -> None:
+                        """Apply a reputation delta via the ReputationEngine."""
+                        try:
+                            rep_engine = self._get_reputation()
+                            if delta > 0:
+                                rep_engine.update(agent_id, success=True)
+                            else:
+                                rep_engine.update(agent_id, success=False)
+                        except Exception as e:
+                            logger.warning("Failed to update reputation for %s: %s", agent_id, e)
+
+                    self._dispute_manager = DisputeManager(
+                        get_invocation=_get_invocation,
+                        get_reputation=_get_reputation,
+                        get_stake=_get_stake,
+                        escrow_refund=_escrow_refund,
+                        escrow_release=_escrow_release,
+                        reputation_update_fn=_reputation_update,
                     )
-                    return inv
-                except Exception:
-                    return None
-
-            def _get_reputation(agent_id: str) -> float:
-                try:
-                    rep_engine = self._get_reputation()
-                    return rep_engine.get_reputation(agent_id)
-                except Exception:
-                    return 0.0
-
-            def _get_stake(agent_id: str) -> float:
-                # Default stub — returns enough to qualify as juror
-                return 100.0
-
-            def _escrow_refund(escrow_id: str):
-                pass  # No-op stub for local mode
-
-            def _escrow_release(escrow_id: str):
-                pass  # No-op stub for local mode
-
-            self._dispute_manager = DisputeManager(
-                get_invocation=_get_invocation,
-                get_reputation=_get_reputation,
-                get_stake=_get_stake,
-                escrow_refund=_escrow_refund,
-                escrow_release=_escrow_release,
-            )
         return self._dispute_manager
 
     def _get_skills(self):
         if self._skills is None:
-            from oasyce.skills.agent_skills import OasyceSkills
+            with self._init_lock:
+                if self._skills is None:  # double-check
+                    from oasyce.skills.agent_skills import OasyceSkills
 
-            self._skills = OasyceSkills(config=self._config, ledger=self._ledger)
+                    self._skills = OasyceSkills(config=self._config, ledger=self._ledger)
         return self._skills
 
     # -----------------------------------------------------------------------
@@ -185,15 +214,15 @@ class OasyceServiceFacade:
         insufficient holdings.
         """
         se = self._get_settlement()
-        pool = se.get_pool(asset_id)
-        if pool is None or pool.supply <= 0:
+        supply = se.get_supply(asset_id)
+        if supply <= 0:
             return None
 
-        holdings = pool.equity.get(agent_id, 0)
+        holdings = se.get_equity(asset_id, agent_id)
         if holdings <= 0:
             return None
 
-        pct = holdings / pool.supply
+        pct = holdings / supply
 
         # Find highest qualifying level from equity
         equity_level: Optional[str] = None
@@ -717,5 +746,194 @@ class OasyceServiceFacade:
                     "resolution": resolution_rec,
                 },
             )
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    # -----------------------------------------------------------------------
+    # Protocol Stats
+    # -----------------------------------------------------------------------
+    def protocol_stats(self) -> ServiceResult:
+        """Return protocol-level statistics (fees collected, tokens burned)."""
+        try:
+            se = self._get_settlement()
+            stats = se.protocol_stats()
+            return ServiceResult(success=True, data=stats)
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    # -----------------------------------------------------------------------
+    # Sell Quote (preview without executing)
+    # -----------------------------------------------------------------------
+    def sell_quote(self, asset_id: str, tokens: float, seller: str) -> ServiceResult:
+        """Get a quote for selling tokens back to the bonding curve."""
+        try:
+            se = self._get_settlement()
+            sq = se.sell_quote(asset_id, tokens, seller)
+            return ServiceResult(
+                success=True,
+                data={
+                    "asset_id": sq.asset_id,
+                    "tokens_sold": sq.tokens_sold,
+                    "payout_oas": sq.payout_oas,
+                    "protocol_fee": sq.protocol_fee,
+                    "burn_amount": sq.burn_amount,
+                    "price_impact_pct": sq.price_impact_pct,
+                },
+            )
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    # -----------------------------------------------------------------------
+    # Pool Info (read-only)
+    # -----------------------------------------------------------------------
+    def get_pool_info(self, asset_id: str) -> ServiceResult:
+        """Return read-only pool information for an asset."""
+        try:
+            se = self._get_settlement()
+            pool = se.get_pool(asset_id)
+            if pool is None:
+                return ServiceResult(success=False, error=f"Pool not found: {asset_id}")
+            return ServiceResult(
+                success=True,
+                data={
+                    "asset_id": pool.asset_id,
+                    "owner": pool.owner,
+                    "supply": pool.supply,
+                    "reserve_balance": pool.reserve_balance,
+                    "spot_price": pool.spot_price,
+                    "equity": dict(pool.equity),  # copy
+                    "total_buys": pool.total_buys,
+                    "total_sells": pool.total_sells,
+                },
+            )
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    # -----------------------------------------------------------------------
+    # List Pools
+    # -----------------------------------------------------------------------
+    def list_pools(self) -> ServiceResult:
+        """List summary of all settlement pools."""
+        try:
+            se = self._get_settlement()
+            pools = []
+            for aid, pool in se.pools.items():
+                pools.append({
+                    "asset_id": pool.asset_id,
+                    "owner": pool.owner,
+                    "supply": pool.supply,
+                    "reserve_balance": pool.reserve_balance,
+                    "spot_price": pool.spot_price,
+                })
+            return ServiceResult(success=True, data={"pools": pools})
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    # -----------------------------------------------------------------------
+    # Portfolio
+    # -----------------------------------------------------------------------
+    def get_portfolio(self, agent_id: str) -> ServiceResult:
+        """Get an agent's equity holdings across all pools."""
+        try:
+            se = self._get_settlement()
+            holdings = []
+            for aid, pool in se.pools.items():
+                equity = pool.equity.get(agent_id, 0)
+                if equity > 0:
+                    pct = equity / pool.supply if pool.supply > 0 else 0
+                    holdings.append({
+                        "asset_id": aid,
+                        "tokens": equity,
+                        "pct": round(pct * 100, 4),
+                        "value_oas": round(equity * pool.spot_price, 6),
+                        "access_level": None,  # filled below
+                    })
+            # Fill access levels
+            for h in holdings:
+                h["access_level"] = self.get_equity_access_level(h["asset_id"], agent_id)
+            return ServiceResult(success=True, data={"agent_id": agent_id, "holdings": holdings})
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    # -----------------------------------------------------------------------
+    # Asset Mutation — update / delete / get
+    # -----------------------------------------------------------------------
+    def update_asset_metadata(
+        self, asset_id: str, updates: Dict[str, Any]
+    ) -> ServiceResult:
+        """Update asset metadata fields (tags, version, etc.).
+
+        Only specified keys are merged; existing keys are preserved.
+        """
+        import json as _json
+
+        if self._ledger is None:
+            return ServiceResult(success=False, error="Ledger not available")
+        try:
+            row = self._ledger._conn.execute(
+                "SELECT metadata FROM assets WHERE asset_id = ?", (asset_id,)
+            ).fetchone()
+            if not row:
+                return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
+
+            meta = _json.loads(row["metadata"]) if row["metadata"] else {}
+            meta.update(updates)
+
+            self._ledger._conn.execute(
+                "UPDATE assets SET metadata = ? WHERE asset_id = ?",
+                (_json.dumps(meta), asset_id),
+            )
+            self._ledger._conn.commit()
+            return ServiceResult(success=True, data={"asset_id": asset_id, "updated_keys": list(updates.keys())})
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    def delete_asset(self, asset_id: str) -> ServiceResult:
+        """Delete an asset and its associated records.
+
+        Removes from ledger, fingerprint records, and settlement pool.
+        """
+        if self._ledger is None:
+            return ServiceResult(success=False, error="Ledger not available")
+        try:
+            row = self._ledger._conn.execute(
+                "SELECT asset_id FROM assets WHERE asset_id = ?", (asset_id,)
+            ).fetchone()
+            if not row:
+                return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
+
+            self._ledger._conn.execute(
+                "DELETE FROM assets WHERE asset_id = ?", (asset_id,)
+            )
+            # Clean up fingerprint records if table exists
+            try:
+                self._ledger._conn.execute(
+                    "DELETE FROM fingerprint_records WHERE asset_id = ?", (asset_id,)
+                )
+            except Exception:
+                pass  # table may not exist
+            self._ledger._conn.commit()
+
+            return ServiceResult(success=True, data={"asset_id": asset_id, "deleted": True})
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    def get_asset(self, asset_id: str) -> ServiceResult:
+        """Get asset information by ID."""
+        import json as _json
+
+        if self._ledger is None:
+            return ServiceResult(success=False, error="Ledger not available")
+        try:
+            row = self._ledger._conn.execute(
+                "SELECT * FROM assets WHERE asset_id = ?", (asset_id,)
+            ).fetchone()
+            if not row:
+                return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
+
+            data = dict(row)
+            if data.get("metadata"):
+                data["metadata"] = _json.loads(data["metadata"])
+            return ServiceResult(success=True, data=data)
         except Exception as e:
             return ServiceResult(success=False, error=str(e))

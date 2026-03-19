@@ -55,6 +55,12 @@ class OasyceSkills:
             raise RuntimeError(result.error)
         return result.data
 
+    def _get_facade(self):
+        if not hasattr(self, '_facade') or self._facade is None:
+            from oasyce.services.facade import OasyceServiceFacade
+            self._facade = OasyceServiceFacade(config=self.config, ledger=self.ledger)
+        return self._facade
+
     def scan_data_skill(self, file_path: str, skip_privacy_check: bool = False) -> Dict[str, Any]:
         """
         扫描文件
@@ -261,8 +267,6 @@ class OasyceSkills:
             dict with: asset_id, tokens_received, price_paid, watermarked_content (if text),
                        fingerprint, receipt. Or {error} if nothing found / too expensive.
         """
-        from oasyce.services.settlement.engine import SettlementEngine
-
         # 1. Search
         results = self._unwrap(
             SearchEngine.search_assets(self.vault_path, query, ledger=self.ledger)
@@ -274,14 +278,16 @@ class OasyceSkills:
         asset = results[0]
         asset_id = asset.get("asset_id", "")
 
-        # 3. Quote via settlement engine
-        se = SettlementEngine()
-        if asset_id not in se.pools:
-            se.register_asset(asset_id, asset.get("owner", "unknown"))
-        quote = se.quote(asset_id, amount)
+        # 3. Quote via facade
+        facade = self._get_facade()
+
+        quote_result = facade.quote(asset_id, amount)
+        if not quote_result.success:
+            return {"error": quote_result.error, "asset_id": asset_id}
 
         # 4. Price check — effective price per token
-        effective_price = amount / quote.equity_minted if quote.equity_minted > 0 else float("inf")
+        equity_minted = quote_result.data.get("equity_minted", 0)
+        effective_price = amount / equity_minted if equity_minted > 0 else float("inf")
         if effective_price > max_price:
             return {
                 "error": f"Too expensive: {effective_price:.4f} OAS/token exceeds max {max_price}",
@@ -290,21 +296,23 @@ class OasyceSkills:
                 "max_price": max_price,
             }
 
-        # 5. Execute purchase
-        receipt = se.execute(asset_id, buyer, amount)
-        if receipt.status.value != "SETTLED":
-            return {"error": receipt.error or "Purchase failed", "asset_id": asset_id}
+        # 5. Execute purchase via facade
+        buy_result = facade.buy(asset_id, buyer, amount)
+        if not buy_result.success:
+            return {"error": buy_result.error or "Purchase failed", "asset_id": asset_id}
 
+        # Build result from facade response
+        quote_data = buy_result.data.get("quote", {})
         result = {
             "asset_id": asset_id,
             "asset_info": asset,
-            "tokens_received": round(receipt.quote.equity_minted, 4),
+            "tokens_received": round(quote_data.get("equity_minted", 0), 4),
             "price_paid": amount,
             "effective_price": round(effective_price, 6),
-            "price_after": round(receipt.quote.spot_price_after, 6),
-            "receipt_id": receipt.receipt_id,
-            "equity_balance": round(receipt.equity_balance, 4),
-            "fee_burned": round(receipt.quote.burn_amount, 4),
+            "price_after": round(quote_data.get("spot_price_after", 0), 6),
+            "receipt_id": buy_result.data.get("receipt_id", ""),
+            "equity_balance": round(quote_data.get("equity_minted", 0), 4),
+            "fee_burned": round(quote_data.get("protocol_fee", 0) * 0.4, 4),  # burn is ~40% of fee
         }
 
         # 6. Watermark (if text asset and content available)

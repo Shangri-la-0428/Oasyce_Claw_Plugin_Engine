@@ -172,11 +172,10 @@ def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
 
 
 def _get_settlement():
+    """Return the settlement engine shared with the facade (single source of truth)."""
     global _settlement
     if _settlement is None:
-        from oasyce.services.settlement.engine import SettlementEngine
-
-        _settlement = SettlementEngine()
+        _settlement = _get_facade()._get_settlement()
     return _settlement
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI
 
-from oasyce.api.deps import get_engine
+from oasyce.api.deps import get_engine, get_facade
 from oasyce.api.schemas import (
     BuyRequest,
     BuyResultOut,
@@ -18,6 +18,7 @@ from oasyce.api.schemas import (
 )
 from oasyce.engine import OasyceEngine
 from oasyce.models.capture_pack import CapturePack
+from oasyce.services.facade import OasyceServiceFacade
 
 app = FastAPI(title="Oasyce PoPC API", version="0.1.0")
 
@@ -56,27 +57,36 @@ def submit(body: SubmitRequest, engine: OasyceEngine = Depends(get_engine)) -> E
 
 
 @app.post("/v1/buy", response_model=Envelope)
-def buy(body: BuyRequest, engine: OasyceEngine = Depends(get_engine)) -> Envelope:
-    quote, settle = engine.buy(body.asset_id, buyer=body.buyer)
+def buy(body: BuyRequest, facade: OasyceServiceFacade = Depends(get_facade)) -> Envelope:
+    result = facade.buy(body.asset_id, body.buyer)
+    if not result.success:
+        return Envelope(ok=False, error=result.error)
 
-    if quote is None or settle is None:
-        return Envelope(ok=False, error=f"asset '{body.asset_id}' not found")
+    data = result.data
+    quote_data = data.get("quote", {})
+    settle_data = data.get("settlement", {})
 
+    split_raw = settle_data.get("split")
     split_out = None
-    if settle.split is not None:
+    if split_raw is not None:
         split_out = SettleSplitOut(
-            creator=settle.split.creator,
-            protocol_burn=settle.split.protocol_burn,
-            protocol_validator=settle.split.protocol_validator,
-            router=settle.split.router,
+            creator=split_raw["creator"],
+            protocol_burn=split_raw["protocol_burn"],
+            protocol_validator=split_raw["protocol_validator"],
+            router=split_raw["router"],
         )
 
-    data = BuyResultOut(
+    buy_out = BuyResultOut(
         quote=QuoteResultOut(
-            asset_id=quote.asset_id, price_oas=quote.price_oas, supply=quote.supply
+            asset_id=quote_data.get("asset_id", body.asset_id),
+            price_oas=quote_data.get("price_oas", 0.0),
+            supply=quote_data.get("supply", 0),
         ),
         settlement=SettleResultOut(
-            success=settle.success, tx_id=settle.tx_id, split=split_out, reason=settle.reason
+            success=settle_data.get("success", False),
+            tx_id=settle_data.get("tx_id", ""),
+            split=split_out,
+            reason=settle_data.get("reason"),
         ),
     )
-    return Envelope(ok=settle.success, data=data)
+    return Envelope(ok=settle_data.get("success", False), data=buy_out)
