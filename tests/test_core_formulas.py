@@ -7,12 +7,20 @@ from oasyce.core.formulas import (
     PROTOCOL_FEE_RATE,
     BURN_RATE,
     RESERVE_SOLVENCY_CAP,
+    RIGHTS_MULTIPLIERS,
+    REPUTATION_CAP,
+    REPUTATION_FLOOR,
+    DISPUTE_FEE,
+    REP_PENALTY_PROVIDER_LOSS,
     bonding_curve_buy,
     bonding_curve_sell,
     calculate_fees,
     equity_to_access_level,
     jury_score,
     price_impact,
+    rights_multiplier,
+    share_rate,
+    reputation_decay,
     spot_price,
 )
 
@@ -152,3 +160,130 @@ class TestJuryScore:
     def test_positive(self):
         s = jury_score("D1", "node_a", 50.0)
         assert s >= 0.0
+
+
+class TestRightsMultiplier:
+    def test_original(self):
+        assert rights_multiplier("original") == 1.0
+
+    def test_co_creation(self):
+        assert rights_multiplier("co_creation") == 0.9
+
+    def test_licensed(self):
+        assert rights_multiplier("licensed") == 0.7
+
+    def test_collection(self):
+        assert rights_multiplier("collection") == 0.3
+
+    def test_unknown_defaults_to_collection(self):
+        assert rights_multiplier("garbage") == 0.3
+
+    def test_empty_string(self):
+        assert rights_multiplier("") == 0.3
+
+
+class TestShareRate:
+    def test_first_buyer(self):
+        assert share_rate(0) == 1.0
+
+    def test_second_buyer(self):
+        assert share_rate(1) == 0.8
+
+    def test_third_buyer(self):
+        assert share_rate(2) == 0.6
+
+    def test_fourth_buyer(self):
+        assert share_rate(3) == 0.4
+
+    def test_hundredth_buyer(self):
+        assert share_rate(99) == 0.4
+
+
+class TestReputationDecay:
+    def test_no_elapsed(self):
+        assert reputation_decay(80.0, 0) == 80.0
+
+    def test_half_life(self):
+        """After 30 days, score should halve."""
+        result = reputation_decay(80.0, 30)
+        assert result == pytest.approx(40.0, rel=0.01)
+
+    def test_two_half_lives(self):
+        result = reputation_decay(80.0, 60)
+        assert result == pytest.approx(20.0, rel=0.01)
+
+    def test_floor(self):
+        result = reputation_decay(0.1, 365)
+        assert result >= REPUTATION_FLOOR
+
+    def test_negative_elapsed(self):
+        assert reputation_decay(50.0, -5) == 50.0
+
+    def test_zero_score(self):
+        assert reputation_decay(0.0, 30) == REPUTATION_FLOOR
+
+
+class TestBondingCurveBuyEdgeCases:
+    def test_negative_payment(self):
+        assert bonding_curve_buy(100, 50, -10) == 0.0
+
+    def test_zero_payment(self):
+        assert bonding_curve_buy(100, 50, 0) == 0.0
+
+    def test_large_payment(self):
+        """Very large payment should not overflow."""
+        tokens = bonding_curve_buy(1000, 500, 1e10)
+        assert tokens > 0
+        assert tokens < float('inf')
+
+
+class TestBondingCurveSellEdgeCases:
+    def test_tokens_equal_supply(self):
+        """Selling 100% of supply -> capped at solvency limit."""
+        payout = bonding_curve_sell(100, 50, 100)
+        assert payout == pytest.approx(50 * RESERVE_SOLVENCY_CAP)
+
+    def test_tokens_exceed_supply(self):
+        """Selling more than supply -> still capped safely."""
+        payout = bonding_curve_sell(100, 50, 200)
+        assert payout == pytest.approx(50 * RESERVE_SOLVENCY_CAP)
+
+    def test_zero_tokens(self):
+        assert bonding_curve_sell(100, 50, 0) == 0.0
+
+    def test_negative_tokens(self):
+        assert bonding_curve_sell(100, 50, -10) == 0.0
+
+    def test_zero_supply(self):
+        assert bonding_curve_sell(0, 50, 10) == 0.0
+
+    def test_zero_reserve(self):
+        assert bonding_curve_sell(100, 0, 10) == 0.0
+
+
+class TestJuryScoreEdgeCases:
+    def test_negative_reputation_floors_to_zero(self):
+        s = jury_score("D1", "node_a", -50.0)
+        assert s == 0.0  # log1p(0) = 0
+
+    def test_very_high_reputation(self):
+        s = jury_score("D1", "node_a", 1e6)
+        assert s > 0
+        assert s < float('inf')
+
+
+class TestDisputeConstants:
+    def test_majority_threshold(self):
+        from oasyce.core.formulas import MAJORITY_THRESHOLD
+        assert MAJORITY_THRESHOLD == pytest.approx(2/3)
+
+    def test_reputation_penalties_are_negative(self):
+        assert REP_PENALTY_PROVIDER_LOSS < 0
+        from oasyce.core.formulas import REP_PENALTY_CONSUMER_LOSS, REP_PENALTY_MINORITY_JUROR
+        assert REP_PENALTY_CONSUMER_LOSS < 0
+        assert REP_PENALTY_MINORITY_JUROR < 0
+
+    def test_rewards_are_positive(self):
+        from oasyce.core.formulas import REP_REWARD_MAJORITY_JUROR, JUROR_REWARD
+        assert REP_REWARD_MAJORITY_JUROR > 0
+        assert JUROR_REWARD > 0

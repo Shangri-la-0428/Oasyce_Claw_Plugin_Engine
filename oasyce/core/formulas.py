@@ -20,6 +20,71 @@ INITIAL_PRICE = 1.0          # OAS per token — fair bootstrap price
 MIN_INITIAL_RESERVE = 100.0  # Minimum funded pool reserve
 RESERVE_SOLVENCY_CAP = 0.95  # Max fraction of reserve payable on sell
 
+# ── Rights Type Multipliers ────────────────────────────────────────
+RIGHTS_MULTIPLIERS = {
+    "original": 1.0,        # Full value
+    "co_creation": 0.9,     # 90% — shared creation
+    "licensed": 0.7,        # 70% — licensed content
+    "collection": 0.3,      # 30% — aggregated data
+}
+
+
+def rights_multiplier(rights_type: str) -> float:
+    """Return pricing multiplier for a rights type. Defaults to 'collection' (0.3x)."""
+    return RIGHTS_MULTIPLIERS.get(rights_type, RIGHTS_MULTIPLIERS["collection"])
+
+
+# ── Share Diminishing Returns ──────────────────────────────────────
+DIMINISHING_RATES = [
+    (0, 1.0),        # First buyer: 100% share rate
+    (1, 0.8),        # Second: 80%
+    (2, 0.6),        # Third: 60%
+    (3, 0.4),        # Fourth+: 40%
+]
+
+
+def share_rate(buyer_index: int) -> float:
+    """Return the share earning rate for the Nth buyer (0-indexed).
+
+    Early buyers get more shares per OAS: 100% → 80% → 60% → 40%.
+    This rewards early participation without unfairly exploiting it
+    (INITIAL_PRICE prevents the first buyer from getting 10x value).
+    """
+    for max_idx, rate in reversed(DIMINISHING_RATES):
+        if buyer_index >= max_idx:
+            return rate
+    return 0.4  # fallback
+
+
+# ── Reputation Decay ───────────────────────────────────────────────
+REPUTATION_DECAY_HALF_LIFE_DAYS = 30  # Score halves every 30 days
+REPUTATION_FLOOR = 0.0
+REPUTATION_CAP = 100.0
+
+
+def reputation_decay(score: float, elapsed_days: float) -> float:
+    """Apply exponential time decay to a reputation score.
+
+    Formula: score × exp(-0.693 × elapsed_days / half_life)
+    Half-life of 30 days: score halves every month of inactivity.
+    Clamped to [REPUTATION_FLOOR, REPUTATION_CAP].
+    """
+    if elapsed_days <= 0 or score <= REPUTATION_FLOOR:
+        return max(score, REPUTATION_FLOOR)
+    decay_factor = math.exp(-0.693 * elapsed_days / REPUTATION_DECAY_HALF_LIFE_DAYS)
+    result = score * decay_factor
+    return max(min(result, REPUTATION_CAP), REPUTATION_FLOOR)
+
+
+# ── Dispute Economics ──────────────────────────────────────────────
+DISPUTE_FEE = 5.0              # OAS required to file dispute
+JUROR_REWARD = 2.0             # OAS per juror for correct vote
+MAJORITY_THRESHOLD = 2 / 3     # 2/3 majority required
+REP_PENALTY_PROVIDER_LOSS = -10.0  # Provider loses dispute
+REP_PENALTY_CONSUMER_LOSS = -5.0   # Consumer loses dispute
+REP_REWARD_MAJORITY_JUROR = 1.0    # Correct jury vote
+REP_PENALTY_MINORITY_JUROR = -2.0  # Incorrect jury vote
+
 # ── Access Constants ────────────────────────────────────────────────
 EQUITY_ACCESS_THRESHOLDS = [
     (0.10, "L3"),   # >= 10% → Deliver
@@ -56,6 +121,8 @@ def bonding_curve_buy(supply: float, reserve: float, net_payment: float) -> floa
     Formula: tokens = supply × ((1 + payment/reserve)^CW − 1)
     Bootstrap: tokens = payment / INITIAL_PRICE when reserve == 0.
     """
+    if net_payment <= 0:
+        return 0.0
     if reserve > 0 and supply > 0:
         return supply * ((1 + net_payment / reserve) ** RESERVE_RATIO - 1)
     return net_payment / INITIAL_PRICE
@@ -67,6 +134,10 @@ def bonding_curve_sell(supply: float, reserve: float, tokens: float) -> float:
     Formula: payout = reserve × (1 − (1 − tokens/supply)^(1/CW))
     Capped at RESERVE_SOLVENCY_CAP × reserve to keep pool solvent.
     """
+    if tokens <= 0 or supply <= 0 or reserve <= 0:
+        return 0.0
+    if tokens >= supply:
+        return reserve * RESERVE_SOLVENCY_CAP  # Can't sell entire supply; cap at max
     ratio = 1 - tokens / supply
     gross = reserve * (1 - ratio ** (1 / RESERVE_RATIO))
     return min(gross, reserve * RESERVE_SOLVENCY_CAP)
@@ -120,6 +191,8 @@ def jury_score(dispute_id: str, node_id: str, reputation: float) -> float:
     Deterministic given (dispute_id, node_id) — fair selection with
     diminishing returns on reputation advantage.
     """
+    if reputation < 0:
+        reputation = 0.0  # Floor at zero
     seed = hashlib.sha256((dispute_id + node_id).encode()).hexdigest()
     hash_val = int(seed[:16], 16)
     random_val = hash_val / (2**64)

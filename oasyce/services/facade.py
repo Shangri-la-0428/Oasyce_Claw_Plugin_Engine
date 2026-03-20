@@ -928,6 +928,47 @@ class OasyceServiceFacade:
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
+    def submit_evidence(
+        self,
+        dispute_id: str,
+        submitter: str,
+        evidence_hash: str,
+        evidence_type: str = "fingerprint_match",
+        weight: float = 1.0,
+        description: str = "",
+        signature: Optional[str] = None,
+    ) -> ServiceResult:
+        """Submit evidence for a dispute."""
+        if not self._verify_agent(submitter, signature):
+            return ServiceResult(success=False, error="Identity verification failed")
+        try:
+            from oasyce.core.evidence import Evidence, EvidenceType
+
+            evidence = Evidence(
+                evidence_hash=evidence_hash,
+                evidence_type=EvidenceType(evidence_type),
+                weight=weight,
+                source=submitter,
+            )
+            dm = self._get_dispute_manager()
+            dm.submit_evidence(
+                dispute_id=dispute_id,
+                party_id=submitter,
+                evidence_hash=evidence_hash,
+                description=description,
+            )
+            return ServiceResult(
+                success=True,
+                data={
+                    "dispute_id": dispute_id,
+                    "evidence_hash": evidence_hash,
+                    "evidence_type": evidence_type,
+                    "weight": weight,
+                },
+            )
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
     def get_asset(self, asset_id: str) -> ServiceResult:
         """Get asset information by ID."""
         if self._ledger is None:

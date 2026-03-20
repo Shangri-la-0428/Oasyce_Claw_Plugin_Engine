@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 class EvidenceType(str, Enum):
@@ -55,33 +55,3 @@ class Evidence:
     weight: float = 1.0         # 0.0-1.0 confidence (advisory, not binding)
     source: str = ""            # Who produced this evidence (agent_id)
     metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-def submit_evidence(
-    dispute_id: str,
-    evidence: Evidence,
-    submitter: str,
-    signature: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Submit evidence to support a dispute.
-
-    In local mode, stores evidence in-memory for jury review.
-    In chain mode, this becomes a MsgSubmitEvidence transaction.
-
-    Returns a receipt dict with evidence_id and status.
-    """
-    import hashlib
-    import uuid
-
-    evidence_id = hashlib.sha256(
-        f"{dispute_id}:{evidence.evidence_hash}:{submitter}".encode()
-    ).hexdigest()[:16]
-
-    return {
-        "evidence_id": evidence_id,
-        "dispute_id": dispute_id,
-        "evidence_type": evidence.evidence_type.value,
-        "weight": evidence.weight,
-        "submitter": submitter,
-        "status": "submitted",
-    }

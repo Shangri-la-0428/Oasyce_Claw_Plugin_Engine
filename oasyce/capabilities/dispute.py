@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+from oasyce.core.evidence import Evidence, EvidenceType
 from oasyce.core.formulas import jury_score as _jury_score
 
 
@@ -395,8 +396,18 @@ class DisputeManager:
         party_id: str,
         evidence_hash: str,
         description: str = "",
+        evidence_obj: Optional[Evidence] = None,
     ) -> None:
-        """Submit evidence for a dispute. Both consumer and provider can submit."""
+        """Submit evidence for a dispute. Both consumer and provider can submit.
+
+        Parameters
+        ----------
+        evidence_obj : Evidence, optional
+            If provided, ``evidence_type`` and ``weight`` are extracted from
+            the structured Evidence dataclass.  The string-based parameters
+            (``evidence_hash``, ``description``) are still accepted for
+            backward compatibility.
+        """
         dispute = self._disputes.get(dispute_id)
         if dispute is None:
             raise DisputeError(f"dispute not found: {dispute_id}")
@@ -413,14 +424,18 @@ class DisputeManager:
                 "(must be consumer or provider)"
             )
 
-        dispute.evidence.append(
-            {
-                "party_id": party_id,
-                "evidence_hash": evidence_hash,
-                "description": description,
-                "submitted_at": str(int(time.time())),
-            }
-        )
+        entry: Dict[str, str] = {
+            "party_id": party_id,
+            "evidence_hash": evidence_hash,
+            "description": description,
+            "submitted_at": str(int(time.time())),
+        }
+
+        if evidence_obj is not None:
+            entry["evidence_type"] = evidence_obj.evidence_type.value
+            entry["weight"] = str(evidence_obj.weight)
+
+        dispute.evidence.append(entry)
 
     def resolve_timeout(
         self, dispute_id: str, now: Optional[int] = None
