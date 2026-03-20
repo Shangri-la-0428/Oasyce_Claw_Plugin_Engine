@@ -1,0 +1,396 @@
+# Oasyce
+
+[![CI](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/oasyce)](https://pypi.org/project/oasyce/)
+[![Python](https://img.shields.io/pypi/pyversions/oasyce)](https://pypi.org/project/oasyce/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+> 中文版: [README.md](README.md)
+
+**Your data has sovereignty. Your capabilities have a price.**
+
+Oasyce is a decentralized **rights settlement network** — every data access and capability invocation between AI agents is priced, escrowed, and settled automatically.
+
+Think of it this way: you take a photo, and an AI wants to use it for training. Today, your data gets used for free. With Oasyce, the AI must pay for access, and you receive earnings automatically. Just as Stripe gave the internet a payment layer, Oasyce gives the AI world a **rights settlement layer**.
+
+```bash
+pip install oasyce
+oasyce doctor            # Health check
+oasyce serve             # Dashboard at localhost:8420
+```
+
+Open `http://localhost:8420` and you're in.
+
+---
+
+## What Can Oasyce Do for Me?
+
+### I have data (photos, documents, sensor data...)
+
+Register your data as an on-chain asset. Any AI that accesses it must pay. The more people use it, the higher the price goes (automatic pricing via bonding curves). Register early, earn more.
+
+```bash
+oasyce register myfile.csv --owner alice --tags medical,imaging
+```
+
+### I'm an AI developer
+
+Your agent can publish capabilities to the network — things like "medical image analysis", "translation", or "code review". Every time another agent calls your service, you earn. Quality is backed by staked collateral, so there's real accountability.
+
+### I want to build on the protocol
+
+Oasyce is a protocol, not a platform. You can build anything on top — data exchanges, agent labor markets, AI capability stores. The protocol handles pricing, settlement, reputation, and disputes for you.
+
+---
+
+## 30-Second Demo
+
+```bash
+pip install oasyce
+oasyce demo
+```
+
+This runs the full pipeline end to end: **register -> price -> purchase -> settle -> distribute earnings**. You'll see how data rights are created and traded in real time.
+
+---
+
+## Quick Start
+
+### 1. Install
+
+```bash
+pip install oasyce
+```
+
+> Requires Python 3.9+
+
+### 2. Health check
+
+```bash
+oasyce doctor
+```
+
+Checks your keys, ports, dependencies, and network connectivity. If something is wrong, it tells you how to fix it.
+
+### 3. Start the node
+
+```bash
+oasyce serve
+```
+
+This launches:
+- **API server** — matching, bidding, settlement
+- **Dashboard** (port 8420) — register data, browse assets, invoke capabilities
+
+Or use Docker:
+
+```bash
+docker compose up -d
+```
+
+### 4. Register your first asset
+
+Command line:
+```bash
+oasyce register myfile.csv --owner alice --tags medical,imaging
+```
+
+Or drag and drop in the Dashboard.
+
+### 5. Browse and trade
+
+Open `http://localhost:8420/explore` to see all data assets and AI capabilities on the network. Check prices, buy shares, and invoke services.
+
+---
+
+## Testnet
+
+Don't want to use real OAS? Join the testnet:
+
+```bash
+oasyce testnet onboard    # Join the testnet
+oasyce testnet faucet     # Get free test tokens
+```
+
+---
+
+## CLI Reference
+
+```
+oasyce serve              # Start API server + Dashboard (recommended)
+oasyce demo               # Run the full demo pipeline
+oasyce doctor             # Health check
+oasyce update             # Auto-update to latest version
+oasyce info               # Project info, links, architecture, economics
+oasyce info --section economics    # Token economics details
+oasyce info --section architecture # Technical architecture
+oasyce info --json        # Full info as JSON
+```
+
+### Data Assets
+
+```
+oasyce register <file>    # Register a data asset
+  --rights-type original|co_creation|licensed|collection
+  --co-creators '[{"address":"A","share":60},{"address":"B","share":40}]'
+oasyce search <tag>       # Search by tag
+oasyce quote <asset_id>   # Get bonding curve price
+oasyce buy <asset_id>     # Buy shares
+oasyce sell <asset_id> --amount <n>  # Sell shares back to the curve
+  --max-slippage 0.05               # Slippage protection (default 5%)
+```
+
+### Disputes
+
+```
+oasyce dispute <id> --reason "..."     # File a dispute against an asset
+oasyce jury-vote <id> --verdict consumer|provider  # Jury vote
+oasyce resolve <id> --remedy delist    # Resolve a dispute
+  --remedy delist|transfer|rights_correction|share_adjustment
+  --details '{"new_owner":"0x..."}'
+```
+
+### Capability Discovery
+
+```
+oasyce discover --intents "translation,text processing"  # Recall->Rank discovery
+  --tags ai,nlp --limit 5
+```
+
+### Capability Marketplace
+
+```
+oasyce capability register --name "Translation API" \
+  --endpoint https://api.example.com/translate \
+  --api-key sk-xxx --price 0.5 --tags nlp,translation
+oasyce capability list [--tag nlp]
+oasyce capability invoke CAP_ID --input '{"text":"hello"}'
+oasyce capability earnings --provider addr
+```
+
+### Consensus (PoS)
+
+```
+oasyce consensus status                             # Current epoch/slot/validators
+oasyce consensus register --stake 10000             # Register as validator
+oasyce consensus delegate <validator_id> --amount 500    # Delegate stake
+oasyce consensus undelegate <validator_id> --amount 200  # Undelegate
+oasyce consensus rewards [--epoch N]                # Reward history
+oasyce consensus exit                               # Voluntary exit
+```
+
+### Governance
+
+```
+oasyce governance propose --title "..." --description "..." --changes '[...]' --deposit 1000
+oasyce governance vote <proposal_id> --option yes|no|abstain
+oasyce governance list [--status voting|passed|rejected]
+```
+
+### Node Management
+
+```
+oasyce node start         # Start P2P node only (use 'oasyce serve' for full stack)
+oasyce node info          # Show node identity
+oasyce node peers         # List known peers
+oasyce node ping <host>   # Ping another node
+```
+
+### Tiered Access
+
+```
+oasyce access quote <asset_id> --tier <tier>    # Quote access price for a tier
+oasyce access buy <asset_id> --tier <tier>      # Buy tiered access to an asset
+oasyce access grant <asset_id> --to <address>   # Grant access
+oasyce access revoke <asset_id> --from <address> # Revoke access
+```
+
+### Other
+
+```
+oasyce testnet onboard    # Join the testnet
+oasyce testnet faucet     # Get test tokens
+oasyce update             # Auto-update to latest version
+oasyce gui                # Start Dashboard only (port 8420)
+oasyce explorer           # Block explorer (port 8421)
+oasyce keys generate      # Generate Ed25519 keypair
+oasyce keys show          # Show public key
+```
+
+All commands support `--json` output for programmatic use.
+
+---
+
+## OpenClaw Users
+
+If you're using [OpenClaw](https://github.com/openclaw/openclaw), just tell your agent:
+
+```text
+Install the oasyce skill
+```
+
+Your agent will install the Oasyce skill automatically, letting you register data, query assets, and invoke capabilities using natural language. No command line needed.
+
+---
+
+## Core Concepts
+
+| Concept | What it means | Analogy |
+|---------|--------------|---------|
+| **OAS** | The protocol token; all transactions settle in OAS | Arcade tokens for a game center |
+| **Bonding Curve** | Automatic pricing — more buyers means a higher price | Concert tickets that get more expensive as they sell |
+| **Escrow** | Funds are locked first, released only after delivery | Like buyer protection on any e-commerce platform |
+| **Reputation** | A long-term trust score; bad behavior lowers it | A credit score that follows you |
+| **Capability** | A callable service published by an agent | A freelancer on a gig platform — available for work, paid per job |
+| **Rights Type** | Declares data origin (original / co-creation / licensed / collection) | Like songwriter credits vs. cover versions in music |
+| **Dispute** | Challenge an asset for infringement; jury resolves it | A chargeback or formal complaint process |
+
+### Five Rules
+
+1. **Access requires collateral** — Want to see the data? Put up a deposit first.
+2. **Exposure is irreversible** — Once you've accessed data, the network remembers.
+3. **Identity has consequences** — Bad behavior follows your identity permanently.
+4. **Data is traceable** — Fingerprint watermarks track every copy.
+5. **Accountability never expires** — Disputes can be raised at any time.
+
+---
+
+## Dashboard
+
+After running `oasyce serve`, open `http://localhost:8420` in your browser. The dashboard provides:
+
+- **Overview** — Network status, registered assets, transaction volume
+- **Register** — Register files as data assets (drag and drop supported)
+- **Explore** — Browse all assets and capabilities, view prices, buy shares
+- **Market** — Tiered access marketplace with sell and slippage controls
+- **Watermark** — Embed data fingerprints and trace leaks
+- **Stake** — Stake OAS to become a validator
+
+A block explorer is also available at `http://localhost:8421`.
+
+---
+
+<details>
+<summary><h2>Architecture (click to expand)</h2></summary>
+
+### System Overview
+
+```
+┌──────────────────────────────────────────┐
+│           oasyce-chain (Go L1)           │
+│  CometBFT + x/datarights + x/settlement │
+│  x/capability + x/reputation             │
+│  gRPC :9090 / REST :1317                 │
+├──────────────────────────────────────────┤
+│           oasyce (Python v2.1.0)         │
+│  CLI + Dashboard + API + Skills Bridge   │
+│  Facade -> Settlement -> Ledger          │
+│  1063 tests                              │
+├──────────────────────────────────────────┤
+│           DataVault (AI Skill)           │
+│  scan -> classify -> privacy -> report   │
+│  pip install odv[oasyce]                 │
+└──────────────────────────────────────────┘
+```
+
+### Module Map
+
+```
+oasyce/
+├── core/
+│   ├── formulas.py          # Layer 0: pure math (bonding curve, fees, jury score)
+│   └── evidence.py          # Evidence submission interface
+├── storage/ledger.py        # Layer 1: all state CRUD, thread-safe
+├── services/
+│   ├── facade.py            # Layer 3: thin orchestration (every method < 15 lines)
+│   ├── settlement/engine.py # Layer 2: bonding curve (delegates to core/formulas.py)
+│   ├── reputation/          # Layer 2: score + decay
+│   ├── access/              # Layer 2: equity -> tiered access
+│   ├── capability_delivery/ # Product: endpoint registry, escrow, gateway
+│   ├── discovery/           # Product: recall -> rank + feedback
+│   ├── fingerprint.py       # Evidence provider
+│   ├── watermark.py         # Evidence provider
+│   └── leakage/             # Evidence provider
+├── engines/
+│   ├── core_engines.py      # Scan -> Classify -> Metadata -> PoPc -> Register
+│   └── risk.py              # Evidence provider: risk classification
+├── gui/app.py               # Layer 4: Dashboard
+└── cli.py                   # Layer 4: CLI
+```
+
+### Economic Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| Token | OAS |
+| Bonding Curve | Bancor, CW = 0.5 |
+| Bootstrap Price | 1 OAS/token |
+| Protocol Fee | 5% |
+| Burn Rate | 2% |
+| Reserve Solvency Cap | 95% |
+| Fee Split | Provider 93%, Protocol 5%, Burn 2% |
+
+### Four Asset Types
+
+| Type | Description | Examples |
+|------|------------|---------|
+| **data** | Files and datasets | Medical images, CSVs, PDFs |
+| **capability** | Callable AI services | Translation, code review, image analysis |
+| **oracle** | Data feeds | Price feeds, weather data |
+| **identity** | Identity credentials | DIDs, reputation proofs |
+
+All types are validated by the Schema Registry, each with independent schema versioning.
+
+### Tests
+
+```bash
+pytest      # 1063 tests, 19 skipped
+```
+
+</details>
+
+---
+
+## Current Progress
+
+| Repository | Version | Tests | Status |
+|-----------|---------|-------|--------|
+| **oasyce-chain** (Go L1) | Cosmos SDK v0.50.10 | 30+ | Phase A complete |
+| **oasyce** (this repo) | v2.1.0 | 1063 | Feature complete, architecture enforced |
+| **DataVault** | v0.2.0 | 44 | AI Skill mode ready |
+
+### Completed
+
+- Layered architecture enforcement (zero violations)
+- Facade API complete (quote, buy, sell, dispute, jury_vote, evidence...)
+- GUI Dashboard fully functional
+- Architecture invariant tests (prevent facade bypass, SQL injection, engine unauthorized instantiation)
+- PyPI release automation
+
+### Next
+
+- oasyce-chain Phase B (IBC, governance, security audit, public testnet)
+- oasyce-chain Phase C (Proof of Useful Work x/work module)
+- Ecosystem growth (cross-chain data rights, privacy compute, mobile wallet)
+
+---
+
+## Documentation
+
+- [Protocol Overview](docs/OASYCE_PROTOCOL_OVERVIEW.md)
+- [Economics](docs/ECONOMICS.md)
+- [Protocol Specification](docs/PROTOCOL.md)
+- [Testnet Guide](docs/TESTNET.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute.
+
+## Community
+
+- [Discord](https://discord.gg/tfrCn54yZW) — Questions, feedback, chat
+- [GitHub Issues](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues) — Bug reports and feature requests
+
+## License
+
+MIT
