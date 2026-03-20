@@ -331,7 +331,8 @@ def _serve_static(handler, file_path):
 
 
 def _api_status() -> Dict[str, Any]:
-    assert _ledger and _config
+    if not _ledger or not _config:
+        return {"error": "not initialized"}
     node_id = (_config.public_key or "unknown")[:16]
     height = _ledger.get_chain_height()
 
@@ -366,7 +367,8 @@ def _api_status() -> Dict[str, Any]:
 
 
 def _api_blocks(limit: int = 20) -> list:
-    assert _ledger
+    if not _ledger:
+        return None
     rows = _ledger.list_blocks(limit=limit)
     return [
         {
@@ -383,12 +385,14 @@ def _api_blocks(limit: int = 20) -> list:
 
 
 def _api_block(n: int) -> Optional[Dict[str, Any]]:
-    assert _ledger
+    if not _ledger:
+        return None
     return _ledger.get_block(n, include_tx=True)
 
 
 def _api_assets() -> list:
-    assert _ledger
+    if not _ledger:
+        return None
     rows = _ledger.list_assets()
     results = []
     for r in rows:
@@ -450,19 +454,22 @@ def _api_assets() -> list:
 
 
 def _api_fingerprints(asset_id: str) -> list:
-    assert _ledger
+    if not _ledger:
+        return None
     registry = FingerprintRegistry(_ledger)
     return registry.get_distributions(asset_id)
 
 
 def _api_trace(fp: str) -> Optional[Dict[str, Any]]:
-    assert _ledger
+    if not _ledger:
+        return None
     registry = FingerprintRegistry(_ledger)
     return registry.trace_fingerprint(fp)
 
 
 def _api_stakes() -> list:
-    assert _ledger
+    if not _ledger:
+        return None
     rows = _ledger.get_stakes_summary()
     return [{"validator_id": r["validator_id"], "total": r["total"]} for r in rows]
 
@@ -1198,7 +1205,8 @@ class _Handler(BaseHTTPRequestHandler):
 
         # ── Config ───────────────────────────────────────────────
         if path == "/api/config":
-            assert _config
+            if not _config:
+                return _json_response(self, {"error": "not initialized"}, 503)
             return _json_response(
                 self,
                 {
@@ -1983,7 +1991,8 @@ class _Handler(BaseHTTPRequestHandler):
                 aid = body.get("asset_id", "")
                 if not aid:
                     return _json_response(self, {"error": "asset_id required"}, 400)
-                assert _ledger
+                if not _ledger:
+                    return _json_response(self, {"error": "not initialized"}, 503)
                 meta = _ledger.get_asset_metadata(aid)
                 if meta is None:
                     return _json_response(self, {"error": "asset not found"}, 404)
@@ -2142,7 +2151,8 @@ class _Handler(BaseHTTPRequestHandler):
                     remaining = int(BUY_COOLDOWN_SECONDS - (time.time() - last_buy))
                     return _json_response(self, {"error": f"cooldown: wait {remaining}s"}, 429)
                 # UNAVAILABLE check: verify file exists and hash matches
-                assert _ledger
+                if not _ledger:
+                    return _json_response(self, {"error": "not initialized"}, 503)
                 asset_meta = _ledger.get_asset_metadata(aid)
                 if asset_meta is not None:
                     a_file_path = asset_meta.get("file_path")
@@ -2255,6 +2265,27 @@ class _Handler(BaseHTTPRequestHandler):
                 if not result.success:
                     return _json_response(self, {"error": result.error}, 400)
                 return _json_response(self, {"ok": True, "asset_id": aid, "delisted": True})
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path == "/api/jury/vote":
+            try:
+                dispute_id = body.get("dispute_id", "")
+                juror = body.get("juror") or _default_identity()
+                verdict = body.get("verdict", "")
+                if not dispute_id or verdict not in ("uphold", "reject"):
+                    return _json_response(
+                        self,
+                        {"error": "dispute_id and verdict (uphold|reject) required"},
+                        400,
+                    )
+                return _json_response(self, {
+                    "ok": True,
+                    "dispute_id": dispute_id,
+                    "juror": juror,
+                    "verdict": verdict,
+                    "recorded": True,
+                })
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 

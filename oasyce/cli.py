@@ -222,8 +222,7 @@ def cmd_quote(args):
 
     config = Config.from_env()
     facade = OasyceServiceFacade(config=config)
-    amount = getattr(args, "amount", 10.0)
-    result = facade.quote(args.asset_id, amount)
+    result = facade.quote(args.asset_id, args.amount)
 
     if not result.success:
         _output_error(args, result.error, code="QUOTE_FAILED")
@@ -310,8 +309,8 @@ def cmd_dispute(args):
     ledger = Ledger(config.db_path) if config.db_path else None
 
     facade = OasyceServiceFacade(config=config, ledger=ledger)
-    invocation_id = getattr(args, "invocation_id", None)
-    consumer_id = getattr(args, "consumer", None) or "local"
+    invocation_id = args.invocation_id
+    consumer_id = args.consumer or "local"
 
     result = facade.dispute(
         asset_id=args.asset_id,
@@ -358,7 +357,7 @@ def cmd_resolve(args):
     facade = OasyceServiceFacade(config=config, ledger=ledger)
 
     details = json.loads(args.details) if args.details else {}
-    dispute_id = getattr(args, "dispute_id", None) or ""
+    dispute_id = args.dispute_id or ""
 
     result = facade.resolve_dispute(
         dispute_id=dispute_id,
@@ -584,7 +583,7 @@ def cmd_access_buy(args):
     result = facade.access_buy(args.asset_id, buyer=buyer, level=args.level)
 
     if not result.success:
-        print(f"❌ {result.error}", file=sys.stderr)
+        _output_error(args, result.error, code="ACCESS_BUY_FAILED")
         sys.exit(1)
 
     if args.json:
@@ -1930,7 +1929,7 @@ def cmd_capability_list(args):
             print("No active capabilities found.")
             return
 
-            print(f"{'ID':<22} {'Name':<25} {'Price (OAS)':<12} {'Calls':<8} {'Success':<8}")
+        print(f"{'ID':<22} {'Name':<25} {'Price (OAS)':<12} {'Calls':<8} {'Success':<8}")
         print("─" * 75)
         for ep in endpoints:
             print(
@@ -3063,6 +3062,8 @@ def main():
     dispute_parser = subparsers.add_parser("dispute", help="File a dispute against an asset")
     dispute_parser.add_argument("asset_id", help="Asset ID to dispute")
     dispute_parser.add_argument("--reason", required=True, help="Reason for dispute")
+    dispute_parser.add_argument("--invocation-id", default=None, help="Related invocation ID (optional)")
+    dispute_parser.add_argument("--consumer", default=None, help="Consumer identity (default: local)")
     dispute_parser.add_argument("--json", action="store_true", help="Output as JSON")
     dispute_parser.set_defaults(func=cmd_dispute)
 
@@ -3084,6 +3085,7 @@ def main():
     # Resolve command
     resolve_parser = subparsers.add_parser("resolve", help="Resolve a dispute with a remedy")
     resolve_parser.add_argument("asset_id", help="Asset ID to resolve")
+    resolve_parser.add_argument("--dispute-id", default=None, help="Dispute ID to resolve (optional)")
     resolve_parser.add_argument(
         "--remedy",
         required=True,
@@ -3112,8 +3114,10 @@ def main():
     search_parser.set_defaults(func=cmd_search)
 
     # Quote command
-    quote_parser = subparsers.add_parser("quote", help="Get L2 pricing quote")
+    quote_parser = subparsers.add_parser("quote", help="Get bonding curve pricing quote")
     quote_parser.add_argument("asset_id", help="Asset ID (e.g., OAS_6596A36F)")
+    quote_parser.add_argument("--amount", type=float, default=10.0, help="OAS to quote (default 10.0)")
+    quote_parser.add_argument("--json", action="store_true", help="Output as JSON")
     quote_parser.set_defaults(func=cmd_quote)
 
     # Buy command (requires oasyce_core)
@@ -3125,6 +3129,7 @@ def main():
     buy_parser.add_argument(
         "--amount", type=float, default=10.0, help="OAS to spend (default 10.0)"
     )
+    buy_parser.add_argument("--json", action="store_true", help="Output as JSON")
     buy_parser.set_defaults(func=cmd_buy)
 
     # Sell command
@@ -3139,6 +3144,7 @@ def main():
     sell_parser.add_argument(
         "--max-slippage", type=float, default=None, help="Max slippage tolerance (e.g. 0.05 for 5%%)"
     )
+    sell_parser.add_argument("--json", action="store_true", help="Output as JSON")
     sell_parser.set_defaults(func=cmd_sell)
 
     # Stake command
@@ -3274,6 +3280,7 @@ def main():
     )
     access_quote_parser.add_argument("asset_id", help="Asset ID")
     access_quote_parser.add_argument("--agent", required=True, help="Agent/buyer ID")
+    access_quote_parser.add_argument("--json", action="store_true", help="Output as JSON")
     access_quote_parser.set_defaults(func=cmd_access_quote)
 
     access_buy_parser = access_sub.add_parser(
@@ -3286,12 +3293,14 @@ def main():
     access_buy_parser.add_argument(
         "--level", required=True, choices=["L0", "L1", "L2", "L3"], help="Access level"
     )
+    access_buy_parser.add_argument("--json", action="store_true", help="Output as JSON")
     access_buy_parser.set_defaults(func=cmd_access_buy)
 
     access_query_parser = access_sub.add_parser("query", help="L0 query (aggregated stats)")
     access_query_parser.add_argument("asset_id", help="Asset ID")
     access_query_parser.add_argument("--agent", required=True, help="Agent ID")
     access_query_parser.add_argument("--query", default="", help="Query string")
+    access_query_parser.add_argument("--json", action="store_true", help="Output as JSON")
     access_query_parser.set_defaults(func=cmd_access_query)
 
     access_sample_parser = access_sub.add_parser("sample", help="L1 sample (redacted fragments)")
@@ -3300,23 +3309,27 @@ def main():
     access_sample_parser.add_argument(
         "--size", type=int, default=10, help="Sample size (default 10)"
     )
+    access_sample_parser.add_argument("--json", action="store_true", help="Output as JSON")
     access_sample_parser.set_defaults(func=cmd_access_sample)
 
     access_compute_parser = access_sub.add_parser("compute", help="L2 compute (TEE execution)")
     access_compute_parser.add_argument("asset_id", help="Asset ID")
     access_compute_parser.add_argument("--agent", required=True, help="Agent ID")
     access_compute_parser.add_argument("--code", required=True, help="Code to execute")
+    access_compute_parser.add_argument("--json", action="store_true", help="Output as JSON")
     access_compute_parser.set_defaults(func=cmd_access_compute)
 
     access_deliver_parser = access_sub.add_parser("deliver", help="L3 deliver (full data)")
     access_deliver_parser.add_argument("asset_id", help="Asset ID")
     access_deliver_parser.add_argument("--agent", required=True, help="Agent ID")
+    access_deliver_parser.add_argument("--json", action="store_true", help="Output as JSON")
     access_deliver_parser.set_defaults(func=cmd_access_deliver)
 
     access_bond_parser = access_sub.add_parser("bond", help="Calculate bond requirement")
     access_bond_parser.add_argument("asset_id", help="Asset ID")
     access_bond_parser.add_argument("--agent", required=True, help="Agent ID")
     access_bond_parser.add_argument("--level", required=True, help="Access level (L0/L1/L2/L3)")
+    access_bond_parser.add_argument("--json", action="store_true", help="Output as JSON")
     access_bond_parser.set_defaults(func=cmd_access_bond)
 
     # Reputation command group
