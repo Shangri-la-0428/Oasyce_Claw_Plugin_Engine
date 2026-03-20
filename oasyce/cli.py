@@ -795,10 +795,13 @@ def cmd_demo(args):
         quote_before = bridge_quote(asset_id)
         steps["quote_initial"] = quote_before
         if not args.json:
-            print(f"   💰 Price:   {quote_before['price_oas']:.6f} OAS/share")
-            print(f"   📊 Supply:  {quote_before['supply']}")
-            print(f"   🏦 Reserve: {quote_before.get('reserve', 0):.2f} OAS")
-            print(f"   🔗 CW:      {quote_before.get('cw', 0.5):.2f}")
+            if "error" in quote_before:
+                print(f"   ⚠️  {quote_before['error']}")
+            else:
+                print(f"   💰 Price:   {quote_before['price_oas']:.6f} OAS/share")
+                print(f"   📊 Supply:  {quote_before['supply']}")
+                print(f"   🏦 Reserve: {quote_before.get('reserve', 0):.2f} OAS")
+                print(f"   🔗 CW:      {quote_before.get('cw', 0.5):.2f}")
 
         # ── Step 4: buy ───────────────────────────────────────────────
         _banner(4, 5, "Buying shares (10.0 OAS)...")
@@ -806,12 +809,12 @@ def cmd_demo(args):
         steps["buy"] = buy
         if not args.json:
             if "error" in buy:
-                print(f"   ❌ {buy['error']}")
+                print(f"   ⚠️  {buy['error']}")
             else:
                 tokens = buy.get("tokens_received", 0)
                 print(f"   🛒 Spent:          10.0 OAS")
                 print(f"   🪙 Shares recv'd:  {tokens:.6f}")
-                print(f"   📈 Price paid:     {buy['price_oas']:.6f} OAS/share")
+                print(f"   📈 Price paid:     {buy.get('price_oas', 0):.6f} OAS/share")
                 if "split" in buy:
                     s = buy["split"]
                     print(f"   🔥 Burned:         {s['protocol_burn']:.4f} OAS")
@@ -831,12 +834,15 @@ def cmd_demo(args):
         ]
 
         if not args.json:
-            p_before = quote_before["price_oas"]
-            p_after = quote_after["price_oas"]
-            print(f"   📊 New supply:  {quote_after['supply']}")
-            print(
-                f"   💹 Price delta: {p_before:.6f} → {p_after:.6f} OAS (+{p_after - p_before:.6f})"
-            )
+            if "error" not in quote_after and "error" not in quote_before:
+                p_before = quote_before["price_oas"]
+                p_after = quote_after["price_oas"]
+                print(f"   📊 New supply:  {quote_after['supply']}")
+                print(
+                    f"   💹 Price delta: {p_before:.6f} → {p_after:.6f} OAS (+{p_after - p_before:.6f})"
+                )
+            elif "error" in quote_after:
+                print(f"   ⚠️  {quote_after['error']}")
             if holdings:
                 for h in holdings:
                     print(f"   🏦 Holdings:    {h.shares:.6f} shares of {h.asset_id}")

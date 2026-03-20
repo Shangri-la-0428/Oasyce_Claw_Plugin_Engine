@@ -100,9 +100,11 @@ async def test_submit_invalid_pack(client: AsyncClient):
 async def test_buy_success(client: AsyncClient):
     # Register asset through the facade's settlement engine (single entry point)
     from oasyce.api.deps import get_facade
+    from oasyce.services.settlement.engine import SettlementConfig
 
     facade = get_facade()
     se = facade._get_settlement()
+    se._config = SettlementConfig(chain_required=False)
     se.register_asset("TEST_BUY_ASSET", owner="alice")
 
     resp = await client.post("/v1/buy", json={"asset_id": "TEST_BUY_ASSET", "buyer": "bob"})

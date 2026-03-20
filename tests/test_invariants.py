@@ -101,6 +101,7 @@ def test_decay_all_applies_to_multiple_agents():
 def test_cannot_delete_asset_with_equity_holders():
     """Deleting an asset with active equity holders must be rejected."""
     from oasyce.services.facade import OasyceServiceFacade
+    from oasyce.services.settlement.engine import SettlementConfig
     from oasyce.storage.ledger import Ledger
 
     ledger = Ledger(db_path=":memory:")
@@ -108,6 +109,7 @@ def test_cannot_delete_asset_with_equity_holders():
 
     facade = OasyceServiceFacade(ledger=ledger)
     se = facade._get_settlement()
+    se._config = SettlementConfig(chain_required=False)
 
     # Register and buy to create equity
     se.register_asset("DEL_TEST", "creator", initial_reserve=100.0)
