@@ -58,8 +58,8 @@ def _html(handler: BaseHTTPRequestHandler, html: str) -> None:
 def _chain_stats() -> Dict[str, Any]:
     assert _ledger and _config
     height = _ledger.get_chain_height()
-    total_assets = _ledger._conn.execute("SELECT COUNT(*) AS c FROM assets").fetchone()["c"]
-    total_tx = _ledger._conn.execute("SELECT COUNT(*) AS c FROM transactions").fetchone()["c"]
+    total_assets = _ledger.count_assets()
+    total_tx = _ledger.count_transactions()
     latest = _ledger.get_latest_block()
     node_id = (_config.public_key or "unknown")[:16]
 
@@ -88,10 +88,7 @@ def _chain_stats() -> Dict[str, Any]:
 def _blocks_page(page: int = 1, per_page: int = 20) -> List[Dict[str, Any]]:
     assert _ledger
     offset = (page - 1) * per_page
-    rows = _ledger._conn.execute(
-        "SELECT * FROM blocks ORDER BY block_number DESC LIMIT ? OFFSET ?",
-        (per_page, offset),
-    ).fetchall()
+    blocks = _ledger.list_blocks(limit=per_page, offset=offset)
     return [
         {
             "block_number": r["block_number"],
@@ -100,9 +97,9 @@ def _blocks_page(page: int = 1, per_page: int = 20) -> List[Dict[str, Any]]:
             "merkle_root": r["merkle_root"],
             "timestamp": r["timestamp"],
             "tx_count": r["tx_count"],
-            "nonce": r["nonce"],
+            "nonce": r.get("nonce", 0),
         }
-        for r in rows
+        for r in blocks
     ]
 
 
@@ -113,10 +110,9 @@ def _block_detail(height: int) -> Optional[Dict[str, Any]]:
 
 def _tx_detail(tx_id: str) -> Optional[Dict[str, Any]]:
     assert _ledger
-    row = _ledger._conn.execute("SELECT * FROM transactions WHERE tx_id = ?", (tx_id,)).fetchone()
-    if row is None:
+    d = _ledger.get_transaction(tx_id)
+    if d is None:
         return None
-    d = dict(row)
     if d.get("metadata"):
         try:
             d["metadata"] = json.loads(d["metadata"])
@@ -127,9 +123,7 @@ def _tx_detail(tx_id: str) -> Optional[Dict[str, Any]]:
 
 def _all_assets() -> List[Dict[str, Any]]:
     assert _ledger
-    rows = _ledger._conn.execute(
-        "SELECT asset_id, owner, created_at FROM assets ORDER BY created_at DESC"
-    ).fetchall()
+    rows = _ledger.list_assets()
     results = []
     for r in rows:
         results.append(
@@ -159,9 +153,7 @@ def _all_validators() -> List[Dict[str, Any]]:
         )
     # Also include ledger-only stakes
     assert _ledger
-    rows = _ledger._conn.execute(
-        "SELECT validator_id, SUM(amount) AS total FROM stakes GROUP BY validator_id"
-    ).fetchall()
+    rows = _ledger.get_stakes_summary()
     seen = {v["node_id"] for v in result}
     for r in rows:
         if r["validator_id"] not in seen:
@@ -195,12 +187,10 @@ def _peer_list() -> List[Dict[str, Any]]:
 
 def _mempool() -> List[Dict[str, Any]]:
     assert _ledger
-    rows = _ledger._conn.execute(
-        "SELECT * FROM transactions WHERE block_number IS NULL ORDER BY created_at DESC"
-    ).fetchall()
+    rows = _ledger.get_pending_transactions()
     result = []
     for r in rows:
-        d = dict(r)
+        d = dict(r) if not isinstance(r, dict) else r
         if d.get("metadata"):
             try:
                 d["metadata"] = json.loads(d["metadata"])

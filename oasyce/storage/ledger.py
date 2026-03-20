@@ -256,6 +256,14 @@ class Ledger:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_transaction(self, tx_id: str) -> Optional[Dict[str, Any]]:
+        """Return a single transaction by ID, or None if not found."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM transactions WHERE tx_id = ?", (tx_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
     def count_transactions(self) -> int:
         with self._lock:
             row = self._conn.execute("SELECT COUNT(*) FROM transactions").fetchone()
