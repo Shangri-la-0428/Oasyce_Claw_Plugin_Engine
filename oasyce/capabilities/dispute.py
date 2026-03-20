@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import enum
 import hashlib
-import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+
+from oasyce.core.formulas import jury_score as _jury_score
 
 
 # ── Constants ────────────────────────────────────────────────────────
@@ -262,17 +263,10 @@ class DisputeManager:
             raise DisputeError(f"not enough eligible jurors: {len(candidates)} < {jury_size}")
 
         # Deterministic weighted selection using hash-based scoring
-        # Score = sha256(dispute_id + node_id) interpreted as int, weighted by reputation
         scored: List[tuple] = []
         for node_id in candidates:
-            seed = hashlib.sha256((dispute_id + node_id).encode()).hexdigest()
-            hash_val = int(seed[:16], 16)  # first 64 bits
             rep = self._get_reputation(node_id)
-            # Normalize: use hash to create a [0,1) random value, then weight by rep
-            random_val = hash_val / (2**64)  # normalize to [0, 1)
-            # Use rep as a weight with diminishing returns to reduce bias
-            weight = math.log1p(rep)  # log(1+rep) smooths the advantage
-            score = random_val * weight
+            score = _jury_score(dispute_id, node_id, rep)
             scored.append((score, node_id))
 
         scored.sort(reverse=True)

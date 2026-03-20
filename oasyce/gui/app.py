@@ -335,11 +335,9 @@ def _api_status() -> Dict[str, Any]:
     node_id = (_config.public_key or "unknown")[:16]
     height = _ledger.get_chain_height()
 
-    total_assets = _ledger._conn.execute("SELECT COUNT(*) AS c FROM assets").fetchone()["c"]
+    total_assets = _ledger.count_assets()
     total_blocks = height
-    total_distributions = _ledger._conn.execute(
-        "SELECT COUNT(*) AS c FROM fingerprint_records"
-    ).fetchone()["c"]
+    total_distributions = _ledger.count_fingerprints()
 
     return {
         "node_id": node_id,
@@ -354,9 +352,7 @@ def _api_status() -> Dict[str, Any]:
 
 def _api_blocks(limit: int = 20) -> list:
     assert _ledger
-    rows = _ledger._conn.execute(
-        "SELECT * FROM blocks ORDER BY block_number DESC LIMIT ?", (limit,)
-    ).fetchall()
+    rows = _ledger.list_blocks(limit=limit)
     return [
         {
             "block_number": r["block_number"],
@@ -365,7 +361,7 @@ def _api_blocks(limit: int = 20) -> list:
             "merkle_root": r["merkle_root"],
             "timestamp": r["timestamp"],
             "tx_count": r["tx_count"],
-            "nonce": r["nonce"],
+            "nonce": r.get("nonce", 0),
         }
         for r in rows
     ]
@@ -378,12 +374,10 @@ def _api_block(n: int) -> Optional[Dict[str, Any]]:
 
 def _api_assets() -> list:
     assert _ledger
-    rows = _ledger._conn.execute(
-        "SELECT asset_id, owner, metadata, created_at FROM assets ORDER BY created_at DESC"
-    ).fetchall()
+    rows = _ledger.list_assets()
     results = []
     for r in rows:
-        meta = json.loads(r["metadata"]) if r["metadata"] else {}
+        meta = json.loads(r["metadata"]) if r.get("metadata") else {}
         results.append(
             {
                 "asset_id": r["asset_id"],
@@ -433,10 +427,7 @@ def _api_assets() -> list:
     # Attach version info from metadata
     for r in results:
         aid = r["asset_id"]
-        row = _ledger._conn.execute(
-            "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
-        ).fetchone()
-        meta = json.loads(row["metadata"]) if row and row["metadata"] else {}
+        meta = _ledger.get_asset_metadata(aid) or {}
         versions = meta.get("versions", [])
         r["version"] = versions[-1]["version"] if versions else 1
         r["versions_count"] = len(versions) if versions else 1
@@ -457,9 +448,7 @@ def _api_trace(fp: str) -> Optional[Dict[str, Any]]:
 
 def _api_stakes() -> list:
     assert _ledger
-    rows = _ledger._conn.execute(
-        "SELECT validator_id, SUM(amount) AS total FROM stakes GROUP BY validator_id"
-    ).fetchall()
+    rows = _ledger.get_stakes_summary()
     return [{"validator_id": r["validator_id"], "total": r["total"]} for r in rows]
 
 
@@ -869,19 +858,17 @@ class _Handler(BaseHTTPRequestHandler):
             aid = m.group(1)
             if not _ledger:
                 return _json_response(self, {"error": "ledger not initialized"}, 503)
-            row = _ledger._conn.execute(
-                "SELECT * FROM assets WHERE asset_id = ?", (aid,)
-            ).fetchone()
-            if not row:
+            asset = _ledger.get_asset(aid)
+            if not asset:
                 return _json_response(self, {"error": "not found"}, 404)
-            meta = json.loads(row["metadata"]) if row["metadata"] else {}
+            meta = _ledger.get_asset_metadata(aid) or {}
             return _json_response(
                 self,
                 {
-                    "asset_id": row["asset_id"],
-                    "owner": row["owner"],
+                    "asset_id": asset["asset_id"],
+                    "owner": asset["owner"],
                     "metadata": meta,
-                    "created_at": row["created_at"],
+                    "created_at": asset.get("created_at"),
                 },
             )
 
@@ -1038,12 +1025,7 @@ class _Handler(BaseHTTPRequestHandler):
                     # The asset owner earns creator fees from bonding curve trades.
                     asset_owner = None
                     if _ledger:
-                        row = _ledger._conn.execute(
-                            "SELECT owner FROM assets WHERE asset_id = ?",
-                            (r.asset_id,),
-                        ).fetchone()
-                        if row:
-                            asset_owner = row["owner"]
+                        asset_owner = _ledger.get_asset_owner(r.asset_id)
                     if asset_owner and asset_owner == owner:
                         earned = getattr(r.quote, "protocol_fee", 0) if r.quote else 0
                         total_earned += earned
@@ -1520,10 +1502,7 @@ class _Handler(BaseHTTPRequestHandler):
             if not _ledger:
                 return _json_response(self, {"error": "ledger not initialized"}, 503)
             # Look up asset in ledger
-            row = _ledger._conn.execute(
-                "SELECT asset_id, owner, metadata, created_at FROM assets WHERE asset_id = ?",
-                (asset_id,),
-            ).fetchone()
+            row = _ledger.get_asset(asset_id)
             # Also check capabilities
             cap_detail = None
             if not row:
@@ -1990,12 +1969,9 @@ class _Handler(BaseHTTPRequestHandler):
                 if not aid:
                     return _json_response(self, {"error": "asset_id required"}, 400)
                 assert _ledger
-                row = _ledger._conn.execute(
-                    "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
-                ).fetchone()
-                if not row:
+                meta = _ledger.get_asset_metadata(aid)
+                if meta is None:
                     return _json_response(self, {"error": "asset not found"}, 404)
-                meta = json.loads(row["metadata"]) if row["metadata"] else {}
                 file_path = meta.get("file_path")
                 if not file_path or not os.path.isfile(file_path):
                     return _json_response(self, {"error": "file not found"}, 404)
@@ -2152,11 +2128,8 @@ class _Handler(BaseHTTPRequestHandler):
                     return _json_response(self, {"error": f"cooldown: wait {remaining}s"}, 429)
                 # UNAVAILABLE check: verify file exists and hash matches
                 assert _ledger
-                asset_row = _ledger._conn.execute(
-                    "SELECT metadata FROM assets WHERE asset_id = ?", (aid,)
-                ).fetchone()
-                if asset_row:
-                    asset_meta = json.loads(asset_row["metadata"]) if asset_row["metadata"] else {}
+                asset_meta = _ledger.get_asset_metadata(aid)
+                if asset_meta is not None:
                     a_file_path = asset_meta.get("file_path")
                     a_file_hash = asset_meta.get("file_hash")
                     if a_file_path and a_file_hash:
@@ -2204,12 +2177,10 @@ class _Handler(BaseHTTPRequestHandler):
                         )
                         # Send sale notification to asset owner
                         if _ledger:
-                            owner_row = _ledger._conn.execute(
-                                "SELECT owner FROM assets WHERE asset_id = ?", (aid,)
-                            ).fetchone()
-                            if owner_row and owner_row["owner"]:
+                            _asset_owner = _ledger.get_asset_owner(aid)
+                            if _asset_owner:
                                 ns.notify(
-                                    owner_row["owner"],
+                                    _asset_owner,
                                     "SALE",
                                     f"Your asset {aid[:12]}... was purchased by {buyer[:12]}...",
                                     {"asset_id": aid, "buyer": buyer},
@@ -5933,14 +5904,8 @@ class OasyceGUI:
         os.chmod(token_path, 0o600)
 
         # Fix sqlite3 for multi-threaded server
-        import sqlite3
-
-        if hasattr(_ledger, "_conn") and _ledger._conn:
-            db_path = _ledger.db_path
-            _ledger._conn.close()
-            _ledger._conn = sqlite3.connect(db_path, check_same_thread=False)
-            _ledger._conn.row_factory = sqlite3.Row
-            _ledger._conn.execute("PRAGMA journal_mode=WAL")
+        if hasattr(_ledger, "reconnect"):
+            _ledger.reconnect()
 
         import socket
 

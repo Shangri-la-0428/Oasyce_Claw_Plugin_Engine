@@ -526,6 +526,22 @@ class Ledger:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def get_asset_owner(self, asset_id: str) -> Optional[str]:
+        """Return the owner of an asset, or None if not found."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT owner FROM assets WHERE asset_id = ?", (asset_id,)
+            ).fetchone()
+        return row["owner"] if row else None
+
+    def reconnect(self) -> None:
+        """Re-open the connection for multi-threaded use."""
+        import sqlite3
+        self._conn.close()
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+
     # ── Utility ────────────────────────────────────────────────
 
     def close(self) -> None:

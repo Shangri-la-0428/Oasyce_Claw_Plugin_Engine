@@ -7,7 +7,6 @@ Actual settlement operations go through the chain's settlement module.
 
 from __future__ import annotations
 
-import math
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -28,11 +27,19 @@ class PriceModel(str, Enum):
     FIXED = "fixed"
 
 
-RESERVE_RATIO = 0.5
-PROTOCOL_FEE_RATE = 0.05
-BURN_RATE = 0.02
-MIN_INITIAL_RESERVE = 100.0
-INITIAL_PRICE = 1.0  # OAS per token — fair bootstrap price for unfunded pools
+from oasyce.core.formulas import (
+    RESERVE_RATIO,
+    PROTOCOL_FEE_RATE,
+    BURN_RATE,
+    INITIAL_PRICE,
+    MIN_INITIAL_RESERVE,
+    RESERVE_SOLVENCY_CAP,
+    bonding_curve_buy,
+    bonding_curve_sell,
+    calculate_fees,
+    price_impact,
+    spot_price as _spot_price,
+)
 
 
 class SlippageError(Exception):
@@ -102,9 +109,7 @@ class AssetPool:
 
     @property
     def spot_price(self) -> float:
-        if self.supply <= 0:
-            return 0.0
-        return self.reserve_balance / (self.supply * RESERVE_RATIO)
+        return _spot_price(self.supply, self.reserve_balance)
 
 
 class SettlementEngine:
@@ -174,25 +179,13 @@ class SettlementEngine:
             pool = self.register_asset(asset_id, "protocol")
 
         price_before = pool.spot_price
-
-        fee = amount_oas * PROTOCOL_FEE_RATE
-        burn = amount_oas * BURN_RATE
-        net_payment = amount_oas - fee - burn
-
-        if pool.reserve_balance > 0 and pool.supply > 0:
-            tokens = pool.supply * ((1 + net_payment / pool.reserve_balance) ** RESERVE_RATIO - 1)
-        elif pool.reserve_balance == 0:
-            # Bootstrap: price starts at INITIAL_PRICE (1.0 OAS/token).
-            # First buyer pays fair market rate — no 10x multiplier exploit.
-            tokens = net_payment / INITIAL_PRICE
-        else:
-            tokens = net_payment / INITIAL_PRICE
+        fee, burn, net_payment = calculate_fees(amount_oas)
+        tokens = bonding_curve_buy(pool.supply, pool.reserve_balance, net_payment)
 
         new_reserve = pool.reserve_balance + net_payment
         new_supply = pool.supply + tokens
-        price_after = new_reserve / (new_supply * RESERVE_RATIO) if new_supply > 0 else 0
-
-        impact = ((price_after - price_before) / price_before * 100) if price_before > 0 else 0
+        price_after = _spot_price(new_supply, new_reserve)
+        impact = price_impact(price_before, price_after)
 
         if max_slippage is not None and abs(impact) > max_slippage * 100:
             raise SlippageError(
@@ -312,25 +305,15 @@ class SettlementEngine:
             raise ValueError("Cannot sell entire supply")
 
         price_before = pool.spot_price
-
-        # Inverse Bancor formula
-        ratio = 1 - tokens_to_sell / pool.supply
-        gross_payout = pool.reserve_balance * (1 - ratio ** (1 / RESERVE_RATIO))
-
-        # Invariant: payout cannot exceed 95% of reserve (keeps pool solvent)
-        max_payout = pool.reserve_balance * 0.95
-        if gross_payout > max_payout:
-            gross_payout = max_payout
-
+        gross_payout = bonding_curve_sell(pool.supply, pool.reserve_balance, tokens_to_sell)
         fee = gross_payout * PROTOCOL_FEE_RATE
-        burn = gross_payout * BURN_RATE
-        net_payout = gross_payout - fee - burn
+        burn_amt = gross_payout * BURN_RATE
+        net_payout = gross_payout - fee - burn_amt
 
         new_reserve = pool.reserve_balance - gross_payout
         new_supply = pool.supply - tokens_to_sell
-        price_after = new_reserve / (new_supply * RESERVE_RATIO) if new_supply > 0 else 0
-
-        impact = ((price_after - price_before) / price_before * 100) if price_before > 0 else 0
+        price_after = _spot_price(new_supply, new_reserve)
+        impact = price_impact(price_before, price_after)
 
         if max_slippage is not None and abs(impact) > max_slippage * 100:
             raise SlippageError(
@@ -345,7 +328,7 @@ class SettlementEngine:
             spot_price_after=price_after,
             price_impact_pct=impact,
             protocol_fee=fee,
-            burn_amount=burn,
+            burn_amount=burn_amt,
         )
 
     def sell(

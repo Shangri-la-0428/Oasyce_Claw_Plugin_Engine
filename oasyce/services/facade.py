@@ -37,6 +37,14 @@ class ServiceResult:
 # ---------------------------------------------------------------------------
 # Access level constants
 # ---------------------------------------------------------------------------
+from oasyce.core.formulas import (
+    EQUITY_ACCESS_THRESHOLDS,
+    LEVEL_INDEX as _LEVEL_INDEX,
+    REPUTATION_SANDBOX,
+    REPUTATION_LIMITED,
+    equity_to_access_level,
+)
+
 ACCESS_LEVELS = {
     "L0": {"name": "Query", "multiplier": 1.0, "lock_days": 1},
     "L1": {"name": "Sample", "multiplier": 2.0, "lock_days": 3},
@@ -45,21 +53,9 @@ ACCESS_LEVELS = {
 }
 
 REPUTATION_THRESHOLDS = {
-    "sandbox": 20,  # R < 20 → L0 only
-    "limited": 50,  # R 20-49 → L0 + L1
-    # R ≥ 50 → all levels
+    "sandbox": REPUTATION_SANDBOX,
+    "limited": REPUTATION_LIMITED,
 }
-
-# Equity % thresholds → access level granted
-EQUITY_ACCESS_THRESHOLDS = [
-    (0.10, "L3"),   # >= 10% → L3 (Deliver)
-    (0.05, "L2"),   # >= 5%  → L2 (Compute)
-    (0.01, "L1"),   # >= 1%  → L1 (Sample)
-    (0.001, "L0"),  # >= 0.1% → L0 (Query)
-]
-
-# Map level string to numeric index for comparisons
-_LEVEL_INDEX = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
 
 
 # ---------------------------------------------------------------------------
@@ -246,36 +242,13 @@ class OasyceServiceFacade:
         supply = se.get_supply(asset_id)
         if supply <= 0:
             return None
-
         holdings = se.get_equity(asset_id, agent_id)
         if holdings <= 0:
             return None
-
         pct = holdings / supply
-
-        # Find highest qualifying level from equity
-        equity_level: Optional[str] = None
-        for threshold, level in EQUITY_ACCESS_THRESHOLDS:
-            if pct >= threshold:
-                equity_level = level
-                break
-
-        if equity_level is None:
-            return None
-
-        # Cap by reputation
         rep = self._get_reputation()
         score = rep.get_reputation(agent_id)
-        if score < REPUTATION_THRESHOLDS["sandbox"]:
-            max_idx = 0  # L0 only
-        elif score < REPUTATION_THRESHOLDS["limited"]:
-            max_idx = 1  # L0 + L1
-        else:
-            max_idx = 3  # all levels
-
-        equity_idx = _LEVEL_INDEX[equity_level]
-        capped_idx = min(equity_idx, max_idx)
-        return f"L{capped_idx}"
+        return equity_to_access_level(pct, score)
 
     # -----------------------------------------------------------------------
     # Quote

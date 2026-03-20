@@ -11,7 +11,6 @@ from oasyce.api.schemas import (
     HealthOut,
     QuoteResultOut,
     SettleResultOut,
-    SettleSplitOut,
     SubmitRequest,
     SubmitResultOut,
     VerifyResultOut,
@@ -63,30 +62,19 @@ def buy(body: BuyRequest, facade: OasyceServiceFacade = Depends(get_facade)) -> 
         return Envelope(ok=False, error=result.error)
 
     data = result.data
-    quote_data = data.get("quote", {})
-    settle_data = data.get("settlement", {})
-
-    split_raw = settle_data.get("split")
-    split_out = None
-    if split_raw is not None:
-        split_out = SettleSplitOut(
-            creator=split_raw["creator"],
-            protocol_burn=split_raw["protocol_burn"],
-            protocol_validator=split_raw["protocol_validator"],
-            router=split_raw["router"],
-        )
+    quote_data = data.get("quote") or {}
 
     buy_out = BuyResultOut(
         quote=QuoteResultOut(
-            asset_id=quote_data.get("asset_id", body.asset_id),
-            price_oas=quote_data.get("price_oas", 0.0),
-            supply=quote_data.get("supply", 0),
+            asset_id=data.get("asset_id", body.asset_id),
+            price_oas=quote_data.get("spot_price_after", 0.0),
+            supply=0,
         ),
         settlement=SettleResultOut(
-            success=settle_data.get("success", False),
-            tx_id=settle_data.get("tx_id", ""),
-            split=split_out,
-            reason=settle_data.get("reason"),
+            success=data.get("settled", False),
+            tx_id=data.get("receipt_id", ""),
+            split=None,
+            reason=None,
         ),
     )
-    return Envelope(ok=settle_data.get("success", False), data=buy_out)
+    return Envelope(ok=data.get("settled", False), data=buy_out)
