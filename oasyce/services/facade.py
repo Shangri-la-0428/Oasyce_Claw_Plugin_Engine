@@ -899,6 +899,22 @@ class OasyceServiceFacade:
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
+    def delist_asset(self, asset_id: str, owner: str, signature: Optional[str] = None) -> ServiceResult:
+        """Owner voluntarily delists their asset (sets delisted=True, keeps records)."""
+        if not self._verify_agent(asset_id, signature):
+            return ServiceResult(success=False, error="Identity verification failed")
+        if self._ledger is None:
+            return ServiceResult(success=False, error="Ledger not available")
+        meta = self._ledger.get_asset_metadata(asset_id)
+        if meta is None:
+            return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
+        if meta.get("owner") != owner:
+            return ServiceResult(success=False, error="Only the asset owner can delist")
+        if meta.get("delisted"):
+            return ServiceResult(success=False, error="Asset is already delisted")
+        self._ledger.update_asset_metadata(asset_id, {"delisted": True})
+        return ServiceResult(success=True, data={"asset_id": asset_id, "delisted": True, "owner": owner})
+
     def delete_asset(self, asset_id: str, signature: Optional[str] = None) -> ServiceResult:
         """Delete an asset and its associated records.
 

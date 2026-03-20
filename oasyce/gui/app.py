@@ -339,6 +339,20 @@ def _api_status() -> Dict[str, Any]:
     total_blocks = height
     total_distributions = _ledger.count_fingerprints()
 
+    # Protocol burn/fee stats from settlement engine.
+    burn_stats: Dict[str, Any] = {}
+    try:
+        se = _get_settlement()
+        ps = se.protocol_stats()
+        burn_stats = {
+            "total_burned": round(ps.get("total_burned", 0), 6),
+            "protocol_fees_collected": round(ps.get("protocol_fees_collected", 0), 6),
+            "burn_rate_pct": 2.0,
+            "protocol_fee_pct": 5.0,
+        }
+    except Exception:
+        pass
+
     return {
         "node_id": node_id,
         "host": _config.node_host,
@@ -347,6 +361,7 @@ def _api_status() -> Dict[str, Any]:
         "total_assets": total_assets,
         "total_blocks": total_blocks,
         "total_distributions": total_distributions,
+        **burn_stats,
     }
 
 
@@ -2201,6 +2216,45 @@ class _Handler(BaseHTTPRequestHandler):
                 resp["equity_balance"] = round(pool.equity.get(buyer, 0), 4) if pool else 0
                 resp["error"] = None
                 return _json_response(self, resp)
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path == "/api/sell":
+            try:
+                aid = body.get("asset_id", "")
+                seller = body.get("seller") or _default_identity()
+                tokens = float(body.get("tokens", 0))
+                max_slippage = body.get("max_slippage")
+                if not aid:
+                    return _json_response(self, {"error": "asset_id required"}, 400)
+                if tokens <= 0:
+                    return _json_response(self, {"error": "tokens must be positive"}, 400)
+                facade = _get_facade()
+                result = facade.sell(aid, seller, tokens, max_slippage=max_slippage)
+                if not result.success:
+                    return _json_response(self, {"error": result.error}, 400)
+                d = result.data
+                return _json_response(self, {
+                    "ok": True,
+                    "payout_oas": round(d.get("payout_oas", 0), 6),
+                    "protocol_fee": round(d.get("protocol_fee", 0), 6),
+                    "burn_amount": round(d.get("burn_amount", 0), 6),
+                    "receipt_id": d.get("receipt_id", ""),
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
+        if path == "/api/delist":
+            try:
+                aid = body.get("asset_id", "")
+                owner = body.get("owner") or _default_identity()
+                if not aid:
+                    return _json_response(self, {"error": "asset_id required"}, 400)
+                facade = _get_facade()
+                result = facade.delist_asset(aid, owner)
+                if not result.success:
+                    return _json_response(self, {"error": result.error}, 400)
+                return _json_response(self, {"ok": True, "asset_id": aid, "delisted": True})
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 

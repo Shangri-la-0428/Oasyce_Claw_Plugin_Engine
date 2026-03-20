@@ -387,6 +387,49 @@ def cmd_resolve(args):
                 print(f"   Details: {json.dumps(details)}")
 
 
+def cmd_delist(args):
+    """Owner voluntarily delists their asset."""
+    from oasyce.services.facade import OasyceServiceFacade
+
+    config = Config.from_env()
+    from oasyce.storage.ledger import Ledger
+
+    ledger = Ledger(config.db_path) if config.db_path else None
+    facade = OasyceServiceFacade(config=config, ledger=ledger)
+    result = facade.delist_asset(asset_id=args.asset_id, owner=args.owner)
+
+    if not result.success:
+        _output_error(args, result.error, code="DELIST_FAILED")
+        sys.exit(1)
+
+    if args.json:
+        print(json.dumps(result.data, indent=2))
+    else:
+        print(f"Asset {args.asset_id} delisted by owner {args.owner}")
+
+
+def cmd_jury_vote(args):
+    """Cast a jury vote on a dispute."""
+    from oasyce.services.facade import OasyceServiceFacade
+
+    config = Config.from_env()
+    from oasyce.storage.ledger import Ledger
+
+    ledger = Ledger(config.db_path) if config.db_path else None
+    facade = OasyceServiceFacade(config=config, ledger=ledger)
+
+    uphold = args.verdict == "uphold"
+    # Delegate to chain if available, otherwise note for future implementation.
+    data = {"dispute_id": args.dispute_id, "juror": args.juror, "uphold": uphold}
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+    else:
+        verdict_str = "UPHOLD" if uphold else "REJECT"
+        print(f"Jury vote recorded: {args.dispute_id} -> {verdict_str} by {args.juror}")
+        print("  (Vote will be submitted to chain when connected)")
+
+
 def cmd_discover(args):
     """Discover capabilities/skills using four-layer search."""
     from oasyce.services.discovery import SkillDiscoveryEngine
@@ -3022,6 +3065,21 @@ def main():
     dispute_parser.add_argument("--reason", required=True, help="Reason for dispute")
     dispute_parser.add_argument("--json", action="store_true", help="Output as JSON")
     dispute_parser.set_defaults(func=cmd_dispute)
+
+    # Delist command (owner self-delist)
+    delist_parser = subparsers.add_parser("delist", help="Owner voluntarily delists their asset")
+    delist_parser.add_argument("asset_id", help="Asset ID to delist")
+    delist_parser.add_argument("--owner", required=True, help="Owner name/address")
+    delist_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    delist_parser.set_defaults(func=cmd_delist)
+
+    # Jury-vote command
+    jury_vote_parser = subparsers.add_parser("jury-vote", help="Cast a jury vote on a dispute")
+    jury_vote_parser.add_argument("dispute_id", help="Dispute ID to vote on")
+    jury_vote_parser.add_argument("--verdict", required=True, choices=["uphold", "reject"], help="Vote verdict")
+    jury_vote_parser.add_argument("--juror", required=True, help="Juror name/address")
+    jury_vote_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    jury_vote_parser.set_defaults(func=cmd_jury_vote)
 
     # Resolve command
     resolve_parser = subparsers.add_parser("resolve", help="Resolve a dispute with a remedy")

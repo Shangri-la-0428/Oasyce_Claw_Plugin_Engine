@@ -118,14 +118,14 @@ oasyce info --json                     # Full info as JSON
 - **Bonding Curve**: Auto-pricing — more buyers = higher price. No order book.
 - **Escrow**: Funds lock before execution, release after quality verification.
 - **Reputation**: Long-term score. Bad behavior follows you.
-- **Shares**: Buying data/capabilities earns shares. Early buyers get more (diminishing returns: 100%->80%->60%->40%).
-- **Rights Type**: Declare data rights origin — `original` (1.0x), `co_creation` (0.9x), `licensed` (0.7x), `collection` (0.3x). Affects pricing.
-- **Dispute**: File disputes against assets. Jury-based resolution with stake-weighted voting. Remedies: delist, transfer, rights correction, share adjustment.
+- **Shares**: Buying data/capabilities earns shares via Bancor bonding curve. `tokens = supply × (√(1 + payment/reserve) − 1)`. Selling uses inverse: `payout = reserve × (1 − (1 − tokens/supply)²)`, capped at 95% reserve.
+- **Rights Type**: Declare data rights origin — `original` (1.0x), `co_creation` (0.9x), `licensed` (0.7x), `collection` (0.3x). Affects pricing via multiplier on minted tokens.
+- **Dispute**: File disputes against assets. Jury-based resolution — 5 jurors selected deterministically via `sha256(disputeID+nodeID) × log(1+reputation)`, 2/3 majority required. Remedies: delist, transfer, rights correction, share adjustment.
 - **Evidence**: Fingerprint, watermark, leakage scanners are *evidence providers* — off-chain, probabilistic, pluggable. The protocol settles disputes based on evidence; it doesn't produce or verify evidence.
 - **Schema Registry**: Unified validation for 4 asset types: `data`, `capability`, `oracle`, `identity`.
 - **Discovery Recall->Rank**: Broad recall (intent OR semantic OR tag) then ranked by trust + feedback-adjusted economics.
 - **Risk Auto-Leveling**: Files auto-classified as `public`/`internal`/`sensitive` based on content, extension, and rights type.
-- **Capability Delivery**: Provider registers endpoint + encrypted API key -> consumer invokes via gateway -> escrow lock -> call -> settle (release/refund). 5% protocol fee.
+- **Capability Delivery**: Provider registers endpoint + encrypted API key -> consumer invokes via gateway -> escrow lock -> call -> settle (release/refund). Fee split: 93% provider, 5% protocol fee, 2% burn.
 - **INITIAL_PRICE**: Fair bootstrap pricing — first buyer pays 1.0 OAS/token (no early-adopter exploit).
 - **Equity → Access**: Holding equity in an asset grants tiered access: ≥0.1% → L0, ≥1% → L1, ≥5% → L2, ≥10% → L3.
 - **Reputation Decay**: Scores decay over time (90-day cycle). Use `facade.decay_all_reputations()` for proactive bulk decay.
