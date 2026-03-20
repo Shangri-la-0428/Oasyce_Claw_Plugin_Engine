@@ -3699,7 +3699,7 @@ def main():
     start_parser.set_defaults(func=cmd_start)
 
     # ── serve ────────────────────────────────────────────────────────
-    serve_parser = subparsers.add_parser("serve", help="Start the Oasyce API server")
+    serve_parser = subparsers.add_parser("gui", aliases=["serve"], help="Start Dashboard + API server")
     serve_parser.add_argument(
         "--port", type=int, default=8000, help="API server port (default: 8000)"
     )
