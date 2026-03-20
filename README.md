@@ -19,7 +19,7 @@ oasyce doctor            # 健康检查
 oasyce serve             # Dashboard: localhost:8420
 ```
 
-打开 `http://localhost:8420`，完事。
+打开 `http://localhost:8420`，进入GUI面板。
 
 ---
 
