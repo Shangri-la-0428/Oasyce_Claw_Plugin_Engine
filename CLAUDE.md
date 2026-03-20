@@ -120,7 +120,8 @@ oasyce info --json                     # Full info as JSON
 - **Reputation**: Long-term score. Bad behavior follows you.
 - **Shares**: Buying data/capabilities earns shares. Early buyers get more (diminishing returns: 100%->80%->60%->40%).
 - **Rights Type**: Declare data rights origin — `original` (1.0x), `co_creation` (0.9x), `licensed` (0.7x), `collection` (0.3x). Affects pricing.
-- **Dispute**: File disputes against assets. Auto-matched arbitrators resolve with remedies: delist, transfer, rights correction, share adjustment.
+- **Dispute**: File disputes against assets. Jury-based resolution with stake-weighted voting. Remedies: delist, transfer, rights correction, share adjustment.
+- **Evidence**: Fingerprint, watermark, leakage scanners are *evidence providers* — off-chain, probabilistic, pluggable. The protocol settles disputes based on evidence; it doesn't produce or verify evidence.
 - **Schema Registry**: Unified validation for 4 asset types: `data`, `capability`, `oracle`, `identity`.
 - **Discovery Recall->Rank**: Broad recall (intent OR semantic OR tag) then ranked by trust + feedback-adjusted economics.
 - **Risk Auto-Leveling**: Files auto-classified as `public`/`internal`/`sensitive` based on content, extension, and rights type.
@@ -281,9 +282,11 @@ result = facade.get_asset("ASSET_ID")
 result = facade.update_asset_metadata("ASSET_ID", {"tags": ["new"]})
 result = facade.delete_asset("ASSET_ID")
 
-# Disputes
+# Disputes & Evidence
 result = facade.dispute("ASSET_ID", consumer_id="bob", reason="...")
 result = facade.resolve_dispute(dispute_id="DIS_001")
+result = facade.submit_evidence("DIS_001", submitter="bob",
+    evidence_hash="abc123", evidence_type="fingerprint_match")
 
 # Maintenance
 result = facade.decay_all_reputations()
