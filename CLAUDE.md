@@ -138,7 +138,50 @@ After `oasyce serve`, the web Dashboard is at `http://localhost:8420`.
 - `/register` — Register new assets (drag & drop)
 - Supports both data assets and AI capabilities in unified view.
 
-## Architecture (v2.0.0)
+## Design Philosophy
+
+> Oasyce does not verify truth. It makes participants bear economic
+> consequences for their claims about truth.
+
+This means the protocol only handles **settlement** — not judgment. Evidence
+providers (fingerprint, watermark, leakage scanners) are off-chain, probabilistic,
+and replaceable. The chain settles disputes based on evidence via stake-weighted
+jury votes.
+
+## Module Classification
+
+Every module belongs to exactly one of three layers:
+
+### Protocol Layer (must be deterministic, will migrate to chain)
+```
+settlement/engine.py     → x/settlement    # Bonding curve, escrow, buy/sell
+capabilities/dispute.py  → x/dispute       # Jury selection, vote, slash
+services/reputation/     → x/reputation    # Score, decay, feedback
+core/formulas.py         → (shared)        # Pure math used by all layers
+```
+
+### Evidence Providers (off-chain, probabilistic, pluggable)
+```
+services/fingerprint.py     # Content fingerprint → submit_evidence()
+services/watermark.py       # Watermark embed/detect → submit_evidence()
+services/leakage/           # Leakage scan → submit_evidence()
+engines/risk.py             # Risk classification → metadata tag
+core/evidence.py            # Evidence submission interface
+```
+These do NOT participate in consensus. They produce `Evidence` objects
+that jurors evaluate during dispute resolution.
+
+### Product Layer (off-chain, can be centralized, fast iteration)
+```
+services/discovery/              # Recall → Rank
+services/capability_delivery/    # Gateway, endpoint registry
+gui/app.py                       # Dashboard
+explorer/app.py                  # Block explorer
+cli.py                           # CLI
+api/                             # REST API
+```
+
+## Architecture (v2.1.0)
 
 ```
                     ┌──────────────────────────┐
@@ -155,18 +198,19 @@ After `oasyce serve`, the web Dashboard is at `http://localhost:8420`.
                                  │ gRPC / REST
                     ┌────────────▼───────────────┐
                     │   oasyce (Python)           │
-                    │   Thin Client v2.0.0        │
+                    │   Thin Client v2.1.0        │
                     │   ─────────────────────     │
-                    │   chain_client.py (RPC)     │
-                    │   proto/ (type stubs)       │
-                    │   engines/ (scan/classify)  │
-                    │   services/discovery/       │
-                    │   services/capability/      │
-                    │   gui/app.py (Dashboard)    │
-                    │   Dashboard :8420             │
+                    │   Layer 0: core/formulas.py │
+                    │   Layer 1: storage/ledger.py│
+                    │   Layer 2: services/ rules  │
+                    │   Layer 3: facade.py (thin) │
+                    │   Layer 4: CLI/GUI/API      │
                     └─────────────────────────────┘
 
 oasyce/
+├── core/
+│   ├── formulas.py          # Layer 0: pure math (bonding curve, fees, jury score)
+│   └── evidence.py          # Evidence submission interface
 ├── chain_client.py          # gRPC/REST client to Go chain
 ├── proto/                   # Proto-generated Python type stubs
 │   └── oasyce/
@@ -174,21 +218,27 @@ oasyce/
 │       ├── capability/v1/   # MsgRegisterCapability, MsgInvokeCapability, Capability
 │       ├── reputation/v1/   # MsgSubmitFeedback, Reputation
 │       └── datarights/v1/   # MsgRegisterDataAsset, MsgBuyShares, DataAsset
-├── schema_registry/         # Unified schema validation (data/capability/oracle/identity)
+├── storage/ledger.py        # Layer 1: all state CRUD, thread-safe
+├── services/
+│   ├── facade.py            # Layer 3: thin orchestration (every method < 15 lines)
+│   ├── settlement/engine.py # Layer 2: bonding curve (delegates to core/formulas.py)
+│   ├── reputation/          # Layer 2: score + decay
+│   ├── access/              # Layer 2: equity → tiered access
+│   ├── capability_delivery/ # Product: endpoint registry, escrow, gateway
+│   ├── discovery/           # Product: recall → rank + feedback
+│   ├── fingerprint.py       # Evidence provider
+│   ├── watermark.py         # Evidence provider
+│   └── leakage/             # Evidence provider
 ├── engines/
-│   ├── core_engines.py      # Scan -> Classify -> Metadata -> PoPc -> Register (+ auto risk)
-│   ├── risk.py              # Auto risk classification (public/internal/sensitive)
-│   └── schema.py            # Backward-compat (delegates to schema_registry)
-├── services/capability_delivery/  # Endpoint registry, escrow, gateway, settlement
-├── services/discovery/      # Recall->Rank discovery + FeedbackStore
-├── info.py                  # Project info hub (shared by GUI/CLI/API)
-└── gui/app.py               # Dashboard SPA with tabbed about panel
+│   ├── core_engines.py      # Scan → Classify → Metadata → PoPc → Register
+│   └── risk.py              # Evidence provider: risk classification
+└── gui/app.py               # Layer 4: Dashboard
 ```
 
 ## Architecture Constraints (enforced by CI)
 
 - All business operations route through `OasyceServiceFacade` (single entry point).
-- No direct `_ledger._conn` WRITE access outside `oasyce/storage/`.
+- No direct `_ledger._conn` access outside `oasyce/storage/` (zero violations as of P12).
 - No `SettlementEngine()` instantiation outside facade.
 - Settlement engine shared between CLI, GUI, and API (single pool state).
 - Pool objects are read-only externally (safe accessors: `get_equity()`, `get_supply()`).
