@@ -786,7 +786,7 @@ class OasyceServiceFacade:
     # -----------------------------------------------------------------------
     # Sell Quote (preview without executing)
     # -----------------------------------------------------------------------
-    def sell_quote(self, asset_id: str, tokens: float, seller: str) -> ServiceResult:
+    def sell_quote(self, asset_id: str, seller: str, tokens: float) -> ServiceResult:
         """Get a quote for selling tokens back to the bonding curve."""
         try:
             se = self._get_settlement()
@@ -882,17 +882,27 @@ class OasyceServiceFacade:
     # -----------------------------------------------------------------------
     def update_asset_metadata(
         self, asset_id: str, updates: Dict[str, Any],
+        owner: str = "",
         signature: Optional[str] = None,
     ) -> ServiceResult:
         """Update asset metadata fields (tags, version, etc.).
 
         Only specified keys are merged; existing keys are preserved.
+        *owner* is the caller requesting the update — verified against the
+        asset's actual owner.
         """
-        if not self._verify_agent(asset_id, signature):
+        if not self._verify_agent(owner or asset_id, signature):
             return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
         try:
+            # Verify caller is the asset owner
+            if owner:
+                meta = self._ledger.get_asset_metadata(asset_id)
+                if meta is None:
+                    return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
+                if meta.get("owner") != owner:
+                    return ServiceResult(success=False, error="Only the asset owner can update metadata")
             if not self._ledger.update_asset_metadata(asset_id, updates):
                 return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
             return ServiceResult(success=True, data={"asset_id": asset_id, "updated_keys": list(updates.keys())})
@@ -901,7 +911,7 @@ class OasyceServiceFacade:
 
     def delist_asset(self, asset_id: str, owner: str, signature: Optional[str] = None) -> ServiceResult:
         """Owner voluntarily delists their asset (sets delisted=True, keeps records)."""
-        if not self._verify_agent(asset_id, signature):
+        if not self._verify_agent(owner, signature):
             return ServiceResult(success=False, error="Identity verification failed")
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
@@ -941,6 +951,35 @@ class OasyceServiceFacade:
             if not self._ledger.delete_asset(asset_id):
                 return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
             return ServiceResult(success=True, data={"asset_id": asset_id, "deleted": True})
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
+
+    def jury_vote(
+        self,
+        dispute_id: str,
+        juror_id: str,
+        verdict: str,
+        reason: str = "",
+        signature: Optional[str] = None,
+    ) -> ServiceResult:
+        """Submit a juror's vote on a dispute.
+
+        *verdict* must be ``'consumer'`` or ``'provider'``.
+        """
+        if not self._verify_agent(juror_id, signature):
+            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
+        try:
+            dm = self._get_dispute_manager()
+            vote = dm.submit_vote(dispute_id, juror_id, verdict, reason)
+            return ServiceResult(
+                success=True,
+                data={
+                    "dispute_id": dispute_id,
+                    "juror_id": vote.juror_id,
+                    "verdict": vote.verdict.value,
+                    "reason": vote.reason,
+                },
+            )
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 

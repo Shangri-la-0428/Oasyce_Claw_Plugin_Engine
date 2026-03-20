@@ -264,7 +264,7 @@ facade = OasyceServiceFacade()
 result = facade.quote("ASSET_ID", amount_oas=10.0)
 result = facade.buy("ASSET_ID", buyer="alice", amount_oas=10.0)
 result = facade.sell("ASSET_ID", seller="alice", tokens_to_sell=5.0)
-result = facade.sell_quote("ASSET_ID", tokens=5.0, seller="alice")
+result = facade.sell_quote("ASSET_ID", seller="alice", tokens=5.0)
 
 # Access Control
 result = facade.access_quote("ASSET_ID", buyer="alice")
@@ -279,12 +279,13 @@ result = facade.protocol_stats()
 # Asset Management
 result = facade.register(file_path, owner, tags)
 result = facade.get_asset("ASSET_ID")
-result = facade.update_asset_metadata("ASSET_ID", {"tags": ["new"]})
+result = facade.update_asset_metadata("ASSET_ID", {"tags": ["new"]}, owner="alice")
 result = facade.delete_asset("ASSET_ID")
 
 # Disputes & Evidence
 result = facade.dispute("ASSET_ID", consumer_id="bob", reason="...")
 result = facade.resolve_dispute(dispute_id="DIS_001")
+result = facade.jury_vote("DIS_001", juror_id="charlie", verdict="consumer")
 result = facade.submit_evidence("DIS_001", submitter="bob",
     evidence_hash="abc123", evidence_type="fingerprint_match")
 
