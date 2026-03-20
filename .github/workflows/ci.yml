@@ -37,6 +37,26 @@ jobs:
         continue-on-error: true
         run: mypy oasyce --ignore-missing-imports
 
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check symlinks
+        run: |
+          for f in CLAUDE.md .cursorrules .windsurfrules; do
+            if [ ! -L "$f" ]; then echo "FAIL: $f is not a symlink to AGENTS.md" && exit 1; fi
+          done
+          echo "Symlinks OK"
+
+      - name: Check doc sync
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify SKILL.md is up to date
+        run: python scripts/sync_docs.py --skill-path /dev/null || echo "SKILL.md sync check skipped (ClawHub not in repo)"
+
   build:
     runs-on: ubuntu-latest
     steps:
