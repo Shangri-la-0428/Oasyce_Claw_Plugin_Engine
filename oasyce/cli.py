@@ -3404,9 +3404,19 @@ def main():
     gui_parser.add_argument("--port", type=int, default=8420, help="Port (default: 8420)")
 
     def _run_gui(args):
+        import threading
+        import time
+        import webbrowser
+
         from oasyce.gui.app import OasyceGUI
 
-        OasyceGUI(port=args.port).run()
+        port = args.port
+        def _open():
+            time.sleep(1.5)
+            webbrowser.open(f"http://localhost:{port}")
+        threading.Thread(target=_open, daemon=True).start()
+
+        OasyceGUI(port=port).run()
 
     gui_parser.set_defaults(func=_run_gui)
 
@@ -3699,7 +3709,7 @@ def main():
     start_parser.set_defaults(func=cmd_start)
 
     # ── serve ────────────────────────────────────────────────────────
-    serve_parser = subparsers.add_parser("gui", aliases=["serve"], help="Start Dashboard + API server")
+    serve_parser = subparsers.add_parser("serve", help="Start API server (port 8000)")
     serve_parser.add_argument(
         "--port", type=int, default=8000, help="API server port (default: 8000)"
     )

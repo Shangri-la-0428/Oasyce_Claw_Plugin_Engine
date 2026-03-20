@@ -4229,11 +4229,25 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
         '<button class="btn btn-ghost btn-sm" onclick="editTags(\''+esc(asset.asset_id)+'\')">Save</button>'+
       '</div>'+
       disputeHtml+
+      '<div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">'+
+        '<button style="width:100%;padding:8px 12px;background:transparent;border:none;color:var(--fg);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;" onclick="var p=this.nextElementSibling;var open=p.style.display!==\'none\';p.style.display=open?\'none\':\'block\';this.querySelector(\'span:last-child\').textContent=open?\'&#9654;\':\'&#9660;\';">'+
+          '<span>Access</span><span>&#9654;</span>'+
+        '</button>'+
+        '<div id="access-panel-'+esc(asset.asset_id)+'" style="display:none;padding:10px 12px;border-top:1px solid var(--border);">'+
+          '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">'+
+            '<select id="access-level-'+esc(asset.asset_id)+'" style="flex:1;"><option value="L0">L0 — Metadata</option><option value="L1">L1 — Sample</option><option value="L2">L2 — Compute</option><option value="L3">L3 — Full</option></select>'+
+            '<button class="btn btn-ghost btn-sm" onclick="fetchAccessQuote(\''+esc(asset.asset_id)+'\')">Quote</button>'+
+          '</div>'+
+          '<div id="access-result-'+esc(asset.asset_id)+'"></div>'+
+        '</div>'+
+      '</div>'+
       '<button class="btn btn-danger btn-full" style="margin-top:10px;" onclick="if(confirm(\'Delete this asset?\')){deleteAsset(\''+esc(asset.asset_id)+'\');document.getElementById(\'modal-bg\').remove();}">Delete</button>'+
     '</div>';
     o.addEventListener('click',function(e){if(e.target===o)o.remove();});
     document.body.appendChild(o);
   }
+  window.fetchAccessQuote=async function(aid){var sel=document.getElementById('access-level-'+aid);var lv=sel?sel.value:'L1';var div=document.getElementById('access-result-'+aid);div.innerHTML='<span style="font-size:12px;color:var(--muted);">Loading...</span>';var r=await api('/api/access/quote?asset_id='+encodeURIComponent(aid));if(!r||r.error){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(r?r.error:'Failed')+'</p>';return;}var levels=r.levels||[];var found=levels.find(function(x){return x.level===lv;});if(!found){div.innerHTML='<p class="err" style="font-size:12px;">Level not available</p>';return;}div.innerHTML='<div style="font-size:12px;"><div class="kv"><span class="kv-k">Bond</span><span class="kv-v">'+found.bond+' OAS</span></div><div class="kv"><span class="kv-k">Lock</span><span class="kv-v">'+found.liability_days+' days</span></div>'+(found.available?'<button class="btn btn-full btn-sm" style="margin-top:6px;" onclick="buyAccess(\''+esc(aid)+'\',\''+lv+'\')">Buy '+lv+' Access</button>':'<span style="color:var(--danger);">Not available</span>')+'</div>';};
+  window.buyAccess=async function(aid,lv){var div=document.getElementById('access-result-'+aid);div.innerHTML='<span style="font-size:12px;color:var(--muted);">Purchasing...</span>';var r=await postApi('/api/access/buy',{asset_id:aid,level:lv,buyer:(window.__oasyce_wallet||'anonymous')});if(r&&r.ok!==false&&!r.error){div.innerHTML='<div style="font-size:12px;"><div class="kv"><span class="kv-k">Status</span><span class="kv-v ok">Granted '+lv+'</span></div><div class="kv"><span class="kv-k">Bond</span><span class="kv-v">'+r.bond+' OAS</span></div></div>';toast('Access granted');}else{div.innerHTML='<p class="err" style="font-size:12px;">'+esc(r?r.error:'Failed')+'</p>';}};
   window.showDisputeForm=function(aid){var f=document.getElementById('dispute-form-'+aid);if(f)f.style.display='block';};
   window.submitDispute=async function(aid){var input=document.getElementById('dispute-reason-input');var reason=(input?input.value:'').trim();if(!reason){toast('Please enter a reason','error');return;}var r=await postApi('/api/dispute',{asset_id:aid,reason:reason});if(r&&r.ok){toast('Dispute filed');document.getElementById('modal-bg').remove();loadAssets();}else{toast(r?r.error:'Failed','error');}};
 
@@ -4673,7 +4687,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       var rBadge='<span class="tag" style="color:'+rightsColors[rt]+';border-color:'+rightsColors[rt]+'">'+(rightsLabels[rt]||rt)+'</span>';
       var dBadge=a.disputed?'<span class="tag" style="color:#f87171;border-color:#f87171">Disputed</span>':'';
       h+='<div class="a-row" onclick=\'showD('+JSON.stringify(a).replace(/\x27/g,"&#39;")+')\'>'+
-        '<div class="a-info"><div class="a-id">'+esc(trunc(a.asset_id,32))+' '+rBadge+dBadge+'</div><div class="a-meta">'+esc(a.owner)+' &middot; '+timeAgo(a.created_at)+(tags?' &middot; '+tags:'')+'</div></div>'+
+        '<div class="a-info"><div class="a-id">'+esc(trunc(a.asset_id,32))+' '+dBadge+'</div><div class="a-meta">'+esc(a.owner)+' &middot; '+timeAgo(a.created_at)+(tags?' &middot; '+tags:'')+'</div></div>'+
         '<div class="a-side">'+(a.spot_price!=null?'<span class="a-price">'+a.spot_price+'</span>':'')+
         '<button class="a-del" title="Delete" onclick="event.stopPropagation();deleteAsset(\''+esc(a.asset_id)+'\')">&times;</button></div></div>';
     });

@@ -257,22 +257,6 @@ class OasyceServiceFacade:
         """Get bonding-curve price quote for an asset."""
         try:
             se = self._get_settlement()
-            pool = se.get_pool(asset_id)
-            if pool is None:
-                # Try chain bridge as fallback
-                try:
-                    from oasyce.bridge.core_bridge import bridge_quote
-
-                    chain_quote = bridge_quote(asset_id)
-                    if "error" not in chain_quote:
-                        return ServiceResult(success=True, data=chain_quote)
-                except Exception:
-                    pass
-                return ServiceResult(
-                    success=False,
-                    error=f"Asset {asset_id} not found in any pool",
-                )
-
             qr = se.quote(asset_id, amount_oas)
             return ServiceResult(
                 success=True,
