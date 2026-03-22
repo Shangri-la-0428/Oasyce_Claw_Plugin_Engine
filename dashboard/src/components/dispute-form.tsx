@@ -47,7 +47,7 @@ export function DisputeForm({ assetId, onClose, onFiled }: DisputeFormProps) {
     setSubmitting(true);
     const res = await post<{ ok: boolean; dispute_id: string; error?: string }>('/dispute/file', {
       asset_id: assetId,
-      reason: _[reason] || reason,
+      reason: reason,
       evidence_text: evidence,
       buyer: walletAddress(),
     });
@@ -97,10 +97,30 @@ export function DisputeForm({ assetId, onClose, onFiled }: DisputeFormProps) {
   );
 }
 
+const REMEDIES = ['delist', 'transfer', 'rights_correction', 'share_adjustment'] as const;
+const EVIDENCE_TYPES = ['document', 'screenshot', 'log', 'other'] as const;
+
 export function MyDisputes() {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [loading, setLoading] = useState(true);
   const _ = i18n.value;
+
+  // Jury voting state
+  const [votingId, setVotingId] = useState<string | null>(null);
+  const [voting, setVoting] = useState(false);
+
+  // Dispute resolution state
+  const [resolveId, setResolveId] = useState<string | null>(null);
+  const [resolveRemedy, setResolveRemedy] = useState('');
+  const [resolveDetails, setResolveDetails] = useState('');
+  const [resolving, setResolving] = useState(false);
+
+  // Evidence submission state
+  const [evidenceId, setEvidenceId] = useState<string | null>(null);
+  const [evidenceHash, setEvidenceHash] = useState('');
+  const [evidenceType, setEvidenceType] = useState('');
+  const [evidenceDesc, setEvidenceDesc] = useState('');
+  const [submittingEvidence, setSubmittingEvidence] = useState(false);
 
   useEffect(() => {
     loadDisputes();
@@ -117,12 +137,71 @@ export function MyDisputes() {
     setLoading(false);
   };
 
-  const formatTime = (ts: number) => new Date(ts * 1000).toLocaleDateString();
-
   const statusLabel = (s: string) => {
     if (s === 'open') return _['dispute-open'];
     if (s === 'resolved') return _['dispute-resolved'];
+    if (s === 'dismissed') return _['dispute-dismissed'] || 'Dismissed';
     return s;
+  };
+
+  const onJuryVote = async (disputeId: string, verdict: 'uphold' | 'reject') => {
+    setVoting(true);
+    const res = await post<{ ok: boolean; error?: string }>('/jury/vote', {
+      dispute_id: disputeId,
+      juror: walletAddress(),
+      verdict,
+    });
+    if (res.success && res.data?.ok) {
+      showToast(_['jury-vote-success'], 'success');
+      setVotingId(null);
+      loadDisputes();
+    } else {
+      showToast(res.error || res.data?.error || _['error-generic'], 'error');
+    }
+    setVoting(false);
+  };
+
+  const onResolve = async (assetId: string) => {
+    if (!resolveRemedy) return;
+    setResolving(true);
+    const res = await post<{ ok: boolean; error?: string }>('/dispute/resolve', {
+      asset_id: assetId,
+      remedy: resolveRemedy,
+      details: resolveDetails,
+    });
+    if (res.success && res.data?.ok) {
+      showToast(_['resolve-success'], 'success');
+      setResolveId(null);
+      setResolveRemedy('');
+      setResolveDetails('');
+      loadDisputes();
+    } else {
+      showToast(res.error || res.data?.error || _['error-generic'], 'error');
+    }
+    setResolving(false);
+  };
+
+  const onSubmitEvidence = async (disputeId: string) => {
+    if (!evidenceHash || !evidenceType) return;
+    setSubmittingEvidence(true);
+    const res = await post<{ ok: boolean; error?: string }>('/evidence/submit', {
+      dispute_id: disputeId,
+      submitter: walletAddress(),
+      evidence_hash: evidenceHash,
+      evidence_type: evidenceType,
+      description: evidenceDesc,
+    });
+    if (res.success && res.data?.ok) {
+      showToast(_['evidence-success'], 'success');
+      setEvidenceId(null);
+      setEvidenceHash('');
+      setEvidenceType('');
+      setEvidenceDesc('');
+      loadDisputes();
+    } else {
+      showToast(res.error || res.data?.error || _['error-generic'], 'error');
+    }
+    setSubmittingEvidence(false);
   };
 
   return (
@@ -141,8 +220,145 @@ export function MyDisputes() {
                 <span class={`dispute-status dispute-status-${d.status}`}>{statusLabel(d.status)}</span>
               </div>
               <div class="dispute-item-reason">{d.reason}</div>
-              {d.evidence_text && <div class="dispute-item-evidence">{d.evidence_text}</div>}
-              <div class="dispute-item-time">{formatTime(d.created_at)}</div>
+              <div class="kv">
+                <span class="kv-key">{_['dispute-created']}</span>
+                <span class="kv-val">{d.created_at ? new Date(d.created_at * 1000).toLocaleString() : '—'}</span>
+              </div>
+              {d.resolved_at && (
+                <div class="kv">
+                  <span class="kv-key">{_['dispute-resolved-at']}</span>
+                  <span class="kv-val">{new Date(d.resolved_at * 1000).toLocaleString()}</span>
+                </div>
+              )}
+              {d.resolution && (
+                <div class="kv">
+                  <span class="kv-key">{_['dispute-resolution']}</span>
+                  <span class="kv-val">{d.resolution}</span>
+                </div>
+              )}
+              {d.evidence_text && (
+                <div class="kv">
+                  <span class="kv-key">{_['dispute-evidence']}</span>
+                  <span class="kv-val">{d.evidence_text}</span>
+                </div>
+              )}
+
+              {d.status === 'open' && (
+                <>
+                  {/* Action buttons */}
+                  <div class="row gap-8 mt-8">
+                    <button
+                      class="btn btn-sm btn-ghost"
+                      onClick={() => setVotingId(votingId === d.dispute_id ? null : d.dispute_id)}
+                    >
+                      {_['jury-vote']}
+                    </button>
+                    <button
+                      class="btn btn-sm btn-ghost"
+                      onClick={() => setEvidenceId(evidenceId === d.dispute_id ? null : d.dispute_id)}
+                    >
+                      {_['submit-evidence']}
+                    </button>
+                    <button
+                      class="btn btn-sm btn-ghost"
+                      onClick={() => setResolveId(resolveId === d.dispute_id ? null : d.dispute_id)}
+                    >
+                      {_['resolve-dispute']}
+                    </button>
+                  </div>
+
+                  {/* Jury vote form */}
+                  {votingId === d.dispute_id && (
+                    <div class="col gap-8 mt-8">
+                      <span class="caption">{_['jury-verdict']}</span>
+                      <div class="row gap-8">
+                        <button
+                          class="btn btn-sm btn-ghost grow"
+                          disabled={voting}
+                          onClick={() => onJuryVote(d.dispute_id, 'uphold')}
+                        >
+                          {voting ? _['jury-voting'] : _['jury-uphold']}
+                        </button>
+                        <button
+                          class="btn btn-sm btn-ghost grow"
+                          disabled={voting}
+                          onClick={() => onJuryVote(d.dispute_id, 'reject')}
+                        >
+                          {voting ? _['jury-voting'] : _['jury-reject']}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Evidence submission form */}
+                  {evidenceId === d.dispute_id && (
+                    <div class="col gap-8 mt-8">
+                      <span class="caption">{_['evidence-hash']}</span>
+                      <input
+                        class="input"
+                        value={evidenceHash}
+                        onInput={e => setEvidenceHash((e.target as HTMLInputElement).value)}
+                      />
+                      <span class="caption">{_['evidence-type']}</span>
+                      <select
+                        class="input"
+                        value={evidenceType}
+                        onChange={e => setEvidenceType((e.target as HTMLSelectElement).value)}
+                      >
+                        <option value="">{_['evidence-type']}</option>
+                        {EVIDENCE_TYPES.map(t => (
+                          <option key={t} value={t}>{_[`evidence-type-${t}`]}</option>
+                        ))}
+                      </select>
+                      <span class="caption">{_['evidence-desc']}</span>
+                      <textarea
+                        class="input input-textarea"
+                        value={evidenceDesc}
+                        onInput={e => setEvidenceDesc((e.target as HTMLTextAreaElement).value)}
+                        rows={3}
+                      />
+                      <button
+                        class="btn btn-sm btn-primary"
+                        disabled={submittingEvidence}
+                        onClick={() => onSubmitEvidence(d.dispute_id)}
+                      >
+                        {submittingEvidence ? _['submitting-evidence'] : _['submit-evidence']}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Resolve dispute form */}
+                  {resolveId === d.dispute_id && (
+                    <div class="col gap-8 mt-8">
+                      <span class="caption">{_['resolve-remedy']}</span>
+                      <select
+                        class="input"
+                        value={resolveRemedy}
+                        onChange={e => setResolveRemedy((e.target as HTMLSelectElement).value)}
+                      >
+                        <option value="">{_['resolve-remedy']}</option>
+                        {REMEDIES.map(r => (
+                          <option key={r} value={r}>{_[`remedy-${r}`]}</option>
+                        ))}
+                      </select>
+                      <span class="caption">{_['resolve-details']}</span>
+                      <textarea
+                        class="input input-textarea"
+                        value={resolveDetails}
+                        onInput={e => setResolveDetails((e.target as HTMLTextAreaElement).value)}
+                        rows={3}
+                      />
+                      <button
+                        class="btn btn-sm btn-primary"
+                        disabled={resolving}
+                        onClick={() => onResolve(d.asset_id)}
+                      >
+                        {resolving ? _['resolving'] : _['resolve-dispute']}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           ))}
         </div>

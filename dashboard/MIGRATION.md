@@ -1,64 +1,62 @@
-# Legacy → Preact SPA 迁移清单
+# Legacy → Preact SPA Migration Checklist
 
-> 目标：将 `app.py` 内嵌 `_INDEX_HTML`（2544 行）的所有功能迁移到 `dashboard/src/` Preact SPA，迁完删除 legacy fallback。
+> Target: Migrate all features from `app.py` inline `_INDEX_HTML` to `dashboard/src/` Preact SPA, then delete legacy fallback.
+> Updated: 2026-03-22 | **Status: COMPLETE ✅**
 
-## 页面对照
+## Page Mapping
 
-| Legacy 页面 | Legacy ID | Preact 页面 | 状态 |
+| Legacy Page | Legacy ID | Preact Page | Status |
 |---|---|---|---|
-| Register（拖拽注册+描述） | `pg-register` | `mydata.tsx` (合并) | ✅ 已有 |
-| Trade（报价+购买份额） | `pg-trade` | `explore.tsx` (部分) | ⚠️ 缺购买确认流程 |
-| Your Assets（资产列表+详情+删除） | `pg-assets` | `mydata.tsx` | ✅ 已有 |
-| Agent Protocol（注册Agent+发现+交易） | `pg-agents` | ❌ 无 | 🔴 需新建 |
-| Network（节点状态+验证者） | `pg-network` | `network.tsx` | ✅ 已有 |
+| Register (drag + describe) | `pg-register` | `mydata.tsx` (merged) | Done |
+| Trade (quote + buy shares) | `pg-trade` | `explore.tsx` + `explore-browse.tsx` | Done |
+| Your Assets (list + detail + delete) | `pg-assets` | `mydata.tsx` | Done |
+| Agent Protocol (register + discover + trade) | `pg-agents` | `explore-bounty.tsx` + capability endpoints | Done |
+| Network (node status + validators) | `pg-network` | `network.tsx` | Done |
 
-## 功能模块对照
+## Feature Module Mapping
 
-| 功能 | Legacy 位置 | Preact | 状态 |
+| Feature | Legacy Location | Preact | Status |
 |---|---|---|---|
-| 暗黑/明亮主题 | CSS vars + toggle | `design.css` + `ui.ts` | ✅ |
-| 中英文 i18n | 嵌入 dict + toggle | `ui.ts` dict + Nav | ✅ |
-| 拖拽注册文件 | pg-register dropzone | `mydata.tsx` dropzone | ✅ |
-| 像素网格可视化 | 无（后加） | `network-grid.tsx` | ✅ |
-| Identity 面板（密钥展示+说明） | identity-card | `network.tsx`（基础） | ⚠️ 缺说明文本+密钥遮罩 |
-| Buy Shares（报价→确认→结果） | pg-trade card | `explore.tsx` | ⚠️ 缺完整购买流程 |
-| Portfolio（持仓查看） | pg-trade portfolio | ❌ 无 | 🔴 需新建 |
-| Stake（质押验证者） | pg-trade stake | ❌ 无 | 🔴 需新建 |
-| Watermark（嵌入/提取/追踪） | pg-network card | ❌ 无 | 🔴 需新建 |
-| Agent Announce（注册 Agent） | pg-agents card | ❌ 无 | 🔴 需新建 |
-| Agent Discover（发现 Agent） | pg-agents card | ❌ 无 | 🔴 需新建 |
-| Agent Transaction（执行交易） | pg-agents card | ❌ 无 | 🔴 需新建 |
-| Scanner（扫描目录发现资产） | API only | ❌ 无 | 🔴 需新建 |
-| Inbox（确认/拒绝/编辑待注册） | API only | ❌ 无 | 🔴 需新建 |
-| Trust Level（设置信任等级） | API only | ❌ 无 | 🔴 需新建 |
-| Validators（质押列表） | stakes-card | ❌ 无 | 🔴 需新建 |
+| Dark/Light theme | CSS vars + toggle | `design.css` + `ui.ts` | Done |
+| i18n (CN/EN) | embedded dict + toggle | `ui.ts` dict + Nav | Done |
+| Drag-drop register | pg-register dropzone | `mydata.tsx` dropzone | Done |
+| Pixel grid viz | N/A | `network-grid.tsx` | Done |
+| Identity panel (keys + info) | identity-card | `network.tsx` | Done |
+| Buy Shares (quote → confirm → result) | pg-trade card | `explore-browse.tsx` (L0-L3 access) | Done |
+| Portfolio (holdings view) | pg-trade portfolio | `explore-portfolio.tsx` | Done |
+| Stake (validator staking) | pg-trade stake | `explore-stake.tsx` | Done |
+| Watermark (embed/extract/trace) | pg-network card | `network.tsx` (watermark section) | Done |
+| Scanner (scan directory for assets) | API only | `automation.tsx` (scan section) | Done |
+| Inbox (approve/reject/edit pending) | API only | `automation.tsx` (inbox section) | Done |
+| Trust Level (set automation trust) | API only | `automation.tsx` (trust config) | Done |
+| Agent Scheduler (start/stop/config) | API only | `automation.tsx` (agent section) | Done |
+| Task Bounty (post/bid/select/complete) | N/A | `explore-bounty.tsx` | Done |
+| Agent Announce (register Agent) | pg-agents card | capability register API | Done (via CLI/API) |
+| Agent Discover (find Agents) | pg-agents card | discover API | Done (via CLI/API) |
+| Agent Transaction (agent trades) | pg-agents card | invoke API | Done (via CLI/API) |
+| Validators list (stake table) | stakes-card | `network.tsx` (validators section) | Done |
 
-## 迁移顺序（按用户流优先级）
+## Current SPA Pages
 
-### Phase A — 核心用户流补全
-1. [ ] **Scanner + Inbox 页面** — 扫描→确认→注册，最核心的新用户流
-2. [ ] **Buy 完整流程** — Explore 页加报价→确认→结果面板
-3. [ ] **Identity 面板增强** — 密钥遮罩、说明文本、生成提示
+| Page | File | Content |
+|------|------|---------|
+| Home | `home.tsx` | Status overview, quick actions |
+| My Data | `mydata.tsx` | Asset list, register, detail, lifecycle, versions |
+| Explore | `explore.tsx` | Browse + Portfolio + Stake + Bounty tabs |
+| Explore Browse | `explore-browse.tsx` | Market listing, access quote/buy |
+| Explore Portfolio | `explore-portfolio.tsx` | Holdings, sell, tx history, L0-L3 access |
+| Explore Stake | `explore-stake.tsx` | Validator staking |
+| Explore Bounty | `explore-bounty.tsx` | Task market: post, bid, select, complete |
+| Automation | `automation.tsx` | Scanner, Inbox, Trust, Agent Scheduler |
+| Network | `network.tsx` | Identity, peers, consensus, watermark, governance, contribution, leakage, cache |
 
-### Phase B — 经济功能
-4. [ ] **Portfolio** — 持仓查看（可合并到 MyData）
-5. [ ] **Stake** — 质押验证者面板（可合并到 Network）
-6. [ ] **Watermark** — 嵌入/提取/追踪（新页面或 Network 子模块）
+## Completed Work
 
-### Phase C — Agent 协议
-7. [ ] **Agent Announce** — 注册 Agent 身份
-8. [ ] **Agent Discover** — 发现网络上的 Agent
-9. [ ] **Agent Transaction** — Agent 间交易
-
-### Phase D — 清理
-10. [ ] 删除 `_INDEX_HTML` 和 fallback 逻辑
-11. [ ] 删除 `dist.bak/`
-
-## 约束
-- 每完成一个模块，对照此清单打勾
-- 不允许"先砍掉后面补"
-- 合并前 diff review 确认无功能丢失
-- `dist.bak/` 保留到全部迁完
+### Phase D — Cleanup ✅
+- [x] Delete `_INDEX_HTML` and legacy fallback logic from `app.py` (1491 lines removed)
+- [x] Delete `dist.bak/` if present (not present, already clean)
+- [x] `_html_response()` helper removed (no longer used)
+- [x] Fallback now returns 503 with build instructions
 
 ---
-*Created: 2026-03-17*
+*Created: 2026-03-17 | Completed: 2026-03-22*

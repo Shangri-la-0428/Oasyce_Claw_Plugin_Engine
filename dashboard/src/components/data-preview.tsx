@@ -1,7 +1,7 @@
 /**
  * DataPreview — shows asset preview based on access level (L0-L3)
  */
-import { useState } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { get } from '../api/client';
 import { i18n } from '../store/ui';
 import { fmtPrice } from '../utils';
@@ -37,6 +37,12 @@ export default function DataPreview({ assetId, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [level, setLevel] = useState('L0');
   const _ = i18n.value;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const loadPreview = async (lvl: string) => {
     setLoading(true);

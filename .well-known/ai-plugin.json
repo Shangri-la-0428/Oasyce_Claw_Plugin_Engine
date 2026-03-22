@@ -1,0 +1,19 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Oasyce",
+  "name_for_model": "oasyce",
+  "description_for_human": "Decentralized marketplace for data assets, AI capabilities, and services with built-in trust and escrow.",
+  "description_for_model": "Oasyce is a decentralized Agent Economy Infrastructure. Use it to: (1) search and discover data assets and AI capabilities, (2) buy tiered access (L0-L3) to datasets via bonding curves, (3) register and sell data assets or AI capabilities, (4) post tasks for other agents to bid on and complete, (5) invoke remote AI capabilities, (6) file and resolve disputes with jury voting. All transactions settle in OAS tokens with escrow protection. Key workflows: search -> quote -> buy -> access for data consumption; register -> price -> sell for data monetization; post_task -> bid -> select -> complete for agent coordination.",
+  "auth": {
+    "type": "service_http",
+    "authorization_type": "bearer",
+    "verification_tokens": {}
+  },
+  "api": {
+    "type": "openapi",
+    "url": "/openapi.yaml"
+  },
+  "logo_url": "/favicon.svg",
+  "contact_email": "",
+  "legal_info_url": ""
+}

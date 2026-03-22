@@ -56,6 +56,20 @@ export default function MyData() {
   const [disputeReason, setDisputeReason] = useState('');
   const [disputing, setDisputing] = useState(false);
 
+  // Feature 1: Inline metadata edit (tags)
+  const [editTagsTarget, setEditTagsTarget] = useState<string | null>(null);
+  const [editTagsValue, setEditTagsValue] = useState('');
+  const [savingTags, setSavingTags] = useState(false);
+
+  // Feature 3: Asset lifecycle management
+  const [lifecycleAction, setLifecycleAction] = useState<string | null>(null);
+  const [shutdownConfirm, setShutdownConfirm] = useState<string | null>(null);
+
+  // Feature 4: Version history
+  const [versionsTarget, setVersionsTarget] = useState<string | null>(null);
+  const [versions, setVersions] = useState<{ version: number; timestamp: number }[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+
   // Tab state
   const [activeTab, setActiveTab] = useState<MyDataTab>('data');
 
@@ -104,7 +118,9 @@ export default function MyData() {
 
   const sorted = [...filtered].sort((a, b) => {
     if (sortBy === 'value') return (b.spot_price ?? 0) - (a.spot_price ?? 0);
-    return (b.created_at ?? 0) - (a.created_at ?? 0);
+    const ta = typeof a.created_at === 'string' ? new Date(a.created_at).getTime() : (a.created_at ?? 0);
+    const tb = typeof b.created_at === 'string' ? new Date(b.created_at).getTime() : (b.created_at ?? 0);
+    return tb - ta;
   });
 
   const list = sorted.slice(0, pageSize);
@@ -153,6 +169,76 @@ export default function MyData() {
     setDisputing(false);
   };
 
+  // Feature 1: Save tags
+  const onSaveTags = async (assetId: string) => {
+    setSavingTags(true);
+    const newTags = editTagsValue.split(',').map(t => t.trim()).filter(Boolean);
+    const res = await post<{ ok?: boolean }>('/asset/update', { asset_id: assetId, tags: newTags });
+    if (res.success) {
+      showToast(_['metadata-updated'], 'success');
+      loadAssets();
+      setEditTagsTarget(null);
+    } else {
+      showToast(res.error || _['error-generic'], 'error');
+    }
+    setSavingTags(false);
+  };
+
+  // Feature 3: Lifecycle actions
+  const onShutdown = async (assetId: string) => {
+    setLifecycleAction(assetId);
+    const res = await post<{ ok?: boolean }>('/asset/shutdown', { asset_id: assetId, owner: walletAddress() });
+    if (res.success) {
+      showToast(_['asset-shutdown-success'], 'success');
+      loadAssets();
+      setShutdownConfirm(null);
+    } else {
+      showToast(res.error || _['error-generic'], 'error');
+    }
+    setLifecycleAction(null);
+  };
+
+  const onTerminate = async (assetId: string) => {
+    setLifecycleAction(assetId);
+    const res = await post<{ ok?: boolean }>('/asset/terminate', { asset_id: assetId, sender: walletAddress() });
+    if (res.success) {
+      showToast(_['asset-terminate-success'], 'success');
+      loadAssets();
+    } else {
+      showToast(res.error || _['error-generic'], 'error');
+    }
+    setLifecycleAction(null);
+  };
+
+  const onClaim = async (assetId: string) => {
+    setLifecycleAction(assetId);
+    const res = await post<{ ok?: boolean }>('/asset/claim', { asset_id: assetId, holder: walletAddress() });
+    if (res.success) {
+      showToast(_['asset-claim-success'], 'success');
+      loadAssets();
+    } else {
+      showToast(res.error || _['error-generic'], 'error');
+    }
+    setLifecycleAction(null);
+  };
+
+  // Feature 4: Load version history
+  const onLoadVersions = async (assetId: string) => {
+    if (versionsTarget === assetId) {
+      setVersionsTarget(null);
+      return;
+    }
+    setVersionsTarget(assetId);
+    setVersionsLoading(true);
+    const res = await get<{ version: number; timestamp: number }[]>(`/asset/versions?asset_id=${encodeURIComponent(assetId)}`);
+    if (res.success && Array.isArray(res.data)) {
+      setVersions(res.data);
+    } else {
+      setVersions([]);
+    }
+    setVersionsLoading(false);
+  };
+
   return (
     <div class="page">
       {/* Label 标题 + 计数 */}
@@ -162,11 +248,11 @@ export default function MyData() {
       </div>
 
       {/* Tab switcher */}
-      <div class="tabs mb-24">
-        <button class={`tab ${activeTab === 'data' ? 'active' : ''}`} onClick={() => setActiveTab('data')}>
+      <div class="tabs mb-24" role="tablist" aria-label={_['mydata']}>
+        <button role="tab" aria-selected={activeTab === 'data'} class={`tab ${activeTab === 'data' ? 'active' : ''}`} onClick={() => setActiveTab('data')}>
           {_['my-data-tab']}
         </button>
-        <button class={`tab ${activeTab === 'caps' ? 'active' : ''}`} onClick={() => setActiveTab('caps')}>
+        <button role="tab" aria-selected={activeTab === 'caps'} class={`tab ${activeTab === 'caps' ? 'active' : ''}`} onClick={() => setActiveTab('caps')}>
           {_['my-caps']}
           {myCaps.length > 0 && <span class="tab-count">{myCaps.length}</span>}
         </button>
@@ -266,11 +352,11 @@ export default function MyData() {
                     {a.rights_type && (
                       <div class="kv"><span class="kv-key">{_['rights-type']}</span><span class="kv-val">{_[`rights-${a.rights_type}`] || a.rights_type}</span></div>
                     )}
-                    {(a as any).price_model === 'fixed' && (
-                      <div class="kv"><span class="kv-key">{_['price-model']}</span><span class="kv-val">{_['price-model-fixed']}: <span class="mono">{(a as any).price ?? '—'} OAS</span></span></div>
+                    {a.price_model === 'fixed' && (
+                      <div class="kv"><span class="kv-key">{_['price-model']}</span><span class="kv-val">{_['price-model-fixed']}: <span class="mono">{a.price ?? '—'} OAS</span></span></div>
                     )}
-                    {(a as any).price_model === 'floor' && (
-                      <div class="kv"><span class="kv-key">{_['price-model']}</span><span class="kv-val">{_['price-model-floor']}: <span class="mono">{(a as any).price ?? '—'} OAS</span></span></div>
+                    {a.price_model === 'floor' && (
+                      <div class="kv"><span class="kv-key">{_['price-model']}</span><span class="kv-val">{_['price-model-floor']}: <span class="mono">{a.price ?? '—'} OAS</span></span></div>
                     )}
                     {a.co_creators && a.co_creators.length > 0 && (
                       <div class="cocreator-list">
@@ -291,6 +377,42 @@ export default function MyData() {
                         {_['delisted']}
                       </div>
                     )}
+
+                    {/* Status badge */}
+                    {a.status && a.status !== 'active' && (
+                      <div class="kv mt-8">
+                        <span class="kv-key">{_['asset-status-active']}</span>
+                        <span class="kv-val">
+                          <span class={`badge ${a.status === 'terminated' ? 'badge-red' : 'badge-yellow'}`}>
+                            {a.status === 'terminated' ? _['asset-status-terminated'] : _['asset-status-shutdown']}
+                          </span>
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Feature 1: Inline metadata edit (tags) */}
+                    {editTagsTarget === a.asset_id ? (
+                      <div class="dispute-box mt-8">
+                        <input class="input mb-6" value={editTagsValue}
+                          onInput={e => setEditTagsValue((e.target as HTMLInputElement).value)}
+                          placeholder={_['edit-tags']} />
+                        <div class="row gap-8">
+                          <button class="btn btn-ghost btn-sm" onClick={() => setEditTagsTarget(null)}>{_['cancel']}</button>
+                          <button class="btn btn-sm" onClick={() => onSaveTags(a.asset_id)} disabled={savingTags}>
+                            {savingTags ? '…' : _['save'] || 'Save'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button class="btn btn-ghost btn-sm mt-8" onClick={e => { e.stopPropagation(); setEditTagsTarget(a.asset_id); setEditTagsValue((a.tags ?? []).join(', ')); }}>
+                        {_['metadata-tags']}
+                      </button>
+                    )}
+
+                    {/* Feature 2: Manual re-register (update version) */}
+                    <button class="btn btn-ghost btn-sm mt-8" disabled={reregistering === a.asset_id} onClick={e => { e.stopPropagation(); onReRegister(a.asset_id); }}>
+                      {reregistering === a.asset_id ? '…' : _['re-register-manual']}
+                    </button>
 
                     {/* Dispute section */}
                     {a.disputed && (
@@ -360,6 +482,62 @@ export default function MyData() {
                         </div>
                       </div>
                     )}
+
+                    {/* Feature 3: Asset lifecycle management */}
+                    <div class="row gap-8 mt-12">
+                      {(a.status === 'active' || !a.status) && (
+                        shutdownConfirm === a.asset_id ? (
+                          <div class="data-del-confirm">
+                            <span class="caption">{_['asset-shutdown-confirm']}</span>
+                            <div class="row gap-8">
+                              <button class="btn btn-ghost btn-sm" onClick={() => setShutdownConfirm(null)}>{_['cancel']}</button>
+                              <button class="btn btn-danger btn-sm" onClick={() => onShutdown(a.asset_id)} disabled={lifecycleAction != null}>
+                                {lifecycleAction === a.asset_id ? '…' : _['asset-shutdown']}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button class="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setShutdownConfirm(a.asset_id); }}>
+                            {_['asset-shutdown']}
+                          </button>
+                        )
+                      )}
+                      {a.status === 'shutdown_pending' && (
+                        <button class="btn btn-danger btn-sm" onClick={e => { e.stopPropagation(); onTerminate(a.asset_id); }} disabled={lifecycleAction != null}>
+                          {lifecycleAction === a.asset_id ? '…' : _['asset-terminate']}
+                        </button>
+                      )}
+                      {a.status === 'terminated' && (
+                        <button class="btn btn-sm" onClick={e => { e.stopPropagation(); onClaim(a.asset_id); }} disabled={lifecycleAction != null}>
+                          {lifecycleAction === a.asset_id ? '…' : _['asset-claim']}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Feature 4: Version history */}
+                    <div class="mt-12">
+                      <button class="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); onLoadVersions(a.asset_id); }}>
+                        {_['version-history']}
+                      </button>
+                      {versionsTarget === a.asset_id && (
+                        <div class="mt-8">
+                          {versionsLoading ? (
+                            <div class="skeleton skeleton-sm mb-8" />
+                          ) : versions.length === 0 ? (
+                            <div class="caption fg-muted">{_['no-versions']}</div>
+                          ) : (
+                            <div class="item-list">
+                              {versions.map((v, i) => (
+                                <div key={i} class="kv">
+                                  <span class="kv-key">{_['version-number']}: <span class="mono">v{v.version}</span></span>
+                                  <span class="kv-val mono">{_['version-time']}: {new Date(v.timestamp * 1000).toLocaleString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

@@ -139,27 +139,7 @@
   border-radius: var(--r-m);
 }
 
-/* ── Collapsible section (mirrors network.css pattern) ── */
-.auto-section-toggle {
-  display: flex; align-items: center; justify-content: space-between;
-  width: 100%; background: none; border: none; cursor: pointer;
-  padding: 0; color: inherit; font: inherit; text-align: left;
-}
-.auto-section-toggle:hover .auto-section-chevron { color: var(--fg-0); }
-.auto-section-header { flex: 1; min-width: 0; }
-.auto-section-peek {
-  display: inline-block; max-width: 280px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.auto-section-chevron {
-  font-size: 18px; color: var(--fg-2);
-  transition: transform 0.15s var(--ease), color 0.15s var(--ease);
-  flex-shrink: 0; margin-left: 8px;
-}
-.auto-section-chevron-open { transform: rotate(90deg); }
-.auto-section-body {
-  margin-top: 16px;
-}
+/* Section toggle styles moved to design.css (.section-*) */
 
 /* ── Agent Scheduler ── */
 .auto-status-dot {

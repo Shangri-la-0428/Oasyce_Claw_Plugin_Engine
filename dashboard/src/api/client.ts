@@ -85,7 +85,8 @@ ensureToken();
 export async function get<T>(url: string): Promise<ApiResponse<T>> {
   const { signal, clear } = withTimeout();
   try {
-    const res = await fetch('/api' + url, { signal });
+    await ensureToken();
+    const res = await fetch('/api' + url, { headers: authHeaders(), signal });
     clear();
     const data = await safeJson(res);
     return res.ok

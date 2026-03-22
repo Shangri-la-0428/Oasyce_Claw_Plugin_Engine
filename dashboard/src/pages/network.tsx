@@ -2,12 +2,13 @@
  * Network — 节点身份、AI 算力配置、角色管理、水印工具
  * Sections are collapsible to reduce visual overload.
  */
-import { useEffect, useState, useCallback } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { get, post } from '../api/client';
-import { showToast, i18n, identity, loadIdentity } from '../store/ui';
+import { showToast, i18n, identity, loadIdentity, walletAddress } from '../store/ui';
 import { safeNum, safePct } from '../utils';
 import { useChain } from '../hooks/useChain';
 import { getValidators, type Validator } from '../api/chain';
+import { Section } from '../components/section';
 import './network.css';
 
 type WmTool = null | 'embed' | 'extract' | 'trace';
@@ -35,56 +36,7 @@ interface NodeRole {
   peers: number;
 }
 
-/* ── Collapsible section ── */
-function Section({ id, title, desc, defaultOpen = false, forceOpen = false, children }: {
-  id: string; title: string; desc?: string; defaultOpen?: boolean; forceOpen?: boolean; children: any;
-}) {
-  const storageKey = `net-section-${id}`;
-  const [open, setOpen] = useState(() => {
-    if (forceOpen) return true;
-    try {
-      const saved = localStorage.getItem(storageKey);
-      return saved !== null ? saved === '1' : defaultOpen;
-    } catch {
-      return defaultOpen;
-    }
-  });
-
-  // If forceOpen changes to true, open the section
-  useEffect(() => {
-    if (forceOpen) setOpen(true);
-  }, [forceOpen]);
-
-  const toggle = useCallback(() => {
-    setOpen(prev => {
-      try { localStorage.setItem(storageKey, prev ? '0' : '1'); } catch { /* quota/private mode */ }
-      return !prev;
-    });
-  }, [storageKey]);
-
-  return (
-    <div class="card mb-24">
-      <button
-        class="net-section-toggle"
-        onClick={toggle}
-        aria-expanded={open}
-        aria-controls={`section-${id}`}
-      >
-        <div class="net-section-header">
-          <div class="label label-flush">{title}</div>
-          {desc && !open && <span class="caption net-section-peek">{desc}</span>}
-        </div>
-        <span class={`net-section-chevron ${open ? 'net-section-chevron-open' : ''}`}>›</span>
-      </button>
-      {open && (
-        <div id={`section-${id}`} class="net-section-body">
-          {desc && <p class="caption mb-16">{desc}</p>}
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
+/* Section component imported from ../components/section */
 
 interface NetworkProps { subpath?: string; }
 
@@ -125,6 +77,55 @@ export default function Network({ subpath }: NetworkProps) {
   const [wmAssetId, setWmAssetId] = useState('');
   const [wmLoading, setWmLoading] = useState(false);
   const [wmResult, setWmResult] = useState<any>(null);
+
+  // Wallet export/import state
+  const [showImport, setShowImport] = useState(false);
+  const [importData, setImportData] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  // Fingerprint list state
+  const [fpAssetId, setFpAssetId] = useState('');
+  const [fpRecords, setFpRecords] = useState<any[]>([]);
+  const [fpLoading, setFpLoading] = useState(false);
+
+  // Governance state
+  const [proposals, setProposals] = useState<any[]>([]);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
+  const [govAction, setGovAction] = useState<'propose' | 'vote' | null>(null);
+  const [propTitle, setPropTitle] = useState('');
+  const [propDesc, setPropDesc] = useState('');
+  const [propDeposit, setPropDeposit] = useState('');
+  const [govSubmitting, setGovSubmitting] = useState(false);
+  const [govChainOnly, setGovChainOnly] = useState(false);
+  const [govLoaded, setGovLoaded] = useState(false);
+
+  // Reputation state
+  const [reputation, setReputation] = useState<number | null>(null);
+
+  // Contribution proof state
+  const [cpFilePath, setCpFilePath] = useState('');
+  const [cpCreatorKey, setCpCreatorKey] = useState('');
+  const [cpSourceType, setCpSourceType] = useState('manual');
+  const [cpProving, setCpProving] = useState(false);
+  const [cpResult, setCpResult] = useState<any>(null);
+  const [cpCertJson, setCpCertJson] = useState('');
+  const [cpVerifyFile, setCpVerifyFile] = useState('');
+  const [cpVerifying, setCpVerifying] = useState(false);
+  const [cpVerifyResult, setCpVerifyResult] = useState<any>(null);
+
+  // Leakage budget state
+  const [lkAgentId, setLkAgentId] = useState('');
+  const [lkAssetId, setLkAssetId] = useState('');
+  const [lkChecking, setLkChecking] = useState(false);
+  const [lkResult, setLkResult] = useState<any>(null);
+  const [lkResetting, setLkResetting] = useState(false);
+
+  // Cache management state
+  const [cacheStats, setCacheStats] = useState<any>(null);
+  const [cacheLoading, setCacheLoading] = useState(false);
+  const [cachePurging, setCachePurging] = useState(false);
+  const [cacheLoaded, setCacheLoaded] = useState(false);
 
   // Cosmos chain connectivity
   const chain = useChain(true);
@@ -167,6 +168,45 @@ export default function Network({ subpath }: NetworkProps) {
   };
 
   useEffect(() => { fetchData(); loadIdentity(); }, []);
+
+  // Lazy-load governance proposals on mount
+  useEffect(() => {
+    if (govLoaded) return;
+    setGovLoaded(true);
+    setProposalsLoading(true);
+    get<any>('/governance/proposals').then(res => {
+      if (res.success && res.data) {
+        setProposals(Array.isArray(res.data) ? res.data : (res.data.proposals || []));
+      } else if (res.error && res.error.toLowerCase().includes('go chain')) {
+        setGovChainOnly(true);
+      }
+      setProposalsLoading(false);
+    }).catch(() => setProposalsLoading(false));
+  }, []);
+
+  // Lazy-load cache stats on mount
+  useEffect(() => {
+    if (cacheLoaded) return;
+    setCacheLoaded(true);
+    setCacheLoading(true);
+    get<any>('/cache/stats').then(res => {
+      if (res.success && res.data) setCacheStats(res.data);
+      setCacheLoading(false);
+    }).catch(() => setCacheLoading(false));
+  }, []);
+
+  // Load reputation from staking if not in nodeRole
+  useEffect(() => {
+    if ((nodeRole as any)?.reputation !== undefined) {
+      setReputation((nodeRole as any).reputation);
+    } else if (nodeRole) {
+      get<any>('/staking').then(res => {
+        if (res.success && res.data?.reputation !== undefined) {
+          setReputation(res.data.reputation);
+        }
+      });
+    }
+  }, [nodeRole]);
 
   const copyText = async (text: string, label: string) => {
     try {
@@ -391,7 +431,64 @@ export default function Network({ subpath }: NetworkProps) {
                 <span class="kv-key">{_['net-peers']}</span>
                 <span class="kv-val mono">{nodeRole.peers}</span>
               </div>
+              {reputation !== null && (
+                <div class="kv">
+                  <span class="kv-key">{_['node-reputation']}</span>
+                  <span class="kv-val mono">{reputation}</span>
+                </div>
+              )}
             </>
+          )}
+
+          {/* Wallet Export / Import */}
+          <div class="row gap-8 mt-12">
+            <button class="btn btn-sm btn-ghost" disabled={exporting} onClick={async () => {
+              setExporting(true);
+              const res = await post<any>('/identity/export', {});
+              if (res.success && res.data) {
+                const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'oasyce-wallet.json';
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast(_['wallet-exported'], 'success');
+              } else {
+                showToast(res.error || _['error-generic'], 'error');
+              }
+              setExporting(false);
+            }}>
+              {exporting ? '...' : _['wallet-export']}
+            </button>
+            <button class="btn btn-sm btn-ghost" onClick={() => setShowImport(!showImport)}>
+              {_['wallet-import']}
+            </button>
+          </div>
+          {showImport && (
+            <div class="net-tool-form mt-12">
+              <p class="caption mb-8">{_['wallet-import-hint']}</p>
+              <textarea class="input" rows={4} value={importData}
+                onInput={e => setImportData((e.target as HTMLTextAreaElement).value)}
+                placeholder={_['wallet-import-desc']} />
+              <button class="btn btn-primary btn-full mt-8" disabled={importing || !importData.trim()}
+                onClick={async () => {
+                  setImporting(true);
+                  const res = await post<any>('/identity/import', { key_data: importData.trim() });
+                  if (res.success && res.data?.ok) {
+                    showToast(_['wallet-imported'], 'success');
+                    setShowImport(false);
+                    setImportData('');
+                    loadIdentity();
+                    fetchData();
+                  } else {
+                    showToast(res.error || res.data?.error || _['error-generic'], 'error');
+                  }
+                  setImporting(false);
+                }}>
+                {importing ? '...' : _['wallet-import']}
+              </button>
+            </div>
           )}
         </div>
       ) : (
@@ -886,6 +983,357 @@ export default function Network({ subpath }: NetworkProps) {
             </div>
           )}
         </div>
+      </Section>
+
+      {/* ── Fingerprint List — collapsible ── */}
+      <Section id="fingerprints" title={_['fingerprint-list']}>
+        <div class="net-tool-form net-tool-form-flush">
+          <input class="input" value={fpAssetId}
+            onInput={e => setFpAssetId((e.target as HTMLInputElement).value)}
+            placeholder={_['fingerprint-asset']} />
+          <button class="btn btn-primary btn-full" disabled={fpLoading || !fpAssetId.trim()}
+            onClick={async () => {
+              setFpLoading(true);
+              const res = await get<any>(`/fingerprints?asset_id=${encodeURIComponent(fpAssetId.trim())}`);
+              if (res.success && res.data) {
+                setFpRecords(Array.isArray(res.data) ? res.data : (res.data.records || []));
+              } else {
+                showToast(res.error || _['error-generic'], 'error');
+                setFpRecords([]);
+              }
+              setFpLoading(false);
+            }}>
+            {fpLoading ? '...' : _['fingerprint-list']}
+          </button>
+        </div>
+        {fpRecords.length > 0 ? (
+          <div class="mt-12">
+            {fpRecords.map((r: any, i: number) => (
+              <div key={i} class="kv kv-sm">
+                <span class="kv-key mono kv-key-xs">{(r.fingerprint || r.hash || '—').slice(0, 16)}…</span>
+                <span class="kv-val">
+                  <span class="mono">{r.caller || r.caller_id || '—'}</span>
+                  {' · '}
+                  <span>{r.timestamp ? new Date(r.timestamp * 1000).toLocaleString() : '—'}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          fpAssetId && !fpLoading && <div class="caption fg-muted mt-8">{_['fingerprint-no-records']}</div>
+        )}
+      </Section>
+
+      {/* ── Governance — collapsible ── */}
+      <Section id="governance" title={_['governance']} desc={_['governance-desc']}>
+        {govChainOnly && (
+          <div class="caption fg-muted mb-12">{_['gov-chain-only']}</div>
+        )}
+
+        {proposalsLoading && <div class="caption fg-muted">{_['gov-proposals']}...</div>}
+
+        {!proposalsLoading && !govChainOnly && proposals.length === 0 && (
+          <div class="caption fg-muted mb-12">{_['gov-no-proposals']}</div>
+        )}
+
+        {proposals.length > 0 && (
+          <div class="mb-16">
+            <div class="label-inline mb-8">{_['gov-proposals']}</div>
+            {proposals.map((p: any) => (
+              <div key={p.proposal_id} class="card mb-8" style="padding: 12px;">
+                <div class="kv">
+                  <span class="kv-key">#{p.proposal_id}</span>
+                  <span class="kv-val">{p.title}</span>
+                </div>
+                <div class="kv">
+                  <span class="kv-key">{_['gov-status']}</span>
+                  <span class="kv-val mono">{p.status}</span>
+                </div>
+                {p.description && (
+                  <p class="caption mt-4">{p.description}</p>
+                )}
+                <div class="row gap-8 mt-8">
+                  <button class="btn btn-sm btn-ghost" disabled={govSubmitting}
+                    onClick={async () => {
+                      setGovSubmitting(true);
+                      const res = await post<any>('/governance/vote', { proposal_id: p.proposal_id, voter: walletAddress(), option: 'yes' });
+                      if (res.success && res.data?.ok) showToast(_['gov-vote-success'], 'success');
+                      else showToast(res.error || res.data?.error || _['error-generic'], 'error');
+                      setGovSubmitting(false);
+                    }}>
+                    {_['gov-vote-yes']}
+                  </button>
+                  <button class="btn btn-sm btn-ghost" disabled={govSubmitting}
+                    onClick={async () => {
+                      setGovSubmitting(true);
+                      const res = await post<any>('/governance/vote', { proposal_id: p.proposal_id, voter: walletAddress(), option: 'no' });
+                      if (res.success && res.data?.ok) showToast(_['gov-vote-success'], 'success');
+                      else showToast(res.error || res.data?.error || _['error-generic'], 'error');
+                      setGovSubmitting(false);
+                    }}>
+                    {_['gov-vote-no']}
+                  </button>
+                  <button class="btn btn-sm btn-ghost" disabled={govSubmitting}
+                    onClick={async () => {
+                      setGovSubmitting(true);
+                      const res = await post<any>('/governance/vote', { proposal_id: p.proposal_id, voter: walletAddress(), option: 'abstain' });
+                      if (res.success && res.data?.ok) showToast(_['gov-vote-success'], 'success');
+                      else showToast(res.error || res.data?.error || _['error-generic'], 'error');
+                      setGovSubmitting(false);
+                    }}>
+                    {_['gov-vote-abstain']}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Submit Proposal toggle */}
+        <div class="net-tools">
+          <button class={`nav-item ${govAction === 'propose' ? 'nav-item-active' : ''}`}
+            onClick={() => setGovAction(govAction === 'propose' ? null : 'propose')}>
+            <span class="nav-item-title">{_['gov-propose']} {govAction === 'propose' ? '↓' : '→'}</span>
+          </button>
+          {govAction === 'propose' && (
+            <div class="net-tool-form">
+              <input class="input" value={propTitle}
+                onInput={e => setPropTitle((e.target as HTMLInputElement).value)}
+                placeholder={_['gov-title']} />
+              <textarea class="input" rows={3} value={propDesc}
+                onInput={e => setPropDesc((e.target as HTMLTextAreaElement).value)}
+                placeholder={_['gov-description']} />
+              <input class="input" type="number" value={propDeposit}
+                onInput={e => setPropDeposit((e.target as HTMLInputElement).value)}
+                placeholder={_['gov-deposit']} />
+              <button class="btn btn-primary btn-full" disabled={govSubmitting || !propTitle.trim()}
+                onClick={async () => {
+                  setGovSubmitting(true);
+                  const res = await post<any>('/governance/propose', {
+                    title: propTitle.trim(),
+                    description: propDesc.trim(),
+                    deposit: parseFloat(propDeposit) || 0,
+                    proposer: walletAddress(),
+                  });
+                  if (res.success && res.data?.ok) {
+                    showToast(_['gov-propose-success'], 'success');
+                    setPropTitle(''); setPropDesc(''); setPropDeposit('');
+                    setGovAction(null);
+                    // Reload proposals
+                    setProposalsLoading(true);
+                    const pRes = await get<any>('/governance/proposals');
+                    if (pRes.success && pRes.data) setProposals(Array.isArray(pRes.data) ? pRes.data : (pRes.data.proposals || []));
+                    setProposalsLoading(false);
+                  } else {
+                    showToast(res.error || res.data?.error || _['error-generic'], 'error');
+                  }
+                  setGovSubmitting(false);
+                }}>
+                {govSubmitting ? _['gov-proposing'] : _['gov-propose']}
+              </button>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      {/* ── Contribution Proof — collapsible ── */}
+      <Section id="contribution" title={_['contribution']} desc={_['contribution-desc']} forceOpen={subpath === 'contribution'}>
+        {/* Generate proof form */}
+        <div class="net-tool-form net-tool-form-flush">
+          <label class="label">{_['contribution-file']}</label>
+          <input class="input" value={cpFilePath}
+            onInput={e => setCpFilePath((e.target as HTMLInputElement).value)}
+            placeholder={_['contribution-file']} />
+          <label class="label">{_['contribution-creator']}</label>
+          <input class="input" value={cpCreatorKey}
+            onInput={e => setCpCreatorKey((e.target as HTMLInputElement).value)}
+            placeholder={_['contribution-creator']} />
+          <label class="label">{_['contribution-source']}</label>
+          <select class="input" value={cpSourceType}
+            onChange={e => setCpSourceType((e.target as HTMLSelectElement).value)}>
+            <option value="manual">manual</option>
+            <option value="tee_capture">tee_capture</option>
+            <option value="api_log">api_log</option>
+            <option value="sensor_sig">sensor_sig</option>
+            <option value="git_commit">git_commit</option>
+          </select>
+          <button class="btn btn-primary btn-full" disabled={cpProving || !cpFilePath.trim()}
+            onClick={async () => {
+              setCpProving(true); setCpResult(null);
+              const res = await post<any>('/contribution/prove', {
+                file_path: cpFilePath.trim(),
+                creator_key: cpCreatorKey.trim() || undefined,
+                source_type: cpSourceType,
+              });
+              if (res.success && res.data) {
+                setCpResult(res.data);
+                showToast(_['contribution-prove-success'], 'success');
+              } else {
+                showToast(res.error || _['error-generic'], 'error');
+              }
+              setCpProving(false);
+            }}>
+            {cpProving ? _['contribution-proving'] : _['contribution-prove']}
+          </button>
+        </div>
+
+        {cpResult && (
+          <div class="net-tool-result mt-12">
+            <div class="label-inline mb-8">{_['contribution-result']}</div>
+            {cpResult.content_hash && (
+              <div class="kv"><span class="kv-key">{_['contribution-content-hash']}</span><span class="kv-val mono kv-val-xs-nowrap">{cpResult.content_hash}</span></div>
+            )}
+            {cpResult.semantic_fingerprint && (
+              <div class="kv"><span class="kv-key">{_['contribution-semantic']}</span><span class="kv-val mono kv-val-xs-nowrap">{cpResult.semantic_fingerprint}</span></div>
+            )}
+            {cpResult.timestamp && (
+              <div class="kv"><span class="kv-key">{_['contribution-timestamp']}</span><span class="kv-val">{new Date(cpResult.timestamp * 1000).toLocaleString()}</span></div>
+            )}
+          </div>
+        )}
+
+        {/* Verify proof form */}
+        <div class="net-tool-form net-tool-form-flush mt-16">
+          <div class="label-inline mb-8">{_['contribution-verify']}</div>
+          <label class="label">{_['contribution-certificate']}</label>
+          <textarea class="input" rows={4} value={cpCertJson}
+            onInput={e => setCpCertJson((e.target as HTMLTextAreaElement).value)}
+            placeholder={_['contribution-certificate']} />
+          <label class="label">{_['contribution-file']}</label>
+          <input class="input" value={cpVerifyFile}
+            onInput={e => setCpVerifyFile((e.target as HTMLInputElement).value)}
+            placeholder={_['contribution-file']} />
+          <button class="btn btn-primary btn-full" disabled={cpVerifying || !cpCertJson.trim()}
+            onClick={async () => {
+              setCpVerifying(true); setCpVerifyResult(null);
+              let certData: any;
+              try { certData = JSON.parse(cpCertJson.trim()); } catch {
+                showToast('Invalid JSON', 'error');
+                setCpVerifying(false);
+                return;
+              }
+              const res = await post<any>('/contribution/verify', {
+                certificate: certData,
+                file_path: cpVerifyFile.trim() || undefined,
+              });
+              if (res.success && res.data) {
+                setCpVerifyResult(res.data);
+              } else {
+                showToast(res.error || _['error-generic'], 'error');
+              }
+              setCpVerifying(false);
+            }}>
+            {cpVerifying ? _['contribution-verifying'] : _['contribution-verify']}
+          </button>
+        </div>
+
+        {cpVerifyResult && (
+          <div class="net-tool-result mt-12">
+            <div class="kv">
+              <span class="kv-key">{_['contribution-result']}</span>
+              <span class={`kv-val mono ${cpVerifyResult.valid ? 'color-green' : 'color-red'}`}>
+                {cpVerifyResult.valid ? _['contribution-valid'] : _['contribution-invalid']}
+              </span>
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* ── Leakage Budget — collapsible ── */}
+      <Section id="leakage" title={_['leakage']} desc={_['leakage-desc']} forceOpen={subpath === 'leakage'}>
+        <div class="net-tool-form net-tool-form-flush">
+          <label class="label">{_['leakage-agent']}</label>
+          <input class="input" value={lkAgentId}
+            onInput={e => setLkAgentId((e.target as HTMLInputElement).value)}
+            placeholder={_['leakage-agent']} />
+          <label class="label">{_['leakage-asset']}</label>
+          <input class="input" value={lkAssetId}
+            onInput={e => setLkAssetId((e.target as HTMLInputElement).value)}
+            placeholder={_['leakage-asset']} />
+          <div class="row gap-8">
+            <button class="btn btn-primary grow" disabled={lkChecking || !lkAgentId.trim() || !lkAssetId.trim()}
+              onClick={async () => {
+                setLkChecking(true); setLkResult(null);
+                const res = await get<any>(`/leakage?agent_id=${encodeURIComponent(lkAgentId.trim())}&asset_id=${encodeURIComponent(lkAssetId.trim())}`);
+                if (res.success && res.data) {
+                  setLkResult(res.data);
+                } else {
+                  showToast(res.error || _['error-generic'], 'error');
+                }
+                setLkChecking(false);
+              }}>
+              {lkChecking ? _['leakage-checking'] : _['leakage-check']}
+            </button>
+            <button class="btn btn-ghost grow" disabled={lkResetting || !lkAgentId.trim() || !lkAssetId.trim()}
+              onClick={async () => {
+                setLkResetting(true);
+                const res = await post<any>('/leakage/reset', {
+                  agent_id: lkAgentId.trim(),
+                  asset_id: lkAssetId.trim(),
+                });
+                if (res.success) {
+                  showToast(_['leakage-reset-success'], 'success');
+                  setLkResult(null);
+                } else {
+                  showToast(res.error || _['error-generic'], 'error');
+                }
+                setLkResetting(false);
+              }}>
+              {lkResetting ? _['leakage-resetting'] : _['leakage-reset']}
+            </button>
+          </div>
+        </div>
+
+        {lkResult && (
+          <div class="net-tool-result mt-12">
+            <div class="kv"><span class="kv-key">{_['leakage-remaining']}</span><span class="kv-val mono">{lkResult.remaining}</span></div>
+            <div class="kv"><span class="kv-key">{_['leakage-used']}</span><span class="kv-val mono">{lkResult.used}</span></div>
+            <div class="kv"><span class="kv-key">{_['leakage-budget-total']}</span><span class="kv-val mono">{lkResult.budget}</span></div>
+            <div class="kv"><span class="kv-key">{_['leakage-queries']}</span><span class="kv-val mono">{lkResult.queries}</span></div>
+            <div class="kv">
+              <span class="kv-key">{_['leakage-exhausted']}</span>
+              <span class={`kv-val mono ${lkResult.exhausted ? 'color-red' : 'color-green'}`}>
+                {lkResult.exhausted ? 'Yes' : 'No'}
+              </span>
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* ── Cache Management — collapsible ── */}
+      <Section id="cache" title={_['cache']} desc={_['cache-stats']} forceOpen={subpath === 'cache'}>
+        {cacheLoading && <div class="caption fg-muted">{_['cache-stats']}...</div>}
+
+        {!cacheLoading && cacheStats && (
+          <div>
+            <div class="kv"><span class="kv-key">{_['cache-total']}</span><span class="kv-val mono">{cacheStats.total}</span></div>
+            <div class="kv"><span class="kv-key">{_['cache-active']}</span><span class="kv-val mono">{cacheStats.active}</span></div>
+            <div class="kv"><span class="kv-key">{_['cache-expired']}</span><span class="kv-val mono">{cacheStats.expired}</span></div>
+            {cacheStats.db_path && (
+              <div class="kv"><span class="kv-key">{_['cache-db-path']}</span><span class="kv-val mono kv-val-xs">{cacheStats.db_path}</span></div>
+            )}
+            <button class="btn btn-primary btn-full mt-12" disabled={cachePurging}
+              onClick={async () => {
+                setCachePurging(true);
+                const res = await post<any>('/cache/purge', {});
+                if (res.success) {
+                  showToast(_['cache-purge-success'], 'success');
+                  // Reload stats
+                  const sRes = await get<any>('/cache/stats');
+                  if (sRes.success && sRes.data) setCacheStats(sRes.data);
+                } else {
+                  showToast(res.error || _['error-generic'], 'error');
+                }
+                setCachePurging(false);
+              }}>
+              {cachePurging ? _['cache-purging'] : _['cache-purge']}
+            </button>
+          </div>
+        )}
+
+        {!cacheLoading && !cacheStats && (
+          <div class="caption fg-muted">{_['cache-stats']}...</div>
+        )}
       </Section>
     </div>
   );

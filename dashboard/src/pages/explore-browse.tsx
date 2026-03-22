@@ -142,7 +142,9 @@ export default function ExploreBrowse({ subpath }: Props) {
   const sorted = useMemo(
     () => [...filtered].sort((a, b) => {
       if (sortBy === 'value') return (b.spot_price ?? 0) - (a.spot_price ?? 0);
-      return (b.created_at ?? 0) - (a.created_at ?? 0);
+      const ta = typeof a.created_at === 'string' ? new Date(a.created_at).getTime() : (a.created_at ?? 0);
+      const tb = typeof b.created_at === 'string' ? new Date(b.created_at).getTime() : (b.created_at ?? 0);
+      return tb - ta;
     }),
     [filtered, sortBy]
   );
@@ -352,11 +354,11 @@ export default function ExploreBrowse({ subpath }: Props) {
                               <span class="kv-val">{a.description}</span>
                             </div>
                           )}
-                          {(a as any).total_calls != null && (
+                          {a.total_calls != null && (
                             <div class="row gap-16 wrap">
-                              <div class="kv"><span class="kv-key">{_['cap-total-calls']}</span><span class="kv-val">{(a as any).total_calls}</span></div>
-                              {(a as any).success_rate != null && <div class="kv"><span class="kv-key">{_['cap-success-rate']}</span><span class="kv-val">{safePct((a as any).success_rate)}</span></div>}
-                              {(a as any).avg_latency_ms != null && <div class="kv"><span class="kv-key">{_['cap-avg-latency']}</span><span class="kv-val">{safeNum((a as any).avg_latency_ms, 0)} ms</span></div>}
+                              <div class="kv"><span class="kv-key">{_['cap-total-calls']}</span><span class="kv-val">{a.total_calls}</span></div>
+                              {a.success_rate != null && <div class="kv"><span class="kv-key">{_['cap-success-rate']}</span><span class="kv-val">{safePct(a.success_rate)}</span></div>}
+                              {a.avg_latency_ms != null && <div class="kv"><span class="kv-key">{_['cap-avg-latency']}</span><span class="kv-val">{safeNum(a.avg_latency_ms, 0)} ms</span></div>}
                             </div>
                           )}
                           <div>
@@ -413,9 +415,9 @@ export default function ExploreBrowse({ subpath }: Props) {
                         <div class="col gap-12">
                           {/* Reputation & risk context */}
                           <div class="row gap-16 wrap">
-                            <div class="kv"><span class="kv-key">{_['al-reputation']}</span><span class="kv-val">{accessQuote.reputation}</span></div>
-                            <div class="kv"><span class="kv-key">{_['al-risk']}</span><span class="kv-val badge">{accessQuote.risk_level}</span></div>
-                            <div class="kv"><span class="kv-key">{_['al-max']}</span><span class="kv-val">{accessQuote.max_access_level}</span></div>
+                            <div class="kv"><span class="kv-key">{_['al-reputation']}</span><span class="kv-val">{accessQuote.reputation ?? '--'}</span></div>
+                            {accessQuote.risk_level && <div class="kv"><span class="kv-key">{_['al-risk']}</span><span class="kv-val badge">{accessQuote.risk_level}</span></div>}
+                            {accessQuote.max_access_level && <div class="kv"><span class="kv-key">{_['al-max']}</span><span class="kv-val">{accessQuote.max_access_level}</span></div>}
                           </div>
 
                           {/* Access level cards */}

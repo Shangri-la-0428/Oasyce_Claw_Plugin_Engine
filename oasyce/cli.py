@@ -2133,9 +2133,10 @@ def cmd_scan(args):
 
 def cmd_inbox_list(args):
     """List pending inbox items."""
-    from oasyce.services.scanner import ConfirmationInbox
+    from oasyce.services.inbox import ConfirmationInbox
+    from oasyce.config import Config
 
-    inbox = ConfirmationInbox()
+    inbox = ConfirmationInbox(data_dir=Config.from_env().data_dir)
     filter_type = getattr(args, "type", "all") or "all"
     items = inbox.list_pending(filter_type)
 
@@ -2161,9 +2162,10 @@ def cmd_inbox_list(args):
 
 def cmd_inbox_approve(args):
     """Approve an inbox item."""
-    from oasyce.services.scanner import ConfirmationInbox
+    from oasyce.services.inbox import ConfirmationInbox
+    from oasyce.config import Config
 
-    inbox = ConfirmationInbox()
+    inbox = ConfirmationInbox(data_dir=Config.from_env().data_dir)
     item = inbox.approve(args.item_id)
     if item is None:
         print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
@@ -2173,9 +2175,10 @@ def cmd_inbox_approve(args):
 
 def cmd_inbox_reject(args):
     """Reject an inbox item."""
-    from oasyce.services.scanner import ConfirmationInbox
+    from oasyce.services.inbox import ConfirmationInbox
+    from oasyce.config import Config
 
-    inbox = ConfirmationInbox()
+    inbox = ConfirmationInbox(data_dir=Config.from_env().data_dir)
     item = inbox.reject(args.item_id)
     if item is None:
         print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
@@ -2185,9 +2188,10 @@ def cmd_inbox_reject(args):
 
 def cmd_inbox_edit(args):
     """Edit and approve an inbox item."""
-    from oasyce.services.scanner import ConfirmationInbox
+    from oasyce.services.inbox import ConfirmationInbox
+    from oasyce.config import Config
 
-    inbox = ConfirmationInbox()
+    inbox = ConfirmationInbox(data_dir=Config.from_env().data_dir)
     changes = {}
     if args.name:
         changes["suggested_name"] = args.name
@@ -2205,9 +2209,10 @@ def cmd_inbox_edit(args):
 
 def cmd_trust(args):
     """View or set the trust level."""
-    from oasyce.services.scanner import ConfirmationInbox
+    from oasyce.services.inbox import ConfirmationInbox
+    from oasyce.config import Config
 
-    inbox = ConfirmationInbox()
+    inbox = ConfirmationInbox(data_dir=Config.from_env().data_dir)
     if args.level is not None:
         try:
             inbox.set_trust_level(args.level)
@@ -2872,6 +2877,161 @@ def cmd_serve(args):
     if hasattr(args, "host") and args.host is not None:
         sys.argv.extend(["--host", str(args.host)])
     server_main()
+
+
+# ---------------------------------------------------------------------------
+# Task Market — AHRP bounty system
+# ---------------------------------------------------------------------------
+
+
+def _get_task_facade():
+    """Create a minimal OasyceServiceFacade for task market operations."""
+    from oasyce.services.facade import OasyceServiceFacade
+    return OasyceServiceFacade()
+
+
+def cmd_task_post(args):
+    """Post a new bounty task."""
+    facade = _get_task_facade()
+    capabilities = [c.strip() for c in args.capabilities.split(",")] if args.capabilities else None
+    result = facade.post_task(
+        requester_id=args.requester,
+        description=args.description,
+        budget=float(args.budget),
+        deadline_seconds=int(args.deadline),
+        required_capabilities=capabilities,
+        selection_strategy=args.strategy,
+        min_reputation=float(args.min_reputation),
+    )
+    if not result.success:
+        _output_error(args, result.error, code="TASK_POST_FAILED")
+        sys.exit(1)
+    if getattr(args, "json", False):
+        print(json.dumps(result.data, indent=2))
+    else:
+        d = result.data
+        print(f"Task posted: {d['task_id']}")
+        print(f"  Requester:    {d['requester_id']}")
+        print(f"  Budget:       {d['budget']} OAS")
+        print(f"  Strategy:     {d['selection_strategy']}")
+        print(f"  Status:       {d['status']}")
+        if d.get("required_capabilities"):
+            print(f"  Capabilities: {', '.join(d['required_capabilities'])}")
+
+
+def cmd_task_list(args):
+    """List open tasks."""
+    facade = _get_task_facade()
+    capabilities = [c.strip() for c in args.capability.split(",")] if args.capability else None
+    result = facade.query_tasks(capabilities=capabilities)
+    if not result.success:
+        _output_error(args, result.error, code="TASK_LIST_FAILED")
+        sys.exit(1)
+    if getattr(args, "json", False):
+        print(json.dumps(result.data, indent=2))
+    else:
+        tasks = result.data
+        if not tasks:
+            print("No open tasks.")
+            return
+        print(f"{'ID':<18} {'Budget':<10} {'Status':<10} {'Bids':<6} Description")
+        print("-" * 70)
+        for t in tasks:
+            desc = t["description"][:30] + "..." if len(t["description"]) > 30 else t["description"]
+            print(f"{t['task_id']:<18} {t['budget']:<10.2f} {t['status']:<10} {len(t['bids']):<6} {desc}")
+
+
+def cmd_task_info(args):
+    """Show details for a specific task."""
+    facade = _get_task_facade()
+    result = facade.query_task(task_id=args.task_id)
+    if not result.success:
+        _output_error(args, result.error, code="TASK_NOT_FOUND")
+        sys.exit(1)
+    if getattr(args, "json", False):
+        print(json.dumps(result.data, indent=2))
+    else:
+        d = result.data
+        print(f"Task: {d['task_id']}")
+        print(f"  Requester:    {d['requester_id']}")
+        print(f"  Description:  {d['description']}")
+        print(f"  Budget:       {d['budget']} OAS")
+        print(f"  Strategy:     {d['selection_strategy']}")
+        print(f"  Status:       {d['status']}")
+        print(f"  Assigned:     {d['assigned_agent'] or '(none)'}")
+        if d.get("required_capabilities"):
+            print(f"  Capabilities: {', '.join(d['required_capabilities'])}")
+        if d.get("bids"):
+            print(f"  Bids ({len(d['bids'])}):")
+            for b in d["bids"]:
+                print(f"    {b['bid_id'][:12]}  agent={b['agent_id']}  price={b['price']}  rep={b['reputation_score']}")
+
+
+def cmd_task_bid(args):
+    """Submit a bid on a task."""
+    facade = _get_task_facade()
+    result = facade.submit_task_bid(
+        task_id=args.task_id,
+        agent_id=args.agent,
+        price=float(args.price),
+        estimated_seconds=int(args.seconds),
+        reputation_score=float(args.reputation),
+    )
+    if not result.success:
+        _output_error(args, result.error, code="BID_FAILED")
+        sys.exit(1)
+    if getattr(args, "json", False):
+        print(json.dumps(result.data, indent=2))
+    else:
+        d = result.data
+        print(f"Bid submitted: {d['bid_id']}")
+        print(f"  Agent: {d['agent_id']}")
+        print(f"  Price: {d['price']} OAS")
+
+
+def cmd_task_select(args):
+    """Select winning bid for a task."""
+    facade = _get_task_facade()
+    result = facade.select_task_winner(
+        task_id=args.task_id,
+        agent_id=getattr(args, "agent", "") or "",
+    )
+    if not result.success:
+        _output_error(args, result.error, code="SELECT_FAILED")
+        sys.exit(1)
+    if getattr(args, "json", False):
+        print(json.dumps(result.data, indent=2))
+    else:
+        d = result.data
+        print(f"Winner selected: {d['agent_id']}")
+        print(f"  Bid:   {d['bid_id']}")
+        print(f"  Price: {d['price']} OAS")
+
+
+def cmd_task_complete(args):
+    """Mark a task as completed."""
+    facade = _get_task_facade()
+    result = facade.complete_task(task_id=args.task_id)
+    if not result.success:
+        _output_error(args, result.error, code="COMPLETE_FAILED")
+        sys.exit(1)
+    if getattr(args, "json", False):
+        print(json.dumps(result.data, indent=2))
+    else:
+        print(f"Task completed: {args.task_id}")
+
+
+def cmd_task_cancel(args):
+    """Cancel a task."""
+    facade = _get_task_facade()
+    result = facade.cancel_task(task_id=args.task_id)
+    if not result.success:
+        _output_error(args, result.error, code="CANCEL_FAILED")
+        sys.exit(1)
+    if getattr(args, "json", False):
+        print(json.dumps(result.data, indent=2))
+    else:
+        print(f"Task cancelled: {args.task_id}")
 
 
 def _fetch_latest_pypi_version():
@@ -3636,6 +3796,62 @@ def main():
     cap_earnings_parser.add_argument("--json", action="store_true")
     cap_earnings_parser.set_defaults(func=cmd_capability_earnings)
 
+    # ── task market (AHRP) ──────────────────────────────────────────
+    task_parser = subparsers.add_parser(
+        "task", help="AHRP Task Market — post bounties, bid, settle"
+    )
+    task_sub = task_parser.add_subparsers(dest="task_command", help="Task sub-commands")
+
+    task_post_parser = task_sub.add_parser("post", help="Post a new bounty task")
+    task_post_parser.add_argument("--requester", required=True, help="Requester ID")
+    task_post_parser.add_argument("--description", required=True, help="Task description")
+    task_post_parser.add_argument("--budget", required=True, help="Budget in OAS")
+    task_post_parser.add_argument("--deadline", type=int, default=3600, help="Deadline in seconds (default: 3600)")
+    task_post_parser.add_argument("--capabilities", default=None, help="Comma-separated required capabilities")
+    task_post_parser.add_argument(
+        "--strategy", default="weighted_score",
+        choices=["weighted_score", "lowest_price", "best_reputation", "requester_choice"],
+        help="Bid selection strategy (default: weighted_score)",
+    )
+    task_post_parser.add_argument("--min-reputation", type=float, default=0.0, help="Minimum reputation score")
+    task_post_parser.add_argument("--json", action="store_true")
+    task_post_parser.set_defaults(func=cmd_task_post)
+
+    task_list_parser = task_sub.add_parser("list", help="List open tasks")
+    task_list_parser.add_argument("--capability", default=None, help="Filter by capability (comma-separated)")
+    task_list_parser.add_argument("--json", action="store_true")
+    task_list_parser.set_defaults(func=cmd_task_list)
+
+    task_info_parser = task_sub.add_parser("info", help="Show task details")
+    task_info_parser.add_argument("task_id", help="Task ID")
+    task_info_parser.add_argument("--json", action="store_true")
+    task_info_parser.set_defaults(func=cmd_task_info)
+
+    task_bid_parser = task_sub.add_parser("bid", help="Submit a bid on a task")
+    task_bid_parser.add_argument("task_id", help="Task ID to bid on")
+    task_bid_parser.add_argument("--agent", required=True, help="Agent ID")
+    task_bid_parser.add_argument("--price", required=True, help="Bid price in OAS")
+    task_bid_parser.add_argument("--seconds", type=int, default=0, help="Estimated completion time in seconds")
+    task_bid_parser.add_argument("--reputation", type=float, default=0.0, help="Agent reputation score")
+    task_bid_parser.add_argument("--json", action="store_true")
+    task_bid_parser.set_defaults(func=cmd_task_bid)
+
+    task_select_parser = task_sub.add_parser("select", help="Select winning bid")
+    task_select_parser.add_argument("task_id", help="Task ID")
+    task_select_parser.add_argument("--agent", default=None, help="Agent ID (for requester_choice strategy)")
+    task_select_parser.add_argument("--json", action="store_true")
+    task_select_parser.set_defaults(func=cmd_task_select)
+
+    task_complete_parser = task_sub.add_parser("complete", help="Mark task as completed")
+    task_complete_parser.add_argument("task_id", help="Task ID")
+    task_complete_parser.add_argument("--json", action="store_true")
+    task_complete_parser.set_defaults(func=cmd_task_complete)
+
+    task_cancel_parser = task_sub.add_parser("cancel", help="Cancel a task")
+    task_cancel_parser.add_argument("task_id", help="Task ID")
+    task_cancel_parser.add_argument("--json", action="store_true")
+    task_cancel_parser.set_defaults(func=cmd_task_cancel)
+
     # ── keys ───────────────────────────────────────────────────────
     keys_parser = subparsers.add_parser("keys", help="Ed25519 key management")
     keys_sub = keys_parser.add_subparsers(dest="keys_command", help="Key sub-commands")
@@ -3807,6 +4023,10 @@ def main():
 
     if args.command == "agent" and getattr(args, "agent_command", None) is None:
         agent_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "task" and getattr(args, "task_command", None) is None:
+        task_parser.print_help()
         sys.exit(0)
 
     args.func(args)

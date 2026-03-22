@@ -4,6 +4,95 @@ All notable changes to this project will be documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.0] - 2026-03-22
+
+### Added
+- **Facade: `query_disputes()`** — Disputes now routed through facade instead of direct SQLite access (P1 architecture convergence)
+- **Facade: Task Market** — 8 methods: `post_task`, `submit_task_bid`, `select_task_winner`, `complete_task`, `cancel_task`, `query_tasks`, `query_task`, `_get_task_market`
+- **Facade: Contribution/Leakage/Cache** — 6 methods: `query_contribution`, `verify_contribution`, `query_leakage`, `reset_leakage`, `query_cache_stats`, `purge_cache`
+- **CLI: `oasyce task`** — 7 subcommands: post, list, info, bid, select, complete, cancel (all support `--json`)
+- **API: Task Market endpoints** — `GET /api/tasks`, `GET /api/task/{id}`, `POST /api/task/post`, `POST /api/task/{id}/bid`, `POST /api/task/{id}/select`, `POST /api/task/{id}/complete`, `POST /api/task/{id}/cancel`
+- **API: Contribution/Leakage/Cache** — `POST /api/contribution/prove`, `POST /api/contribution/verify`, `GET /api/leakage`, `POST /api/leakage/reset`, `GET /api/cache/stats`, `POST /api/cache/purge`
+- **GUI: Bounty tab** — `explore-bounty.tsx` — post tasks, browse, bid, select winner, complete, cancel (`explore.tsx` 4th tab)
+- **GUI: Contribution Proof** — Generate and verify proofs in Network page
+- **GUI: Leakage Budget** — Check and reset budgets in Network page
+- **GUI: Cache Management** — View stats and purge expired in Network page
+- **i18n**: ~45 new keys for bounty, contribution, leakage, cache (zh + en)
+
+### Changed
+- **`do_POST` refactored**: 1660-line monolithic method → 10 domain-specific handlers + thin dispatcher
+- **`app.py` size**: 5128 → 3634 lines (-29%) after `_INDEX_HTML` removal + handler extraction
+- **OasyceQuery allowlist**: added `query_disputes`, `query_tasks`, `query_task`, `query_contribution`, `verify_contribution`, `query_leakage`, `query_cache_stats`
+- **Dispute GET handlers**: now route through `_get_query().query_disputes()` instead of direct SQLite
+
+### Removed
+- **`_INDEX_HTML`**: 1491 lines of legacy embedded HTML/CSS/JS (React SPA serves from `dashboard/dist/`)
+- **`_html_response()`**: unused after `_INDEX_HTML` removal
+- **Legacy SPA fallback**: replaced with 503 + build instructions
+
+## [2.1.3] - 2026-03-22
+
+### Added
+- **GUI: Sell shares** — Portfolio page inline sell form with amount/slippage inputs (`explore-portfolio.tsx`)
+- **GUI: Transaction history** — Portfolio page transaction list from `GET /transactions` (`explore-portfolio.tsx`)
+- **GUI: L0-L3 access operations** — Per-holding Query/Sample/Compute/Deliver buttons (`explore-portfolio.tsx`)
+- **GUI: Metadata editing** — MyData inline tag editor in expanded detail view (`mydata.tsx`)
+- **GUI: Manual re-register** — Always-visible "Update Version" button, no longer gated on hash change (`mydata.tsx`)
+- **GUI: Asset lifecycle** — Shutdown/Terminate/Claim buttons with confirmation dialog (`mydata.tsx`)
+- **GUI: Version history** — Collapsible version list per asset (`mydata.tsx`)
+- **GUI: Governance** — Proposal list, submit form, Yes/No/Abstain voting (chain-only message on error) (`network.tsx`)
+- **GUI: Wallet export/import** — Export as JSON download, import via key paste (`network.tsx`)
+- **GUI: Fingerprint list** — Query fingerprints by asset ID (`network.tsx`)
+- **GUI: Reputation display** — Reputation score in identity card (`network.tsx`)
+- **GUI: Jury voting** — Uphold/Reject verdict buttons per open dispute (`dispute-form.tsx`)
+- **GUI: Dispute resolution** — Remedy dropdown with 4 options + details (`dispute-form.tsx`)
+- **GUI: Evidence submission** — Hash, type, description form per dispute (`dispute-form.tsx`)
+- **API: `POST /asset/shutdown`** — initiate graceful asset shutdown via facade
+- **API: `POST /asset/terminate`** — finalize asset termination
+- **API: `POST /asset/claim`** — claim termination proceeds
+- **API: `POST /evidence/submit`** — submit dispute evidence
+- **API: `POST /identity/export`** — export wallet key as JSON
+- **API: `POST /identity/import`** — import wallet from key data
+- **API: `GET /asset/versions`** — retrieve asset version history
+- **i18n**: ~60 new keys in both zh and en dictionaries for all new features
+- **User Journey Map**: `docs/USER_JOURNEY_MAP.md` — 100 operations across 13 lifecycle stages
+
+### Changed
+- Dashboard GUI coverage: 72/100 → 85/100 operations (23 gaps fixed)
+- Remaining gaps: 9 GUI-missing (CLI alternatives exist) + 5 all-missing (AHRP bounty system)
+
+## [2.1.2] - 2026-03-22
+
+### Added
+- **OasyceQuery view class**: read-only projection of OasyceServiceFacade with frozenset whitelist, enforced at runtime
+- **Feature walkthrough checklist**: `docs/WALKTHROUGH_CHECKLIST.md` — 95 API endpoints, 76 CLI commands, 5 user journeys, 16 FAQ items
+- **Running Modes documentation**: CLAUDE.md now documents Standalone (default) vs Chain-linked (`OASYCE_STRICT_CHAIN=1`)
+- **Inbox atomic persistence**: `_atomic_write()` helper (tmp → fsync → os.replace), corruption recovery with `.corrupt` backup
+- **Access bond consistency**: `access_buy()` accepts `pre_quoted_bond` parameter to prevent quote drift between quote and buy
+- **Watermark file_path support**: `POST /api/fingerprint/embed` accepts `file_path` as alternative to `content`
+
+### Changed
+- **Three-cut architecture refactor**:
+  - Cut 1: All 11 GUI GET helpers routed through facade `query_*` methods
+  - Cut 2: GET handlers use `OasyceQuery` (read-only), POST handlers use `OasyceServiceFacade` (full)
+  - Cut 3: Default mode is standalone (`allow_local_fallback=True`), chain-only via `OASYCE_STRICT_CHAIN=1`
+- **L3 access multiplier**: aligned to whitepaper v4 (5x, was 15x)
+- **CLAUDE.md**: Consensus/Governance section marked chain-only, removed phantom CLI commands
+- **FAQ Q12**: two-layer versioning explanation (chain immutable + local re-register)
+- **Inbox data_dir**: all 7 `ConfirmationInbox()` call sites pass `_config.data_dir`
+
+### Fixed
+- **P0**: `import hashlib` / `import struct` inside `do_POST()` caused `UnboundLocalError` on `/api/buy` — moved to module level
+- **P0**: Default strict mode blocked new user flow — changed default to standalone
+- **P1**: Access quote and buy returned different bond values (internal re-quote drift)
+- **P1**: Inbox wrote to `~/.oasyce` instead of `_config.data_dir`
+- **P1**: Inbox non-atomic write could corrupt `inbox.json` on crash
+- **P1**: Watermark embed API contract mismatch (frontend sent `file_path`, backend required `content`)
+- **P1**: FAQ "Asset=immutable" contradicted `/api/re-register` same-ID versioning
+
+### Tests
+- 1064 passed, 19 skipped (was 1063)
+
 ## [2.1.0] - 2026-03-20
 
 ### Added

@@ -13,8 +13,11 @@ export interface Asset {
   description?: string;
   version?: string;
   tags?: string[];
-  created_at?: number;
+  created_at?: number | string;
   spot_price?: number;
+  status?: string;
+  price_model?: string;
+  price?: number;
   input_schema?: any;
   output_schema?: any;
   hash_status?: 'ok' | 'changed' | 'missing';
@@ -27,6 +30,9 @@ export interface Asset {
   dispute_status?: 'open' | 'resolved' | 'dismissed';
   dispute_resolution?: { remedy: string; details?: any; resolved_at?: number };
   delisted?: boolean;
+  total_calls?: number;
+  success_rate?: number;
+  avg_latency_ms?: number;
 }
 
 export const assets = signal<Asset[]>([]);

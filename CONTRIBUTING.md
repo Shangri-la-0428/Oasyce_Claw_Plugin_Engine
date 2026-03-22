@@ -52,11 +52,12 @@ pytest --tb=short -q  # quick summary
 ## Project Structure / 项目结构
 
 ```
-Oasyce_Claw_Plugin_Engine/   <-- this repo (thin client, CLI, Dashboard)
-Oasyce_Project/oasyce_core/  <-- protocol core (separate repo)
+Oasyce_Claw_Plugin_Engine/   <-- this repo (Python client, CLI, Dashboard)
+oasyce-chain/                <-- L1 Cosmos SDK appchain (Go, separate repo)
+DataVault/                   <-- data scanning skill (separate repo)
 ```
 
-Protocol-level changes go to [oasyce-core](https://github.com/Shangri-la-0428/Oasyce_Project).
+Chain-level changes go to [oasyce-chain](https://github.com/Shangri-la-0428/oasyce-chain). Data scanning changes go to [DataVault](https://github.com/Shangri-la-0428/DataVault).
 
 ## Contact / 交流
 

@@ -1,25 +1,17 @@
 /** Shared helper functions used across pages */
 
-/** 遮罩 asset_id：列表里前 8 位 + •••• */
-export function maskIdShort(id: string | undefined | null): string {
-  if (!id) return '--';
-  if (id.length <= 8) return id;
-  return id.slice(0, 8) + '••••';
+/** Generic mask: head…tail (used for IDs, hashes, addresses) */
+export function mask(v: string | undefined | null, head = 8, tail = 0): string {
+  if (!v) return '--';
+  const min = tail > 0 ? head + tail + 1 : head;
+  if (v.length <= min) return v;
+  return tail > 0 ? `${v.slice(0, head)}…${v.slice(-tail)}` : v.slice(0, head) + '••••';
 }
 
-/** 遮罩 asset_id：详情里前 16 位 + •••• */
-export function maskIdLong(id: string | undefined | null): string {
-  if (!id) return '--';
-  if (id.length <= 16) return id;
-  return id.slice(0, 16) + '••••';
-}
-
-/** 遮罩 owner：如果是长哈希，截断为前6位 */
-export function maskOwner(owner: string | undefined | null): string {
-  if (!owner) return '--';
-  if (owner.length <= 12) return owner;
-  return owner.slice(0, 6) + '••••';
-}
+/** Shorthand masks for common patterns */
+export const maskIdShort = (id: string | undefined | null) => mask(id, 8);
+export const maskIdLong  = (id: string | undefined | null) => mask(id, 16);
+export const maskOwner   = (v: string | undefined | null) => mask(v, 6);
 
 /** 格式化价格：>= 1 显示 2 位，< 1 显示 4 位；handles NaN/Infinity */
 export function fmtPrice(p: number | undefined | null): string {

@@ -180,18 +180,34 @@ Jailed validators must wait for the jail duration to expire, then submit an `UNJ
 
 ---
 
-## Share Minting Formula
+## Share Minting — Bancor Bonding Curve
 
-When buyers purchase access to an asset, they receive shares with diminishing returns to reward early participants:
+Asset shares are minted via a continuous Bancor bonding curve. More buyers = higher price (automatic market-making, no order book needed).
 
-| Purchase Order | Share Rate |
-|---------------|-----------|
-| 1st buyer | 100% of payment converted to shares |
-| 2nd buyer | 80% |
-| 3rd buyer | 60% |
-| 4th+ buyer | 40% |
+**Buy formula:**
+```
+tokens = supply × (sqrt(1 + payment / reserve) - 1)
+```
+- Connector weight (F) = 0.5 (current code; whitepaper v4 target: 0.35)
+- Bootstrap: `tokens = payment / INITIAL_PRICE` when reserve = 0
 
-This ensures early supporters of valuable data receive proportionally more ownership, while later buyers still participate in the asset's economics.
+**Sell formula (inverse curve):**
+```
+payout = reserve × (1 - (1 - tokens / supply)^2)
+```
+- Reserve solvency cap: payout capped at 95% of reserve
+- 5% protocol fee on sell payout
+
+**Settlement fee split (escrow release):**
+
+| Current Code | Whitepaper v4 Target |
+|-------------|---------------------|
+| 93% provider | 60% creator |
+| 5% protocol | 20% validator |
+| 2% burn | 15% burn |
+| — | 5% treasury |
+
+Whitepaper alignment requires chain ConsensusVersion upgrade (planned).
 
 ---
 
@@ -205,9 +221,11 @@ All capability invocations use escrow-protected settlement:
 4. On failure: escrow refunds funds to consumer
 
 Source files:
-- `oasyce_plugin/services/pricing/__init__.py` -- Bonding curve and pricing models
-- `oasyce_plugin/consensus/rewards.py` -- Reward engine and distribution
-- `oasyce_plugin/consensus/slashing.py` -- Slashing conditions and penalties
-- `oasyce_plugin/consensus/core/types.py` -- OAS units, slash rates, Operation type
-- `oasyce_plugin/services/capability_delivery/escrow.py` -- Escrow and protocol fees
-- `oasyce_plugin/models.py` -- Rights type multipliers
+- `oasyce/services/pricing/__init__.py` — Demand-scarcity pricing factors
+- `oasyce/services/settlement.py` — Bancor bonding curve (buy/sell)
+- `oasyce/consensus/rewards.py` — Reward engine and distribution
+- `oasyce/consensus/slashing.py` — Slashing conditions and penalties
+- `oasyce/consensus/core/types.py` — OAS units, slash rates, Operation type
+- `oasyce/services/capability_delivery/escrow.py` — Escrow and protocol fees
+- `oasyce/models.py` — Rights type multipliers
+- `oasyce/services/facade.py` — Unified service facade (quote/buy/sell/access)

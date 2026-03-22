@@ -214,37 +214,51 @@ class ConfirmationInbox:
             raise InboxError(f"Item '{item_id}' is already {item.status}")
         return item
 
-    def _save(self) -> None:
+    def _atomic_write(self, path: str, data: dict) -> None:
+        """Write JSON atomically: tmp → fsync → replace."""
         os.makedirs(self._data_dir, exist_ok=True)
-        data = {k: asdict(v) for k, v in self._items.items()}
-        with open(self._inbox_path, "w") as f:
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+
+    def _save(self) -> None:
+        data = {k: asdict(v) for k, v in self._items.items()}
+        self._atomic_write(self._inbox_path, data)
 
     def _save_config(self) -> None:
-        os.makedirs(self._data_dir, exist_ok=True)
         config = {
             "trust_level": self._trust_level,
             "auto_threshold": self._auto_threshold,
         }
-        with open(self._config_path, "w") as f:
-            json.dump(config, f, indent=2)
+        self._atomic_write(self._config_path, config)
 
     def _load(self) -> None:
         # Load config
         if os.path.exists(self._config_path):
-            with open(self._config_path) as f:
-                config = json.load(f)
-                self._trust_level = config.get("trust_level", TRUST_MANUAL)
-                self._auto_threshold = config.get("auto_threshold", _DEFAULT_AUTO_THRESHOLD)
+            try:
+                with open(self._config_path) as f:
+                    config = json.load(f)
+                    self._trust_level = config.get("trust_level", TRUST_MANUAL)
+                    self._auto_threshold = config.get("auto_threshold", _DEFAULT_AUTO_THRESHOLD)
+            except (json.JSONDecodeError, ValueError):
+                corrupt = self._config_path + ".corrupt"
+                os.replace(self._config_path, corrupt)
 
         # Load inbox
         if os.path.exists(self._inbox_path):
-            with open(self._inbox_path) as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    for k, v in data.items():
-                        self._items[k] = InboxItem(**v)
-                elif isinstance(data, list):
-                    for v in data:
-                        item = InboxItem(**v)
-                        self._items[item.item_id] = item
+            try:
+                with open(self._inbox_path) as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        for k, v in data.items():
+                            self._items[k] = InboxItem(**v)
+                    elif isinstance(data, list):
+                        for v in data:
+                            item = InboxItem(**v)
+                            self._items[item.item_id] = item
+            except (json.JSONDecodeError, ValueError):
+                corrupt = self._inbox_path + ".corrupt"
+                os.replace(self._inbox_path, corrupt)

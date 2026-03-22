@@ -168,24 +168,18 @@ oasyce capability invoke CAP_ID --input '{"text":"hello"}'
 oasyce capability earnings --provider addr
 ```
 
-### Consensus (PoS)
+### Consensus & Governance (Chain-Only)
+
+These commands are implemented on the **L1 chain** (`oasyced`), not the Python CLI:
 
 ```
-oasyce consensus status                             # Current epoch/slot/validators
-oasyce consensus register --stake 10000             # Register as validator
-oasyce consensus delegate <validator_id> --amount 500    # Delegate stake
-oasyce consensus undelegate <validator_id> --amount 200  # Undelegate
-oasyce consensus rewards [--epoch N]                # Reward history
-oasyce consensus exit                               # Voluntary exit
+oasyced tx staking create-validator ...              # Register as validator
+oasyced tx staking delegate <validator> <amount>uoas # Delegate stake
+oasyced tx gov submit-proposal ...                   # Submit governance proposal
+oasyced tx gov vote <proposal_id> yes|no|abstain     # Vote on proposal
 ```
 
-### Governance
-
-```
-oasyce governance propose --title "..." --description "..." --changes '[...]' --deposit 1000
-oasyce governance vote <proposal_id> --option yes|no|abstain
-oasyce governance list [--status voting|passed|rejected]
-```
+The Dashboard provides a local simulation of consensus/governance state via API endpoints (`/api/consensus/*`, `/api/governance/*`). See [oasyce-chain](https://github.com/Shangri-la-0428/oasyce-chain) for full chain CLI reference.
 
 ### Node Management
 
@@ -199,10 +193,12 @@ oasyce node ping <host>   # Ping another node
 ### Tiered Access
 
 ```
-oasyce access quote <asset_id> --tier <tier>    # Quote access price for a tier
-oasyce access buy <asset_id> --tier <tier>      # Buy tiered access to an asset
-oasyce access grant <asset_id> --to <address>   # Grant access
-oasyce access revoke <asset_id> --from <address> # Revoke access
+oasyce access quote <asset_id>                     # Quote bond for all levels (L0-L3)
+oasyce access buy <asset_id> --level L0|L1|L2|L3   # Buy tiered access
+oasyce access query <asset_id>                     # L0: aggregated stats
+oasyce access sample <asset_id>                    # L1: redacted fragments
+oasyce access compute <asset_id>                   # L2: TEE execution
+oasyce access deliver <asset_id>                   # L3: full data delivery
 ```
 
 ### Other
@@ -369,8 +365,8 @@ pytest      # 1063 tests, 19 skipped
 
 ### Next
 
-- oasyce-chain Phase B (IBC, governance, security audit, public testnet)
-- oasyce-chain Phase C (Proof of Useful Work x/work module)
+- Whitepaper v4 parameter alignment (F=0.35, fee 60/20/15/5, burn 15%) — requires chain ConsensusVersion upgrade
+- AHRP Task Market wiring (Python facade + API + CLI for existing x/work bounty system)
 - Ecosystem growth (cross-chain data rights, privacy compute, mobile wallet)
 
 ---

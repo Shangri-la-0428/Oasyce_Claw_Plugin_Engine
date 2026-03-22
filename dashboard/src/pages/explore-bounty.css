@@ -1,0 +1,69 @@
+/* Bounty tab — task market layout */
+.bounty-post-form { padding: 16px; }
+
+.bounty-task-card { padding: 12px 16px; }
+
+.bounty-task-summary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  flex-wrap: wrap;
+  background: none;
+  border: none;
+  font-family: var(--sans);
+  text-align: left;
+  color: inherit;
+  padding: 0;
+}
+
+.bounty-task-id {
+  font-size: 12px;
+  color: var(--fg-2);
+  flex-shrink: 0;
+}
+
+.bounty-task-desc {
+  flex: 1;
+  font-size: 13px;
+  color: var(--fg-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.bounty-status-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.bounty-task-detail {
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--bg-2);
+}
+
+.bounty-bid-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--bg-2);
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.bounty-bid-form {
+  padding: 8px;
+  background: var(--bg-1);
+  border-radius: var(--r-l);
+}
+
+@media (max-width: 600px) {
+  .bounty-task-summary { gap: 6px; }
+  .bounty-bid-row { gap: 6px; }
+}

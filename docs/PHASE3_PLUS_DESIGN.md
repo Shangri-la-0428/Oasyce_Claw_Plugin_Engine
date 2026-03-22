@@ -1,10 +1,11 @@
 # Phase 3+ 规划：Scanner / Inbox / 巡查执法 / 分布式存储
 
-> 今晚（2026-03-16）讨论沉淀。协议层面的设计扩展，不改现有代码，先入文档。
+> 2026-03-16 讨论沉淀。协议层面的设计扩展。
+> **Updated 2026-03-22**: Scanner/Inbox/Trust/Agent Scheduler 已实现并上线 Dashboard Automation 页。
 
 ---
 
-## 1. Scanner + Inbox（资产自动发现与确认）
+## 1. Scanner + Inbox（资产自动发现与确认） ✅ IMPLEMENTED
 
 ### 用户旅程
 
@@ -38,6 +39,16 @@ AI 自动生成：描述 · 标签 · 敏感度评级 · 建议定价
 ### 架构位置
 
 Scanner 和 Inbox 是**客户端功能**，放在 PE 层。协议层零改动。
+
+### 实现状态 (2026-03-22)
+
+- **Backend**: `oasyce/services/inbox.py` — `ConfirmationInbox` class with atomic persistence
+- **API**: `POST /api/scan`, `GET /api/inbox`, `POST /api/inbox/{id}/approve|reject|edit`, `GET/POST /api/inbox/trust`
+- **CLI**: `oasyce inbox list|approve|reject|edit`, `oasyce trust`, `oasyce scan`
+- **Dashboard**: `automation.tsx` — Scanner + Inbox + Trust Level + Agent Scheduler
+- **Agent Scheduler**: `oasyce agent start|stop|status|run|config` — autonomous scan→register→trade cycles
+- **Trust levels**: L0 (manual), L1 (semi-auto, threshold-based), L2 (full auto)
+- **Persistence**: Atomic write (tmp→fsync→replace), corruption recovery (.corrupt backup)
 
 ---
 
@@ -141,9 +152,10 @@ Phase 1-3：本地存储，够用。
 Phase 1 ✅  数据权利清算
 Phase 2 ✅  Agent 能力清算
 Phase 2.5 ✅  Oracle + Identity
-Phase 3     全要素清算 + 公网联调
-Phase 3.5   Scanner/Inbox + 协议自消费能力 + 巡查执法
+Phase 3 ✅  Scanner/Inbox + 信任梯度 + Agent Scheduler
+Phase 3.5   协议自消费能力 + 巡查执法 + AHRP Task Market 接入
 Phase 4     分布式存储（OAS-Storage）
+Phase 5     公网联调 + 白皮书 v4 参数对齐
 ```
 
 ---

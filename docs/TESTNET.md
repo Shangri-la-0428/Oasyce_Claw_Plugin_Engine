@@ -1,5 +1,7 @@
 # Oasyce Testnet Guide
 
+> **Updated 2026-03-22**: Consensus/governance commands below marked with `(chain)` require the Go chain (`oasyced`). Commands without this marker work in standalone Python mode.
+
 ## Overview
 
 The Oasyce testnet (`oasyce-testnet-1`) is a public test environment for validators, developers, and users to experiment with the Oasyce Protocol without risking real assets.
@@ -54,10 +56,10 @@ oasyce testnet onboard
 oasyce testnet faucet
 
 # 3. Register as validator (stake 100+ OAS)
-oasyce consensus register --stake 200
+oasyce node become-validator --stake 200
 
-# 4. Check your status
-oasyce consensus validators
+# 4. Check your status (Dashboard API)
+# Open http://localhost:8420 → Network page → Validators section
 ```
 
 #### Option B: Join Existing Testnet (with Genesis)
@@ -71,7 +73,7 @@ oasyce testnet join --genesis genesis.json
 oasyce testnet onboard
 
 # 4. Register as validator
-oasyce consensus register --stake 200
+oasyce node become-validator --stake 200
 ```
 
 #### Option C: Deploy Your Own Testnet
@@ -87,52 +89,39 @@ oasyce testnet init --validators 3 --output ./my-testnet
 oasyce testnet join --genesis ./my-testnet/genesis.json --data-dir ./my-testnet/node-0
 ```
 
-### Validator Operations
+### Validator Operations (via Dashboard API)
+
+Validator operations are available through the Dashboard at `http://localhost:8420`:
+
+- **Network page**: View validators, consensus status, rewards, slashing
+- **API endpoints**: `/api/consensus/delegate`, `/api/consensus/undelegate`, `/api/consensus/validators`, `/api/consensus/rewards`
+
+For full chain validator operations (delegation, unbonding, unjailing), use the Go chain CLI:
 
 ```bash
-# Delegate stake to another validator
-oasyce consensus delegate <validator_pubkey> --amount 500
+# (chain) Delegate stake to another validator
+oasyced tx staking delegate <validator> <amount>uoas
 
-# Undelegate (enters unbonding queue)
-oasyce consensus undelegate <validator_pubkey> --amount 200
+# (chain) Undelegate
+oasyced tx staking unbond <validator> <amount>uoas
 
-# View your delegations
-oasyce consensus delegations
-
-# View pending unbondings
-oasyce consensus unbondings
-
-# Check rewards
-oasyce consensus rewards
-
-# View slashing history
-oasyce consensus slashing
-
-# Voluntary exit
-oasyce consensus exit
-
-# Unjail after penalty expires
-oasyce consensus unjail
+# (chain) Unjail
+oasyced tx slashing unjail
 ```
 
-### Governance
+### Governance (Chain-Only)
+
+Governance is implemented on the L1 chain. Use `oasyced` for proposals and voting:
 
 ```bash
-# Submit a proposal (min deposit: 10 OAS on testnet)
-oasyce governance propose \
-    --title "Increase block reward" \
-    --change economics.block_reward=500000000 \
-    --deposit 10
+# (chain) Submit a proposal
+oasyced tx gov submit-proposal --title "..." --description "..." --deposit 10000000uoas
 
-# Vote on a proposal
-oasyce governance vote --proposal <id> --vote yes
-
-# List active proposals
-oasyce governance list --status active
-
-# View proposal details
-oasyce governance show <proposal_id>
+# (chain) Vote on a proposal
+oasyced tx gov vote <proposal_id> yes|no|abstain
 ```
+
+The Dashboard displays governance state via `/api/governance/proposals` and `/api/governance/vote` (local simulation in standalone mode).
 
 ## Faucet (Testnet Utility Only)
 

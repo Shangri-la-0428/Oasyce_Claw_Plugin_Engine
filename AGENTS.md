@@ -47,6 +47,15 @@ oasyce sell ASSET_ID --tokens 5 --seller bob
 oasyce serve                   # http://localhost:8420
 ```
 
+## Running Modes
+
+| Mode | Env Var | Backend | Use Case |
+|------|---------|---------|----------|
+| **Standalone** (default) | — | Local SQLite | Development, testing, single-node |
+| **Chain-linked** | `OASYCE_STRICT_CHAIN=1` | oasyce-chain L1 | Production, multi-node network |
+
+In standalone mode, all features work locally without a running chain. Chain-linked mode requires `oasyced start` and routes all state through the L1 appchain.
+
 ---
 
 ## Data Assets
@@ -131,15 +140,19 @@ datavault status                 # inventory stats
 
 Pipeline order: **scan → privacy → report → register** (always this order).
 
-## Consensus & Governance
+## Consensus & Governance (Chain-Only)
+
+These commands are implemented on the **L1 chain** (`oasyced`), not the Python CLI:
 
 ```bash
-oasyce consensus status
-oasyce consensus register --stake 10000
-oasyce consensus delegate <validator_id> --amount 500
-oasyce governance propose --title "..." --description "..." --deposit 1000
-oasyce governance vote <proposal_id> --option yes|no|abstain
+# Requires oasyce-chain running (oasyced start)
+oasyced tx staking create-validator ...
+oasyced tx staking delegate <validator> <amount>uoas
+oasyced tx gov submit-proposal ...
+oasyced tx gov vote <proposal_id> yes|no|abstain
 ```
+
+See [oasyce-chain CLAUDE.md](https://github.com/Shangri-la-0428/oasyce-chain) for full chain CLI reference.
 
 ## Node & Network
 
@@ -148,7 +161,7 @@ oasyce serve                    # Dashboard at http://localhost:8420
 oasyce node info                # Ed25519 identity
 oasyce node peers               # connected peers
 oasyce testnet onboard          # PoW self-registration (sha256 puzzle)
-oasyce testnet faucet           # test OAS (requires PoW registration first)
+oasyce testnet faucet           # testnet-only supplemental OAS (requires registration)
 ```
 
 ## Fingerprint & Watermark

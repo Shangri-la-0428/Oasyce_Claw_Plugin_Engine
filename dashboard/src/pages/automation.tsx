@@ -1,9 +1,10 @@
 /**
  * Automation — Agent Scheduler + 自动注册/交易管控 + 手动确认队列
  */
-import { useEffect, useState, useCallback } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { showToast, i18n, lang } from '../store/ui';
 import { get, post } from '../api/client';
+import { Section } from '../components/section';
 import {
   inboxItems, trustConfig, scanning, lastScan,
   loadInbox, loadTrust, scanDirectory, approveItem, rejectItem, editItem, setTrust,
@@ -43,41 +44,7 @@ interface HistoryRun {
   duration_ms: number;
 }
 
-/* ── Collapsible section (reused from network pattern) ── */
-function Section({ id, title, desc, defaultOpen = false, children }: {
-  id: string; title: string; desc?: string; defaultOpen?: boolean; children: any;
-}) {
-  const storageKey = `auto-section-${id}`;
-  const [open, setOpen] = useState(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      return saved !== null ? saved === '1' : defaultOpen;
-    } catch { return defaultOpen; }
-  });
-  const toggle = useCallback(() => {
-    setOpen(prev => {
-      try { localStorage.setItem(storageKey, prev ? '0' : '1'); } catch {}
-      return !prev;
-    });
-  }, [storageKey]);
-  return (
-    <div class="card mb-24">
-      <button class="auto-section-toggle" onClick={toggle} aria-expanded={open} aria-controls={`section-${id}`}>
-        <div class="auto-section-header">
-          <div class="label label-flush">{title}</div>
-          {desc && !open && <span class="caption auto-section-peek">{desc}</span>}
-        </div>
-        <span class={`auto-section-chevron ${open ? 'auto-section-chevron-open' : ''}`}>›</span>
-      </button>
-      {open && (
-        <div id={`section-${id}`} class="auto-section-body">
-          {desc && <p class="caption mb-16">{desc}</p>}
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
+/* Section component imported from ../components/section */
 
 interface AgentConfig {
   id: string;
@@ -122,11 +89,11 @@ export default function Automation() {
   const [cfgTradeMax, setCfgTradeMax] = useState(0);
 
   const loadAgentStatus = async () => {
-    const res = await get<AgentStatus>('/api/agent/status');
+    const res = await get<AgentStatus>('/agent/status');
     if (res.success && res.data) setAgentStatus(res.data);
   };
   const loadAgentConfig = async () => {
-    const res = await get<AgentCfg>('/api/agent/config');
+    const res = await get<AgentCfg>('/agent/config');
     if (res.success && res.data) {
       setAgentConfig(res.data);
       setCfgInterval(res.data.interval_hours);
@@ -138,13 +105,13 @@ export default function Automation() {
     }
   };
   const loadAgentHistory = async () => {
-    const res = await get<{ runs: HistoryRun[] }>('/api/agent/history?limit=10');
+    const res = await get<{ runs: HistoryRun[] }>('/agent/history?limit=10');
     if (res.success && res.data) setAgentHistory(res.data.runs || []);
   };
 
   const toggleEnabled = async () => {
     const next = !(agentConfig?.enabled ?? false);
-    const res = await post<AgentCfg>('/api/agent/config', { enabled: next });
+    const res = await post<AgentCfg>('/agent/config', { enabled: next });
     if (res.success && res.data) {
       setAgentConfig(res.data);
       showToast(next ? _['agent-enabled'] : _['agent-disabled'], 'success');
@@ -156,7 +123,7 @@ export default function Automation() {
 
   const runNow = async () => {
     setRunningNow(true);
-    const res = await post<{ ok: boolean; result: string }>('/api/agent/run', {});
+    const res = await post<{ ok: boolean; result: string }>('/agent/run', {});
     setRunningNow(false);
     if (res.success) {
       showToast(res.data?.result || 'OK', 'success');
@@ -177,7 +144,7 @@ export default function Automation() {
       trade_tags: cfgTradeTags.split(/[,，\s]+/).filter(Boolean),
       trade_max_spend: cfgTradeMax,
     };
-    const res = await post<AgentCfg>('/api/agent/config', payload);
+    const res = await post<AgentCfg>('/agent/config', payload);
     setSavingCfg(false);
     if (res.success && res.data) {
       setAgentConfig(res.data);

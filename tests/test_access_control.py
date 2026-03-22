@@ -447,13 +447,13 @@ class TestBondCalculation:
     def test_l3_bond_public(self, provider, reputation):
         """L3, public risk, rep set to 55 (above limited_threshold).
 
-        Bond = 1000 × 15.0 × 1.0 × (1 - 55/100) × 1.0 = 15000 × 0.45 = 6750
+        Bond = 1000 × 5.0 × 1.0 × (1 - 55/100) × 1.0 = 5000 × 0.45 = 2250
         """
         agent = reputation._ensure_agent("agent-l3")
         agent.score = 55.0
         result = provider.deliver("agent-l3", "ASSET_001")
         assert result.success is True
-        assert result.bond_required == 6750.0
+        assert result.bond_required == 2250.0
 
     def test_high_risk_multiplier(self, provider, reputation):
         """ASSET_002 has risk=high (2.0×) and value=500.
@@ -490,7 +490,7 @@ class TestBondCalculation:
 class TestAccessControlConfig:
     def test_multiplier_for(self, config):
         assert config.multiplier_for("L0") == 1.0
-        assert config.multiplier_for("L3") == 15.0
+        assert config.multiplier_for("L3") == 5.0
 
     def test_window_for(self, config):
         assert config.window_for("L0") == 86400

@@ -273,21 +273,32 @@ Oasyce 的核心设计原则是 **Shares = 经济权，不等于控制权**。
 
 ### Q12: 资产更新了怎么办？旧版本放在哪？
 
-**核心原则：Asset = immutable。更新 = 新资产。**
+**版本策略分两层实现：**
+
+| 层 | 策略 | 说明 |
+|----|------|------|
+| **链上**（oasyce-chain） | Asset = immutable，新版本 = 新 asset_id + `parent_asset_id` | content hash 锁定，不可篡改 |
+| **本地**（Plugin Engine） | 同一 asset_id 可 re-register，自动建立版本链 | 开发迭代便利，版本历史保留在本地 SQLite |
+
+**链上版本模型：**
 
 ```
 Asset V1 (hash_abc) → 永久存在
 Asset V2 (hash_def) → 新资产，parent_asset_id 指向 V1
 ```
 
-**版本链接（链上实现）：**
 - `DataAsset` 包含 `parent_asset_id`、`version`、`migration_enabled` 字段
 - 注册时指定 `parent_asset_id` → 自动计算版本号
 - 任何地址均可 fork（不要求同一 owner）
 - CLI：`oasyced query datarights children <asset_id>` 查看版本树
 
+**本地版本模型（Plugin Engine standalone 模式）：**
+- `/api/re-register` 允许对同一 asset_id 提交新内容
+- 旧版本保留在本地 `versions` 表中（SHA-256 hash + timestamp）
+- 适用于开发和测试场景，上链前的快速迭代
+
 **旧版本：**
-- 永久保留在链上（不可删除）
+- 链上永久保留（不可删除）
 - 可以自然降价（持有人卖出 → bonding curve 价格下降）
 - Owner 可以发起 shutdown → 持有人按比例 claim reserve 退出
 

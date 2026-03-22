@@ -1,7 +1,7 @@
 /**
  * Nav — dashboard instrument header
  */
-import { useState } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import {
   theme,
   lang,
@@ -41,9 +41,17 @@ function maskWallet(address: string) {
 function NotificationPanel({ onClose }: { onClose: () => void }) {
   const _ = i18n.value;
   const items = notifications.value;
+  const panelRef = useRef<HTMLDivElement>(null);
   const copy = lang.value === 'zh'
     ? { close: '关闭', unread: '未读' }
     : { close: 'Close', unread: 'Unread' };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    panelRef.current?.focus();
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const formatTime = (ts: number) => {
     const d = new Date(ts * 1000);
@@ -53,7 +61,7 @@ function NotificationPanel({ onClose }: { onClose: () => void }) {
   const unread = items.filter(item => !item.read).length;
 
   return (
-    <div class="notif-panel">
+    <div class="notif-panel" ref={panelRef} tabIndex={-1} role="dialog" aria-label={_['notifications']}>
       <div class="notif-header">
         <div>
           <span class="notif-title">{_['notifications']}</span>
@@ -181,6 +189,8 @@ export default function Nav({ current, go }: Props) {
           {tabs.map(tab => (
             <button
               key={tab.page}
+              role="tab"
+              aria-selected={current === tab.page}
               class={`nav-tab ${current === tab.page ? 'active' : ''}`}
               onClick={() => go(tab.page)}
             >

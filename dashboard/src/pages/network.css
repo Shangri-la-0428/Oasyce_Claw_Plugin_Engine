@@ -2,30 +2,7 @@
 .net-hero { max-width: var(--max-w); }
 .net-tools { display: flex; flex-direction: column; }
 
-/* Collapsible section toggle */
-.net-section-toggle {
-  display: flex; align-items: center; justify-content: space-between;
-  width: 100%; padding: 0; gap: 12px;
-  background: none; border: none; cursor: pointer;
-  font-family: var(--sans); text-align: left;
-  min-height: 44px;
-}
-.net-section-toggle:hover .net-section-chevron { color: var(--fg-0); }
-.net-section-header { flex: 1; min-width: 0; }
-.net-section-peek {
-  display: block; margin-top: 2px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.net-section-chevron {
-  font-size: 18px; font-weight: 300; color: var(--fg-2);
-  transition: transform 0.2s var(--ease), color 0.15s var(--ease);
-  flex-shrink: 0; width: 20px; text-align: center;
-}
-.net-section-chevron-open { transform: rotate(90deg); }
-.net-section-body {
-  padding-top: 12px;
-  animation: field-in 0.2s var(--ease);
-}
+/* Section toggle styles moved to design.css (.section-*) */
 .nav-item-active { background: var(--bg-1); border-radius: var(--r-m); padding-left: 12px; }
 .net-tool-form {
   display: flex; flex-direction: column; gap: 10px;

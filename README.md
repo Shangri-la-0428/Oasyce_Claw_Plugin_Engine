@@ -168,24 +168,18 @@ oasyce capability invoke CAP_ID --input '{"text":"hello"}'
 oasyce capability earnings --provider addr
 ```
 
-### 共识（PoS）
+### 共识与治理（链上功能）
+
+以下命令在 **L1 链** (`oasyced`) 上运行，不在 Python CLI 中：
 
 ```
-oasyce consensus status                             # 当前 epoch/slot/验证者
-oasyce consensus register --stake 10000             # 注册成为验证者
-oasyce consensus delegate <validator_id> --amount 500    # 委托质押
-oasyce consensus undelegate <validator_id> --amount 200  # 取消委托
-oasyce consensus rewards [--epoch N]                # 奖励历史
-oasyce consensus exit                               # 主动退出
+oasyced tx staking create-validator ...              # 注册成为验证者
+oasyced tx staking delegate <validator> <amount>uoas # 委托质押
+oasyced tx gov submit-proposal ...                   # 提交治理提案
+oasyced tx gov vote <proposal_id> yes|no|abstain     # 投票
 ```
 
-### 治理
-
-```
-oasyce governance propose --title "..." --description "..." --changes '[...]' --deposit 1000
-oasyce governance vote <proposal_id> --option yes|no|abstain
-oasyce governance list [--status voting|passed|rejected]
-```
+Dashboard 提供本地共识/治理状态模拟（`/api/consensus/*`、`/api/governance/*`）。完整链命令参见 [oasyce-chain](https://github.com/Shangri-la-0428/oasyce-chain)。
 
 ### 节点管理
 
@@ -199,10 +193,12 @@ oasyce node ping <host>   # Ping 另一个节点
 ### 分级访问
 
 ```
-oasyce access quote <asset_id> --tier <tier>    # 查询访问价格
-oasyce access buy <asset_id> --tier <tier>      # 购买分级访问权
-oasyce access grant <asset_id> --to <address>   # 授予访问权
-oasyce access revoke <asset_id> --from <address> # 撤销访问权
+oasyce access quote <asset_id>                     # 查询各级别保证金报价 (L0-L3)
+oasyce access buy <asset_id> --level L0|L1|L2|L3   # 购买分级访问权
+oasyce access query <asset_id>                     # L0: 聚合统计
+oasyce access sample <asset_id>                    # L1: 脱敏片段
+oasyce access compute <asset_id>                   # L2: TEE 执行
+oasyce access deliver <asset_id>                   # L3: 完整交付
 ```
 
 ### 其他
@@ -368,8 +364,8 @@ pytest      # 1063 tests, 19 skipped
 
 ### 下一步
 
-- oasyce-chain Phase B（IBC、治理、安全审计、公共测试网）
-- oasyce-chain Phase C（有用工作证明 x/work 模块）
+- 白皮书 v4 参数对齐（F=0.35、费率 60/20/15/5、销毁 15%）— 需要链上 ConsensusVersion 升级
+- AHRP 任务市场接入（Python facade + API + CLI 对接已有的 x/work 悬赏系统）
 - 生态扩展（跨链数据权益、隐私计算、移动钱包）
 
 ---

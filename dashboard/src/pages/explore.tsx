@@ -7,9 +7,10 @@ import { i18n } from '../store/ui';
 import ExploreBrowse from './explore-browse';
 import ExplorePortfolio from './explore-portfolio';
 import ExploreStake from './explore-stake';
+import ExploreBounty from './explore-bounty';
 import './explore.css';
 
-type ExploreTab = 'browse' | 'portfolio' | 'stake';
+type ExploreTab = 'browse' | 'portfolio' | 'stake' | 'bounty';
 
 interface ExploreProps { subpath?: string; }
 
@@ -23,21 +24,25 @@ export default function Explore({ subpath }: ExploreProps) {
       <p class="caption m-0 mb-48">{_['explore-desc']}</p>
 
       {/* Section tabs */}
-      <div class="tabs mb-24">
-        <button class={`tab ${exploreTab === 'browse' ? 'active' : ''}`} onClick={() => setExploreTab('browse')}>
+      <div class="tabs mb-24" role="tablist" aria-label={_['explore-title']}>
+        <button role="tab" aria-selected={exploreTab === 'browse'} class={`tab ${exploreTab === 'browse' ? 'active' : ''}`} onClick={() => setExploreTab('browse')}>
           {_['browse-all']}
         </button>
-        <button class={`tab ${exploreTab === 'portfolio' ? 'active' : ''}`} onClick={() => setExploreTab('portfolio')}>
+        <button role="tab" aria-selected={exploreTab === 'portfolio'} class={`tab ${exploreTab === 'portfolio' ? 'active' : ''}`} onClick={() => setExploreTab('portfolio')}>
           {_['portfolio']}
         </button>
-        <button class={`tab ${exploreTab === 'stake' ? 'active' : ''}`} onClick={() => setExploreTab('stake')}>
+        <button role="tab" aria-selected={exploreTab === 'stake'} class={`tab ${exploreTab === 'stake' ? 'active' : ''}`} onClick={() => setExploreTab('stake')}>
           {_['stake']}
+        </button>
+        <button role="tab" aria-selected={exploreTab === 'bounty'} class={`tab ${exploreTab === 'bounty' ? 'active' : ''}`} onClick={() => setExploreTab('bounty')}>
+          {_['bounty']}
         </button>
       </div>
 
       {exploreTab === 'browse' && <ExploreBrowse subpath={subpath} />}
       {exploreTab === 'portfolio' && <ExplorePortfolio />}
       {exploreTab === 'stake' && <ExploreStake />}
+      {exploreTab === 'bounty' && <ExploreBounty />}
     </div>
   );
 }

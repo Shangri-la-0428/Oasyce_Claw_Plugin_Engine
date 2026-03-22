@@ -17,6 +17,7 @@ import {
 } from '../store/ui';
 import RegisterForm from '../components/register-form';
 import NetworkGrid from '../components/network-grid';
+import { mask } from '../utils';
 import type { Page } from '../hooks/use-route';
 import './home.css';
 
@@ -35,12 +36,6 @@ interface CreateWalletResult {
   address?: string;
   created?: boolean;
   error?: string;
-}
-
-function maskValue(value: string | undefined | null, head = 10, tail = 6) {
-  if (!value) return '--';
-  if (value.length <= head + tail + 1) return value;
-  return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
 export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
@@ -151,7 +146,7 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
     {
       index: '01',
       title: _['onboard-step1'],
-      detail: walletExists ? maskValue(walletAddress, 8, 6) : _['wallet-needed'],
+      detail: walletExists ? mask(walletAddress, 8, 6) : _['wallet-needed'],
       done: walletExists,
       active: currentStep === 1,
     },
@@ -172,8 +167,8 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
   ];
 
   const resultRows = done ? [
-    { label: _['id'], value: maskValue(done.asset_id, 12, 8) },
-    ...(done.file_hash ? [{ label: copy.summaryHash, value: maskValue(done.file_hash, 14, 8) }] : []),
+    { label: _['id'], value: mask(done.asset_id, 12, 8) },
+    ...(done.file_hash ? [{ label: copy.summaryHash, value: mask(done.file_hash, 14, 8) }] : []),
     ...(done.file_count != null ? [{ label: copy.summaryFiles, value: String(done.file_count) }] : []),
     ...(done.price_model ? [{ label: copy.summaryPricing, value: _[`price-model-${done.price_model}`] || done.price_model }] : []),
     { label: copy.summaryType, value: done.capability ? copy.capType : copy.dataType },
@@ -271,7 +266,7 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
           <div class="home-hero-status">
             <div class="home-status-card">
               <span class="label">{copy.statusWallet}</span>
-              <div class="home-status-value mono">{walletExists ? maskValue(walletAddress, 8, 6) : '--'}</div>
+              <div class="home-status-value mono">{walletExists ? mask(walletAddress, 8, 6) : '--'}</div>
               <div class="caption">{walletExists ? _['identity'] : _['wallet-needed']}</div>
             </div>
             <div class="home-status-card">
