@@ -321,6 +321,7 @@ export default function MyData() {
                     <div class="item-meta">
                       <span class="mono data-id-inline">{maskIdShort(a.asset_id)}</span>
                       {a.owner && <span class="data-owner-inline">{maskOwner(a.owner)}</span>}
+                      {a.version && <span class="mono fg-muted">v{a.version}</span>}
                     </div>
                   </div>
                   <span class="mono item-price">{fmtPrice(a.spot_price)} <span class="oas-unit">OAS</span></span>

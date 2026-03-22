@@ -1092,7 +1092,20 @@ class _Handler(BaseHTTPRequestHandler):
                 return _json_response(self, {"error": "service unavailable"}, 503)
             result = facade.get_asset_versions(aid)
             if result.success:
-                return _json_response(self, {"ok": True, "versions": result.data})
+                # Flatten for frontend: [{version, timestamp}, ...]
+                raw = result.data.get("versions", [])
+                flat = []
+                for v in raw:
+                    ts = v.get("created_at", "")
+                    # Convert SQLite datetime string to unix seconds
+                    try:
+                        import datetime as _dt
+                        t = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        unix = int(t.timestamp())
+                    except (ValueError, AttributeError):
+                        unix = 0
+                    flat.append({"version": v.get("version", 0), "timestamp": unix})
+                return _json_response(self, flat)
             return _json_response(self, {"ok": False, "error": result.error}, 400)
 
         # ── Data asset owner earnings ──────────────────────────────

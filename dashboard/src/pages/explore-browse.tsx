@@ -46,6 +46,8 @@ interface Props {
 export default function ExploreBrowse({ subpath }: Props) {
   const [q, setQ] = useState('');
   const [allAssets, setAllAssets] = useState<Asset[]>([]);
+  const [discoverResults, setDiscoverResults] = useState<Asset[]>([]);
+  const [isDiscover, setIsDiscover] = useState(false);
   const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState<SortBy>('time');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -100,11 +102,35 @@ export default function ExploreBrowse({ subpath }: Props) {
 
   const onSearch = (val: string) => {
     setQ(val);
+    setIsDiscover(false);
     clearTimeout(debounceRef.current);
     debounceRef.current = window.setTimeout(() => {
       setPageSize(20);
       resetActive();
     }, 300);
+  };
+
+  /** Smart discover — server-side semantic scoring for capabilities */
+  const onDiscover = async () => {
+    if (!q.trim()) return;
+    setLoading(true);
+    const res = await get<any[]>(`/discover?intents=${encodeURIComponent(q)}&limit=20`);
+    if (res.success && Array.isArray(res.data)) {
+      setDiscoverResults(res.data.map(d => ({
+        asset_id: d.capability_id,
+        asset_type: 'capability' as const,
+        name: d.name,
+        provider: d.provider,
+        tags: d.tags,
+        spot_price: d.base_price,
+        success_rate: d.success_rate,
+        _score: d.final_score,
+      } as Asset & { _score?: number })));
+      setIsDiscover(true);
+    } else {
+      showToast(res.error || _['error-generic'], 'error');
+    }
+    setLoading(false);
   };
 
   const resetActive = () => {
@@ -149,8 +175,9 @@ export default function ExploreBrowse({ subpath }: Props) {
     [filtered, sortBy]
   );
 
-  const list = useMemo(() => sorted.slice(0, pageSize), [sorted, pageSize]);
-  const hasMore = sorted.length > pageSize;
+  const baseList = isDiscover ? discoverResults : sorted;
+  const list = useMemo(() => baseList.slice(0, pageSize), [baseList, pageSize]);
+  const hasMore = baseList.length > pageSize;
 
   const copyText = async (text: string) => {
     try {
@@ -256,7 +283,7 @@ export default function ExploreBrowse({ subpath }: Props) {
           <button
             key={t}
             class={`btn btn-sm ${typeFilter === t ? 'btn-active' : 'btn-ghost'}`}
-            onClick={() => { setTypeFilter(t); setTagFilter(null); resetActive(); }}
+            onClick={() => { setTypeFilter(t); setTagFilter(null); setIsDiscover(false); resetActive(); }}
           >
             {_[`type-${t}`]}
           </button>
@@ -265,12 +292,24 @@ export default function ExploreBrowse({ subpath }: Props) {
 
       {/* 搜索框 */}
       <div class="search-box-wrap mb-24">
-        <input
-          class="search-box"
-          value={q}
-          onInput={e => onSearch((e.target as HTMLInputElement).value)}
-          placeholder={_['explore-search']}
-        />
+        <div class="row gap-8">
+          <input
+            class="search-box grow"
+            value={q}
+            onInput={e => onSearch((e.target as HTMLInputElement).value)}
+            placeholder={typeFilter === 'capability' ? (_['discover-hint'] || 'Search by intent...') : _['explore-search']}
+          />
+          {typeFilter === 'capability' && q.trim() && (
+            <button class={`btn btn-sm ${isDiscover ? 'btn-active' : 'btn-ghost'}`} onClick={onDiscover} disabled={loading}>
+              {_['discover'] || 'Discover'}
+            </button>
+          )}
+        </div>
+        {isDiscover && (
+          <div class="caption fg-muted mt-4">
+            {_['discover-results'] || `${discoverResults.length} results ranked by relevance`}
+          </div>
+        )}
       </div>
 
       {/* Tag 过滤 + 排序 */}

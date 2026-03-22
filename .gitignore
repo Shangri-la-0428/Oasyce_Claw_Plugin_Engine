@@ -50,3 +50,11 @@ genesis_vault/
 node_modules/
 dashboard/dist
 dashboard/src/assets/
+
+# Generated / temp scripts
+openapi.yaml
+fastapi_spec.json
+openapitools.json
+fix_dups.py
+gen_openapi.py
+llms.txt
