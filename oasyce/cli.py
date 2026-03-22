@@ -1721,7 +1721,7 @@ def cmd_testnet_start(args):
 
 
 def cmd_testnet_faucet(args):
-    """Claim testnet tokens from faucet."""
+    """Claim OAS from testnet faucet (testnet-only, requires PoW registration)."""
     from oasyce.config import NetworkMode, get_data_dir, load_or_create_node_identity
     from oasyce.services.faucet import Faucet
 
@@ -1736,13 +1736,13 @@ def cmd_testnet_faucet(args):
         result["mode"] = "LOCAL_SIMULATION"
         print(json.dumps(result, indent=2))
     elif result["success"]:
-        print(f"[LOCAL SIMULATION] Claimed {result['amount']:.0f} test OAS")
-        print(f"  Balance: {result['balance']:.0f} test OAS")
+        print(f"[TESTNET] Claimed {result['amount']:.0f} OAS")
+        print(f"  Balance: {result['balance']:.0f} OAS")
         print(f"  Next claim available in 24h")
-        print(f"  Note: These are simulated tokens for local testing only.")
+        print(f"  Note: Testnet faucet only. Max 3 claims per address.")
     else:
         print(f"Faucet: {result['error']}")
-        print(f"  Balance: {result['balance']:.0f} test OAS")
+        print(f"  Balance: {result['balance']:.0f} OAS")
 
 
 def cmd_testnet_status(args):
@@ -1807,9 +1807,9 @@ def cmd_testnet_status(args):
         print(f"  Data dir:     {data_dir}")
         print(f"  Chain height: {height}")
         print(f"  Known peers:  {peers_count}")
-        print(f"  Balance:      {balance:.0f} test OAS")
-        print(f"  Min stake:    {from_units(economics['min_stake']):.0f} test OAS")
-        print(f"  Block reward: {from_units(economics['block_reward']):.0f} test OAS")
+        print(f"  Balance:      {balance:.0f} OAS")
+        print(f"  Min stake:    {from_units(economics['min_stake']):.0f} OAS")
+        print(f"  Block reward: {from_units(economics['block_reward']):.0f} OAS")
 
 
 def cmd_testnet_onboard(args):
@@ -3540,7 +3540,7 @@ def main():
     )
     testnet_start_parser.set_defaults(func=cmd_testnet_start)
 
-    testnet_faucet_parser = testnet_sub.add_parser("faucet", help="Claim testnet tokens")
+    testnet_faucet_parser = testnet_sub.add_parser("faucet", help="Claim OAS (testnet-only, requires registration)")
     testnet_faucet_parser.set_defaults(func=cmd_testnet_faucet)
 
     testnet_status_parser = testnet_sub.add_parser("status", help="Show testnet status")

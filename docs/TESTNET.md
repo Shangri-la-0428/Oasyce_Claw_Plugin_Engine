@@ -14,7 +14,7 @@ The Oasyce testnet (`oasyce-testnet-1`) is a public test environment for validat
 | Unbonding        | 20 blocks (~3 min)| 10,080 blocks (~7d)|
 | Voting period    | 100 blocks        | 60,480 blocks     |
 | Min deposit      | 10 OAS            | 1,000 OAS         |
-| Faucet           | Enabled (10k OAS) | Disabled          |
+| Faucet           | Enabled (testnet utility) | Disabled  |
 
 ## Quick Start
 
@@ -31,7 +31,7 @@ oasyce doctor
 oasyce testnet onboard
 ```
 
-This claims faucet tokens, registers a sample asset, and stakes as a validator — all in one command.
+This performs PoW registration (20 OAS debt airdrop), claims supplemental testnet OAS, registers a sample asset, and stakes as a validator — all in one command.
 
 ### 3. Check Status
 
@@ -47,13 +47,16 @@ oasyce chain info
 #### Option A: Quick Join (Solo)
 
 ```bash
-# 1. Claim faucet tokens
+# 1. Register identity (PoW → 20 OAS airdrop as debt)
+oasyce testnet onboard
+
+# 2. (Optional) Claim supplemental testnet OAS
 oasyce testnet faucet
 
-# 2. Register as validator (stake 100+ OAS)
+# 3. Register as validator (stake 100+ OAS)
 oasyce consensus register --stake 200
 
-# 3. Check your status
+# 4. Check your status
 oasyce consensus validators
 ```
 
@@ -64,8 +67,8 @@ oasyce consensus validators
 # 2. Join the network
 oasyce testnet join --genesis genesis.json
 
-# 3. Claim faucet tokens
-oasyce testnet faucet
+# 3. Register identity + claim supplemental OAS
+oasyce testnet onboard
 
 # 4. Register as validator
 oasyce consensus register --stake 200
@@ -131,7 +134,14 @@ oasyce governance list --status active
 oasyce governance show <proposal_id>
 ```
 
-## Faucet
+## Faucet (Testnet Utility Only)
+
+> **Note:** The faucet is a testnet development utility, not part of mainnet onboarding. On mainnet, new users receive 20 OAS via PoW debt-based airdrop. The faucet provides supplemental tokens for validator testing only.
+
+### Prerequisites
+
+- Must complete PoW registration first (`oasyce testnet onboard`)
+- Unregistered addresses are rejected (403)
 
 ### CLI Usage
 
@@ -139,20 +149,25 @@ oasyce governance show <proposal_id>
 oasyce testnet faucet
 ```
 
-Each address can claim **10,000 OAS** once per **24 hours**.
+### Limits
+
+| Parameter | Value |
+|-----------|-------|
+| Amount per claim | 10,000 OAS |
+| Cooldown | 24 hours |
+| Max claims per address | 3 (lifetime) |
+| Global supply cap | 10,000,000 OAS |
 
 ### HTTP Faucet Server
 
-For public testnet deployments, run the faucet as an HTTP service:
+For public testnet deployments:
 
 ```bash
 python3 scripts/run_faucet.py --port 8421
 ```
 
-**API:**
-
 ```bash
-# Claim tokens
+# Claim (requires prior PoW registration)
 curl -X POST http://localhost:8421/claim \
   -H "Content-Type: application/json" \
   -d '{"address": "your_node_id"}'
@@ -264,7 +279,7 @@ A: Run `oasyce testnet reset --force` to delete all testnet data.
 A: Yes. They use separate data directories (`~/.oasyce-testnet` vs `~/.oasyce`) and ports (9528 vs 9527).
 
 **Q: What happens if I get slashed on testnet?**
-A: Just claim more tokens from the faucet. Slashing on testnet is a learning experience, not a loss.
+A: Claim supplemental OAS from the faucet (max 3 claims per address). Slashing on testnet is a learning experience, not a loss.
 
 **Q: How do I connect to other testnet nodes?**
 A: Use `oasyce testnet join --genesis genesis.json --bootstrap <host:port>` to connect to a bootstrap peer.

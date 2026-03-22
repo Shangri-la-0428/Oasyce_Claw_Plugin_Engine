@@ -14,8 +14,6 @@ export const identity = signal<{ address: string; exists: boolean } | null>(null
 /** OAS balance */
 export const balance = signal<number | null>(null);
 
-/** Faucet cooldown flag */
-export const faucetCooldown = signal<boolean>(false);
 
 /** Notification state */
 export interface Notification {
@@ -125,40 +123,6 @@ export async function loadBalance(): Promise<void> {
   }
 }
 
-/** Claim test OAS from faucet (dev/testnet only) */
-export async function claimFaucet(): Promise<{
-  ok: boolean;
-  amount?: number;
-  error?: string;
-  cooldown?: boolean;
-  nextClaimAt?: number | null;
-}> {
-  const addr = walletAddress();
-  if (addr === 'anonymous') return { ok: false, error: 'no wallet' };
-  try {
-    const res = await fetch('/api/faucet', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address: addr }),
-    });
-    const data = await readJsonSafe(res);
-    if (data?.ok) {
-      balance.value = data.new_balance ?? balance.value;
-      faucetCooldown.value = false;
-      return { ok: true, amount: data.amount };
-    }
-    const cooldown = res.status === 429 || !!data?.next_claim_at;
-    faucetCooldown.value = cooldown;
-    return {
-      ok: false,
-      error: data?.error || 'network error',
-      cooldown,
-      nextClaimAt: data?.next_claim_at ?? null,
-    };
-  } catch {
-    return { ok: false, error: 'network error' };
-  }
-}
 
 /** PoW self-registration progress signal */
 export const powProgress = signal<{ mining: boolean; attempts: number; found: boolean }>({
@@ -526,9 +490,6 @@ const dict: Record<string, Record<string, string>> = {
     'agent-run-now': '立即执行', 'agent-history': '执行历史',
     'agent-save-config': '保存配置', 'agent-no-history': '暂无执行记录',
     'balance-label': '余额',
-    'faucet-claim': '补充 OAS',
-    'faucet-success': '已领取 {amount} OAS',
-    'faucet-cooldown': '请稍后再试',
     'wallet-needed': '创建钱包以开始使用',
     'create-wallet': '创建钱包',
     'wallet-created': '钱包已创建',
@@ -867,9 +828,6 @@ const dict: Record<string, Record<string, string>> = {
     'agent-run-now': 'Run Now', 'agent-history': 'Run History',
     'agent-save-config': 'Save Config', 'agent-no-history': 'No runs yet',
     'balance-label': 'Balance',
-    'faucet-claim': 'Top Up OAS',
-    'faucet-success': 'Claimed {amount} OAS',
-    'faucet-cooldown': 'Please try again later',
     'wallet-needed': 'Create your wallet to get started',
     'create-wallet': 'Create Wallet',
     'wallet-created': 'Wallet created',
