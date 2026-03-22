@@ -1,5 +1,9 @@
 """Consumer Rating System for capability invocations.
 
+DEPRECATED: Local fallback only. The canonical rating/reputation logic
+lives in the Go chain (x/reputation). Scheduled for removal once all
+consumers migrate to chain RPC.
+
 After a settled invocation, the consumer can rate the provider (1-5).
 Rating weight = rater_reputation × rater_stake, so high-rep raters
 count more.  Each invocation can only be rated once.

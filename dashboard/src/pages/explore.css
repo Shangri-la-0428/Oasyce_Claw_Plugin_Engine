@@ -88,7 +88,7 @@
 }
 .access-level-lock-reason {
   font-size: 11px;
-  color: var(--red, #e53e3e);
+  color: var(--red);
   margin-top: 4px;
 }
 .access-level-liability {
@@ -249,10 +249,10 @@
 }
 .dispute-status {
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
-  padding: 2px 8px; border-radius: 4px;
+  padding: 2px 8px; border-radius: var(--r-s);
 }
-.dispute-status-open { background: var(--yellow-bg, #fef3cd); color: var(--yellow, #856404); }
-.dispute-status-resolved { background: var(--green-bg, #d4edda); color: var(--green, #155724); }
+.dispute-status-open { background: var(--yellow-bg); color: var(--yellow); }
+.dispute-status-resolved { background: var(--green-bg); color: var(--green); }
 .dispute-item-reason { font-size: 13px; color: var(--fg-1); }
 .dispute-item-evidence { font-size: 12px; color: var(--fg-2); margin-top: 4px; }
 .dispute-item-time { font-size: 11px; color: var(--fg-3); margin-top: 4px; }

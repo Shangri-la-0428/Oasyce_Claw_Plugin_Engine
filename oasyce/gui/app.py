@@ -15,6 +15,7 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
 import time
 import zipfile
 from collections import defaultdict
@@ -115,11 +116,13 @@ _api_token: str = ""
 
 # Rate limiter: {ip: [(timestamp, ...)] }
 _rate_limits: Dict[str, list] = defaultdict(list)
+_rate_lock = threading.Lock()
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX = 60  # max requests per window for mutating endpoints
 
 # Anti-wash-trading cooldown: {(buyer, asset_id): last_buy_timestamp}
 _buy_cooldowns: Dict[tuple, float] = {}
+_buy_lock = threading.Lock()
 BUY_COOLDOWN_SECONDS = 30  # minimum seconds between same buyer+asset purchases
 
 
@@ -139,13 +142,14 @@ def _save_api_key(data_dir: str, api_key: str) -> None:
 def _check_rate_limit(client_ip: str) -> bool:
     """Return True if request is within rate limit, False if exceeded."""
     now = time.time()
-    window = _rate_limits[client_ip]
-    # Prune old entries
-    _rate_limits[client_ip] = [t for t in window if now - t < RATE_LIMIT_WINDOW]
-    if len(_rate_limits[client_ip]) >= RATE_LIMIT_MAX:
-        return False
-    _rate_limits[client_ip].append(now)
-    return True
+    with _rate_lock:
+        window = _rate_limits[client_ip]
+        # Prune old entries
+        _rate_limits[client_ip] = [t for t in window if now - t < RATE_LIMIT_WINDOW]
+        if len(_rate_limits[client_ip]) >= RATE_LIMIT_MAX:
+            return False
+        _rate_limits[client_ip].append(now)
+        return True
 
 
 def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
@@ -179,12 +183,32 @@ def _get_settlement():
     return _settlement
 
 
+def _ensure_init():
+    """Auto-initialize _config and _ledger if not set by DashboardServer.run()."""
+    global _config, _ledger
+    if _config is None:
+        from oasyce.config import Config
+        _config = Config.from_env()
+    if _ledger is None:
+        _ledger = Ledger(_config.db_path)
+
+
+def _allow_local_fallback() -> bool:
+    raw = os.getenv("OASYCE_ALLOW_LOCAL_FALLBACK", "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _get_facade():
     global _facade
     if _facade is None:
+        _ensure_init()
         from oasyce.services.facade import OasyceServiceFacade
 
-        _facade = OasyceServiceFacade(config=_config, ledger=_ledger)
+        _facade = OasyceServiceFacade(
+            config=_config,
+            ledger=_ledger,
+            allow_local_fallback=_allow_local_fallback(),
+        )
     return _facade
 
 
@@ -255,6 +279,7 @@ def _get_cap_stack():
 def _get_skills():
     global _skills
     if _skills is None:
+        _ensure_init()
         from oasyce.skills.agent_skills import OasyceSkills
 
         _skills = OasyceSkills(_config)
@@ -311,6 +336,11 @@ def _html_response(handler: BaseHTTPRequestHandler, html: str) -> None:
 
 def _serve_static(handler, file_path):
     """Serve a static file from dashboard/dist/"""
+    canonical = os.path.realpath(file_path)
+    dashboard_canonical = os.path.realpath(DASHBOARD_DIR)
+    if not canonical.startswith(dashboard_canonical + os.sep) and canonical != dashboard_canonical:
+        handler.send_error(403)
+        return
     if not os.path.isfile(file_path):
         handler.send_error(404)
         return
@@ -368,7 +398,7 @@ def _api_status() -> Dict[str, Any]:
 
 def _api_blocks(limit: int = 20) -> list:
     if not _ledger:
-        return None
+        return []
     rows = _ledger.list_blocks(limit=limit)
     return [
         {
@@ -392,7 +422,7 @@ def _api_block(n: int) -> Optional[Dict[str, Any]]:
 
 def _api_assets() -> list:
     if not _ledger:
-        return None
+        return []
     rows = _ledger.list_assets()
     results = []
     for r in rows:
@@ -455,7 +485,7 @@ def _api_assets() -> list:
 
 def _api_fingerprints(asset_id: str) -> list:
     if not _ledger:
-        return None
+        return []
     registry = FingerprintRegistry(_ledger)
     return registry.get_distributions(asset_id)
 
@@ -469,7 +499,7 @@ def _api_trace(fp: str) -> Optional[Dict[str, Any]]:
 
 def _api_stakes() -> list:
     if not _ledger:
-        return None
+        return []
     rows = _ledger.get_stakes_summary()
     return [{"validator_id": r["validator_id"], "total": r["total"]} for r in rows]
 
@@ -478,8 +508,9 @@ def _api_stakes() -> list:
 
 
 def _api_capabilities() -> list:
-    """List all registered capabilities."""
+    """List all registered capabilities (merged from both registries)."""
     registry, _, shares, _ = _get_cap_stack()
+    seen_ids: set = set()
     results = []
     for m in registry.list_all():
         spot = 0.0
@@ -503,6 +534,33 @@ def _api_capabilities() -> list:
                 "output_schema": m.output_schema,
             }
         )
+        seen_ids.add(m.capability_id)
+
+    # Merge delivery registry entries (capabilities registered via GUI)
+    try:
+        for ep in _api_delivery_endpoints():
+            cid = ep.get("capability_id", "")
+            if cid and cid not in seen_ids:
+                results.append(
+                    {
+                        "asset_type": "capability",
+                        "asset_id": cid,
+                        "name": ep.get("name", ""),
+                        "description": ep.get("description", ""),
+                        "version": "1.0.0",
+                        "provider": ep.get("provider_id", ""),
+                        "tags": ep.get("tags", []),
+                        "status": ep.get("status", "active"),
+                        "spot_price": round(ep.get("price_per_call", 0) / 1e8, 6),
+                        "created_at": ep.get("created_at", 0),
+                        "input_schema": ep.get("input_schema", {}),
+                        "output_schema": ep.get("output_schema", {}),
+                    }
+                )
+                seen_ids.add(cid)
+    except Exception:
+        pass  # delivery registry unavailable — don't break capability listing
+
     return results
 
 
@@ -734,7 +792,18 @@ _AHRP_UNREACHABLE = json.dumps(
 
 
 def _proxy_ahrp(handler: BaseHTTPRequestHandler, method: str, path: str, body: bytes = b"") -> None:
-    url = _AHRP_CORE_BASE + path
+    # Sanitize: reject path traversal and non-AHRP paths
+    from posixpath import normpath
+    clean = normpath(path)
+    if ".." in clean or not clean.startswith("/ahrp/"):
+        handler.send_response(400)
+        msg = b'{"error":"invalid proxy path"}'
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+        handler.send_header("Content-Length", str(len(msg)))
+        handler.end_headers()
+        handler.wfile.write(msg)
+        return
+    url = _AHRP_CORE_BASE + clean
     req = Request(url, data=body if body else None, method=method)
     req.add_header("Content-Type", "application/json")
     try:
@@ -777,7 +846,10 @@ class _Handler(BaseHTTPRequestHandler):
             return _json_response(self, _api_status())
 
         if path == "/api/blocks":
-            limit = int(qs.get("limit", ["20"])[0])
+            try:
+                limit = int(qs.get("limit", ["20"])[0])
+            except (ValueError, TypeError):
+                return _json_response(self, {"error": "invalid limit"}, 400)
             return _json_response(self, _api_blocks(limit))
 
         m = re.match(r"^/api/block/(\d+)$", path)
@@ -790,7 +862,10 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/discover":
             intents = qs.get("intents", [""])[0]
             tags = qs.get("tags", [""])[0]
-            limit = int(qs.get("limit", ["10"])[0])
+            try:
+                limit = int(qs.get("limit", ["10"])[0])
+            except (ValueError, TypeError):
+                return _json_response(self, {"error": "invalid limit"}, 400)
             try:
                 discovery = _get_discovery()
                 candidates = discovery.discover(
@@ -840,9 +915,45 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/stakes":
             return _json_response(self, _api_stakes())
 
+        # /api/staking — frontend expects {validators: [{id, staked, reputation}]}
+        if path == "/api/staking":
+            stakes = _api_stakes()
+            validators = [
+                {"id": s["validator_id"], "staked": s["total"], "reputation": 50}
+                for s in stakes
+            ]
+            return _json_response(self, {"validators": validators})
+
+        # /api/shares — frontend expects [{asset_id, shares, avg_price}]
+        if path == "/api/shares":
+            owner = qs.get("owner", [_default_identity()])[0]
+            se = _get_settlement()
+            holdings = []
+            for asset_id, pool in se.pools.items():
+                balance = pool.equity.get(owner, 0)
+                if balance > 0:
+                    spot = round(pool.spot_price, 6)
+                    holdings.append({
+                        "asset_id": asset_id,
+                        "shares": round(balance, 4),
+                        "avg_price": spot,
+                    })
+            return _json_response(self, holdings)
+
+        # /api/fingerprint/distributions — trace watermark distribution for an asset
+        if path == "/api/fingerprint/distributions":
+            asset_id = qs.get("asset_id", [""])[0]
+            if not asset_id:
+                return _json_response(self, {"error": "asset_id required"}, 400)
+            fps = _api_fingerprints(asset_id)
+            return _json_response(self, {"asset_id": asset_id, "distributions": fps})
+
         # ── Capability routes (GET) ──────────────────────────────
         if path == "/api/capabilities":
-            return _json_response(self, _api_capabilities())
+            try:
+                return _json_response(self, _api_capabilities())
+            except Exception as exc:
+                return _json_response(self, {"error": str(exc)}, 500)
 
         m = re.match(r"^/api/capability/shares$", path)
         if m:
@@ -860,7 +971,10 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/delivery/endpoints":
             provider = qs.get("provider", [None])[0]
             tag = qs.get("tag", [None])[0]
-            limit = int(qs.get("limit", ["50"])[0])
+            try:
+                limit = int(qs.get("limit", ["50"])[0])
+            except (ValueError, TypeError):
+                return _json_response(self, {"error": "invalid limit"}, 400)
             return _json_response(self, _api_delivery_endpoints(provider, tag, limit))
 
         if path == "/api/delivery/earnings":
@@ -871,7 +985,10 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/delivery/invocations":
             consumer = qs.get("consumer", [None])[0]
             provider = qs.get("provider", [None])[0]
-            limit = int(qs.get("limit", ["20"])[0])
+            try:
+                limit = int(qs.get("limit", ["20"])[0])
+            except (ValueError, TypeError):
+                return _json_response(self, {"error": "invalid limit"}, 400)
             return _json_response(self, _api_delivery_invocations(consumer, provider, limit))
 
         # Asset detail
@@ -901,9 +1018,7 @@ class _Handler(BaseHTTPRequestHandler):
             if not asset_id:
                 return _json_response(self, {"error": "asset_id required"}, 400)
             try:
-                from oasyce.services.facade import OasyceServiceFacade
-
-                facade = OasyceServiceFacade(config=None, ledger=_ledger)
+                facade = _get_facade()
                 result = facade.access_quote(asset_id, buyer)
                 if not result.success:
                     return _json_response(self, {"error": result.error}, 400)
@@ -932,10 +1047,40 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
+        # Sell quote (read-only preview)
+        if path == "/api/sell/quote":
+            asset_id = qs.get("asset_id", [""])[0]
+            seller = qs.get("seller", [_default_identity()])[0]
+            try:
+                tokens = float(qs.get("tokens", ["0"])[0])
+            except (ValueError, TypeError):
+                return _json_response(self, {"error": "invalid tokens value"}, 400)
+            if not asset_id:
+                return _json_response(self, {"error": "asset_id required"}, 400)
+            if tokens <= 0:
+                return _json_response(self, {"error": "tokens must be positive"}, 400)
+            try:
+                facade = _get_facade()
+                result = facade.sell_quote(asset_id, seller, tokens)
+                if not result.success:
+                    return _json_response(self, {"error": result.error}, 400)
+                d = result.data
+                return _json_response(self, {
+                    "payout_oas": round(d.get("payout_oas", 0), 6),
+                    "protocol_fee": round(d.get("protocol_fee", 0), 6),
+                    "burn_amount": round(d.get("burn_amount", 0), 6),
+                    "price_impact_pct": round(d.get("price_impact_pct", 0), 2),
+                })
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 400)
+
         # Bancor quote
         if path == "/api/quote":
             asset_id = qs.get("asset_id", [""])[0]
-            amount = float(qs.get("amount", ["10"])[0])
+            try:
+                amount = float(qs.get("amount", ["10"])[0])
+            except (ValueError, TypeError):
+                return _json_response(self, {"error": "invalid amount"}, 400)
             if not asset_id:
                 return _json_response(self, {"error": "asset_id required"}, 400)
             try:
@@ -997,15 +1142,20 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/portfolio":
             buyer = qs.get("buyer", [_default_identity()])[0]
             se = _get_settlement()
+            facade = _get_facade()
             holdings = []
             for asset_id, pool in se.pools.items():
                 balance = pool.equity.get(buyer, 0)
                 if balance > 0:
                     spot = round(pool.spot_price, 6)
+                    equity_pct = round(balance / pool.supply * 100, 2) if pool.supply > 0 else 0
+                    access_level = facade.get_equity_access_level(asset_id, buyer) or "—"
                     holdings.append(
                         {
                             "asset_id": asset_id,
                             "shares": round(balance, 4),
+                            "equity_pct": equity_pct,
+                            "access_level": access_level,
                             "spot_price": spot,
                             "value_oas": round(balance * spot, 4),
                         }
@@ -1174,12 +1324,17 @@ class _Handler(BaseHTTPRequestHandler):
 
             db_path = os.path.join(_config.data_dir, "work.db")
             engine = WorkValueEngine(db_path=db_path)
-            status_filter = qs.get("status", [None])[0]
-            task_type = qs.get("type", [None])[0]
-            limit = int(qs.get("limit", ["20"])[0])
-            tasks = engine.list_tasks(status=status_filter, task_type=task_type, limit=limit)
-            engine.close()
-            return _json_response(self, {"tasks": [t.to_dict() for t in tasks]})
+            try:
+                status_filter = qs.get("status", [None])[0]
+                task_type = qs.get("type", [None])[0]
+                try:
+                    limit = int(qs.get("limit", ["20"])[0])
+                except (ValueError, TypeError):
+                    return _json_response(self, {"error": "invalid limit"}, 400)
+                tasks = engine.list_tasks(status=status_filter, task_type=task_type, limit=limit)
+                return _json_response(self, {"tasks": [t.to_dict() for t in tasks]})
+            finally:
+                engine.close()
 
         if path == "/api/work/stats":
             if not _config:
@@ -1189,12 +1344,14 @@ class _Handler(BaseHTTPRequestHandler):
 
             db_path = os.path.join(_config.data_dir, "work.db")
             engine = WorkValueEngine(db_path=db_path)
-            _priv, node_id = load_or_create_node_identity(_config.data_dir)
-            node_id_short = node_id[:16]
-            global_s = engine.global_stats()
-            worker_s = engine.worker_stats(node_id_short)
-            engine.close()
-            return _json_response(self, {"global": global_s, "worker": worker_s})
+            try:
+                _priv, node_id = load_or_create_node_identity(_config.data_dir)
+                node_id_short = node_id[:16]
+                global_s = engine.global_stats()
+                worker_s = engine.worker_stats(node_id_short)
+                return _json_response(self, {"global": global_s, "worker": worker_s})
+            finally:
+                engine.close()
 
         # ── Auth token (localhost only) ──────────────────────────
         if path == "/api/auth/token":
@@ -1248,16 +1405,19 @@ class _Handler(BaseHTTPRequestHandler):
             )
 
         if path == "/api/inbox/trust":
-            from oasyce.services.inbox import ConfirmationInbox
+            try:
+                from oasyce.services.inbox import ConfirmationInbox
 
-            inbox = ConfirmationInbox()
-            return _json_response(
-                self,
-                {
-                    "trust_level": inbox.get_trust_level(),
-                    "auto_threshold": inbox.get_auto_threshold(),
-                },
-            )
+                inbox = ConfirmationInbox()
+                return _json_response(
+                    self,
+                    {
+                        "trust_level": inbox.get_trust_level(),
+                        "auto_threshold": inbox.get_auto_threshold(),
+                    },
+                )
+            except Exception as exc:
+                return _json_response(self, {"error": str(exc)}, 500)
 
         # ── Consensus API (GET) ─────────────────────────────────
         if path == "/api/consensus/status":
@@ -1477,25 +1637,34 @@ class _Handler(BaseHTTPRequestHandler):
 
         # ── Agent scheduler API (GET) ─────────────────────────────
         if path == "/api/agent/status":
-            from oasyce.services.scheduler import get_scheduler
+            try:
+                from oasyce.services.scheduler import get_scheduler
 
-            data_dir = _config.data_dir if _config else None
-            scheduler = get_scheduler(data_dir)
-            return _json_response(self, scheduler.status())
+                data_dir = _config.data_dir if _config else None
+                scheduler = get_scheduler(data_dir)
+                return _json_response(self, scheduler.status())
+            except Exception as exc:
+                return _json_response(self, {"error": str(exc)}, 500)
 
         if path == "/api/agent/config":
-            from oasyce.services.scheduler import get_scheduler
+            try:
+                from oasyce.services.scheduler import get_scheduler
 
-            data_dir = _config.data_dir if _config else None
-            scheduler = get_scheduler(data_dir)
-            return _json_response(self, scheduler.get_config().to_dict())
+                data_dir = _config.data_dir if _config else None
+                scheduler = get_scheduler(data_dir)
+                return _json_response(self, scheduler.get_config().to_dict())
+            except Exception as exc:
+                return _json_response(self, {"error": str(exc)}, 500)
 
         if path == "/api/agent/history":
             from oasyce.services.scheduler import get_scheduler
 
             data_dir = _config.data_dir if _config else None
             scheduler = get_scheduler(data_dir)
-            limit = int(qs.get("limit", ["10"])[0])
+            try:
+                limit = int(qs.get("limit", ["10"])[0])
+            except (ValueError, TypeError):
+                return _json_response(self, {"error": "invalid limit"}, 400)
             return _json_response(self, scheduler.get_history(limit))
 
         # ── Balance query ──────────────────────────────────────────
@@ -1578,6 +1747,31 @@ class _Handler(BaseHTTPRequestHandler):
             }
             if level_str == "L0":
                 return _json_response(self, preview)
+
+            # L1+ : verify buyer holds required equity access level
+            buyer = qs.get("buyer", [""])[0] or qs.get("agent", [""])[0]
+            if not buyer:
+                return _json_response(
+                    self, {"error": "buyer or agent param required for L1+ preview"}, 400
+                )
+            facade = _get_facade()
+            if facade:
+                level_map = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
+                required = level_map.get(level_str, 0)
+                try:
+                    equity_result = facade.access_quote(asset_id, buyer)
+                    if equity_result.success:
+                        max_level = equity_result.data.get("max_level", 0)
+                        if isinstance(max_level, str):
+                            max_level = level_map.get(max_level, 0)
+                        if max_level < required:
+                            return _json_response(
+                                self,
+                                {"error": f"Insufficient access: you have L{max_level}, need {level_str}"},
+                                403,
+                            )
+                except Exception:
+                    pass  # Allow preview if facade unavailable (dev mode)
 
             # L1+ : attempt content preview
             file_path = meta.get("file_path")
@@ -1705,7 +1899,10 @@ class _Handler(BaseHTTPRequestHandler):
             if not address:
                 return _json_response(self, {"error": "address param required"}, 400)
             unread_only = qs.get("unread_only", ["false"])[0].lower() == "true"
-            limit = int(qs.get("limit", ["50"])[0])
+            try:
+                limit = int(qs.get("limit", ["50"])[0])
+            except (ValueError, TypeError):
+                return _json_response(self, {"error": "invalid limit"}, 400)
             ns = _get_notification_service()
             items = ns.get_notifications(address, unread_only=unread_only, limit=limit)
             return _json_response(self, {"notifications": items})
@@ -1790,6 +1987,26 @@ class _Handler(BaseHTTPRequestHandler):
                 from oasyce.config import get_data_dir, NetworkMode
 
                 data_dir = _config.data_dir if _config else get_data_dir(NetworkMode.TESTNET)
+
+                # Gate: must complete PoW registration first
+                from pathlib import Path as _FcPath
+
+                onboard_path = _FcPath(data_dir) / "onboarding_state.json"
+                _registered = set()
+                if onboard_path.exists():
+                    try:
+                        _registered = set(
+                            json.loads(onboard_path.read_text()).get("registered", [])
+                        )
+                    except (json.JSONDecodeError, OSError):
+                        pass
+                if address not in _registered:
+                    return _json_response(
+                        self,
+                        {"ok": False, "error": "Complete registration first"},
+                        403,
+                    )
+
                 faucet = Faucet(data_dir)
                 result = faucet.claim(address)
                 if result["success"]:
@@ -1814,8 +2031,109 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 return _json_response(self, {"ok": False, "error": str(exc)}, 500)
 
+        # ── PoW self-registration (onboarding) ───────────────────────
+        if path == "/api/onboarding/register":
+            import hashlib
+            import struct
+
+            from oasyce.identity import Wallet as _OnbWallet
+
+            address = _OnbWallet.get_address() if _OnbWallet.exists() else None
+            if not address:
+                return _json_response(
+                    self,
+                    {"ok": False, "error": "no wallet — create one first"},
+                    400,
+                )
+
+            try:
+                from oasyce.services.faucet import Faucet as _OnbFaucet
+                from oasyce.config import get_data_dir, NetworkMode
+
+                data_dir = _config.data_dir if _config else get_data_dir(NetworkMode.TESTNET)
+                faucet = _OnbFaucet(data_dir)
+
+                # Check if already registered (has any balance from onboarding)
+                from pathlib import Path as _ObPath
+                onboard_state_path = _ObPath(data_dir) / "onboarding_state.json"
+                registered_addrs: set = set()
+                if onboard_state_path.exists():
+                    try:
+                        ob_data = json.loads(onboard_state_path.read_text())
+                        registered_addrs = set(ob_data.get("registered", []))
+                    except (json.JSONDecodeError, OSError):
+                        pass
+
+                if address in registered_addrs:
+                    return _json_response(
+                        self,
+                        {"ok": False, "error": "Already registered"},
+                        409,
+                    )
+
+                # PoW parameters — match chain defaults
+                POW_DIFFICULTY = 16  # leading zero bits
+                AIRDROP_AMOUNT = 20.0  # OAS
+
+                # Count leading zero bits in a hash
+                def _leading_zeros(h: bytes) -> int:
+                    total = 0
+                    for b in h:
+                        if b == 0:
+                            total += 8
+                        else:
+                            total += 8 - b.bit_length()
+                            break
+                    return total
+
+                # Brute-force valid nonce
+                addr_bytes = address.encode("utf-8")
+                nonce = 0
+                attempts = 0
+                while True:
+                    data = addr_bytes + struct.pack("<Q", nonce)
+                    h = hashlib.sha256(data).digest()
+                    attempts += 1
+                    if _leading_zeros(h) >= POW_DIFFICULTY:
+                        break
+                    nonce += 1
+
+                # Credit the airdrop via faucet balance system
+                faucet._balances[address] = faucet._balances.get(address, 0.0) + AIRDROP_AMOUNT
+                faucet._save()
+
+                # Record registration
+                registered_addrs.add(address)
+                onboard_state_path.parent.mkdir(parents=True, exist_ok=True)
+                onboard_state_path.write_text(json.dumps({"registered": list(registered_addrs)}, indent=2))
+
+                new_balance = faucet.balance(address)
+
+                return _json_response(
+                    self,
+                    {
+                        "ok": True,
+                        "amount": AIRDROP_AMOUNT,
+                        "new_balance": new_balance,
+                        "attempts": attempts,
+                        "nonce": nonce,
+                    },
+                )
+            except Exception as exc:
+                return _json_response(self, {"ok": False, "error": str(exc)}, 500)
+
         if path == "/api/register":
             try:
+                # Gate: wallet must exist
+                from oasyce.identity import Wallet as _RegWallet
+
+                if not _RegWallet.exists():
+                    return _json_response(
+                        self,
+                        {"error": "no wallet — create one first via /api/identity/create"},
+                        400,
+                    )
+
                 # ── multipart upload ──
                 if "multipart/form-data" in content_type:
                     form = cgi.FieldStorage(
@@ -1838,19 +2156,22 @@ class _Handler(BaseHTTPRequestHandler):
                         f.write(file_item.file.read())
 
                     fp = dest
-                    owner = form.getfirst("owner", _config.owner if _config else "unknown")
+                    owner = form.getfirst("owner", _default_identity())
                     tags_raw = form.getfirst("tags", "")
                     tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
                     rights_type = form.getfirst("rights_type", "original")
                     co_creators_raw = form.getfirst("co_creators", "")
-                    co_creators = json.loads(co_creators_raw) if co_creators_raw else None
+                    try:
+                        co_creators = json.loads(co_creators_raw) if co_creators_raw else None
+                    except (json.JSONDecodeError, ValueError):
+                        return _json_response(self, {"error": "invalid co_creators JSON"}, 400)
                     price_model = form.getfirst("price_model", "auto")
                     price_raw = form.getfirst("price", "")
                     manual_price = float(price_raw) if price_raw else None
                 else:
                     # legacy JSON fallback — body already parsed at top of do_POST
                     fp = body.get("file_path", "")
-                    owner = body.get("owner", _config.owner if _config else "unknown")
+                    owner = body.get("owner", _default_identity())
                     tags = body.get("tags", [])
                     rights_type = body.get("rights_type", "original")
                     co_creators = body.get("co_creators", None)
@@ -1867,6 +2188,14 @@ class _Handler(BaseHTTPRequestHandler):
                     return _json_response(
                         self, {"error": f"invalid rights_type: {rights_type}"}, 400
                     )
+
+                if rights_type == "co_creation":
+                    if not co_creators or len(co_creators) < 2:
+                        return _json_response(
+                            self,
+                            {"error": "co_creation requires at least 2 co_creators"},
+                            400,
+                        )
 
                 # Validate co_creators shares sum to 100
                 if co_creators:
@@ -1905,6 +2234,21 @@ class _Handler(BaseHTTPRequestHandler):
                 fp = resolved_fp
                 skills = _get_skills()
                 file_info = skills.scan_data_skill(fp)
+
+                # Check for duplicate file hash
+                file_hash = file_info.get("file_hash", "")
+                if file_hash and _ledger:
+                    for existing in _ledger.list_assets():
+                        if existing.get("file_hash") == file_hash:
+                            return _json_response(
+                                self,
+                                {
+                                    "error": f"Duplicate: file already registered as {existing.get('asset_id', 'unknown')}",
+                                    "existing_asset_id": existing.get("asset_id"),
+                                },
+                                409,
+                            )
+
                 metadata = skills.generate_metadata_skill(
                     file_info,
                     tags,
@@ -1918,14 +2262,39 @@ class _Handler(BaseHTTPRequestHandler):
                 if manual_price is not None:
                     metadata["manual_price"] = manual_price
                 signed = skills.create_certificate_skill(metadata)
-                result = skills.register_data_asset_skill(signed)
+                asset_id = signed.get("asset_id", "")
+                if not _allow_local_fallback():
+                    from oasyce.bridge.core_bridge import bridge_register
+
+                    chain_result = bridge_register(signed, creator=owner)
+                    if not chain_result.get("valid"):
+                        return _json_response(
+                            self,
+                            {
+                                "error": chain_result.get("error")
+                                or chain_result.get("reason")
+                                or "Chain registration failed"
+                            },
+                            502,
+                        )
+                    asset_id = chain_result.get("core_asset_id", "")
+                    if not asset_id:
+                        return _json_response(
+                            self,
+                            {"error": "Chain registration returned no asset_id"},
+                            502,
+                        )
+                    signed["asset_id"] = asset_id
+                skills.register_data_asset_skill(signed, file_path=fp)
                 return _json_response(
                     self,
                     {
                         "ok": True,
-                        "asset_id": signed.get("asset_id", ""),
+                        "asset_id": asset_id or signed.get("asset_id", ""),
                         "file_hash": file_info.get("file_hash", ""),
+                        "owner": owner,
                         "price_model": price_model,
+                        "rights_type": rights_type,
                     },
                 )
             except Exception as e:
@@ -1952,7 +2321,7 @@ class _Handler(BaseHTTPRequestHandler):
                     return _json_response(self, {"error": "no files provided"}, 400)
 
                 bundle_name = form.getfirst("name", f"bundle_{int(time.time())}")
-                owner = form.getfirst("owner", _config.owner if _config else "unknown")
+                owner = form.getfirst("owner", _default_identity())
                 tags_raw = form.getfirst("tags", "")
                 tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
 
@@ -1973,14 +2342,41 @@ class _Handler(BaseHTTPRequestHandler):
                 metadata["bundle"] = True
                 metadata["file_count"] = len(file_items)
                 signed = skills.create_certificate_skill(metadata)
-                result = skills.register_data_asset_skill(signed)
+                asset_id = signed.get("asset_id", "")
+                if not _allow_local_fallback():
+                    from oasyce.bridge.core_bridge import bridge_register
+
+                    chain_result = bridge_register(signed, creator=owner)
+                    if not chain_result.get("valid"):
+                        return _json_response(
+                            self,
+                            {
+                                "error": chain_result.get("error")
+                                or chain_result.get("reason")
+                                or "Chain registration failed"
+                            },
+                            502,
+                        )
+                    asset_id = chain_result.get("core_asset_id", "")
+                    if not asset_id:
+                        return _json_response(
+                            self,
+                            {"error": "Chain registration returned no asset_id"},
+                            502,
+                        )
+                    signed["asset_id"] = asset_id
+                skills.register_data_asset_skill(signed, file_path=zip_path)
                 return _json_response(
                     self,
                     {
                         "ok": True,
-                        "asset_id": signed.get("asset_id", ""),
+                        "asset_id": asset_id or signed.get("asset_id", ""),
                         "file_hash": file_info.get("file_hash", ""),
+                        "owner": owner,
+                        "bundle_name": bundle_name,
+                        "tags": tags,
                         "file_count": len(file_items),
+                        "file_names": [getattr(fi, "filename", "") for fi in file_items],
                     },
                 )
             except Exception as e:
@@ -1996,6 +2392,9 @@ class _Handler(BaseHTTPRequestHandler):
                 meta = _ledger.get_asset_metadata(aid)
                 if meta is None:
                     return _json_response(self, {"error": "asset not found"}, 404)
+                caller = _default_identity()
+                if meta.get("owner") and meta["owner"] != caller:
+                    return _json_response(self, {"error": "not authorized"}, 403)
                 file_path = meta.get("file_path")
                 if not file_path or not os.path.isfile(file_path):
                     return _json_response(self, {"error": "file not found"}, 404)
@@ -2048,6 +2447,16 @@ class _Handler(BaseHTTPRequestHandler):
                 if not reason:
                     return _json_response(self, {"error": "reason required"}, 400)
 
+                # Check for existing active dispute
+                if aid and _ledger:
+                    meta = _ledger.get_asset_metadata(aid)
+                    if meta and meta.get("disputed") and meta.get("dispute_status") == "open":
+                        return _json_response(
+                            self,
+                            {"error": "An active dispute already exists for this asset"},
+                            409,
+                        )
+
                 facade = _get_facade()
                 result = facade.dispute(
                     asset_id=aid,
@@ -2087,8 +2496,6 @@ class _Handler(BaseHTTPRequestHandler):
         # ── Tiered access buy (bond-based) — via shared facade ──
         if path == "/api/access/buy":
             try:
-                from oasyce.services.facade import OasyceServiceFacade
-
                 aid = body.get("asset_id", "")
                 buyer = body.get("buyer") or _default_identity()
                 level_str = body.get("level", "L1")
@@ -2097,7 +2504,29 @@ class _Handler(BaseHTTPRequestHandler):
                 if level_str not in ("L0", "L1", "L2", "L3"):
                     return _json_response(self, {"error": "invalid level"}, 400)
 
-                facade = OasyceServiceFacade(config=None, ledger=_ledger)
+                facade = _get_facade()
+
+                # Pre-check: buyer must have enough balance for the bond
+                try:
+                    quote_result = facade.access_quote(aid, buyer)
+                    if quote_result.success:
+                        bond_oas = 0.0
+                        for lv in quote_result.data.get("levels", []):
+                            if lv["level"] == level_str:
+                                bond_oas = lv.get("bond_oas", 0.0)
+                                break
+                        if bond_oas > 0:
+                            from oasyce.config import get_data_dir, NetworkMode
+                            _bd = _config.data_dir if _config else get_data_dir(NetworkMode.TESTNET)
+                            _faucet = Faucet(_bd)
+                            bal = _faucet.balance(buyer)
+                            if bal < bond_oas:
+                                return _json_response(self, {
+                                    "error": f"Insufficient balance: {bal:.2f} OAS < {bond_oas:.2f} OAS required"
+                                }, 400)
+                except Exception:
+                    pass  # quote failure shouldn't block — let access_buy handle it
+
                 result = facade.access_buy(aid, buyer, level_str)
 
                 if not result.success:
@@ -2146,10 +2575,11 @@ class _Handler(BaseHTTPRequestHandler):
 
                 # Anti-wash-trading: cooldown per buyer+asset
                 cooldown_key = (buyer, aid)
-                last_buy = _buy_cooldowns.get(cooldown_key, 0)
-                if time.time() - last_buy < BUY_COOLDOWN_SECONDS:
-                    remaining = int(BUY_COOLDOWN_SECONDS - (time.time() - last_buy))
-                    return _json_response(self, {"error": f"cooldown: wait {remaining}s"}, 429)
+                with _buy_lock:
+                    last_buy = _buy_cooldowns.get(cooldown_key, 0)
+                    if time.time() - last_buy < BUY_COOLDOWN_SECONDS:
+                        remaining = int(BUY_COOLDOWN_SECONDS - (time.time() - last_buy))
+                        return _json_response(self, {"error": f"cooldown: wait {remaining}s"}, 429)
                 # UNAVAILABLE check: verify file exists and hash matches
                 if not _ledger:
                     return _json_response(self, {"error": "not initialized"}, 503)
@@ -2188,7 +2618,8 @@ class _Handler(BaseHTTPRequestHandler):
                 d = result.data
                 settled = d.get("settled", False)
                 if settled:
-                    _buy_cooldowns[cooldown_key] = time.time()
+                    with _buy_lock:
+                        _buy_cooldowns[cooldown_key] = time.time()
                     # Send purchase notification to buyer
                     try:
                         quote_data = d.get("quote") or {}
@@ -2279,32 +2710,49 @@ class _Handler(BaseHTTPRequestHandler):
                         {"error": "dispute_id and verdict (uphold|reject) required"},
                         400,
                     )
-                return _json_response(self, {
-                    "ok": True,
-                    "dispute_id": dispute_id,
-                    "juror": juror,
-                    "verdict": verdict,
-                    "recorded": True,
-                })
+                # Map GUI verdict names to facade expected values
+                verdict_map = {"uphold": "consumer", "reject": "provider"}
+                facade = _get_facade()
+                result = facade.jury_vote(
+                    dispute_id=dispute_id,
+                    juror_id=juror,
+                    verdict=verdict_map[verdict],
+                )
+                if result.success:
+                    return _json_response(self, {
+                        "ok": True,
+                        "dispute_id": dispute_id,
+                        "juror": juror,
+                        "verdict": verdict,
+                        "recorded": True,
+                        "data": result.data,
+                    })
+                else:
+                    return _json_response(self, {"ok": False, "error": result.error}, 400)
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
         if path == "/api/stake":
             try:
-                sk = _get_staking()
                 node_id = body.get("node_id", "")
-                pub_key = body.get("public_key", node_id)
                 amount = float(body.get("amount", 0))
                 if not node_id or amount <= 0:
                     return _json_response(self, {"error": "node_id and amount required"}, 400)
-                v = sk.stake(node_id, pub_key, amount)
+                staker = _default_identity()
+                if not _ledger:
+                    return _json_response(self, {"error": "ledger not initialized"}, 503)
+                _ledger.update_stake(node_id, staker, amount)
+                # Read back total
+                stakes = _ledger.get_stakes_summary()
+                total = next(
+                    (s["total"] for s in stakes if s["validator_id"] == node_id), amount
+                )
                 return _json_response(
                     self,
                     {
                         "ok": True,
-                        "node_id": v.node_id,
-                        "total_stake": v.stake,
-                        "status": v.status.value,
+                        "node_id": node_id,
+                        "total_stake": total,
                     },
                 )
             except Exception as e:
@@ -2717,13 +3165,60 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
+        if path == "/api/fingerprint/extract":
+            try:
+                from oasyce.fingerprint.engine import FingerprintEngine
+
+                file_path = body.get("file_path", "")
+                content = body.get("content", "")
+                fingerprint = None
+
+                if file_path:
+                    import os as _fp_os
+
+                    if not _fp_os.path.isfile(file_path):
+                        return _json_response(
+                            self, {"ok": False, "error": "file not found"}, 404
+                        )
+                    raw = open(file_path, "rb").read()
+                    try:
+                        text = raw.decode("utf-8")
+                        fingerprint = FingerprintEngine.extract_text(text)
+                    except UnicodeDecodeError:
+                        fingerprint = FingerprintEngine.extract_binary(raw)
+                elif content:
+                    fingerprint = FingerprintEngine.extract_text(content)
+                else:
+                    return _json_response(
+                        self,
+                        {"ok": False, "error": "file_path or content required"},
+                        400,
+                    )
+
+                if fingerprint:
+                    return _json_response(
+                        self, {"ok": True, "fingerprint": fingerprint}
+                    )
+                else:
+                    return _json_response(
+                        self, {"ok": False, "error": "no fingerprint found"}
+                    )
+            except Exception as e:
+                return _json_response(self, {"ok": False, "error": str(e)}, 400)
+
         if path == "/api/asset/update":
             aid = body.get("asset_id", "")
             new_tags = body.get("tags", [])
             if not _ledger:
                 return _json_response(self, {"error": "ledger not initialized"}, 503)
-            if not _ledger.update_asset_metadata(aid, {"tags": new_tags}):
+            meta = _ledger.get_asset_metadata(aid)
+            if meta is None:
                 return _json_response(self, {"error": "not found"}, 404)
+            caller = _default_identity()
+            if meta.get("owner") and meta["owner"] != caller:
+                return _json_response(self, {"error": "not authorized"}, 403)
+            if not _ledger.update_asset_metadata(aid, {"tags": new_tags}):
+                return _json_response(self, {"error": "update failed"}, 500)
             return _json_response(self, {"ok": True, "asset_id": aid, "tags": new_tags})
 
         # ── Inbox API (POST) ─────────────────────────────────────
@@ -2768,31 +3263,38 @@ class _Handler(BaseHTTPRequestHandler):
                 return _json_response(self, {"error": str(e)}, 400)
 
         if path == "/api/inbox/trust":
-            from oasyce.services.inbox import ConfirmationInbox
+            try:
+                from oasyce.services.inbox import ConfirmationInbox
 
-            inbox = ConfirmationInbox()
-            level = body.get("trust_level") if body else None
-            threshold = body.get("auto_threshold") if body else None
-            if level is not None:
-                inbox.set_trust_level(int(level))
-            if threshold is not None:
-                inbox.set_auto_threshold(float(threshold))
-            return _json_response(
-                self,
-                {
-                    "ok": True,
-                    "trust_level": inbox.get_trust_level(),
-                    "auto_threshold": inbox.get_auto_threshold(),
-                },
-            )
+                inbox = ConfirmationInbox()
+                level = body.get("trust_level") if body else None
+                threshold = body.get("auto_threshold") if body else None
+                if level is not None:
+                    inbox.set_trust_level(int(level))
+                if threshold is not None:
+                    inbox.set_auto_threshold(float(threshold))
+                return _json_response(
+                    self,
+                    {
+                        "ok": True,
+                        "trust_level": inbox.get_trust_level(),
+                        "auto_threshold": inbox.get_auto_threshold(),
+                    },
+                )
+            except Exception as exc:
+                return _json_response(self, {"error": str(exc)}, 500)
 
         if path == "/api/scan":
             from oasyce.services.scanner import AssetScanner
             from oasyce.services.inbox import ConfirmationInbox
 
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
             scan_path = body.get("path", ".") if body else "."
+            resolved_scan = os.path.realpath(scan_path)
+            home_dir = os.path.expanduser("~")
+            if not resolved_scan.startswith(home_dir):
+                return _json_response(
+                    self, {"error": "scan path must be under home directory"}, 403
+                )
             scanner = AssetScanner()
             results = scanner.scan_directory(scan_path)
             inbox = ConfirmationInbox()
@@ -2812,104 +3314,33 @@ class _Handler(BaseHTTPRequestHandler):
                 self, {"ok": True, "scanned": len(results), "added_to_inbox": len(added)}
             )
 
-        # ── Inbox API (POST) ──────────────────────────────────────
-        if path.startswith("/api/inbox/") and path.endswith("/approve"):
-            item_id = path.split("/")[-2]
-            from oasyce.services.inbox import ConfirmationInbox
-
-            inbox = ConfirmationInbox()
-            try:
-                item = inbox.approve(item_id)
-                return _json_response(self, {"ok": True, "item_id": item_id, "status": "approved"})
-            except (KeyError, ValueError) as e:
-                return _json_response(self, {"error": str(e)}, 400)
-
-        if path.startswith("/api/inbox/") and path.endswith("/reject"):
-            item_id = path.split("/")[-2]
-            from oasyce.services.inbox import ConfirmationInbox
-
-            inbox = ConfirmationInbox()
-            try:
-                item = inbox.reject(item_id)
-                return _json_response(self, {"ok": True, "item_id": item_id, "status": "rejected"})
-            except (KeyError, ValueError) as e:
-                return _json_response(self, {"error": str(e)}, 400)
-
-        if path.startswith("/api/inbox/") and path.endswith("/edit"):
-            item_id = path.split("/")[-2]
-            from oasyce.services.inbox import ConfirmationInbox
-
-            inbox = ConfirmationInbox()
-            try:
-                item = inbox.edit(item_id, body or {})
-                return _json_response(self, {"ok": True, "item_id": item_id, "status": "approved"})
-            except (KeyError, ValueError) as e:
-                return _json_response(self, {"error": str(e)}, 400)
-
-        if path == "/api/inbox/trust":
-            from oasyce.services.inbox import ConfirmationInbox
-
-            inbox = ConfirmationInbox()
-            level = body.get("trust_level") if body else None
-            threshold = body.get("auto_threshold") if body else None
-            if level is not None:
-                inbox.set_trust_level(int(level))
-            if threshold is not None:
-                inbox.set_auto_threshold(float(threshold))
-            return _json_response(
-                self,
-                {
-                    "ok": True,
-                    "trust_level": inbox.get_trust_level(),
-                    "auto_threshold": inbox.get_auto_threshold(),
-                },
-            )
-
-        if path == "/api/scan":
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
-            scan_path = body.get("path", ".") if body else "."
-            from oasyce.services.scanner import AssetScanner
-            from oasyce.services.inbox import ConfirmationInbox
-
-            scanner = AssetScanner()
-            results = scanner.scan_directory(scan_path)
-            inbox = ConfirmationInbox()
-            added = []
-            for r in results:
-                if r.sensitivity != "sensitive":
-                    item = inbox.add_pending_register(
-                        file_path=r.file_path,
-                        suggested_name=r.suggested_name,
-                        suggested_tags=r.suggested_tags,
-                        suggested_description=r.suggested_description,
-                        sensitivity=r.sensitivity,
-                        confidence=r.confidence,
-                    )
-                    added.append(item.item_id)
-            return _json_response(self, {"ok": True, "scanned": len(results), "added": len(added)})
-
         # ── Agent scheduler API (POST) ────────────────────────────
         if path == "/api/agent/config":
-            from oasyce.services.scheduler import get_scheduler, SchedulerConfig
+            try:
+                from oasyce.services.scheduler import get_scheduler, SchedulerConfig
 
-            data_dir = _config.data_dir if _config else None
-            scheduler = get_scheduler(data_dir)
-            current = scheduler.get_config()
-            # Partial update: merge body into existing config
-            cfg_dict = current.to_dict()
-            cfg_dict.update(body)
-            new_cfg = SchedulerConfig.from_dict(cfg_dict)
-            scheduler.update_config(new_cfg)
-            return _json_response(self, scheduler.get_config().to_dict())
+                data_dir = _config.data_dir if _config else None
+                scheduler = get_scheduler(data_dir)
+                current = scheduler.get_config()
+                # Partial update: merge body into existing config
+                cfg_dict = current.to_dict()
+                cfg_dict.update(body)
+                new_cfg = SchedulerConfig.from_dict(cfg_dict)
+                scheduler.update_config(new_cfg)
+                return _json_response(self, scheduler.get_config().to_dict())
+            except Exception as exc:
+                return _json_response(self, {"error": str(exc)}, 500)
 
         if path == "/api/agent/run":
-            from oasyce.services.scheduler import get_scheduler
+            try:
+                from oasyce.services.scheduler import get_scheduler
 
-            data_dir = _config.data_dir if _config else None
-            scheduler = get_scheduler(data_dir)
-            result = scheduler.run_once()
-            return _json_response(self, result.to_dict())
+                data_dir = _config.data_dir if _config else None
+                scheduler = get_scheduler(data_dir)
+                result = scheduler.run_once()
+                return _json_response(self, result.to_dict())
+            except Exception as exc:
+                return _json_response(self, {"error": str(exc)}, 500)
 
         # ── Buyer Dispute/Refund (POST) ──────────────────────────
         if path == "/api/dispute/file":
@@ -2956,17 +3387,20 @@ class _Handler(BaseHTTPRequestHandler):
 
         # ── Notifications (POST) ─────────────────────────────────
         if path == "/api/notifications/read":
-            notification_id = body.get("notification_id", "")
-            address = body.get("address", "")
-            ns = _get_notification_service()
-            if notification_id:
-                ok = ns.mark_read(notification_id)
-                return _json_response(self, {"ok": ok})
-            elif address:
-                count = ns.mark_all_read(address)
-                return _json_response(self, {"ok": True, "marked": count})
-            else:
-                return _json_response(self, {"error": "notification_id or address required"}, 400)
+            try:
+                notification_id = body.get("notification_id", "")
+                address = body.get("address", "")
+                ns = _get_notification_service()
+                if notification_id:
+                    ok = ns.mark_read(notification_id)
+                    return _json_response(self, {"ok": ok})
+                elif address:
+                    count = ns.mark_all_read(address)
+                    return _json_response(self, {"ok": True, "marked": count})
+                else:
+                    return _json_response(self, {"error": "notification_id or address required"}, 400)
+            except Exception as exc:
+                return _json_response(self, {"error": str(exc)}, 500)
 
         # ── AHRP proxy (POST) ────────────────────────────────────
         if path.startswith("/ahrp/"):
@@ -2988,11 +3422,13 @@ class _Handler(BaseHTTPRequestHandler):
         m = re.match(r"^/api/asset/(.+)$", path)
         if m:
             aid = m.group(1)
-            if not _ledger:
-                return _json_response(self, {"error": "ledger not initialized"}, 503)
-            if not _ledger.delete_asset(aid):
-                return _json_response(self, {"error": "Asset not found"}, 404)
-            return _json_response(self, {"ok": True, "deleted": aid})
+            caller = _default_identity()
+            facade = _get_facade()
+            result = facade.delete_asset(aid, owner=caller)
+            if result.success:
+                return _json_response(self, {"ok": True, "deleted": aid})
+            else:
+                return _json_response(self, {"ok": False, "error": result.error}, 400)
         return _json_response(self, {"error": "not found"}, 404)
 
 
@@ -3195,10 +3631,10 @@ input[type="text"],input[type="number"],select,textarea{
 }
 input:focus,select:focus,textarea:focus{
   border-color:var(--border-h);
-  box-shadow:0 0 0 3px rgba(0,0,0,0.04);
+  box-shadow:0 0 0 2px var(--accent);
 }
 @media(prefers-color-scheme:dark){
-  input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(255,255,255,0.06);}
+  input:focus,select:focus,textarea:focus{box-shadow:0 0 0 2px var(--accent);}
 }
 input::placeholder,textarea::placeholder{color:var(--text-t);}
 textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
@@ -3529,6 +3965,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   .ng-v{text-align:left;}
   .kv{flex-direction:column;gap:2px;}
   .kv-v{text-align:left;max-width:100%;}
+  .pager-btn{width:44px;height:44px;}
+  .a-del{width:36px;height:36px;}
 }
 </style>
 </head>
@@ -3539,15 +3977,15 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
 <nav class="nav">
   <div class="nav-brand">Oasyce <span class="nav-dot" id="status-dot"></span></div>
   <div class="nav-links">
-    <a class="nav-link active" data-page="register" data-en="Register" data-zh="注册">Register</a>
-    <a class="nav-link" data-page="trade" data-en="Trade" data-zh="交易">Trade</a>
-    <a class="nav-link" data-page="assets" data-en="Assets" data-zh="资产">Assets</a>
-    <a class="nav-link" data-page="agents" data-en="Agents" data-zh="代理">Agents</a>
-    <a class="nav-link" data-page="network" data-en="Network" data-zh="网络">Network</a>
+    <a class="nav-link active" data-page="register" data-en="Register" data-zh="注册" tabindex="0" role="button">Register</a>
+    <a class="nav-link" data-page="trade" data-en="Trade" data-zh="交易" tabindex="0" role="button">Trade</a>
+    <a class="nav-link" data-page="assets" data-en="Assets" data-zh="资产" tabindex="0" role="button">Assets</a>
+    <a class="nav-link" data-page="agents" data-en="Agents" data-zh="代理" tabindex="0" role="button">Agents</a>
+    <a class="nav-link" data-page="network" data-en="Network" data-zh="网络" tabindex="0" role="button">Network</a>
   </div>
   <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
-    <button class="nav-about" id="about-btn" title="About Oasyce">i</button>
-    <button class="nav-lang" id="lang-btn">中</button>
+    <button class="nav-about" id="about-btn" title="About Oasyce" aria-label="About Oasyce">i</button>
+    <button class="nav-lang" id="lang-btn" aria-label="Switch language">中</button>
   </div>
 </nav>
 
@@ -3559,15 +3997,15 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     <div class="page-desc">Claim ownership of a file. Once registered, other agents can discover, quote, and purchase access rights.</div>
     <div class="card">
       <div class="field">
-        <label class="field-label">File path</label>
+        <label class="field-label" for="reg-path" data-i18n="lbl-file">File path</label>
         <input type="text" id="reg-path" placeholder="/path/to/your/file">
       </div>
       <div class="row">
-        <div class="field"><label class="field-label">Owner</label><input type="text" id="reg-owner" placeholder="Your name or agent ID"></div>
-        <div class="field"><label class="field-label">Tags</label><input type="text" id="reg-tags" placeholder="medical, imaging, dicom"></div>
+        <div class="field"><label class="field-label" for="reg-owner" data-i18n="lbl-owner">Owner</label><input type="text" id="reg-owner" placeholder="Your name or agent ID"></div>
+        <div class="field"><label class="field-label" for="reg-tags" data-i18n="lbl-tags">Tags</label><input type="text" id="reg-tags" placeholder="medical, imaging, dicom"></div>
       </div>
       <div class="row">
-        <div class="field"><label class="field-label" data-i18n="lbl-rights-type">Rights type</label><select id="reg-rights-type"><option value="original">Original</option><option value="co_creation">Co-creation</option><option value="licensed">Licensed resale</option><option value="collection">Personal collection</option></select></div>
+        <div class="field"><label class="field-label" for="reg-rights-type" data-i18n="lbl-rights-type">Rights type</label><select id="reg-rights-type"><option value="original" data-i18n="rights-original">Original</option><option value="co_creation" data-i18n="rights-co_creation">Co-creation</option><option value="licensed" data-i18n="rights-licensed">Licensed resale</option><option value="collection" data-i18n="rights-collection">Personal collection</option></select></div>
       </div>
       <div id="co-creators-section" style="display:none;">
         <label class="field-label" data-i18n="lbl-co-creators">Co-creators</label>
@@ -3588,8 +4026,8 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     <div class="card">
       <div class="card-title" data-i18n="card-buy">Buy Shares</div>
       <div class="row">
-        <div class="field"><label class="field-label"><span data-i18n="lbl-asset-id">Asset ID</span> <span class="required">*</span></label><input type="text" id="buy-asset" placeholder="Paste asset ID"><div class="field-hint" data-i18n="hint-buy-asset">Copy from the Assets tab or from the creator who shared it with you.</div></div>
-        <div class="field" style="max-width:140px;"><label class="field-label"><span data-i18n="lbl-amount">Amount (OAS)</span></label><input type="number" id="buy-amount" value="10"><div class="field-hint" data-i18n="hint-buy-amount">How much to spend.</div></div>
+        <div class="field"><label class="field-label" for="buy-asset"><span data-i18n="lbl-asset-id">Asset ID</span> <span class="required">*</span></label><input type="text" id="buy-asset" placeholder="Paste asset ID"><div class="field-hint" data-i18n="hint-buy-asset">Copy from the Assets tab or from the creator who shared it with you.</div></div>
+        <div class="field" style="max-width:140px;"><label class="field-label" for="buy-amount"><span data-i18n="lbl-amount">Amount (OAS)</span></label><input type="number" id="buy-amount" value="10"><div class="field-hint" data-i18n="hint-buy-amount">How much to spend.</div></div>
       </div>
       <div class="row">
         <button class="btn btn-ghost btn-full" id="quote-btn">Quote</button>
@@ -3599,15 +4037,15 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     </div>
 
     <div class="card">
-      <div class="card-title">Portfolio</div>
+      <div class="card-title" data-i18n="card-portfolio">Portfolio</div>
       <div id="portfolio-list"></div>
     </div>
 
     <div class="card">
-      <div class="card-title">Stake</div>
+      <div class="card-title" data-i18n="card-stake">Stake</div>
       <div class="row">
-        <div class="field"><label class="field-label">Node ID</label><input type="text" id="stake-node" placeholder="Validator node ID"></div>
-        <div class="field" style="max-width:140px;"><label class="field-label">Amount</label><input type="number" id="stake-amount" value="10000"></div>
+        <div class="field"><label class="field-label" for="stake-node" data-i18n="lbl-node-id">Node ID</label><input type="text" id="stake-node" placeholder="Validator node ID"></div>
+        <div class="field" style="max-width:140px;"><label class="field-label" for="stake-amount" data-i18n="lbl-stake-amount">Amount</label><input type="number" id="stake-amount" value="10000"></div>
       </div>
       <button class="btn btn-full" id="stake-btn">Stake</button>
       <div id="stake-result"></div>
@@ -3632,30 +4070,30 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     <div class="page-desc">Register your agent on the AHRP network, discover data providers, and execute transactions.</div>
 
     <div class="card">
-      <div class="card-title">Announce Agent</div>
+      <div class="card-title" data-i18n="card-announce">Announce Agent</div>
       <div class="row">
-        <div class="field"><label class="field-label">Agent ID</label><input type="text" id="ahrp-agent-id" placeholder="my-agent-001"></div>
-        <div class="field"><label class="field-label">Public key</label><input type="text" id="ahrp-pub-key" placeholder="ed25519 public key"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-agent-id">Agent ID</label><input type="text" id="ahrp-agent-id" placeholder="my-agent-001"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-pub-key">Public key</label><input type="text" id="ahrp-pub-key" placeholder="ed25519 public key"></div>
       </div>
       <div class="row">
-        <div class="field"><label class="field-label">Reputation</label><input type="number" id="ahrp-reputation" value="10"></div>
-        <div class="field"><label class="field-label">Stake</label><input type="number" id="ahrp-stake" value="100"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-reputation">Reputation</label><input type="number" id="ahrp-reputation" value="10"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-stake-val">Stake</label><input type="number" id="ahrp-stake" value="100"></div>
       </div>
       <div class="row">
-        <div class="field"><label class="field-label">Capability ID</label><input type="text" id="ahrp-cap-id" placeholder="medical-imaging"></div>
-        <div class="field"><label class="field-label">Tags</label><input type="text" id="ahrp-cap-tags" placeholder="dicom, radiology"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-cap-id">Capability ID</label><input type="text" id="ahrp-cap-id" placeholder="medical-imaging"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-tags">Tags</label><input type="text" id="ahrp-cap-tags" placeholder="dicom, radiology"></div>
       </div>
       <div class="row">
-        <div class="field" style="flex:2;"><label class="field-label">Description</label><input type="text" id="ahrp-cap-desc" placeholder="High-res medical imaging dataset"></div>
-        <div class="field"><label class="field-label">Price floor</label><input type="number" id="ahrp-cap-price" value="1.0"></div>
+        <div class="field" style="flex:2;"><label class="field-label" data-i18n="lbl-description">Description</label><input type="text" id="ahrp-cap-desc" placeholder="High-res medical imaging dataset"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-price-floor">Price floor</label><input type="number" id="ahrp-cap-price" value="1.0"></div>
       </div>
       <div class="row">
         <div class="field">
-          <label class="field-label">Origin</label>
+          <label class="field-label" data-i18n="lbl-origin">Origin</label>
           <select id="ahrp-cap-origin"><option value="human">human</option><option value="sensor">sensor</option><option value="curated">curated</option><option value="synthetic">synthetic</option></select>
         </div>
         <div class="field">
-          <label class="field-label">Access levels</label>
+          <label class="field-label" data-i18n="lbl-access-levels">Access levels</label>
           <div class="chk-g" style="margin-top:6px;"><label><input type="checkbox" value="L0" checked> L0</label><label><input type="checkbox" value="L1" checked> L1</label><label><input type="checkbox" value="L2"> L2</label><label><input type="checkbox" value="L3"> L3</label></div>
         </div>
       </div>
@@ -3664,22 +4102,17 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     </div>
 
     <div class="card">
-      <div class="card-title">Discover Agents</div>
+      <div class="card-title" data-i18n="card-discover">Discover Agents</div>
       <div class="row">
-        <div class="field" style="flex:2;"><label class="field-label">What do you need?</label><input type="text" id="ahrp-search-desc" placeholder="Medical imaging data for training"></div>
-        <div class="field"><label class="field-label">Tags</label><input type="text" id="ahrp-search-tags" placeholder="dicom"></div>
-      </div>
-      <div class="row">
-        <div class="field"><label class="field-label">Min reputation</label><input type="number" id="ahrp-search-rep" value="5"></div>
-        <div class="field"><label class="field-label">Max price</label><input type="number" id="ahrp-search-price" value="100"></div>
-        <div class="field"><label class="field-label">Access</label><select id="ahrp-search-access"><option>L0</option><option>L1</option><option>L2</option><option>L3</option></select></div>
+        <div class="field" style="flex:2;"><label class="field-label" data-i18n="lbl-search-desc">What do you need?</label><input type="text" id="ahrp-search-desc" placeholder="Medical imaging data for training"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-tags">Tags</label><input type="text" id="ahrp-search-tags" placeholder="dicom"></div>
       </div>
       <button class="btn btn-ghost btn-full" id="ahrp-find-btn">Find</button>
       <div id="ahrp-matches" style="margin-top:14px;"></div>
     </div>
 
     <div class="card">
-      <div class="card-title">Transaction</div>
+      <div class="card-title" data-i18n="card-tx">Transaction</div>
       <div class="pipe" id="tx-pipeline">
         <div class="pipe-s" id="tx-s-request"><div class="pipe-d"></div><div class="pipe-l">Request</div></div><div class="pipe-line" id="tx-l-1"></div>
         <div class="pipe-s" id="tx-s-offer"><div class="pipe-d"></div><div class="pipe-l">Offer</div></div><div class="pipe-line" id="tx-l-2"></div>
@@ -3688,26 +4121,26 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
         <div class="pipe-s" id="tx-s-confirm"><div class="pipe-d"></div><div class="pipe-l">Confirm</div></div>
       </div>
       <div class="row">
-        <div class="field"><label class="field-label">Buyer</label><input type="text" id="tx-buyer" placeholder="Buyer agent ID"></div>
-        <div class="field"><label class="field-label">Seller</label><input type="text" id="tx-seller" placeholder="Seller agent ID"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-buyer">Buyer</label><input type="text" id="tx-buyer" placeholder="Buyer agent ID"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-seller">Seller</label><input type="text" id="tx-seller" placeholder="Seller agent ID"></div>
       </div>
       <div class="row">
-        <div class="field"><label class="field-label">Capability</label><input type="text" id="tx-cap-id" placeholder="Capability ID"></div>
-        <div class="field"><label class="field-label">Price</label><input type="number" id="tx-price" value="10"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-capability">Capability</label><input type="text" id="tx-cap-id" placeholder="Capability ID"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-price">Price</label><input type="number" id="tx-price" value="10"></div>
       </div>
       <button class="btn btn-full" id="tx-accept-btn">Accept &amp; Create</button>
       <div id="tx-accept-result"></div>
 
       <div class="divider">
         <div class="row">
-          <div class="field"><label class="field-label">Transaction ID</label><input type="text" id="tx-deliver-id" placeholder="TX ID"></div>
-          <div class="field"><label class="field-label">Content hash</label><input type="text" id="tx-content-hash" placeholder="SHA-256"></div>
+          <div class="field"><label class="field-label" data-i18n="lbl-tx-id">Transaction ID</label><input type="text" id="tx-deliver-id" placeholder="TX ID"></div>
+          <div class="field"><label class="field-label" data-i18n="lbl-content-hash">Content hash</label><input type="text" id="tx-content-hash" placeholder="SHA-256"></div>
         </div>
         <button class="btn btn-ghost btn-full" id="tx-deliver-btn">Deliver</button>
         <div id="tx-deliver-result"></div>
       </div>
       <div class="divider">
-        <div class="field"><label class="field-label">Transaction ID</label><input type="text" id="tx-confirm-id" placeholder="TX ID"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-tx-id">Transaction ID</label><input type="text" id="tx-confirm-id" placeholder="TX ID"></div>
         <div class="stars" id="star-rating"><span data-v="1">&#x2605;</span><span data-v="2">&#x2605;</span><span data-v="3">&#x2605;</span><span data-v="4">&#x2605;</span><span data-v="5">&#x2605;</span></div>
         <button class="btn btn-full" id="tx-confirm-btn">Confirm &amp; Settle</button>
         <div id="tx-confirm-result"></div>
@@ -3737,17 +4170,17 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     </div>
 
     <div class="card" id="stakes-card" style="display:none;">
-      <div class="card-title">Validators</div>
+      <div class="card-title" data-i18n="card-validators">Validators</div>
       <div id="stakes-list"></div>
     </div>
 
     <div class="card">
-      <div class="card-title">Watermark</div>
+      <div class="card-title" data-i18n="card-watermark">Watermark</div>
       <div class="row">
-        <div class="field"><label class="field-label">Asset ID</label><input type="text" id="emb-asset" placeholder="Asset ID"></div>
-        <div class="field"><label class="field-label">Buyer ID</label><input type="text" id="emb-caller" placeholder="Buyer agent ID"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-asset-id">Asset ID</label><input type="text" id="emb-asset" placeholder="Asset ID"></div>
+        <div class="field"><label class="field-label" data-i18n="lbl-buyer-id">Buyer ID</label><input type="text" id="emb-caller" placeholder="Buyer agent ID"></div>
       </div>
-      <div class="field"><label class="field-label">Content</label><textarea id="emb-content" placeholder="Content to watermark..."></textarea></div>
+      <div class="field"><label class="field-label" data-i18n="lbl-content">Content</label><textarea id="emb-content" placeholder="Content to watermark..."></textarea></div>
       <button class="btn btn-full" id="emb-btn">Embed</button>
       <div id="emb-result"></div>
 
@@ -3779,9 +4212,9 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   function esc(s){if(s==null)return'';var d=document.createElement('div');d.textContent=String(s);return d.innerHTML;}
   function trunc(s,n){n=n||16;return s&&s.length>n?s.slice(0,n)+'\u2026':(s||'');}
   function timeAgo(ts){if(!ts)return'';var then=typeof ts==='number'?(ts>1e12?new Date(ts):new Date(ts*1000)):new Date(ts);var d=Math.floor((Date.now()-then.getTime())/1000);if(d<0)d=0;if(d<60)return d+'s ago';if(d<3600)return Math.floor(d/60)+'m ago';if(d<86400)return Math.floor(d/3600)+'h ago';return Math.floor(d/86400)+'d ago';}
-  async function api(p){try{return(await fetch(p)).json();}catch(e){return null;}}
+  async function api(p){try{var r=await fetch(p);if(!r.ok){var d=null;try{d=await r.json();}catch(x){}return d||{error:'HTTP '+r.status};}return r.json();}catch(e){return null;}}
   async function postApi(p,b){try{return(await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json();}catch(e){return{error:e.message};}}
-  function toast(msg,type){var c=document.getElementById('toast-c');if(!c){c=document.createElement('div');c.id='toast-c';c.className='toast-c';document.body.appendChild(c);}var el=document.createElement('div');el.className='tst'+(type==='error'?' error':'');el.textContent=msg;c.appendChild(el);setTimeout(function(){el.remove();},3000);}
+  function toast(msg,type){var c=document.getElementById('toast-c');if(!c){c=document.createElement('div');c.id='toast-c';c.className='toast-c';c.setAttribute('role','log');c.setAttribute('aria-live','polite');document.body.appendChild(c);}var el=document.createElement('div');el.className='tst'+(type==='error'?' error':'');el.textContent=msg;c.appendChild(el);setTimeout(function(){el.remove();},3000);}
   window.toast=toast;
 
   /* ── Wallet identity ──────────── */
@@ -3798,406 +4231,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       document.getElementById('pg-'+this.dataset.page).classList.add('active');
       if(this.dataset.page==='assets')loadAssets();
       if(this.dataset.page==='trade')loadPortfolio();
-      if(this.dataset.page==='network'){// ── Drop Zone ──
-  var dropZone = document.getElementById('drop-zone');
-  var filePick = document.getElementById('file-pick');
-  var regFields = document.getElementById('reg-fields');
-  var dropFileInfo = document.getElementById('drop-file-info');
-  var dropText = document.getElementById('drop-text');
-  var _droppedPath = '';
-
-  function formatSize(bytes){
-    if(bytes<1024)return bytes+' B';
-    if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
-    return(bytes/1048576).toFixed(1)+' MB';
-  }
-
-  function handleFile(file){
-    _droppedPath = file.name;
-    // Try to get full path (only works in some browsers via webkitRelativePath)
-    if(file.path) _droppedPath = file.path;
-    else if(file.webkitRelativePath) _droppedPath = file.webkitRelativePath;
-
-    document.getElementById('reg-path').value = _droppedPath;
-
-    // Auto-generate tags from file extension and name
-    var ext = file.name.split('.').pop().toLowerCase();
-    var autoTags = [];
-    if(['csv','json','xml','parquet','sqlite','db'].indexOf(ext)!==-1) autoTags.push('dataset');
-    if(['jpg','jpeg','png','gif','webp','svg','bmp'].indexOf(ext)!==-1) autoTags.push('image');
-    if(['mp4','mov','avi','mkv'].indexOf(ext)!==-1) autoTags.push('video');
-    if(['mp3','wav','flac','ogg'].indexOf(ext)!==-1) autoTags.push('audio');
-    if(['pdf','doc','docx','txt','md'].indexOf(ext)!==-1) autoTags.push('document');
-    if(['py','js','ts','go','rs','java','c','cpp'].indexOf(ext)!==-1) autoTags.push('code');
-    if(ext) autoTags.push(ext);
-    document.getElementById('reg-tags').value = autoTags.join(', ');
-
-    // Show file info in drop zone
-    dropZone.classList.add('has-file');
-    dropFileInfo.style.display = 'flex';
-    dropFileInfo.innerHTML = '<div><div class="drop-file-name">'+esc(file.name)+'</div><div class="drop-file-size">'+formatSize(file.size)+'</div></div><button class="drop-file-remove" onclick="clearFile()">&times;</button>';
-    dropText.style.display = 'none';
-    document.querySelector('.drop-icon').style.display = 'none';
-    document.querySelector('.drop-hint').style.display = 'none';
-
-    // Show form fields
-    regFields.style.display = 'block';
-  }
-
-  window.clearFile = function(){
-    _droppedPath = '';
-    document.getElementById('reg-path').value = '';
-    document.getElementById('reg-tags').value = '';
-    dropZone.classList.remove('has-file');
-    dropFileInfo.style.display = 'none';
-    dropFileInfo.innerHTML = '';
-    dropText.style.display = '';
-    document.querySelector('.drop-icon').style.display = '';
-    document.querySelector('.drop-hint').style.display = '';
-    regFields.style.display = 'none';
-    filePick.value = '';
-  };
-
-  // Drag events
-  ['dragenter','dragover'].forEach(function(evt){
-    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('over');});
-  });
-  ['dragleave','drop'].forEach(function(evt){
-    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('over');});
-  });
-  dropZone.addEventListener('drop', function(e){
-    var files = e.dataTransfer.files;
-    if(files.length > 0) handleFile(files[0]);
-  });
-  dropZone.addEventListener('click', function(e){
-    if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'LABEL' && !dropZone.classList.contains('has-file')){
-      filePick.click();
-    }
-  });
-  filePick.addEventListener('change', function(){
-    if(this.files.length > 0) handleFile(this.files[0]);
-  });
-
-  // ── i18n ──
-  var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
-  var _t = {
-    en: {
-      'pg-register-title': 'Register a data asset',
-      'pg-register-desc': 'Claim ownership of a file. Once registered, other agents can discover, quote, and purchase access rights.',
-      'pg-trade-title': 'Trade',
-      'pg-trade-desc': 'Quote and purchase shares in data assets. Buy to gain access rights and revenue share.',
-      'pg-assets-title': 'Your Assets',
-      'pg-assets-desc': 'Manage registered data assets. Click any asset for details.',
-      'pg-agents-title': 'Agent Protocol',
-      'pg-agents-desc': 'Register your agent on the AHRP network, discover data providers, and execute transactions.',
-      'pg-network-title': 'Network',
-      'pg-network-desc': 'Node status and validator information.',
-      'reg-path-ph': '/path/to/your/file',
-      'drop-text': 'Drag a file here, or <label for="file-pick" class="drop-link">browse</label>',
-      'drop-hint': 'Register your file to claim ownership on the Oasyce network',
-      'hint-file': 'Auto-filled from your dropped file',
-      'hint-owner': 'Who owns this data? Defaults to your node ID if left blank.',
-      'hint-tags': 'Help others find your asset. Comma-separated keywords.',
-      'optional': 'optional',
-      'reg-owner-ph': 'Your name or agent ID',
-      'reg-tags-ph': 'medical, imaging, dicom',
-      'reg-btn': 'Register',
-      'buy-asset-ph': 'Paste asset ID',
-      'quote-btn': 'Quote',
-      'buy-btn': 'Buy',
-      'card-buy': 'Buy Shares',
-      'hint-buy-asset': 'Copy from the Assets tab or from the creator who shared it with you.',
-      'hint-buy-amount': 'How much to spend.',
-      'card-portfolio': 'Portfolio',
-      'card-stake': 'Stake',
-      'stake-node-ph': 'Validator node ID',
-      'stake-btn': 'Stake',
-      'search-ph': 'Search by ID or tag...',
-      'card-announce': 'Announce Agent',
-      'announce-btn': 'Announce',
-      'card-discover': 'Discover Agents',
-      'find-btn': 'Find',
-      'card-tx': 'Transaction',
-      'accept-btn': 'Accept & Create',
-      'deliver-btn': 'Deliver',
-      'confirm-btn': 'Confirm & Settle',
-      'card-node': 'Node',
-      'card-validators': 'Validators',
-      'card-watermark': 'Watermark',
-      'embed-btn': 'Embed',
-      'trace-btn': 'Trace',
-      'lookup-btn': 'Lookup',
-      'lbl-file': 'File path',
-      'lbl-owner': 'Owner',
-      'lbl-tags': 'Tags',
-      'lbl-rights-type': 'Rights type',
-      'lbl-co-creators': 'Co-creators',
-      'hint-co-creators': 'At least 2 co-creators, shares must total 100%',
-      'rights-original': 'Original', 'rights-co_creation': 'Co-creation', 'rights-licensed': 'Licensed', 'rights-collection': 'Collection',
-      'disputed': 'Disputed', 'dispute-btn': 'File dispute', 'dispute-reason-ph': 'Reason for dispute', 'dispute-submit': 'Submit', 'delisted': 'Delisted', 'dispute-resolved': 'Resolved', 'dispute-dismissed': 'Dismissed', 'remedy-delist': 'Delist', 'remedy-transfer': 'Transfer', 'remedy-rights_correction': 'Correct rights', 'remedy-share_adjustment': 'Adjust shares', 'drop-hint-unified': 'Drop file or folder, or click to select', 'pick-file': 'File', 'pick-folder': 'Folder', 'register-data': 'Register data', 'publish-cap': 'Publish capability', 'cap-name': 'Name', 'cap-provider': 'Provider', 'cap-base-price': 'Base price (OAS)', 'cap-published': 'Published',
-      'lbl-asset-id': 'Asset ID',
-      'lbl-amount': 'Amount (OAS)',
-      'lbl-node-id': 'Node ID',
-      'empty-assets': 'No assets yet. Go to <strong>Register</strong> to add your first.',
-      'empty-portfolio': 'No holdings yet',
-      'stat-assets': 'Assets',
-      'stat-blocks': 'Blocks',
-      'stat-watermarks': 'Watermarks',
-      'lang-btn': '中',
-      'card-identity': 'Your Identity',
-      'no-identity': 'No identity found. Run <code>oasyce start</code> to generate your keys.',
-      'id-hint': 'This is your unique identity on the Oasyce network. Every asset you register is cryptographically signed with your private key.',
-      'id-backup': '&#9888; Back up <code>~/.oasyce/keys/</code> — if you lose your keys, you lose access to all your registered assets.',
-      'copied': 'Copied',
-      'auto-default': 'auto',
-      'loading-identity': 'Loading...',
-      'about-title': 'About Oasyce',
-      'about-version': 'v1.5.0',
-      'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
-      'tab-overview': 'Overview',
-      'tab-start': 'Quick Start',
-      'tab-arch': 'Architecture',
-      'tab-econ': 'Economics',
-      'tab-update': 'Maintain',
-      'tab-links': 'Links',
-      'about-how': 'Oasyce is a decentralized protocol where AI agents autonomously register, discover, license, and settle data rights. Data owners register files and receive a cryptographic proof-of-provenance certificate (PoPc). AI agents discover data via a Recall-Rank pipeline, negotiate prices through bonding curves, and settle transactions with escrow-protected OAS tokens.',
-      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # verify setup\n3. oasyce start           # launch node + dashboard\n4. Open http://localhost:8420',
-      'about-arch': 'Core Layers:\n\u2022 Schema Registry \u2014 unified validation for data/capability/oracle/identity\n\u2022 Engine Pipeline \u2014 Scan \u2192 Classify \u2192 Metadata \u2192 PoPc Certificate \u2192 Register\n\u2022 Discovery \u2014 Recall (broad retrieval) \u2192 Rank (trust + economics) + feedback loop\n\u2022 Settlement \u2014 bonding curve pricing, escrow, share distribution\n\u2022 Access Control \u2014 L0 metadata / L1 sample / L2 compute / L3 full\n\u2022 P2P Network \u2014 Ed25519 identity, gossip sync, PoS consensus\n\u2022 Risk Engine \u2014 auto-classification (public / internal / sensitive)',
-      'about-econ': 'Token: OAS\n\nPricing: Bonding curve (reserve ratio 0.35) \u2014 more buyers = higher price\nShares: Early buyers earn more (diminishing: 100% \u2192 80% \u2192 60% \u2192 40%)\nRights multiplier: original 1.0x / co_creation 0.9x / licensed 0.7x / collection 0.3x\nStaking: Validators stake OAS to produce blocks and earn rewards\nBlock reward: 4.0 OAS (mainnet), halving every ~1M blocks\nEscrow: Funds locked before execution, released after quality verification',
-      'about-update': 'Update:\n  pip install --upgrade oasyce\n\nBuild from source:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\nRun tests:\n  python -m pytest tests/ -v\n\nContribute: Fork \u2192 Branch \u2192 PR (see CONTRIBUTING.md)',
-      'link-intro': 'Introduction',
-      'link-intro-d': 'What is Oasyce and why it matters',
-      'link-whitepaper': 'Whitepaper',
-      'link-whitepaper-d': 'Full protocol design and economics paper',
-      'link-docs': 'Protocol Overview',
-      'link-docs-d': 'Technical reference, API, and architecture',
-      'link-github-project': 'GitHub (Project)',
-      'link-github-project-d': 'Specs, docs, and roadmap',
-      'link-github-engine': 'GitHub (Engine)',
-      'link-github-engine-d': 'Plugin engine source code',
-      'link-discord': 'Discord Community',
-      'link-discord-d': 'Chat, support, and governance',
-      'link-contact': 'Contact',
-    },
-    zh: {
-      'pg-register-title': '注册数据资产',
-      'pg-register-desc': '确立文件的归属权。注册后，其他代理可以发现、报价和购买访问权限。',
-      'pg-trade-title': '交易',
-      'pg-trade-desc': '报价并购买数据资产份额。购买即获得访问权和收益分成。',
-      'pg-assets-title': '我的资产',
-      'pg-assets-desc': '管理已注册的数据资产。点击任意资产查看详情。',
-      'pg-agents-title': '代理协议',
-      'pg-agents-desc': '在 AHRP 网络注册你的代理，发现数据提供者，执行交易。',
-      'pg-network-title': '网络',
-      'pg-network-desc': '节点状态与验证者信息。',
-      'reg-path-ph': '文件路径',
-      'drop-text': '拖拽文件到这里，或 <label for="file-pick" class="drop-link">浏览选择</label>',
-      'drop-hint': '注册你的文件，在 Oasyce 网络上确立数据归属权',
-      'hint-file': '已从拖入的文件自动填写',
-      'hint-owner': '数据所有者。留空则默认使用你的节点 ID。',
-      'hint-tags': '帮助其他代理发现你的资产。用逗号分隔关键词。',
-      'optional': '可选',
-      'reg-owner-ph': '所有者名称或代理 ID',
-      'reg-tags-ph': '标签，用逗号分隔',
-      'lbl-rights-type': '权利类型',
-      'lbl-co-creators': '共创者',
-      'hint-co-creators': '至少2个共创者，份额合计100%',
-      'rights-original': '原创', 'rights-co_creation': '共创', 'rights-licensed': '授权转售', 'rights-collection': '个人收藏',
-      'disputed': '争议中', 'dispute-btn': '发起争议', 'dispute-reason-ph': '争议原因', 'dispute-submit': '提交', 'delisted': '已下架', 'dispute-resolved': '已裁决', 'dispute-dismissed': '已驳回', 'remedy-delist': '下架', 'remedy-transfer': '转移所有权', 'remedy-rights_correction': '更正权利', 'remedy-share_adjustment': '调整份额', 'drop-hint-unified': '拖入文件或文件夹，或点击选择', 'pick-file': '文件', 'pick-folder': '文件夹', 'register-data': '注册数据', 'publish-cap': '发布能力', 'cap-name': '名称', 'cap-provider': '提供者', 'cap-base-price': '基础价格 (OAS)', 'cap-published': '已发布',
-      'reg-btn': '注册',
-      'buy-asset-ph': '粘贴资产 ID',
-      'quote-btn': '报价',
-      'buy-btn': '购买',
-      'card-buy': '购买份额',
-      'hint-buy-asset': '从资产页复制，或从数据创建者处获取。',
-      'hint-buy-amount': '你愿意花多少 OAS。',
-      'card-portfolio': '持仓',
-      'card-stake': '质押',
-      'stake-node-ph': '验证者节点 ID',
-      'stake-btn': '质押',
-      'search-ph': '按 ID 或标签搜索...',
-      'card-announce': '注册代理',
-      'announce-btn': '广播',
-      'card-discover': '发现代理',
-      'find-btn': '查找',
-      'card-tx': '交易流程',
-      'accept-btn': '接受并创建',
-      'deliver-btn': '交付',
-      'confirm-btn': '确认并结算',
-      'card-node': '节点',
-      'card-validators': '验证者',
-      'card-watermark': '水印',
-      'embed-btn': '嵌入',
-      'trace-btn': '追溯',
-      'lookup-btn': '查询',
-      'lbl-file': '文件路径',
-      'lbl-owner': '所有者',
-      'lbl-tags': '标签',
-      'lbl-asset-id': '资产 ID',
-      'lbl-amount': '数量（OAS）',
-      'lbl-node-id': '节点 ID',
-      'empty-assets': '暂无资产。前往 <strong>注册</strong> 添加你的第一个资产。',
-      'empty-portfolio': '暂无持仓',
-      'stat-assets': '资产',
-      'stat-blocks': '区块',
-      'stat-watermarks': '水印',
-      'lang-btn': 'En',
-      'card-identity': '你的身份',
-      'no-identity': '未找到密钥。运行 <code>oasyce start</code> 生成你的身份。',
-      'id-hint': '这是你在 Oasyce 网络上的唯一身份。你注册的每个资产都会用你的私钥进行密码学签名。',
-      'id-backup': '&#9888; 请备份 <code>~/.oasyce/keys/</code> 目录 —— 丢失密钥意味着永久失去所有已注册资产的控制权。',
-      'copied': '已复制',
-      'auto-default': '自动',
-      'loading-identity': '加载中...',
-      'about-title': '关于 Oasyce',
-      'about-version': 'v1.5.0',
-      'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
-      'tab-overview': '概览',
-      'tab-start': '快速开始',
-      'tab-arch': '技术架构',
-      'tab-econ': '经济模型',
-      'tab-update': '维护更新',
-      'tab-links': '链接',
-      'about-how': 'Oasyce 是一个去中心化协议，AI 代理在其中自主注册、发现、许可和结算数据权利。数据所有者注册文件并获得加密来源证明证书 (PoPc)。AI 代理通过 Recall-Rank 管道发现数据，通过联合曲线协商价格，并使用托管保护的 OAS 代币进行结算。',
-      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # 验证安装\n3. oasyce start           # 启动节点 + 仪表盘\n4. 浏览器打开 http://localhost:8420',
-      'about-arch': '核心层级:\n\u2022 Schema Registry \u2014 统一验证 data/capability/oracle/identity 四种资产\n\u2022 引擎管道 \u2014 扫描 \u2192 分类 \u2192 元数据 \u2192 PoPc 证书 \u2192 注册\n\u2022 发现引擎 \u2014 Recall (广召回) \u2192 Rank (信任+经济) + 反馈循环\n\u2022 结算引擎 \u2014 联合曲线定价、托管、份额分配\n\u2022 访问控制 \u2014 L0 元数据 / L1 采样 / L2 计算 / L3 完整\n\u2022 P2P 网络 \u2014 Ed25519 身份、gossip 同步、PoS 共识\n\u2022 风险引擎 \u2014 自动分级 (public / internal / sensitive)',
-      'about-econ': '代币: OAS\n\n定价: 联合曲线 (储备率 0.35) \u2014 买家越多价格越高\n份额: 早期买家获利更多 (递减: 100% \u2192 80% \u2192 60% \u2192 40%)\n权利系数: 原创 1.0x / 共创 0.9x / 授权 0.7x / 收藏 0.3x\n质押: 验证者质押 OAS 出块并获得奖励\n区块奖励: 4.0 OAS (主网)，每约 100 万块减半\n托管: 执行前锁定资金，质量验证后释放',
-      'about-update': '更新:\n  pip install --upgrade oasyce\n\n从源码构建:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\n运行测试:\n  python -m pytest tests/ -v\n\n贡献: Fork \u2192 Branch \u2192 PR (详见 CONTRIBUTING.md)',
-      'link-intro': '项目介绍',
-      'link-intro-d': '什么是 Oasyce，为什么重要',
-      'link-whitepaper': '白皮书',
-      'link-whitepaper-d': '完整协议设计与经济模型论文',
-      'link-docs': '协议概览',
-      'link-docs-d': '技术参考、API 与架构',
-      'link-github-project': 'GitHub (项目)',
-      'link-github-project-d': '规范、文档与路线图',
-      'link-github-engine': 'GitHub (引擎)',
-      'link-github-engine-d': '插件引擎源代码',
-      'link-discord': 'Discord 社区',
-      'link-discord-d': '聊天、支持与治理',
-      'link-contact': '联系我们',
-    }
-  };
-
-  function applyLang() {
-    var t = _t[_lang];
-    // Nav links
-    document.querySelectorAll('.nav-link').forEach(function(el){
-      el.textContent = el.getAttribute('data-'+_lang) || el.textContent;
-    });
-    // Lang button
-    document.getElementById('lang-btn').textContent = t['lang-btn'];
-    // Page titles & descs
-    ['register','trade','assets','agents','network'].forEach(function(pg){
-      var title = document.querySelector('#pg-'+pg+' .page-title');
-      var desc = document.querySelector('#pg-'+pg+' .page-desc');
-      if(title) title.textContent = t['pg-'+pg+'-title'] || title.textContent;
-      if(desc) desc.textContent = t['pg-'+pg+'-desc'] || desc.textContent;
-    });
-    // Stat labels
-    var statLabels = document.querySelectorAll('.stat-l');
-    if(statLabels[0]) statLabels[0].textContent = t['stat-assets'];
-    if(statLabels[1]) statLabels[1].textContent = t['stat-blocks'];
-    if(statLabels[2]) statLabels[2].textContent = t['stat-watermarks'];
-    // Buttons
-    document.getElementById('reg-btn').textContent = t['reg-btn'];
-    document.getElementById('quote-btn').textContent = t['quote-btn'];
-    document.getElementById('buy-btn').textContent = t['buy-btn'];
-    document.getElementById('stake-btn').textContent = t['stake-btn'];
-    document.getElementById('ahrp-announce-btn').textContent = t['announce-btn'];
-    document.getElementById('ahrp-find-btn').textContent = t['find-btn'];
-    document.getElementById('tx-accept-btn').textContent = t['accept-btn'];
-    document.getElementById('tx-deliver-btn').textContent = t['deliver-btn'];
-    document.getElementById('tx-confirm-btn').textContent = t['confirm-btn'];
-    document.getElementById('emb-btn').textContent = t['embed-btn'];
-    document.getElementById('fp-trace-btn').textContent = t['trace-btn'];
-    document.getElementById('fp-list-btn').textContent = t['lookup-btn'];
-    // Placeholders
-    document.getElementById('reg-path').placeholder = t['reg-path-ph'];
-    document.getElementById('reg-owner').placeholder = t['reg-owner-ph'];
-    document.getElementById('reg-tags').placeholder = t['reg-tags-ph'];
-    document.getElementById('buy-asset').placeholder = t['buy-asset-ph'];
-    document.getElementById('stake-node').placeholder = t['stake-node-ph'];
-    document.getElementById('asset-search').placeholder = t['search-ph'];
-    // Card titles
-    var cardTitles = document.querySelectorAll('.card-title');
-    var cardMap = ['card-buy','card-portfolio','card-stake','card-announce','card-discover','card-tx','card-node','','card-watermark'];
-    cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
-    // Field labels
-    var labels = document.querySelectorAll('.field-label');
-
-
-  }
-
-  // Lang toggle
-  document.getElementById('lang-btn').addEventListener('click', function(){
-    _lang = _lang === 'en' ? 'zh' : 'en';
-    applyLang();
-  });
-
-  // About panel — tabbed info hub for all audiences
-  document.getElementById('about-btn').addEventListener('click', function(){
-    var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
-    var t = _t[_lang];
-    var overlay=document.createElement('div');overlay.id='about-overlay';
-    overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
-      '<div class="about-panel">'+
-      '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
-      '<h3>'+t['about-title']+'<span class="about-version">'+t['about-version']+'</span></h3>'+
-      '<p>'+t['about-desc']+'</p>'+
-      '<div class="about-tabs">'+
-        '<button class="about-tab active" data-about-tab="overview">'+t['tab-overview']+'</button>'+
-        '<button class="about-tab" data-about-tab="start">'+t['tab-start']+'</button>'+
-        '<button class="about-tab" data-about-tab="arch">'+t['tab-arch']+'</button>'+
-        '<button class="about-tab" data-about-tab="econ">'+t['tab-econ']+'</button>'+
-        '<button class="about-tab" data-about-tab="update">'+t['tab-update']+'</button>'+
-        '<button class="about-tab" data-about-tab="links">'+t['tab-links']+'</button>'+
-      '</div>'+
-      '<div class="about-section active" data-about-section="overview">'+
-        '<p>'+t['about-how']+'</p>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="start">'+
-        '<pre>'+t['about-quickstart']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="arch">'+
-        '<pre>'+t['about-arch']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="econ">'+
-        '<pre>'+t['about-econ']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="update">'+
-        '<pre>'+t['about-update']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="links">'+
-        '<ul class="about-links">'+
-          '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github-project']+'</div><div class="link-desc">'+t['link-github-project-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank"><div><div class="link-label">'+t['link-github-engine']+'</div><div class="link-desc">'+t['link-github-engine-d']+'</div></div></a></li>'+
-          '<li><a href="https://discord.gg/oasyce" target="_blank"><div><div class="link-label">'+t['link-discord']+'</div><div class="link-desc">'+t['link-discord-d']+'</div></div></a></li>'+
-        '</ul>'+
-        '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
-      '</div>'+
-      '</div>';
-    document.body.appendChild(overlay);
-    // Tab switching
-    overlay.querySelectorAll('.about-tab').forEach(function(tab){
-      tab.addEventListener('click',function(){
-        overlay.querySelectorAll('.about-tab').forEach(function(t){t.classList.remove('active');});
-        overlay.querySelectorAll('.about-section').forEach(function(s){s.classList.remove('active');});
-        tab.classList.add('active');
-        var sec=overlay.querySelector('[data-about-section="'+tab.dataset.aboutTab+'"]');
-        if(sec)sec.classList.add('active');
-      });
+      if(this.dataset.page==='network'){loadStatus();loadIdentity();loadStakes();}
     });
   });
-
-
-  try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
-  applyLang();
-
-  loadStatus();loadStakes();}
+  links.forEach(function(link){
+    link.addEventListener('keydown',function(e){
+      if(e.key==='Enter'||e.key===' '){e.preventDefault();this.click();}
     });
   });
 
@@ -4207,451 +4246,189 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     var o=document.createElement('div');o.id='modal-bg';o.className='modal-bg';
     var tags=(asset.tags||[]).map(function(t){return'<span class="tag">'+esc(t)+'</span>';}).join(' ');
     var rightsLabels={original:'Original',co_creation:'Co-creation',licensed:'Licensed',collection:'Collection'};
-    var rightsColors={original:'#4ade80',co_creation:'#60a5fa',licensed:'#facc15',collection:'#888'};
+    var rightsColors={original:'var(--success)',co_creation:'var(--accent)',licensed:'#d4a017',collection:'var(--text-t)'};
     var rt=asset.rights_type||'original';
     var rightsHtml='<div class="kv"><span class="kv-k">Rights</span><span class="kv-v" style="color:'+rightsColors[rt]+'">'+(rightsLabels[rt]||rt)+'</span></div>';
     var coHtml='';
     if(asset.co_creators&&asset.co_creators.length){coHtml='<div class="kv"><span class="kv-k">Co-creators</span><span class="kv-v">';asset.co_creators.forEach(function(c){coHtml+=esc(c.address||'—')+' ('+c.share+'%) ';});coHtml+='</span></div>';}
     var disputeHtml='';
-    if(asset.disputed){disputeHtml='<div style="margin-top:8px;padding:8px;border:1px solid #f87171;border-radius:6px;"><span style="color:#f87171;font-weight:600;">⚠ Disputed</span>';if(asset.dispute_reason)disputeHtml+='<div style="font-size:12px;margin-top:4px;">Reason: '+esc(asset.dispute_reason)+'</div>';if(asset.arbitrator_candidates&&asset.arbitrator_candidates.length){disputeHtml+='<div style="font-size:12px;margin-top:4px;">Arbitrators:';asset.arbitrator_candidates.forEach(function(a){disputeHtml+=' '+(a.name||a.capability_id.slice(0,8))+'('+Math.round(a.score*100)+'%)';});disputeHtml+='</div>';}disputeHtml+='</div>';}
+    if(asset.disputed){disputeHtml='<div style="margin-top:8px;padding:8px;border:1px solid var(--error);border-radius:6px;"><span style="color:var(--error);font-weight:600;">Disputed</span>';if(asset.dispute_reason)disputeHtml+='<div style="font-size:12px;margin-top:4px;">Reason: '+esc(asset.dispute_reason)+'</div>';disputeHtml+='</div>';}
     else{disputeHtml='<div style="margin-top:8px;"><button class="btn btn-ghost btn-sm" onclick="showDisputeForm(\''+esc(asset.asset_id)+'\')">File dispute</button><div id="dispute-form-'+esc(asset.asset_id)+'" style="display:none;margin-top:6px;"><input type="text" id="dispute-reason-input" placeholder="Reason for dispute" style="margin-bottom:4px;"><button class="btn btn-danger btn-sm" onclick="submitDispute(\''+esc(asset.asset_id)+'\')">Submit</button></div></div>';}
+    var aid=esc(asset.asset_id);
     o.innerHTML='<div class="modal" onclick="event.stopPropagation()">'+
-      '<button class="modal-x" onclick="document.getElementById(\'modal-bg\').remove()">&times;</button>'+
+      '<button class="modal-x" onclick="var m=document.getElementById(\'modal-bg\');if(m&&m._closeModal)m._closeModal();else if(m)m.remove();">&times;</button>'+
       '<h3>Asset Detail</h3>'+
-      '<div class="kv"><span class="kv-k">ID</span><span class="kv-v" style="cursor:pointer;font-size:11px;" onclick="navigator.clipboard.writeText(\''+esc(asset.asset_id)+'\');toast(\'Copied\')">'+esc(asset.asset_id)+' &#128203;</span></div>'+
+      '<div class="kv"><span class="kv-k">ID</span><span class="kv-v" style="cursor:pointer;font-size:11px;" onclick="navigator.clipboard.writeText(\''+aid+'\');toast(\'Copied\')">'+aid+' &#128203;</span></div>'+
       '<div class="kv"><span class="kv-k">Owner</span><span class="kv-v">'+esc(asset.owner)+'</span></div>'+
-      '<div class="kv"><span class="kv-k">Created</span><span class="kv-v">'+timeAgo(asset.created_at)+'</span></div>'+
       '<div class="kv"><span class="kv-k">Price</span><span class="kv-v">'+(asset.spot_price!=null?asset.spot_price+' OAS':'&mdash;')+'</span></div>'+
       rightsHtml+coHtml+
       '<div class="kv"><span class="kv-k">Tags</span><span class="kv-v">'+(tags||'&mdash;')+'</span></div>'+
-      '<div style="margin-top:16px;display:flex;gap:8px;">'+
-        '<input type="text" id="m-tags" value="'+(asset.tags||[]).join(', ')+'" placeholder="Edit tags...">'+
-        '<button class="btn btn-ghost btn-sm" onclick="editTags(\''+esc(asset.asset_id)+'\')">Save</button>'+
+      '<div id="modal-holdings-'+aid+'" style="margin-top:8px;padding:8px;background:var(--surface);border-radius:6px;font-size:12px;color:var(--text-t);">Loading holdings...</div>'+
+      '<div style="margin-top:12px;">'+
+        '<button class="btn btn-full" onclick="modalAccessQuote(\''+aid+'\')">Access</button>'+
+        '<div id="access-result-'+aid+'" style="margin-top:6px;"></div>'+
       '</div>'+
-      disputeHtml+
-      '<div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">'+
-        '<button style="width:100%;padding:8px 12px;background:transparent;border:none;color:var(--fg);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;" onclick="var p=this.nextElementSibling;var open=p.style.display!==\'none\';p.style.display=open?\'none\':\'block\';this.querySelector(\'span:last-child\').textContent=open?\'&#9654;\':\'&#9660;\';">'+
-          '<span>Access</span><span>&#9654;</span>'+
+      '<div style="margin-top:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">'+
+        '<button style="width:100%;padding:8px 12px;background:transparent;border:none;color:var(--text);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:13px;" onclick="var p=this.nextElementSibling;p.style.display=p.style.display===\'none\'?\'block\':\'none\';">'+
+          '<span>Invest (buy shares)</span><span style="font-size:11px;color:var(--text-t);">lower bond + price appreciation</span>'+
         '</button>'+
-        '<div id="access-panel-'+esc(asset.asset_id)+'" style="display:none;padding:10px 12px;border-top:1px solid var(--border);">'+
-          '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">'+
-            '<select id="access-level-'+esc(asset.asset_id)+'" style="flex:1;"><option value="L0">L0 — Metadata</option><option value="L1">L1 — Sample</option><option value="L2">L2 — Compute</option><option value="L3">L3 — Full</option></select>'+
-            '<button class="btn btn-ghost btn-sm" onclick="fetchAccessQuote(\''+esc(asset.asset_id)+'\')">Quote</button>'+
+        '<div id="invest-panel-'+aid+'" style="display:none;padding:12px;border-top:1px solid var(--border);">'+
+          '<div style="display:flex;gap:6px;align-items:center;">'+
+            '<input type="number" id="buy-amt-'+aid+'" value="10" min="0.1" step="0.1" style="flex:1;" placeholder="OAS">'+
+            '<button class="btn btn-ghost btn-sm" onclick="modalQuote(\''+aid+'\')">Quote</button>'+
+            '<button class="btn btn-sm" onclick="modalBuy(\''+aid+'\')">Buy</button>'+
           '</div>'+
-          '<div id="access-result-'+esc(asset.asset_id)+'"></div>'+
+          '<div id="buy-result-'+aid+'" style="margin-top:6px;"></div>'+
         '</div>'+
       '</div>'+
-      '<button class="btn btn-danger btn-full" style="margin-top:10px;" onclick="if(confirm(\'Delete this asset?\')){deleteAsset(\''+esc(asset.asset_id)+'\');document.getElementById(\'modal-bg\').remove();}">Delete</button>'+
+      '<div style="margin-top:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">'+
+        '<button style="width:100%;padding:8px 12px;background:transparent;border:none;color:var(--text);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:13px;" onclick="var p=this.nextElementSibling;p.style.display=p.style.display===\'none\'?\'block\':\'none\';">'+
+          '<span>Sell shares</span><span style="font-size:11px;color:var(--text-t);"></span>'+
+        '</button>'+
+        '<div id="sell-panel-'+aid+'" style="display:none;padding:12px;border-top:1px solid var(--border);">'+
+          '<div style="display:flex;gap:6px;align-items:center;">'+
+            '<input type="number" id="sell-amt-'+aid+'" min="0.1" step="0.1" style="flex:1;" placeholder="tokens to sell">'+
+            '<button class="btn btn-ghost btn-sm" onclick="modalSellQuote(\''+aid+'\')">Quote</button>'+
+            '<button class="btn btn-sm" onclick="modalSell(\''+aid+'\')">Sell</button>'+
+          '</div>'+
+          '<div id="sell-result-'+aid+'" style="margin-top:6px;"></div>'+
+        '</div>'+
+      '</div>'+
+      '<div style="margin-top:12px;display:flex;gap:8px;">'+
+        '<input type="text" id="m-tags" value="'+(asset.tags||[]).join(', ')+'" placeholder="Edit tags...">'+
+        '<button class="btn btn-ghost btn-sm" onclick="editTags(\''+aid+'\')">Save</button>'+
+      '</div>'+
+      disputeHtml+
+      '<button class="btn btn-danger btn-full" style="margin-top:10px;" onclick="if(confirm(\'Delete?\')){deleteAsset(\''+aid+'\');var m=document.getElementById(\'modal-bg\');if(m&&m._closeModal)m._closeModal();else if(m)m.remove();}">Delete</button>'+
     '</div>';
-    o.addEventListener('click',function(e){if(e.target===o)o.remove();});
+    var escHandler=function(e){if(e.key==='Escape')closeThisModal();};
+    function closeThisModal(){o.remove();document.removeEventListener('keydown',escHandler);}
+    o._closeModal=closeThisModal;
+    o.addEventListener('click',function(e){if(e.target===o)closeThisModal();});
     document.body.appendChild(o);
+    document.addEventListener('keydown',escHandler);
+    loadModalHoldings(asset.asset_id);
   }
-  window.fetchAccessQuote=async function(aid){var sel=document.getElementById('access-level-'+aid);var lv=sel?sel.value:'L1';var div=document.getElementById('access-result-'+aid);div.innerHTML='<span style="font-size:12px;color:var(--muted);">Loading...</span>';var r=await api('/api/access/quote?asset_id='+encodeURIComponent(aid));if(!r||r.error){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(r?r.error:'Failed')+'</p>';return;}var levels=r.levels||[];var found=levels.find(function(x){return x.level===lv;});if(!found){div.innerHTML='<p class="err" style="font-size:12px;">Level not available</p>';return;}div.innerHTML='<div style="font-size:12px;"><div class="kv"><span class="kv-k">Bond</span><span class="kv-v">'+found.bond+' OAS</span></div><div class="kv"><span class="kv-k">Lock</span><span class="kv-v">'+found.liability_days+' days</span></div>'+(found.available?'<button class="btn btn-full btn-sm" style="margin-top:6px;" onclick="buyAccess(\''+esc(aid)+'\',\''+lv+'\')">Buy '+lv+' Access</button>':'<span style="color:var(--danger);">Not available</span>')+'</div>';};
-  window.buyAccess=async function(aid,lv){var div=document.getElementById('access-result-'+aid);div.innerHTML='<span style="font-size:12px;color:var(--muted);">Purchasing...</span>';var r=await postApi('/api/access/buy',{asset_id:aid,level:lv,buyer:(window.__oasyce_wallet||'anonymous')});if(r&&r.ok!==false&&!r.error){div.innerHTML='<div style="font-size:12px;"><div class="kv"><span class="kv-k">Status</span><span class="kv-v ok">Granted '+lv+'</span></div><div class="kv"><span class="kv-k">Bond</span><span class="kv-v">'+r.bond+' OAS</span></div></div>';toast('Access granted');}else{div.innerHTML='<p class="err" style="font-size:12px;">'+esc(r?r.error:'Failed')+'</p>';}};
   window.showDisputeForm=function(aid){var f=document.getElementById('dispute-form-'+aid);if(f)f.style.display='block';};
-  window.submitDispute=async function(aid){var input=document.getElementById('dispute-reason-input');var reason=(input?input.value:'').trim();if(!reason){toast('Please enter a reason','error');return;}var r=await postApi('/api/dispute',{asset_id:aid,reason:reason});if(r&&r.ok){toast('Dispute filed');document.getElementById('modal-bg').remove();loadAssets();}else{toast(r?r.error:'Failed','error');}};
+  window.submitDispute=async function(aid){var input=document.getElementById('dispute-reason-input');var reason=(input?input.value:'').trim();if(!reason){toast('Please enter a reason','error');return;}var r=await postApi('/api/dispute',{asset_id:aid,reason:reason});if(r&&r.ok){toast('Dispute filed');var m=document.getElementById('modal-bg');if(m&&m._closeModal)m._closeModal();else if(m)m.remove();loadAssets();}else{toast(r?r.error:'Failed','error');}};
+
+  window.loadModalHoldings=async function(aid){
+    var div=document.getElementById('modal-holdings-'+aid);if(!div)return;
+    var buyer=window.__oasyce_wallet||'anonymous';
+    try{
+      var r=await api('/api/portfolio?buyer='+encodeURIComponent(buyer));
+      if(!r||!Array.isArray(r)){div.innerHTML='<span style="color:var(--text-t);">No holdings</span>';return;}
+      var h=r.find(function(x){return x.asset_id===aid;});
+      if(!h){div.innerHTML='<span style="color:var(--text-t);">You hold 0 shares</span>';return;}
+      div.innerHTML='<div style="display:flex;gap:12px;flex-wrap:wrap;">'+
+        '<span>Shares: <b>'+h.shares+'</b></span>'+
+        '<span>Equity: <b>'+h.equity_pct+'%</b></span>'+
+        '<span>Access: <b>'+(h.access_level||'—')+'</b></span>'+
+        '<span>Value: <b>'+h.value_oas+' OAS</b></span>'+
+      '</div>';
+    }catch(e){div.innerHTML='<span style="color:var(--text-t);">—</span>';}
+  };
+
+  window.modalAccessQuote=async function(aid){
+    var div=document.getElementById('access-result-'+aid);if(!div)return;
+    var buyer=window.__oasyce_wallet||'anonymous';
+    div.innerHTML='<span style="font-size:12px;color:var(--text-t);">Loading access tiers...</span>';
+    try{
+      var r=await api('/api/access/quote?asset_id='+encodeURIComponent(aid)+'&buyer='+encodeURIComponent(buyer));
+      if(!r||r.error){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(r?r.error:'Failed')+'</p>';return;}
+      var h='<div style="font-size:12px;">';
+      if(r.reputation!=null)h+='<div class="kv"><span class="kv-k">Reputation</span><span class="kv-v">'+r.reputation+'</span></div>';
+      (r.levels||[]).forEach(function(lv){
+        var avail=lv.available;
+        h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">';
+        h+='<span style="font-weight:600;'+(avail?'':'opacity:0.4;')+'">'+lv.level+'</span>';
+        h+='<span>Bond: '+lv.bond+' OAS · '+lv.liability_days+'d</span>';
+        if(avail){h+='<button class="btn btn-sm" onclick="modalAccessBuy(\''+aid+'\',\''+lv.level+'\')">Get</button>';}
+        else{h+='<span style="font-size:11px;color:var(--text-t);">locked</span>';}
+        h+='</div>';
+      });
+      h+='</div>';
+      div.innerHTML=h;
+    }catch(e){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(e.message)+'</p>';}
+  };
+
+  var _modalBusy={};
+  window.modalAccessBuy=async function(aid,level){
+    if(_modalBusy[aid])return;
+    if(!confirm('Post bond for '+level+' access?'))return;
+    _modalBusy[aid]=true;
+    var div=document.getElementById('access-result-'+aid);
+    var buyer=window.__oasyce_wallet||'anonymous';
+    div.innerHTML='<span style="font-size:12px;color:var(--text-t);">Processing...</span>';
+    try{
+      var r=await postApi('/api/access/buy',{asset_id:aid,buyer:buyer,level:level});
+      if(r&&!r.error){div.innerHTML='<div style="font-size:12px;"><div class="kv"><span class="kv-k">Level</span><span class="kv-v ok">'+level+'</span></div><div class="kv"><span class="kv-k">Bond</span><span class="kv-v">'+(r.bond||0)+' OAS</span></div></div>';toast('Access granted');}
+      else{div.innerHTML='<p class="err" style="font-size:12px;">'+esc(r?r.error:'Failed')+'</p>';}
+    }catch(e){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(e.message)+'</p>';}
+    finally{_modalBusy[aid]=false;}
+  };
+
+  window.modalQuote=async function(aid){
+    var amt=document.getElementById('buy-amt-'+aid);var oas=parseFloat(amt?amt.value:0);
+    if(!oas||oas<=0){toast('Enter OAS amount','error');return;}
+    var div=document.getElementById('buy-result-'+aid);
+    div.innerHTML='<span style="font-size:12px;color:var(--text-t);">Quoting...</span>';
+    try{
+      var r=await api('/api/quote?asset_id='+encodeURIComponent(aid)+'&amount='+oas);
+      if(!r||r.error){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(r?r.error:'Failed')+'</p>';return;}
+      div.innerHTML='<div style="font-size:12px;"><div class="kv"><span class="kv-k">Pay</span><span class="kv-v">'+r.payment+' OAS</span></div><div class="kv"><span class="kv-k">Get</span><span class="kv-v">'+r.tokens+' tokens</span></div><div class="kv"><span class="kv-k">Impact</span><span class="kv-v">'+r.impact_pct+'%</span></div><div class="kv"><span class="kv-k">Burn</span><span class="kv-v">'+r.burn+' OAS</span></div></div>';
+    }catch(e){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(e.message)+'</p>';}
+  };
+
+  window.modalBuy=async function(aid){
+    if(_modalBusy[aid])return;
+    var amt=document.getElementById('buy-amt-'+aid);var oas=parseFloat(amt?amt.value:0);
+    if(!oas||oas<=0){toast('Enter OAS amount','error');return;}
+    if(!confirm('Buy shares for '+oas+' OAS?'))return;
+    _modalBusy[aid]=true;
+    var div=document.getElementById('buy-result-'+aid);
+    var buyer=window.__oasyce_wallet||'anonymous';
+    div.innerHTML='<span style="font-size:12px;color:var(--text-t);">Buying...</span>';
+    try{
+      var r=await postApi('/api/buy',{asset_id:aid,buyer:buyer,amount:oas});
+      if(r&&r.ok){div.innerHTML='<div style="font-size:12px;"><div class="kv"><span class="kv-k">Tokens</span><span class="kv-v ok">'+r.tokens+'</span></div><div class="kv"><span class="kv-k">New price</span><span class="kv-v">'+r.price_after+' OAS</span></div></div>';toast('Purchased');loadModalHoldings(aid);}
+      else{div.innerHTML='<p class="err" style="font-size:12px;">'+esc(r?r.error:'Failed')+'</p>';}
+    }catch(e){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(e.message)+'</p>';}
+    finally{_modalBusy[aid]=false;}
+  };
+
+  window.modalSellQuote=async function(aid){
+    var amt=document.getElementById('sell-amt-'+aid);var tokens=parseFloat(amt?amt.value:0);
+    if(!tokens||tokens<=0){toast('Enter token amount','error');return;}
+    var div=document.getElementById('sell-result-'+aid);
+    var seller=window.__oasyce_wallet||'anonymous';
+    div.innerHTML='<span style="font-size:12px;color:var(--text-t);">Quoting...</span>';
+    try{
+      var r=await api('/api/sell/quote?asset_id='+encodeURIComponent(aid)+'&seller='+encodeURIComponent(seller)+'&tokens='+tokens);
+      if(!r||r.error){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(r?r.error:'Failed')+'</p>';return;}
+      div.innerHTML='<div style="font-size:12px;"><div class="kv"><span class="kv-k">Payout</span><span class="kv-v">'+r.payout_oas+' OAS</span></div><div class="kv"><span class="kv-k">Fee</span><span class="kv-v">'+r.protocol_fee+' OAS</span></div><div class="kv"><span class="kv-k">Burn</span><span class="kv-v">'+r.burn_amount+' OAS</span></div><div class="kv"><span class="kv-k">Impact</span><span class="kv-v">'+r.price_impact_pct+'%</span></div></div>';
+    }catch(e){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(e.message)+'</p>';}
+  };
+
+  window.modalSell=async function(aid){
+    if(_modalBusy[aid])return;
+    var amt=document.getElementById('sell-amt-'+aid);var tokens=parseFloat(amt?amt.value:0);
+    if(!tokens||tokens<=0){toast('Enter token amount','error');return;}
+    if(!confirm('Sell '+tokens+' tokens?'))return;
+    _modalBusy[aid]=true;
+    var div=document.getElementById('sell-result-'+aid);
+    var seller=window.__oasyce_wallet||'anonymous';
+    div.innerHTML='<span style="font-size:12px;color:var(--text-t);">Selling...</span>';
+    try{
+      var r=await postApi('/api/sell',{asset_id:aid,seller:seller,tokens:tokens});
+      if(r&&r.ok){div.innerHTML='<div style="font-size:12px;"><div class="kv"><span class="kv-k">Payout</span><span class="kv-v ok">'+r.payout_oas+' OAS</span></div><div class="kv"><span class="kv-k">Fee</span><span class="kv-v">'+r.protocol_fee+' OAS</span></div></div>';toast('Sold');loadModalHoldings(aid);}
+      else{div.innerHTML='<p class="err" style="font-size:12px;">'+esc(r?r.error:'Failed')+'</p>';}
+    }catch(e){div.innerHTML='<p class="err" style="font-size:12px;">'+esc(e.message)+'</p>';}
+    finally{_modalBusy[aid]=false;}
+  };
 
   window.editTags=async function(aid){var input=document.getElementById('m-tags');var tags=input.value.split(',').map(function(t){return t.trim();}).filter(Boolean);var r=await postApi('/api/asset/update',{asset_id:aid,tags:tags});if(r&&r.ok){toast('Tags updated');loadAssets();}else{toast(r?r.error:'Failed','error');}};
-  window.deleteAsset=async function(aid){if(!confirm('Delete permanently?'))return;try{var r=await fetch('/api/asset/'+aid,{method:'DELETE'});var d=await r.json();if(d.ok){toast('Deleted');loadAssets();// ── Drop Zone ──
-  var dropZone = document.getElementById('drop-zone');
-  var filePick = document.getElementById('file-pick');
-  var regFields = document.getElementById('reg-fields');
-  var dropFileInfo = document.getElementById('drop-file-info');
-  var dropText = document.getElementById('drop-text');
-  var _droppedPath = '';
-
-  function formatSize(bytes){
-    if(bytes<1024)return bytes+' B';
-    if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
-    return(bytes/1048576).toFixed(1)+' MB';
-  }
-
-  function handleFile(file){
-    _droppedPath = file.name;
-    // Try to get full path (only works in some browsers via webkitRelativePath)
-    if(file.path) _droppedPath = file.path;
-    else if(file.webkitRelativePath) _droppedPath = file.webkitRelativePath;
-
-    document.getElementById('reg-path').value = _droppedPath;
-
-    // Auto-generate tags from file extension and name
-    var ext = file.name.split('.').pop().toLowerCase();
-    var autoTags = [];
-    if(['csv','json','xml','parquet','sqlite','db'].indexOf(ext)!==-1) autoTags.push('dataset');
-    if(['jpg','jpeg','png','gif','webp','svg','bmp'].indexOf(ext)!==-1) autoTags.push('image');
-    if(['mp4','mov','avi','mkv'].indexOf(ext)!==-1) autoTags.push('video');
-    if(['mp3','wav','flac','ogg'].indexOf(ext)!==-1) autoTags.push('audio');
-    if(['pdf','doc','docx','txt','md'].indexOf(ext)!==-1) autoTags.push('document');
-    if(['py','js','ts','go','rs','java','c','cpp'].indexOf(ext)!==-1) autoTags.push('code');
-    if(ext) autoTags.push(ext);
-    document.getElementById('reg-tags').value = autoTags.join(', ');
-
-    // Show file info in drop zone
-    dropZone.classList.add('has-file');
-    dropFileInfo.style.display = 'flex';
-    dropFileInfo.innerHTML = '<div><div class="drop-file-name">'+esc(file.name)+'</div><div class="drop-file-size">'+formatSize(file.size)+'</div></div><button class="drop-file-remove" onclick="clearFile()">&times;</button>';
-    dropText.style.display = 'none';
-    document.querySelector('.drop-icon').style.display = 'none';
-    document.querySelector('.drop-hint').style.display = 'none';
-
-    // Show form fields
-    regFields.style.display = 'block';
-  }
-
-  window.clearFile = function(){
-    _droppedPath = '';
-    document.getElementById('reg-path').value = '';
-    document.getElementById('reg-tags').value = '';
-    dropZone.classList.remove('has-file');
-    dropFileInfo.style.display = 'none';
-    dropFileInfo.innerHTML = '';
-    dropText.style.display = '';
-    document.querySelector('.drop-icon').style.display = '';
-    document.querySelector('.drop-hint').style.display = '';
-    regFields.style.display = 'none';
-    filePick.value = '';
-  };
-
-  // Drag events
-  ['dragenter','dragover'].forEach(function(evt){
-    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('over');});
-  });
-  ['dragleave','drop'].forEach(function(evt){
-    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('over');});
-  });
-  dropZone.addEventListener('drop', function(e){
-    var files = e.dataTransfer.files;
-    if(files.length > 0) handleFile(files[0]);
-  });
-  dropZone.addEventListener('click', function(e){
-    if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'LABEL' && !dropZone.classList.contains('has-file')){
-      filePick.click();
-    }
-  });
-  filePick.addEventListener('change', function(){
-    if(this.files.length > 0) handleFile(this.files[0]);
-  });
-
-  // ── i18n ──
-  var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
-  var _t = {
-    en: {
-      'pg-register-title': 'Register a data asset',
-      'pg-register-desc': 'Claim ownership of a file. Once registered, other agents can discover, quote, and purchase access rights.',
-      'pg-trade-title': 'Trade',
-      'pg-trade-desc': 'Quote and purchase shares in data assets. Buy to gain access rights and revenue share.',
-      'pg-assets-title': 'Your Assets',
-      'pg-assets-desc': 'Manage registered data assets. Click any asset for details.',
-      'pg-agents-title': 'Agent Protocol',
-      'pg-agents-desc': 'Register your agent on the AHRP network, discover data providers, and execute transactions.',
-      'pg-network-title': 'Network',
-      'pg-network-desc': 'Node status and validator information.',
-      'reg-path-ph': '/path/to/your/file',
-      'drop-text': 'Drag a file here, or <label for="file-pick" class="drop-link">browse</label>',
-      'drop-hint': 'Register your file to claim ownership on the Oasyce network',
-      'hint-file': 'Auto-filled from your dropped file',
-      'hint-owner': 'Who owns this data? Defaults to your node ID if left blank.',
-      'hint-tags': 'Help others find your asset. Comma-separated keywords.',
-      'optional': 'optional',
-      'reg-owner-ph': 'Your name or agent ID',
-      'reg-tags-ph': 'medical, imaging, dicom',
-      'reg-btn': 'Register',
-      'buy-asset-ph': 'Paste asset ID',
-      'quote-btn': 'Quote',
-      'buy-btn': 'Buy',
-      'card-buy': 'Buy Shares',
-      'hint-buy-asset': 'Copy from the Assets tab or from the creator who shared it with you.',
-      'hint-buy-amount': 'How much to spend.',
-      'card-portfolio': 'Portfolio',
-      'card-stake': 'Stake',
-      'stake-node-ph': 'Validator node ID',
-      'stake-btn': 'Stake',
-      'search-ph': 'Search by ID or tag...',
-      'card-announce': 'Announce Agent',
-      'announce-btn': 'Announce',
-      'card-discover': 'Discover Agents',
-      'find-btn': 'Find',
-      'card-tx': 'Transaction',
-      'accept-btn': 'Accept & Create',
-      'deliver-btn': 'Deliver',
-      'confirm-btn': 'Confirm & Settle',
-      'card-node': 'Node',
-      'card-validators': 'Validators',
-      'card-watermark': 'Watermark',
-      'embed-btn': 'Embed',
-      'trace-btn': 'Trace',
-      'lookup-btn': 'Lookup',
-      'lbl-file': 'File path',
-      'lbl-owner': 'Owner',
-      'lbl-tags': 'Tags',
-      'lbl-rights-type': 'Rights type',
-      'lbl-co-creators': 'Co-creators',
-      'hint-co-creators': 'At least 2 co-creators, shares must total 100%',
-      'rights-original': 'Original', 'rights-co_creation': 'Co-creation', 'rights-licensed': 'Licensed', 'rights-collection': 'Collection',
-      'disputed': 'Disputed', 'dispute-btn': 'File dispute', 'dispute-reason-ph': 'Reason for dispute', 'dispute-submit': 'Submit', 'delisted': 'Delisted', 'dispute-resolved': 'Resolved', 'dispute-dismissed': 'Dismissed', 'remedy-delist': 'Delist', 'remedy-transfer': 'Transfer', 'remedy-rights_correction': 'Correct rights', 'remedy-share_adjustment': 'Adjust shares', 'drop-hint-unified': 'Drop file or folder, or click to select', 'pick-file': 'File', 'pick-folder': 'Folder', 'register-data': 'Register data', 'publish-cap': 'Publish capability', 'cap-name': 'Name', 'cap-provider': 'Provider', 'cap-base-price': 'Base price (OAS)', 'cap-published': 'Published',
-      'lbl-asset-id': 'Asset ID',
-      'lbl-amount': 'Amount (OAS)',
-      'lbl-node-id': 'Node ID',
-      'empty-assets': 'No assets yet. Go to <strong>Register</strong> to add your first.',
-      'empty-portfolio': 'No holdings yet',
-      'stat-assets': 'Assets',
-      'stat-blocks': 'Blocks',
-      'stat-watermarks': 'Watermarks',
-      'lang-btn': '中',
-      'card-identity': 'Your Identity',
-      'no-identity': 'No identity found. Run <code>oasyce start</code> to generate your keys.',
-      'id-hint': 'This is your unique identity on the Oasyce network. Every asset you register is cryptographically signed with your private key.',
-      'id-backup': '&#9888; Back up <code>~/.oasyce/keys/</code> — if you lose your keys, you lose access to all your registered assets.',
-      'copied': 'Copied',
-      'auto-default': 'auto',
-      'loading-identity': 'Loading...',
-      'about-title': 'About Oasyce',
-      'about-version': 'v1.5.0',
-      'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
-      'tab-overview': 'Overview',
-      'tab-start': 'Quick Start',
-      'tab-arch': 'Architecture',
-      'tab-econ': 'Economics',
-      'tab-update': 'Maintain',
-      'tab-links': 'Links',
-      'about-how': 'Oasyce is a decentralized protocol where AI agents autonomously register, discover, license, and settle data rights. Data owners register files and receive a cryptographic proof-of-provenance certificate (PoPc). AI agents discover data via a Recall-Rank pipeline, negotiate prices through bonding curves, and settle transactions with escrow-protected OAS tokens.',
-      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # verify setup\n3. oasyce start           # launch node + dashboard\n4. Open http://localhost:8420',
-      'about-arch': 'Core Layers:\n\u2022 Schema Registry \u2014 unified validation for data/capability/oracle/identity\n\u2022 Engine Pipeline \u2014 Scan \u2192 Classify \u2192 Metadata \u2192 PoPc Certificate \u2192 Register\n\u2022 Discovery \u2014 Recall (broad retrieval) \u2192 Rank (trust + economics) + feedback loop\n\u2022 Settlement \u2014 bonding curve pricing, escrow, share distribution\n\u2022 Access Control \u2014 L0 metadata / L1 sample / L2 compute / L3 full\n\u2022 P2P Network \u2014 Ed25519 identity, gossip sync, PoS consensus\n\u2022 Risk Engine \u2014 auto-classification (public / internal / sensitive)',
-      'about-econ': 'Token: OAS\n\nPricing: Bonding curve (reserve ratio 0.35) \u2014 more buyers = higher price\nShares: Early buyers earn more (diminishing: 100% \u2192 80% \u2192 60% \u2192 40%)\nRights multiplier: original 1.0x / co_creation 0.9x / licensed 0.7x / collection 0.3x\nStaking: Validators stake OAS to produce blocks and earn rewards\nBlock reward: 4.0 OAS (mainnet), halving every ~1M blocks\nEscrow: Funds locked before execution, released after quality verification',
-      'about-update': 'Update:\n  pip install --upgrade oasyce\n\nBuild from source:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\nRun tests:\n  python -m pytest tests/ -v\n\nContribute: Fork \u2192 Branch \u2192 PR (see CONTRIBUTING.md)',
-      'link-intro': 'Introduction',
-      'link-intro-d': 'What is Oasyce and why it matters',
-      'link-whitepaper': 'Whitepaper',
-      'link-whitepaper-d': 'Full protocol design and economics paper',
-      'link-docs': 'Protocol Overview',
-      'link-docs-d': 'Technical reference, API, and architecture',
-      'link-github-project': 'GitHub (Project)',
-      'link-github-project-d': 'Specs, docs, and roadmap',
-      'link-github-engine': 'GitHub (Engine)',
-      'link-github-engine-d': 'Plugin engine source code',
-      'link-discord': 'Discord Community',
-      'link-discord-d': 'Chat, support, and governance',
-      'link-contact': 'Contact',
-    },
-    zh: {
-      'pg-register-title': '注册数据资产',
-      'pg-register-desc': '确立文件的归属权。注册后，其他代理可以发现、报价和购买访问权限。',
-      'pg-trade-title': '交易',
-      'pg-trade-desc': '报价并购买数据资产份额。购买即获得访问权和收益分成。',
-      'pg-assets-title': '我的资产',
-      'pg-assets-desc': '管理已注册的数据资产。点击任意资产查看详情。',
-      'pg-agents-title': '代理协议',
-      'pg-agents-desc': '在 AHRP 网络注册你的代理，发现数据提供者，执行交易。',
-      'pg-network-title': '网络',
-      'pg-network-desc': '节点状态与验证者信息。',
-      'reg-path-ph': '文件路径',
-      'drop-text': '拖拽文件到这里，或 <label for="file-pick" class="drop-link">浏览选择</label>',
-      'drop-hint': '注册你的文件，在 Oasyce 网络上确立数据归属权',
-      'hint-file': '已从拖入的文件自动填写',
-      'hint-owner': '数据所有者。留空则默认使用你的节点 ID。',
-      'hint-tags': '帮助其他代理发现你的资产。用逗号分隔关键词。',
-      'optional': '可选',
-      'reg-owner-ph': '所有者名称或代理 ID',
-      'reg-tags-ph': '标签，用逗号分隔',
-      'lbl-rights-type': '权利类型',
-      'lbl-co-creators': '共创者',
-      'hint-co-creators': '至少2个共创者，份额合计100%',
-      'rights-original': '原创', 'rights-co_creation': '共创', 'rights-licensed': '授权转售', 'rights-collection': '个人收藏',
-      'disputed': '争议中', 'dispute-btn': '发起争议', 'dispute-reason-ph': '争议原因', 'dispute-submit': '提交', 'delisted': '已下架', 'dispute-resolved': '已裁决', 'dispute-dismissed': '已驳回', 'remedy-delist': '下架', 'remedy-transfer': '转移所有权', 'remedy-rights_correction': '更正权利', 'remedy-share_adjustment': '调整份额', 'drop-hint-unified': '拖入文件或文件夹，或点击选择', 'pick-file': '文件', 'pick-folder': '文件夹', 'register-data': '注册数据', 'publish-cap': '发布能力', 'cap-name': '名称', 'cap-provider': '提供者', 'cap-base-price': '基础价格 (OAS)', 'cap-published': '已发布',
-      'reg-btn': '注册',
-      'buy-asset-ph': '粘贴资产 ID',
-      'quote-btn': '报价',
-      'buy-btn': '购买',
-      'card-buy': '购买份额',
-      'hint-buy-asset': '从资产页复制，或从数据创建者处获取。',
-      'hint-buy-amount': '你愿意花多少 OAS。',
-      'card-portfolio': '持仓',
-      'card-stake': '质押',
-      'stake-node-ph': '验证者节点 ID',
-      'stake-btn': '质押',
-      'search-ph': '按 ID 或标签搜索...',
-      'card-announce': '注册代理',
-      'announce-btn': '广播',
-      'card-discover': '发现代理',
-      'find-btn': '查找',
-      'card-tx': '交易流程',
-      'accept-btn': '接受并创建',
-      'deliver-btn': '交付',
-      'confirm-btn': '确认并结算',
-      'card-node': '节点',
-      'card-validators': '验证者',
-      'card-watermark': '水印',
-      'embed-btn': '嵌入',
-      'trace-btn': '追溯',
-      'lookup-btn': '查询',
-      'lbl-file': '文件路径',
-      'lbl-owner': '所有者',
-      'lbl-tags': '标签',
-      'lbl-asset-id': '资产 ID',
-      'lbl-amount': '数量（OAS）',
-      'lbl-node-id': '节点 ID',
-      'empty-assets': '暂无资产。前往 <strong>注册</strong> 添加你的第一个资产。',
-      'empty-portfolio': '暂无持仓',
-      'stat-assets': '资产',
-      'stat-blocks': '区块',
-      'stat-watermarks': '水印',
-      'lang-btn': 'En',
-      'card-identity': '你的身份',
-      'no-identity': '未找到密钥。运行 <code>oasyce start</code> 生成你的身份。',
-      'id-hint': '这是你在 Oasyce 网络上的唯一身份。你注册的每个资产都会用你的私钥进行密码学签名。',
-      'id-backup': '&#9888; 请备份 <code>~/.oasyce/keys/</code> 目录 —— 丢失密钥意味着永久失去所有已注册资产的控制权。',
-      'copied': '已复制',
-      'auto-default': '自动',
-      'loading-identity': '加载中...',
-      'about-title': '关于 Oasyce',
-      'about-version': 'v1.5.0',
-      'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
-      'tab-overview': '概览',
-      'tab-start': '快速开始',
-      'tab-arch': '技术架构',
-      'tab-econ': '经济模型',
-      'tab-update': '维护更新',
-      'tab-links': '链接',
-      'about-how': 'Oasyce 是一个去中心化协议，AI 代理在其中自主注册、发现、许可和结算数据权利。数据所有者注册文件并获得加密来源证明证书 (PoPc)。AI 代理通过 Recall-Rank 管道发现数据，通过联合曲线协商价格，并使用托管保护的 OAS 代币进行结算。',
-      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # 验证安装\n3. oasyce start           # 启动节点 + 仪表盘\n4. 浏览器打开 http://localhost:8420',
-      'about-arch': '核心层级:\n\u2022 Schema Registry \u2014 统一验证 data/capability/oracle/identity 四种资产\n\u2022 引擎管道 \u2014 扫描 \u2192 分类 \u2192 元数据 \u2192 PoPc 证书 \u2192 注册\n\u2022 发现引擎 \u2014 Recall (广召回) \u2192 Rank (信任+经济) + 反馈循环\n\u2022 结算引擎 \u2014 联合曲线定价、托管、份额分配\n\u2022 访问控制 \u2014 L0 元数据 / L1 采样 / L2 计算 / L3 完整\n\u2022 P2P 网络 \u2014 Ed25519 身份、gossip 同步、PoS 共识\n\u2022 风险引擎 \u2014 自动分级 (public / internal / sensitive)',
-      'about-econ': '代币: OAS\n\n定价: 联合曲线 (储备率 0.35) \u2014 买家越多价格越高\n份额: 早期买家获利更多 (递减: 100% \u2192 80% \u2192 60% \u2192 40%)\n权利系数: 原创 1.0x / 共创 0.9x / 授权 0.7x / 收藏 0.3x\n质押: 验证者质押 OAS 出块并获得奖励\n区块奖励: 4.0 OAS (主网)，每约 100 万块减半\n托管: 执行前锁定资金，质量验证后释放',
-      'about-update': '更新:\n  pip install --upgrade oasyce\n\n从源码构建:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\n运行测试:\n  python -m pytest tests/ -v\n\n贡献: Fork \u2192 Branch \u2192 PR (详见 CONTRIBUTING.md)',
-      'link-intro': '项目介绍',
-      'link-intro-d': '什么是 Oasyce，为什么重要',
-      'link-whitepaper': '白皮书',
-      'link-whitepaper-d': '完整协议设计与经济模型论文',
-      'link-docs': '协议概览',
-      'link-docs-d': '技术参考、API 与架构',
-      'link-github-project': 'GitHub (项目)',
-      'link-github-project-d': '规范、文档与路线图',
-      'link-github-engine': 'GitHub (引擎)',
-      'link-github-engine-d': '插件引擎源代码',
-      'link-discord': 'Discord 社区',
-      'link-discord-d': '聊天、支持与治理',
-      'link-contact': '联系我们',
-    }
-  };
-
-  function applyLang() {
-    var t = _t[_lang];
-    // Nav links
-    document.querySelectorAll('.nav-link').forEach(function(el){
-      el.textContent = el.getAttribute('data-'+_lang) || el.textContent;
-    });
-    // Lang button
-    document.getElementById('lang-btn').textContent = t['lang-btn'];
-    // Page titles & descs
-    ['register','trade','assets','agents','network'].forEach(function(pg){
-      var title = document.querySelector('#pg-'+pg+' .page-title');
-      var desc = document.querySelector('#pg-'+pg+' .page-desc');
-      if(title) title.textContent = t['pg-'+pg+'-title'] || title.textContent;
-      if(desc) desc.textContent = t['pg-'+pg+'-desc'] || desc.textContent;
-    });
-    // Stat labels
-    var statLabels = document.querySelectorAll('.stat-l');
-    if(statLabels[0]) statLabels[0].textContent = t['stat-assets'];
-    if(statLabels[1]) statLabels[1].textContent = t['stat-blocks'];
-    if(statLabels[2]) statLabels[2].textContent = t['stat-watermarks'];
-    // Buttons
-    document.getElementById('reg-btn').textContent = t['reg-btn'];
-    document.getElementById('quote-btn').textContent = t['quote-btn'];
-    document.getElementById('buy-btn').textContent = t['buy-btn'];
-    document.getElementById('stake-btn').textContent = t['stake-btn'];
-    document.getElementById('ahrp-announce-btn').textContent = t['announce-btn'];
-    document.getElementById('ahrp-find-btn').textContent = t['find-btn'];
-    document.getElementById('tx-accept-btn').textContent = t['accept-btn'];
-    document.getElementById('tx-deliver-btn').textContent = t['deliver-btn'];
-    document.getElementById('tx-confirm-btn').textContent = t['confirm-btn'];
-    document.getElementById('emb-btn').textContent = t['embed-btn'];
-    document.getElementById('fp-trace-btn').textContent = t['trace-btn'];
-    document.getElementById('fp-list-btn').textContent = t['lookup-btn'];
-    // Placeholders
-    document.getElementById('reg-path').placeholder = t['reg-path-ph'];
-    document.getElementById('reg-owner').placeholder = t['reg-owner-ph'];
-    document.getElementById('reg-tags').placeholder = t['reg-tags-ph'];
-    document.getElementById('buy-asset').placeholder = t['buy-asset-ph'];
-    document.getElementById('stake-node').placeholder = t['stake-node-ph'];
-    document.getElementById('asset-search').placeholder = t['search-ph'];
-    // Card titles
-    var cardTitles = document.querySelectorAll('.card-title');
-    var cardMap = ['card-buy','card-portfolio','card-stake','card-announce','card-discover','card-tx','card-node','','card-watermark'];
-    cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
-    // Field labels
-    var labels = document.querySelectorAll('.field-label');
-
-
-  }
-
-  // Lang toggle
-  document.getElementById('lang-btn').addEventListener('click', function(){
-    _lang = _lang === 'en' ? 'zh' : 'en';
-    applyLang();
-  });
-
-  // About panel — tabbed info hub for all audiences
-  document.getElementById('about-btn').addEventListener('click', function(){
-    var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
-    var t = _t[_lang];
-    var overlay=document.createElement('div');overlay.id='about-overlay';
-    overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
-      '<div class="about-panel">'+
-      '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
-      '<h3>'+t['about-title']+'<span class="about-version">'+t['about-version']+'</span></h3>'+
-      '<p>'+t['about-desc']+'</p>'+
-      '<div class="about-tabs">'+
-        '<button class="about-tab active" data-about-tab="overview">'+t['tab-overview']+'</button>'+
-        '<button class="about-tab" data-about-tab="start">'+t['tab-start']+'</button>'+
-        '<button class="about-tab" data-about-tab="arch">'+t['tab-arch']+'</button>'+
-        '<button class="about-tab" data-about-tab="econ">'+t['tab-econ']+'</button>'+
-        '<button class="about-tab" data-about-tab="update">'+t['tab-update']+'</button>'+
-        '<button class="about-tab" data-about-tab="links">'+t['tab-links']+'</button>'+
-      '</div>'+
-      '<div class="about-section active" data-about-section="overview">'+
-        '<p>'+t['about-how']+'</p>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="start">'+
-        '<pre>'+t['about-quickstart']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="arch">'+
-        '<pre>'+t['about-arch']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="econ">'+
-        '<pre>'+t['about-econ']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="update">'+
-        '<pre>'+t['about-update']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="links">'+
-        '<ul class="about-links">'+
-          '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github-project']+'</div><div class="link-desc">'+t['link-github-project-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank"><div><div class="link-label">'+t['link-github-engine']+'</div><div class="link-desc">'+t['link-github-engine-d']+'</div></div></a></li>'+
-          '<li><a href="https://discord.gg/oasyce" target="_blank"><div><div class="link-label">'+t['link-discord']+'</div><div class="link-desc">'+t['link-discord-d']+'</div></div></a></li>'+
-        '</ul>'+
-        '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
-      '</div>'+
-      '</div>';
-    document.body.appendChild(overlay);
-    // Tab switching
-    overlay.querySelectorAll('.about-tab').forEach(function(tab){
-      tab.addEventListener('click',function(){
-        overlay.querySelectorAll('.about-tab').forEach(function(t){t.classList.remove('active');});
-        overlay.querySelectorAll('.about-section').forEach(function(s){s.classList.remove('active');});
-        tab.classList.add('active');
-        var sec=overlay.querySelector('[data-about-section="'+tab.dataset.aboutTab+'"]');
-        if(sec)sec.classList.add('active');
-      });
-    });
-  });
-
-
-  try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
-  applyLang();
-
-  loadStatus();}else{toast(d.error||'Failed','error');}}catch(e){toast(e.message,'error');}};
+  window.deleteAsset=async function(aid){if(!confirm('Delete permanently?'))return;try{var r=await fetch('/api/asset/'+aid,{method:'DELETE'});var d=await r.json();if(d.ok){toast('Deleted');loadAssets();}else{toast(d.error||'Failed','error');}}catch(e){toast(e.message,'error');}};
 
   /* ── Status ──────────── */
   async function loadStatus(){
@@ -4663,6 +4440,19 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     ni.innerHTML='<span class="ng-k">Node ID</span><span class="ng-v">'+esc(d.node_id)+'</span>'+
       '<span class="ng-k">Address</span><span class="ng-v">'+esc(d.host)+':'+esc(d.port)+'</span>'+
       '<span class="ng-k">Chain height</span><span class="ng-v">'+esc(d.chain_height)+'</span>';
+  }
+
+
+  async function loadIdentity(){
+    var div=document.getElementById('identity-info');if(!div)return;
+    try{
+      var d=await api('/api/identity');
+      if(!d||d.error){div.className='empty';div.innerHTML='No identity. Run <code>oasyce start</code> to generate.';return;}
+      div.className='';
+      var h='<div class="kv"><span class="kv-k">Address</span><span class="kv-v">'+esc(d.wallet_address||d.address||'—')+'</span></div>'+
+        '<div class="kv"><span class="kv-k">Public Key</span><span class="kv-v" style="font-size:11px;">'+esc(d.public_key||d.pubkey||'—')+'</span></div>';
+      div.innerHTML=h;
+    }catch(e){div.className='empty';div.innerHTML='No identity. Run <code>oasyce start</code> to generate.';}
   }
 
   /* ── Assets + Pagination ──────────── */
@@ -4681,11 +4471,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     var h='';
     slice.forEach(function(a){
       var tags=(a.tags||[]).map(function(t){return'<span class="tag">'+esc(t)+'</span>';}).join('');
-      var rightsLabels={original:'Original',co_creation:'Co-creation',licensed:'Licensed',collection:'Collection'};
-      var rightsColors={original:'#4ade80',co_creation:'#60a5fa',licensed:'#facc15',collection:'#888'};
-      var rt=a.rights_type||'original';
-      var rBadge='<span class="tag" style="color:'+rightsColors[rt]+';border-color:'+rightsColors[rt]+'">'+(rightsLabels[rt]||rt)+'</span>';
-      var dBadge=a.disputed?'<span class="tag" style="color:#f87171;border-color:#f87171">Disputed</span>':'';
+      var dBadge=a.disputed?'<span class="tag" style="color:var(--error);border-color:var(--error)">Disputed</span>':'';
       h+='<div class="a-row" onclick=\'showD('+JSON.stringify(a).replace(/\x27/g,"&#39;")+')\'>'+
         '<div class="a-info"><div class="a-id">'+esc(trunc(a.asset_id,32))+' '+dBadge+'</div><div class="a-meta">'+esc(a.owner)+' &middot; '+timeAgo(a.created_at)+(tags?' &middot; '+tags:'')+'</div></div>'+
         '<div class="a-side">'+(a.spot_price!=null?'<span class="a-price">'+a.spot_price+'</span>':'')+
@@ -4695,7 +4481,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     // Pager
     var pg=document.getElementById('pager');
     if(pages<=1){pg.innerHTML='<span>'+total+' asset'+(total!==1?'s':'')+'</span><span></span>';return;}
-    var ph='<span>'+start+1+'&ndash;'+Math.min(start+_perPage,total)+' of '+total+'</span><div class="pager-btns">';
+    var ph='<span>'+(start+1)+'&ndash;'+Math.min(start+_perPage,total)+' of '+total+'</span><div class="pager-btns">';
     ph+='<button class="pager-btn" onclick="goPage('+(Math.max(1,_page-1))+')">&lsaquo;</button>';
     var lo=Math.max(1,_page-2),hi=Math.min(pages,_page+2);
     for(var i=lo;i<=hi;i++){ph+='<button class="pager-btn'+(i===_page?' active':'')+'" onclick="goPage('+i+')">'+i+'</button>';}
@@ -4714,12 +4500,12 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   if(rightsSelect){
     rightsSelect.addEventListener('change',function(){
       coSection.style.display=this.value==='co_creation'?'block':'none';
-      if(this.value==='co_creation'&&coList.children.length===0){addCoCreatorRow();addCoCreatorRow();}
+      if(this.value==='co_creation'&&coList.children.length===0){addCoCreatorRow(window.__oasyce_wallet!=='anonymous'?window.__oasyce_wallet:'');addCoCreatorRow();}
     });
   }
-  function addCoCreatorRow(){
+  function addCoCreatorRow(prefillAddr){
     var row=document.createElement('div');row.className='row';row.style.marginBottom='4px';
-    row.innerHTML='<input type="text" class="cc-addr" placeholder="Address" style="flex:2;">'+
+    row.innerHTML='<input type="text" class="cc-addr" placeholder="Address" style="flex:2;" value="'+esc(prefillAddr||'')+'">'+
       '<input type="number" class="cc-share" placeholder="%" style="flex:1;max-width:80px;" value="50">'+
       '<button class="btn btn-ghost btn-sm cc-remove" type="button">&times;</button>';
     row.querySelector('.cc-remove').addEventListener('click',function(){row.remove();});
@@ -4728,832 +4514,34 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   var addCCBtn=document.getElementById('add-co-creator-btn');
   if(addCCBtn)addCCBtn.addEventListener('click',function(){addCoCreatorRow();});
 
-  document.getElementById('reg-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Registering...';btn.disabled=true;var fp=document.getElementById('reg-path').value.trim();var owner=document.getElementById('reg-owner').value.trim();var tags=document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);var rightsType=(document.getElementById('reg-rights-type')||{}).value||'original';var coCreators=null;if(rightsType==='co_creation'){coCreators=[];var rows=document.querySelectorAll('#co-creators-list .row');rows.forEach(function(r){var addr=r.querySelector('.cc-addr').value.trim();var share=parseFloat(r.querySelector('.cc-share').value)||0;if(addr)coCreators.push({address:addr,share:share});});}var div=document.getElementById('reg-result');try{var r=await postApi('/api/register',{file_path:fp,owner:owner||undefined,tags:tags,rights_type:rightsType,co_creators:coCreators});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Asset ID</span><span class="kv-v" style="font-size:11px;">'+esc(r.asset_id)+'</span></div></div>';toast('Asset registered');_all=[];// ── Drop Zone ──
-  var dropZone = document.getElementById('drop-zone');
-  var filePick = document.getElementById('file-pick');
-  var regFields = document.getElementById('reg-fields');
-  var dropFileInfo = document.getElementById('drop-file-info');
-  var dropText = document.getElementById('drop-text');
-  var _droppedPath = '';
-
-  function formatSize(bytes){
-    if(bytes<1024)return bytes+' B';
-    if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
-    return(bytes/1048576).toFixed(1)+' MB';
-  }
-
-  function handleFile(file){
-    _droppedPath = file.name;
-    // Try to get full path (only works in some browsers via webkitRelativePath)
-    if(file.path) _droppedPath = file.path;
-    else if(file.webkitRelativePath) _droppedPath = file.webkitRelativePath;
-
-    document.getElementById('reg-path').value = _droppedPath;
-
-    // Auto-generate tags from file extension and name
-    var ext = file.name.split('.').pop().toLowerCase();
-    var autoTags = [];
-    if(['csv','json','xml','parquet','sqlite','db'].indexOf(ext)!==-1) autoTags.push('dataset');
-    if(['jpg','jpeg','png','gif','webp','svg','bmp'].indexOf(ext)!==-1) autoTags.push('image');
-    if(['mp4','mov','avi','mkv'].indexOf(ext)!==-1) autoTags.push('video');
-    if(['mp3','wav','flac','ogg'].indexOf(ext)!==-1) autoTags.push('audio');
-    if(['pdf','doc','docx','txt','md'].indexOf(ext)!==-1) autoTags.push('document');
-    if(['py','js','ts','go','rs','java','c','cpp'].indexOf(ext)!==-1) autoTags.push('code');
-    if(ext) autoTags.push(ext);
-    document.getElementById('reg-tags').value = autoTags.join(', ');
-
-    // Show file info in drop zone
-    dropZone.classList.add('has-file');
-    dropFileInfo.style.display = 'flex';
-    dropFileInfo.innerHTML = '<div><div class="drop-file-name">'+esc(file.name)+'</div><div class="drop-file-size">'+formatSize(file.size)+'</div></div><button class="drop-file-remove" onclick="clearFile()">&times;</button>';
-    dropText.style.display = 'none';
-    document.querySelector('.drop-icon').style.display = 'none';
-    document.querySelector('.drop-hint').style.display = 'none';
-
-    // Show form fields
-    regFields.style.display = 'block';
-  }
-
-  window.clearFile = function(){
-    _droppedPath = '';
-    document.getElementById('reg-path').value = '';
-    document.getElementById('reg-tags').value = '';
-    dropZone.classList.remove('has-file');
-    dropFileInfo.style.display = 'none';
-    dropFileInfo.innerHTML = '';
-    dropText.style.display = '';
-    document.querySelector('.drop-icon').style.display = '';
-    document.querySelector('.drop-hint').style.display = '';
-    regFields.style.display = 'none';
-    filePick.value = '';
-  };
-
-  // Drag events
-  ['dragenter','dragover'].forEach(function(evt){
-    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('over');});
-  });
-  ['dragleave','drop'].forEach(function(evt){
-    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('over');});
-  });
-  dropZone.addEventListener('drop', function(e){
-    var files = e.dataTransfer.files;
-    if(files.length > 0) handleFile(files[0]);
-  });
-  dropZone.addEventListener('click', function(e){
-    if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'LABEL' && !dropZone.classList.contains('has-file')){
-      filePick.click();
-    }
-  });
-  filePick.addEventListener('change', function(){
-    if(this.files.length > 0) handleFile(this.files[0]);
-  });
-
-  // ── i18n ──
-  var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
-  var _t = {
-    en: {
-      'pg-register-title': 'Register a data asset',
-      'pg-register-desc': 'Claim ownership of a file. Once registered, other agents can discover, quote, and purchase access rights.',
-      'pg-trade-title': 'Trade',
-      'pg-trade-desc': 'Quote and purchase shares in data assets. Buy to gain access rights and revenue share.',
-      'pg-assets-title': 'Your Assets',
-      'pg-assets-desc': 'Manage registered data assets. Click any asset for details.',
-      'pg-agents-title': 'Agent Protocol',
-      'pg-agents-desc': 'Register your agent on the AHRP network, discover data providers, and execute transactions.',
-      'pg-network-title': 'Network',
-      'pg-network-desc': 'Node status and validator information.',
-      'reg-path-ph': '/path/to/your/file',
-      'drop-text': 'Drag a file here, or <label for="file-pick" class="drop-link">browse</label>',
-      'drop-hint': 'Register your file to claim ownership on the Oasyce network',
-      'hint-file': 'Auto-filled from your dropped file',
-      'hint-owner': 'Who owns this data? Defaults to your node ID if left blank.',
-      'hint-tags': 'Help others find your asset. Comma-separated keywords.',
-      'optional': 'optional',
-      'reg-owner-ph': 'Your name or agent ID',
-      'reg-tags-ph': 'medical, imaging, dicom',
-      'reg-btn': 'Register',
-      'buy-asset-ph': 'Paste asset ID',
-      'quote-btn': 'Quote',
-      'buy-btn': 'Buy',
-      'card-buy': 'Buy Shares',
-      'hint-buy-asset': 'Copy from the Assets tab or from the creator who shared it with you.',
-      'hint-buy-amount': 'How much to spend.',
-      'card-portfolio': 'Portfolio',
-      'card-stake': 'Stake',
-      'stake-node-ph': 'Validator node ID',
-      'stake-btn': 'Stake',
-      'search-ph': 'Search by ID or tag...',
-      'card-announce': 'Announce Agent',
-      'announce-btn': 'Announce',
-      'card-discover': 'Discover Agents',
-      'find-btn': 'Find',
-      'card-tx': 'Transaction',
-      'accept-btn': 'Accept & Create',
-      'deliver-btn': 'Deliver',
-      'confirm-btn': 'Confirm & Settle',
-      'card-node': 'Node',
-      'card-validators': 'Validators',
-      'card-watermark': 'Watermark',
-      'embed-btn': 'Embed',
-      'trace-btn': 'Trace',
-      'lookup-btn': 'Lookup',
-      'lbl-file': 'File path',
-      'lbl-owner': 'Owner',
-      'lbl-tags': 'Tags',
-      'lbl-rights-type': 'Rights type',
-      'lbl-co-creators': 'Co-creators',
-      'hint-co-creators': 'At least 2 co-creators, shares must total 100%',
-      'rights-original': 'Original', 'rights-co_creation': 'Co-creation', 'rights-licensed': 'Licensed', 'rights-collection': 'Collection',
-      'disputed': 'Disputed', 'dispute-btn': 'File dispute', 'dispute-reason-ph': 'Reason for dispute', 'dispute-submit': 'Submit', 'delisted': 'Delisted', 'dispute-resolved': 'Resolved', 'dispute-dismissed': 'Dismissed', 'remedy-delist': 'Delist', 'remedy-transfer': 'Transfer', 'remedy-rights_correction': 'Correct rights', 'remedy-share_adjustment': 'Adjust shares', 'drop-hint-unified': 'Drop file or folder, or click to select', 'pick-file': 'File', 'pick-folder': 'Folder', 'register-data': 'Register data', 'publish-cap': 'Publish capability', 'cap-name': 'Name', 'cap-provider': 'Provider', 'cap-base-price': 'Base price (OAS)', 'cap-published': 'Published',
-      'lbl-asset-id': 'Asset ID',
-      'lbl-amount': 'Amount (OAS)',
-      'lbl-node-id': 'Node ID',
-      'empty-assets': 'No assets yet. Go to <strong>Register</strong> to add your first.',
-      'empty-portfolio': 'No holdings yet',
-      'stat-assets': 'Assets',
-      'stat-blocks': 'Blocks',
-      'stat-watermarks': 'Watermarks',
-      'lang-btn': '中',
-      'card-identity': 'Your Identity',
-      'no-identity': 'No identity found. Run <code>oasyce start</code> to generate your keys.',
-      'id-hint': 'This is your unique identity on the Oasyce network. Every asset you register is cryptographically signed with your private key.',
-      'id-backup': '&#9888; Back up <code>~/.oasyce/keys/</code> — if you lose your keys, you lose access to all your registered assets.',
-      'copied': 'Copied',
-      'auto-default': 'auto',
-      'loading-identity': 'Loading...',
-      'about-title': 'About Oasyce',
-      'about-version': 'v1.5.0',
-      'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
-      'tab-overview': 'Overview',
-      'tab-start': 'Quick Start',
-      'tab-arch': 'Architecture',
-      'tab-econ': 'Economics',
-      'tab-update': 'Maintain',
-      'tab-links': 'Links',
-      'about-how': 'Oasyce is a decentralized protocol where AI agents autonomously register, discover, license, and settle data rights. Data owners register files and receive a cryptographic proof-of-provenance certificate (PoPc). AI agents discover data via a Recall-Rank pipeline, negotiate prices through bonding curves, and settle transactions with escrow-protected OAS tokens.',
-      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # verify setup\n3. oasyce start           # launch node + dashboard\n4. Open http://localhost:8420',
-      'about-arch': 'Core Layers:\n\u2022 Schema Registry \u2014 unified validation for data/capability/oracle/identity\n\u2022 Engine Pipeline \u2014 Scan \u2192 Classify \u2192 Metadata \u2192 PoPc Certificate \u2192 Register\n\u2022 Discovery \u2014 Recall (broad retrieval) \u2192 Rank (trust + economics) + feedback loop\n\u2022 Settlement \u2014 bonding curve pricing, escrow, share distribution\n\u2022 Access Control \u2014 L0 metadata / L1 sample / L2 compute / L3 full\n\u2022 P2P Network \u2014 Ed25519 identity, gossip sync, PoS consensus\n\u2022 Risk Engine \u2014 auto-classification (public / internal / sensitive)',
-      'about-econ': 'Token: OAS\n\nPricing: Bonding curve (reserve ratio 0.35) \u2014 more buyers = higher price\nShares: Early buyers earn more (diminishing: 100% \u2192 80% \u2192 60% \u2192 40%)\nRights multiplier: original 1.0x / co_creation 0.9x / licensed 0.7x / collection 0.3x\nStaking: Validators stake OAS to produce blocks and earn rewards\nBlock reward: 4.0 OAS (mainnet), halving every ~1M blocks\nEscrow: Funds locked before execution, released after quality verification',
-      'about-update': 'Update:\n  pip install --upgrade oasyce\n\nBuild from source:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\nRun tests:\n  python -m pytest tests/ -v\n\nContribute: Fork \u2192 Branch \u2192 PR (see CONTRIBUTING.md)',
-      'link-intro': 'Introduction',
-      'link-intro-d': 'What is Oasyce and why it matters',
-      'link-whitepaper': 'Whitepaper',
-      'link-whitepaper-d': 'Full protocol design and economics paper',
-      'link-docs': 'Protocol Overview',
-      'link-docs-d': 'Technical reference, API, and architecture',
-      'link-github-project': 'GitHub (Project)',
-      'link-github-project-d': 'Specs, docs, and roadmap',
-      'link-github-engine': 'GitHub (Engine)',
-      'link-github-engine-d': 'Plugin engine source code',
-      'link-discord': 'Discord Community',
-      'link-discord-d': 'Chat, support, and governance',
-      'link-contact': 'Contact',
-    },
-    zh: {
-      'pg-register-title': '注册数据资产',
-      'pg-register-desc': '确立文件的归属权。注册后，其他代理可以发现、报价和购买访问权限。',
-      'pg-trade-title': '交易',
-      'pg-trade-desc': '报价并购买数据资产份额。购买即获得访问权和收益分成。',
-      'pg-assets-title': '我的资产',
-      'pg-assets-desc': '管理已注册的数据资产。点击任意资产查看详情。',
-      'pg-agents-title': '代理协议',
-      'pg-agents-desc': '在 AHRP 网络注册你的代理，发现数据提供者，执行交易。',
-      'pg-network-title': '网络',
-      'pg-network-desc': '节点状态与验证者信息。',
-      'reg-path-ph': '文件路径',
-      'drop-text': '拖拽文件到这里，或 <label for="file-pick" class="drop-link">浏览选择</label>',
-      'drop-hint': '注册你的文件，在 Oasyce 网络上确立数据归属权',
-      'hint-file': '已从拖入的文件自动填写',
-      'hint-owner': '数据所有者。留空则默认使用你的节点 ID。',
-      'hint-tags': '帮助其他代理发现你的资产。用逗号分隔关键词。',
-      'optional': '可选',
-      'reg-owner-ph': '所有者名称或代理 ID',
-      'reg-tags-ph': '标签，用逗号分隔',
-      'lbl-rights-type': '权利类型',
-      'lbl-co-creators': '共创者',
-      'hint-co-creators': '至少2个共创者，份额合计100%',
-      'rights-original': '原创', 'rights-co_creation': '共创', 'rights-licensed': '授权转售', 'rights-collection': '个人收藏',
-      'disputed': '争议中', 'dispute-btn': '发起争议', 'dispute-reason-ph': '争议原因', 'dispute-submit': '提交', 'delisted': '已下架', 'dispute-resolved': '已裁决', 'dispute-dismissed': '已驳回', 'remedy-delist': '下架', 'remedy-transfer': '转移所有权', 'remedy-rights_correction': '更正权利', 'remedy-share_adjustment': '调整份额', 'drop-hint-unified': '拖入文件或文件夹，或点击选择', 'pick-file': '文件', 'pick-folder': '文件夹', 'register-data': '注册数据', 'publish-cap': '发布能力', 'cap-name': '名称', 'cap-provider': '提供者', 'cap-base-price': '基础价格 (OAS)', 'cap-published': '已发布',
-      'reg-btn': '注册',
-      'buy-asset-ph': '粘贴资产 ID',
-      'quote-btn': '报价',
-      'buy-btn': '购买',
-      'card-buy': '购买份额',
-      'hint-buy-asset': '从资产页复制，或从数据创建者处获取。',
-      'hint-buy-amount': '你愿意花多少 OAS。',
-      'card-portfolio': '持仓',
-      'card-stake': '质押',
-      'stake-node-ph': '验证者节点 ID',
-      'stake-btn': '质押',
-      'search-ph': '按 ID 或标签搜索...',
-      'card-announce': '注册代理',
-      'announce-btn': '广播',
-      'card-discover': '发现代理',
-      'find-btn': '查找',
-      'card-tx': '交易流程',
-      'accept-btn': '接受并创建',
-      'deliver-btn': '交付',
-      'confirm-btn': '确认并结算',
-      'card-node': '节点',
-      'card-validators': '验证者',
-      'card-watermark': '水印',
-      'embed-btn': '嵌入',
-      'trace-btn': '追溯',
-      'lookup-btn': '查询',
-      'lbl-file': '文件路径',
-      'lbl-owner': '所有者',
-      'lbl-tags': '标签',
-      'lbl-asset-id': '资产 ID',
-      'lbl-amount': '数量（OAS）',
-      'lbl-node-id': '节点 ID',
-      'empty-assets': '暂无资产。前往 <strong>注册</strong> 添加你的第一个资产。',
-      'empty-portfolio': '暂无持仓',
-      'stat-assets': '资产',
-      'stat-blocks': '区块',
-      'stat-watermarks': '水印',
-      'lang-btn': 'En',
-      'card-identity': '你的身份',
-      'no-identity': '未找到密钥。运行 <code>oasyce start</code> 生成你的身份。',
-      'id-hint': '这是你在 Oasyce 网络上的唯一身份。你注册的每个资产都会用你的私钥进行密码学签名。',
-      'id-backup': '&#9888; 请备份 <code>~/.oasyce/keys/</code> 目录 —— 丢失密钥意味着永久失去所有已注册资产的控制权。',
-      'copied': '已复制',
-      'auto-default': '自动',
-      'loading-identity': '加载中...',
-      'about-title': '关于 Oasyce',
-      'about-version': 'v1.5.0',
-      'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
-      'tab-overview': '概览',
-      'tab-start': '快速开始',
-      'tab-arch': '技术架构',
-      'tab-econ': '经济模型',
-      'tab-update': '维护更新',
-      'tab-links': '链接',
-      'about-how': 'Oasyce 是一个去中心化协议，AI 代理在其中自主注册、发现、许可和结算数据权利。数据所有者注册文件并获得加密来源证明证书 (PoPc)。AI 代理通过 Recall-Rank 管道发现数据，通过联合曲线协商价格，并使用托管保护的 OAS 代币进行结算。',
-      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # 验证安装\n3. oasyce start           # 启动节点 + 仪表盘\n4. 浏览器打开 http://localhost:8420',
-      'about-arch': '核心层级:\n\u2022 Schema Registry \u2014 统一验证 data/capability/oracle/identity 四种资产\n\u2022 引擎管道 \u2014 扫描 \u2192 分类 \u2192 元数据 \u2192 PoPc 证书 \u2192 注册\n\u2022 发现引擎 \u2014 Recall (广召回) \u2192 Rank (信任+经济) + 反馈循环\n\u2022 结算引擎 \u2014 联合曲线定价、托管、份额分配\n\u2022 访问控制 \u2014 L0 元数据 / L1 采样 / L2 计算 / L3 完整\n\u2022 P2P 网络 \u2014 Ed25519 身份、gossip 同步、PoS 共识\n\u2022 风险引擎 \u2014 自动分级 (public / internal / sensitive)',
-      'about-econ': '代币: OAS\n\n定价: 联合曲线 (储备率 0.35) \u2014 买家越多价格越高\n份额: 早期买家获利更多 (递减: 100% \u2192 80% \u2192 60% \u2192 40%)\n权利系数: 原创 1.0x / 共创 0.9x / 授权 0.7x / 收藏 0.3x\n质押: 验证者质押 OAS 出块并获得奖励\n区块奖励: 4.0 OAS (主网)，每约 100 万块减半\n托管: 执行前锁定资金，质量验证后释放',
-      'about-update': '更新:\n  pip install --upgrade oasyce\n\n从源码构建:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\n运行测试:\n  python -m pytest tests/ -v\n\n贡献: Fork \u2192 Branch \u2192 PR (详见 CONTRIBUTING.md)',
-      'link-intro': '项目介绍',
-      'link-intro-d': '什么是 Oasyce，为什么重要',
-      'link-whitepaper': '白皮书',
-      'link-whitepaper-d': '完整协议设计与经济模型论文',
-      'link-docs': '协议概览',
-      'link-docs-d': '技术参考、API 与架构',
-      'link-github-project': 'GitHub (项目)',
-      'link-github-project-d': '规范、文档与路线图',
-      'link-github-engine': 'GitHub (引擎)',
-      'link-github-engine-d': '插件引擎源代码',
-      'link-discord': 'Discord 社区',
-      'link-discord-d': '聊天、支持与治理',
-      'link-contact': '联系我们',
-    }
-  };
-
-  function applyLang() {
-    var t = _t[_lang];
-    // Nav links
-    document.querySelectorAll('.nav-link').forEach(function(el){
-      el.textContent = el.getAttribute('data-'+_lang) || el.textContent;
-    });
-    // Lang button
-    document.getElementById('lang-btn').textContent = t['lang-btn'];
-    // Page titles & descs
-    ['register','trade','assets','agents','network'].forEach(function(pg){
-      var title = document.querySelector('#pg-'+pg+' .page-title');
-      var desc = document.querySelector('#pg-'+pg+' .page-desc');
-      if(title) title.textContent = t['pg-'+pg+'-title'] || title.textContent;
-      if(desc) desc.textContent = t['pg-'+pg+'-desc'] || desc.textContent;
-    });
-    // Stat labels
-    var statLabels = document.querySelectorAll('.stat-l');
-    if(statLabels[0]) statLabels[0].textContent = t['stat-assets'];
-    if(statLabels[1]) statLabels[1].textContent = t['stat-blocks'];
-    if(statLabels[2]) statLabels[2].textContent = t['stat-watermarks'];
-    // Buttons
-    document.getElementById('reg-btn').textContent = t['reg-btn'];
-    document.getElementById('quote-btn').textContent = t['quote-btn'];
-    document.getElementById('buy-btn').textContent = t['buy-btn'];
-    document.getElementById('stake-btn').textContent = t['stake-btn'];
-    document.getElementById('ahrp-announce-btn').textContent = t['announce-btn'];
-    document.getElementById('ahrp-find-btn').textContent = t['find-btn'];
-    document.getElementById('tx-accept-btn').textContent = t['accept-btn'];
-    document.getElementById('tx-deliver-btn').textContent = t['deliver-btn'];
-    document.getElementById('tx-confirm-btn').textContent = t['confirm-btn'];
-    document.getElementById('emb-btn').textContent = t['embed-btn'];
-    document.getElementById('fp-trace-btn').textContent = t['trace-btn'];
-    document.getElementById('fp-list-btn').textContent = t['lookup-btn'];
-    // Placeholders
-    document.getElementById('reg-path').placeholder = t['reg-path-ph'];
-    document.getElementById('reg-owner').placeholder = t['reg-owner-ph'];
-    document.getElementById('reg-tags').placeholder = t['reg-tags-ph'];
-    document.getElementById('buy-asset').placeholder = t['buy-asset-ph'];
-    document.getElementById('stake-node').placeholder = t['stake-node-ph'];
-    document.getElementById('asset-search').placeholder = t['search-ph'];
-    // Card titles
-    var cardTitles = document.querySelectorAll('.card-title');
-    var cardMap = ['card-buy','card-portfolio','card-stake','card-announce','card-discover','card-tx','card-node','','card-watermark'];
-    cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
-    // Field labels
-    var labels = document.querySelectorAll('.field-label');
-
-
-  }
-
-  // Lang toggle
-  document.getElementById('lang-btn').addEventListener('click', function(){
-    _lang = _lang === 'en' ? 'zh' : 'en';
-    applyLang();
-  });
-
-  // About panel — tabbed info hub for all audiences
-  document.getElementById('about-btn').addEventListener('click', function(){
-    var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
-    var t = _t[_lang];
-    var overlay=document.createElement('div');overlay.id='about-overlay';
-    overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
-      '<div class="about-panel">'+
-      '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
-      '<h3>'+t['about-title']+'<span class="about-version">'+t['about-version']+'</span></h3>'+
-      '<p>'+t['about-desc']+'</p>'+
-      '<div class="about-tabs">'+
-        '<button class="about-tab active" data-about-tab="overview">'+t['tab-overview']+'</button>'+
-        '<button class="about-tab" data-about-tab="start">'+t['tab-start']+'</button>'+
-        '<button class="about-tab" data-about-tab="arch">'+t['tab-arch']+'</button>'+
-        '<button class="about-tab" data-about-tab="econ">'+t['tab-econ']+'</button>'+
-        '<button class="about-tab" data-about-tab="update">'+t['tab-update']+'</button>'+
-        '<button class="about-tab" data-about-tab="links">'+t['tab-links']+'</button>'+
-      '</div>'+
-      '<div class="about-section active" data-about-section="overview">'+
-        '<p>'+t['about-how']+'</p>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="start">'+
-        '<pre>'+t['about-quickstart']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="arch">'+
-        '<pre>'+t['about-arch']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="econ">'+
-        '<pre>'+t['about-econ']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="update">'+
-        '<pre>'+t['about-update']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="links">'+
-        '<ul class="about-links">'+
-          '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github-project']+'</div><div class="link-desc">'+t['link-github-project-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank"><div><div class="link-label">'+t['link-github-engine']+'</div><div class="link-desc">'+t['link-github-engine-d']+'</div></div></a></li>'+
-          '<li><a href="https://discord.gg/oasyce" target="_blank"><div><div class="link-label">'+t['link-discord']+'</div><div class="link-desc">'+t['link-discord-d']+'</div></div></a></li>'+
-        '</ul>'+
-        '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
-      '</div>'+
-      '</div>';
-    document.body.appendChild(overlay);
-    // Tab switching
-    overlay.querySelectorAll('.about-tab').forEach(function(tab){
-      tab.addEventListener('click',function(){
-        overlay.querySelectorAll('.about-tab').forEach(function(t){t.classList.remove('active');});
-        overlay.querySelectorAll('.about-section').forEach(function(s){s.classList.remove('active');});
-        tab.classList.add('active');
-        var sec=overlay.querySelector('[data-about-section="'+tab.dataset.aboutTab+'"]');
-        if(sec)sec.classList.add('active');
-      });
-    });
-  });
-
-
-  try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
-  applyLang();
-
-  loadStatus();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Register';btn.disabled=false;});
+  document.getElementById('reg-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Registering...';btn.disabled=true;var fp=document.getElementById('reg-path').value.trim();var owner=document.getElementById('reg-owner').value.trim();var tags=document.getElementById('reg-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean);var rightsType=(document.getElementById('reg-rights-type')||{}).value||'original';var coCreators=null;var div=document.getElementById('reg-result');if(rightsType==='co_creation'){coCreators=[];var rows=document.querySelectorAll('#co-creators-list .row');rows.forEach(function(r){var addr=r.querySelector('.cc-addr').value.trim();var share=parseFloat(r.querySelector('.cc-share').value)||0;if(addr)coCreators.push({address:addr,share:share});});if(coCreators.length<2){div.innerHTML='<p class="err">At least 2 co-creators required</p>';btn.textContent='Register';btn.disabled=false;return;}var totalShare=coCreators.reduce(function(s,c){return s+c.share;},0);if(Math.abs(totalShare-100)>0.01){div.innerHTML='<p class="err">Co-creator shares must total 100% (currently '+totalShare.toFixed(1)+'%)</p>';btn.textContent='Register';btn.disabled=false;return;}}if(!fp){div.innerHTML='<p class="err">File path is required</p>';btn.textContent='Register';btn.disabled=false;return;}try{var r=await postApi('/api/register',{file_path:fp,owner:owner||undefined,tags:tags,rights_type:rightsType,co_creators:coCreators});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Asset ID</span><span class="kv-v" style="font-size:11px;">'+esc(r.asset_id)+'</span></div></div>';toast('Asset registered');_all=[];document.getElementById('reg-path').value='';document.getElementById('reg-owner').value='';document.getElementById('reg-tags').value='';document.getElementById('reg-rights-type').value='original';var coSec=document.getElementById('co-creators-section');if(coSec)coSec.style.display='none';var coL=document.getElementById('co-creators-list');if(coL)coL.innerHTML='';}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Register';btn.disabled=false;});
 
   /* ── Quote & Buy ──────────── */
-  document.getElementById('quote-btn').addEventListener('click',async function(){var aid=document.getElementById('buy-asset').value.trim();var amt=document.getElementById('buy-amount').value.trim()||'10';var div=document.getElementById('buy-result');if(!aid){div.innerHTML='<p class="err">Enter asset ID</p>';return;}var r=await api('/api/quote?asset_id='+encodeURIComponent(aid)+'&amount='+amt);if(!r||r.error){div.innerHTML='<p class="err">'+esc(r?r.error:'Failed')+'</p>';return;}div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Pay</span><span class="kv-v">'+r.payment+' OAS</span></div><div class="kv"><span class="kv-k">Get</span><span class="kv-v">'+r.tokens+' tokens</span></div><div class="kv"><span class="kv-k">Impact</span><span class="kv-v">'+r.impact_pct+'%</span></div><div class="kv"><span class="kv-k">Burned</span><span class="kv-v">'+r.burn+' OAS</span></div></div>';});
+  document.getElementById('quote-btn').addEventListener('click',async function(){var aid=document.getElementById('buy-asset').value.trim();var amt=document.getElementById('buy-amount').value.trim()||'10';var div=document.getElementById('buy-result');if(!aid){div.innerHTML='<p class="err">Enter asset ID</p>';return;}try{var r=await api('/api/quote?asset_id='+encodeURIComponent(aid)+'&amount='+amt);if(!r||r.error){div.innerHTML='<p class="err">'+esc(r?r.error:'Failed')+'</p>';return;}div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Pay</span><span class="kv-v">'+r.payment+' OAS</span></div><div class="kv"><span class="kv-k">Get</span><span class="kv-v">'+r.tokens+' tokens</span></div><div class="kv"><span class="kv-k">Impact</span><span class="kv-v">'+r.impact_pct+'%</span></div><div class="kv"><span class="kv-k">Burned</span><span class="kv-v">'+r.burn+' OAS</span></div></div>';}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}});
 
   document.getElementById('buy-btn').addEventListener('click',async function(){if(!confirm('Confirm purchase?'))return;var btn=this;btn.textContent='Buying...';btn.disabled=true;var aid=document.getElementById('buy-asset').value.trim();var amt=document.getElementById('buy-amount').value.trim()||'10';var div=document.getElementById('buy-result');if(!aid){div.innerHTML='<p class="err">Enter asset ID</p>';btn.textContent='Buy';btn.disabled=false;return;}try{var r=await postApi('/api/buy',{asset_id:aid,buyer:(window.__oasyce_wallet||'anonymous'),amount:parseFloat(amt)});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Tokens</span><span class="kv-v ok">'+r.tokens+'</span></div><div class="kv"><span class="kv-k">New price</span><span class="kv-v">'+r.price_after+' OAS</span></div></div>';toast('Purchased');loadPortfolio();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Buy';btn.disabled=false;});
 
   /* ── Portfolio ──────────── */
-  async function loadPortfolio(){var list=await api('/api/portfolio?buyer='+(window.__oasyce_wallet||'anonymous'))||[];var c=document.getElementById('portfolio-list');if(!list.length){c.innerHTML='<div class="empty">No holdings yet</div>';return;}var h='';list.forEach(function(x){h+='<div class="p-row"><span class="p-id">'+esc(trunc(x.asset_id,24))+'</span><span class="p-v">'+x.shares+' shares &middot; '+x.value_oas+' OAS</span></div>';});c.innerHTML=h;}
+  async function loadPortfolio(){var list=await api('/api/portfolio?buyer='+(window.__oasyce_wallet||'anonymous'))||[];var c=document.getElementById('portfolio-list');if(!list.length){c.innerHTML='<div class="empty">No holdings yet</div>';return;}var h='';list.forEach(function(x){h+='<div class="p-row"><span class="p-id">'+esc(trunc(x.asset_id,24))+'</span><span class="p-v">'+x.shares+' shares &middot; '+(x.equity_pct||0)+'% &middot; '+(x.access_level||'\u2014')+' &middot; '+x.value_oas+' OAS</span></div>';});c.innerHTML=h;}
 
   /* ── Stake ──────────── */
   document.getElementById('stake-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Staking...';btn.disabled=true;var nid=document.getElementById('stake-node').value.trim();var amt=document.getElementById('stake-amount').value.trim()||'10000';var div=document.getElementById('stake-result');if(!nid){div.innerHTML='<p class="err">Enter node ID</p>';btn.textContent='Stake';btn.disabled=false;return;}try{var r=await postApi('/api/stake',{node_id:nid,amount:parseFloat(amt)});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Staked</span><span class="kv-v">'+r.total_stake+' OAS</span></div></div>';toast('Staked');loadStakes();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Stake';btn.disabled=false;});
   async function loadStakes(){var list=await api('/api/stakes')||[];var sec=document.getElementById('stakes-card');if(!list.length){sec.style.display='none';return;}sec.style.display='block';var h='';list.forEach(function(s){h+='<div class="stk-item"><span class="stk-id">'+esc(trunc(s.validator_id,20))+'</span><span class="stk-a">'+s.total+' OAS</span></div>';});document.getElementById('stakes-list').innerHTML=h;}
 
   /* ── Watermark ──────────── */
-  document.getElementById('emb-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Embedding...';btn.disabled=true;var aid=document.getElementById('emb-asset').value.trim();var caller=document.getElementById('emb-caller').value.trim();var content=document.getElementById('emb-content').value;var div=document.getElementById('emb-result');if(!aid||!caller||!content){div.innerHTML='<p class="err">Fill all fields</p>';btn.textContent='Embed';btn.disabled=false;return;}try{var r=await postApi('/api/fingerprint/embed',{asset_id:aid,caller_id:caller,content:content});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Fingerprint</span><span class="kv-v">'+esc(trunc(r.fingerprint,24))+'</span></div></div><textarea readonly style="width:100%;min-height:60px;margin-top:8px;color:var(--success);">'+esc(r.watermarked_content)+'</textarea>';toast('Embedded');// ── Drop Zone ──
-  var dropZone = document.getElementById('drop-zone');
-  var filePick = document.getElementById('file-pick');
-  var regFields = document.getElementById('reg-fields');
-  var dropFileInfo = document.getElementById('drop-file-info');
-  var dropText = document.getElementById('drop-text');
-  var _droppedPath = '';
-
-  function formatSize(bytes){
-    if(bytes<1024)return bytes+' B';
-    if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
-    return(bytes/1048576).toFixed(1)+' MB';
-  }
-
-  function handleFile(file){
-    _droppedPath = file.name;
-    // Try to get full path (only works in some browsers via webkitRelativePath)
-    if(file.path) _droppedPath = file.path;
-    else if(file.webkitRelativePath) _droppedPath = file.webkitRelativePath;
-
-    document.getElementById('reg-path').value = _droppedPath;
-
-    // Auto-generate tags from file extension and name
-    var ext = file.name.split('.').pop().toLowerCase();
-    var autoTags = [];
-    if(['csv','json','xml','parquet','sqlite','db'].indexOf(ext)!==-1) autoTags.push('dataset');
-    if(['jpg','jpeg','png','gif','webp','svg','bmp'].indexOf(ext)!==-1) autoTags.push('image');
-    if(['mp4','mov','avi','mkv'].indexOf(ext)!==-1) autoTags.push('video');
-    if(['mp3','wav','flac','ogg'].indexOf(ext)!==-1) autoTags.push('audio');
-    if(['pdf','doc','docx','txt','md'].indexOf(ext)!==-1) autoTags.push('document');
-    if(['py','js','ts','go','rs','java','c','cpp'].indexOf(ext)!==-1) autoTags.push('code');
-    if(ext) autoTags.push(ext);
-    document.getElementById('reg-tags').value = autoTags.join(', ');
-
-    // Show file info in drop zone
-    dropZone.classList.add('has-file');
-    dropFileInfo.style.display = 'flex';
-    dropFileInfo.innerHTML = '<div><div class="drop-file-name">'+esc(file.name)+'</div><div class="drop-file-size">'+formatSize(file.size)+'</div></div><button class="drop-file-remove" onclick="clearFile()">&times;</button>';
-    dropText.style.display = 'none';
-    document.querySelector('.drop-icon').style.display = 'none';
-    document.querySelector('.drop-hint').style.display = 'none';
-
-    // Show form fields
-    regFields.style.display = 'block';
-  }
-
-  window.clearFile = function(){
-    _droppedPath = '';
-    document.getElementById('reg-path').value = '';
-    document.getElementById('reg-tags').value = '';
-    dropZone.classList.remove('has-file');
-    dropFileInfo.style.display = 'none';
-    dropFileInfo.innerHTML = '';
-    dropText.style.display = '';
-    document.querySelector('.drop-icon').style.display = '';
-    document.querySelector('.drop-hint').style.display = '';
-    regFields.style.display = 'none';
-    filePick.value = '';
-  };
-
-  // Drag events
-  ['dragenter','dragover'].forEach(function(evt){
-    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('over');});
-  });
-  ['dragleave','drop'].forEach(function(evt){
-    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('over');});
-  });
-  dropZone.addEventListener('drop', function(e){
-    var files = e.dataTransfer.files;
-    if(files.length > 0) handleFile(files[0]);
-  });
-  dropZone.addEventListener('click', function(e){
-    if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'LABEL' && !dropZone.classList.contains('has-file')){
-      filePick.click();
-    }
-  });
-  filePick.addEventListener('change', function(){
-    if(this.files.length > 0) handleFile(this.files[0]);
-  });
-
-  // ── i18n ──
-  var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
-  var _t = {
-    en: {
-      'pg-register-title': 'Register a data asset',
-      'pg-register-desc': 'Claim ownership of a file. Once registered, other agents can discover, quote, and purchase access rights.',
-      'pg-trade-title': 'Trade',
-      'pg-trade-desc': 'Quote and purchase shares in data assets. Buy to gain access rights and revenue share.',
-      'pg-assets-title': 'Your Assets',
-      'pg-assets-desc': 'Manage registered data assets. Click any asset for details.',
-      'pg-agents-title': 'Agent Protocol',
-      'pg-agents-desc': 'Register your agent on the AHRP network, discover data providers, and execute transactions.',
-      'pg-network-title': 'Network',
-      'pg-network-desc': 'Node status and validator information.',
-      'reg-path-ph': '/path/to/your/file',
-      'drop-text': 'Drag a file here, or <label for="file-pick" class="drop-link">browse</label>',
-      'drop-hint': 'Register your file to claim ownership on the Oasyce network',
-      'hint-file': 'Auto-filled from your dropped file',
-      'hint-owner': 'Who owns this data? Defaults to your node ID if left blank.',
-      'hint-tags': 'Help others find your asset. Comma-separated keywords.',
-      'optional': 'optional',
-      'reg-owner-ph': 'Your name or agent ID',
-      'reg-tags-ph': 'medical, imaging, dicom',
-      'reg-btn': 'Register',
-      'buy-asset-ph': 'Paste asset ID',
-      'quote-btn': 'Quote',
-      'buy-btn': 'Buy',
-      'card-buy': 'Buy Shares',
-      'hint-buy-asset': 'Copy from the Assets tab or from the creator who shared it with you.',
-      'hint-buy-amount': 'How much to spend.',
-      'card-portfolio': 'Portfolio',
-      'card-stake': 'Stake',
-      'stake-node-ph': 'Validator node ID',
-      'stake-btn': 'Stake',
-      'search-ph': 'Search by ID or tag...',
-      'card-announce': 'Announce Agent',
-      'announce-btn': 'Announce',
-      'card-discover': 'Discover Agents',
-      'find-btn': 'Find',
-      'card-tx': 'Transaction',
-      'accept-btn': 'Accept & Create',
-      'deliver-btn': 'Deliver',
-      'confirm-btn': 'Confirm & Settle',
-      'card-node': 'Node',
-      'card-validators': 'Validators',
-      'card-watermark': 'Watermark',
-      'embed-btn': 'Embed',
-      'trace-btn': 'Trace',
-      'lookup-btn': 'Lookup',
-      'lbl-file': 'File path',
-      'lbl-owner': 'Owner',
-      'lbl-tags': 'Tags',
-      'lbl-rights-type': 'Rights type',
-      'lbl-co-creators': 'Co-creators',
-      'hint-co-creators': 'At least 2 co-creators, shares must total 100%',
-      'rights-original': 'Original', 'rights-co_creation': 'Co-creation', 'rights-licensed': 'Licensed', 'rights-collection': 'Collection',
-      'disputed': 'Disputed', 'dispute-btn': 'File dispute', 'dispute-reason-ph': 'Reason for dispute', 'dispute-submit': 'Submit', 'delisted': 'Delisted', 'dispute-resolved': 'Resolved', 'dispute-dismissed': 'Dismissed', 'remedy-delist': 'Delist', 'remedy-transfer': 'Transfer', 'remedy-rights_correction': 'Correct rights', 'remedy-share_adjustment': 'Adjust shares', 'drop-hint-unified': 'Drop file or folder, or click to select', 'pick-file': 'File', 'pick-folder': 'Folder', 'register-data': 'Register data', 'publish-cap': 'Publish capability', 'cap-name': 'Name', 'cap-provider': 'Provider', 'cap-base-price': 'Base price (OAS)', 'cap-published': 'Published',
-      'lbl-asset-id': 'Asset ID',
-      'lbl-amount': 'Amount (OAS)',
-      'lbl-node-id': 'Node ID',
-      'empty-assets': 'No assets yet. Go to <strong>Register</strong> to add your first.',
-      'empty-portfolio': 'No holdings yet',
-      'stat-assets': 'Assets',
-      'stat-blocks': 'Blocks',
-      'stat-watermarks': 'Watermarks',
-      'lang-btn': '中',
-      'card-identity': 'Your Identity',
-      'no-identity': 'No identity found. Run <code>oasyce start</code> to generate your keys.',
-      'id-hint': 'This is your unique identity on the Oasyce network. Every asset you register is cryptographically signed with your private key.',
-      'id-backup': '&#9888; Back up <code>~/.oasyce/keys/</code> — if you lose your keys, you lose access to all your registered assets.',
-      'copied': 'Copied',
-      'auto-default': 'auto',
-      'loading-identity': 'Loading...',
-      'about-title': 'About Oasyce',
-      'about-version': 'v1.5.0',
-      'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
-      'tab-overview': 'Overview',
-      'tab-start': 'Quick Start',
-      'tab-arch': 'Architecture',
-      'tab-econ': 'Economics',
-      'tab-update': 'Maintain',
-      'tab-links': 'Links',
-      'about-how': 'Oasyce is a decentralized protocol where AI agents autonomously register, discover, license, and settle data rights. Data owners register files and receive a cryptographic proof-of-provenance certificate (PoPc). AI agents discover data via a Recall-Rank pipeline, negotiate prices through bonding curves, and settle transactions with escrow-protected OAS tokens.',
-      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # verify setup\n3. oasyce start           # launch node + dashboard\n4. Open http://localhost:8420',
-      'about-arch': 'Core Layers:\n\u2022 Schema Registry \u2014 unified validation for data/capability/oracle/identity\n\u2022 Engine Pipeline \u2014 Scan \u2192 Classify \u2192 Metadata \u2192 PoPc Certificate \u2192 Register\n\u2022 Discovery \u2014 Recall (broad retrieval) \u2192 Rank (trust + economics) + feedback loop\n\u2022 Settlement \u2014 bonding curve pricing, escrow, share distribution\n\u2022 Access Control \u2014 L0 metadata / L1 sample / L2 compute / L3 full\n\u2022 P2P Network \u2014 Ed25519 identity, gossip sync, PoS consensus\n\u2022 Risk Engine \u2014 auto-classification (public / internal / sensitive)',
-      'about-econ': 'Token: OAS\n\nPricing: Bonding curve (reserve ratio 0.35) \u2014 more buyers = higher price\nShares: Early buyers earn more (diminishing: 100% \u2192 80% \u2192 60% \u2192 40%)\nRights multiplier: original 1.0x / co_creation 0.9x / licensed 0.7x / collection 0.3x\nStaking: Validators stake OAS to produce blocks and earn rewards\nBlock reward: 4.0 OAS (mainnet), halving every ~1M blocks\nEscrow: Funds locked before execution, released after quality verification',
-      'about-update': 'Update:\n  pip install --upgrade oasyce\n\nBuild from source:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\nRun tests:\n  python -m pytest tests/ -v\n\nContribute: Fork \u2192 Branch \u2192 PR (see CONTRIBUTING.md)',
-      'link-intro': 'Introduction',
-      'link-intro-d': 'What is Oasyce and why it matters',
-      'link-whitepaper': 'Whitepaper',
-      'link-whitepaper-d': 'Full protocol design and economics paper',
-      'link-docs': 'Protocol Overview',
-      'link-docs-d': 'Technical reference, API, and architecture',
-      'link-github-project': 'GitHub (Project)',
-      'link-github-project-d': 'Specs, docs, and roadmap',
-      'link-github-engine': 'GitHub (Engine)',
-      'link-github-engine-d': 'Plugin engine source code',
-      'link-discord': 'Discord Community',
-      'link-discord-d': 'Chat, support, and governance',
-      'link-contact': 'Contact',
-    },
-    zh: {
-      'pg-register-title': '注册数据资产',
-      'pg-register-desc': '确立文件的归属权。注册后，其他代理可以发现、报价和购买访问权限。',
-      'pg-trade-title': '交易',
-      'pg-trade-desc': '报价并购买数据资产份额。购买即获得访问权和收益分成。',
-      'pg-assets-title': '我的资产',
-      'pg-assets-desc': '管理已注册的数据资产。点击任意资产查看详情。',
-      'pg-agents-title': '代理协议',
-      'pg-agents-desc': '在 AHRP 网络注册你的代理，发现数据提供者，执行交易。',
-      'pg-network-title': '网络',
-      'pg-network-desc': '节点状态与验证者信息。',
-      'reg-path-ph': '文件路径',
-      'drop-text': '拖拽文件到这里，或 <label for="file-pick" class="drop-link">浏览选择</label>',
-      'drop-hint': '注册你的文件，在 Oasyce 网络上确立数据归属权',
-      'hint-file': '已从拖入的文件自动填写',
-      'hint-owner': '数据所有者。留空则默认使用你的节点 ID。',
-      'hint-tags': '帮助其他代理发现你的资产。用逗号分隔关键词。',
-      'optional': '可选',
-      'reg-owner-ph': '所有者名称或代理 ID',
-      'reg-tags-ph': '标签，用逗号分隔',
-      'lbl-rights-type': '权利类型',
-      'lbl-co-creators': '共创者',
-      'hint-co-creators': '至少2个共创者，份额合计100%',
-      'rights-original': '原创', 'rights-co_creation': '共创', 'rights-licensed': '授权转售', 'rights-collection': '个人收藏',
-      'disputed': '争议中', 'dispute-btn': '发起争议', 'dispute-reason-ph': '争议原因', 'dispute-submit': '提交', 'delisted': '已下架', 'dispute-resolved': '已裁决', 'dispute-dismissed': '已驳回', 'remedy-delist': '下架', 'remedy-transfer': '转移所有权', 'remedy-rights_correction': '更正权利', 'remedy-share_adjustment': '调整份额', 'drop-hint-unified': '拖入文件或文件夹，或点击选择', 'pick-file': '文件', 'pick-folder': '文件夹', 'register-data': '注册数据', 'publish-cap': '发布能力', 'cap-name': '名称', 'cap-provider': '提供者', 'cap-base-price': '基础价格 (OAS)', 'cap-published': '已发布',
-      'reg-btn': '注册',
-      'buy-asset-ph': '粘贴资产 ID',
-      'quote-btn': '报价',
-      'buy-btn': '购买',
-      'card-buy': '购买份额',
-      'hint-buy-asset': '从资产页复制，或从数据创建者处获取。',
-      'hint-buy-amount': '你愿意花多少 OAS。',
-      'card-portfolio': '持仓',
-      'card-stake': '质押',
-      'stake-node-ph': '验证者节点 ID',
-      'stake-btn': '质押',
-      'search-ph': '按 ID 或标签搜索...',
-      'card-announce': '注册代理',
-      'announce-btn': '广播',
-      'card-discover': '发现代理',
-      'find-btn': '查找',
-      'card-tx': '交易流程',
-      'accept-btn': '接受并创建',
-      'deliver-btn': '交付',
-      'confirm-btn': '确认并结算',
-      'card-node': '节点',
-      'card-validators': '验证者',
-      'card-watermark': '水印',
-      'embed-btn': '嵌入',
-      'trace-btn': '追溯',
-      'lookup-btn': '查询',
-      'lbl-file': '文件路径',
-      'lbl-owner': '所有者',
-      'lbl-tags': '标签',
-      'lbl-asset-id': '资产 ID',
-      'lbl-amount': '数量（OAS）',
-      'lbl-node-id': '节点 ID',
-      'empty-assets': '暂无资产。前往 <strong>注册</strong> 添加你的第一个资产。',
-      'empty-portfolio': '暂无持仓',
-      'stat-assets': '资产',
-      'stat-blocks': '区块',
-      'stat-watermarks': '水印',
-      'lang-btn': 'En',
-      'card-identity': '你的身份',
-      'no-identity': '未找到密钥。运行 <code>oasyce start</code> 生成你的身份。',
-      'id-hint': '这是你在 Oasyce 网络上的唯一身份。你注册的每个资产都会用你的私钥进行密码学签名。',
-      'id-backup': '&#9888; 请备份 <code>~/.oasyce/keys/</code> 目录 —— 丢失密钥意味着永久失去所有已注册资产的控制权。',
-      'copied': '已复制',
-      'auto-default': '自动',
-      'loading-identity': '加载中...',
-      'about-title': '关于 Oasyce',
-      'about-version': 'v1.5.0',
-      'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
-      'tab-overview': '概览',
-      'tab-start': '快速开始',
-      'tab-arch': '技术架构',
-      'tab-econ': '经济模型',
-      'tab-update': '维护更新',
-      'tab-links': '链接',
-      'about-how': 'Oasyce 是一个去中心化协议，AI 代理在其中自主注册、发现、许可和结算数据权利。数据所有者注册文件并获得加密来源证明证书 (PoPc)。AI 代理通过 Recall-Rank 管道发现数据，通过联合曲线协商价格，并使用托管保护的 OAS 代币进行结算。',
-      'about-quickstart': '1. pip install oasyce\n2. oasyce doctor          # 验证安装\n3. oasyce start           # 启动节点 + 仪表盘\n4. 浏览器打开 http://localhost:8420',
-      'about-arch': '核心层级:\n\u2022 Schema Registry \u2014 统一验证 data/capability/oracle/identity 四种资产\n\u2022 引擎管道 \u2014 扫描 \u2192 分类 \u2192 元数据 \u2192 PoPc 证书 \u2192 注册\n\u2022 发现引擎 \u2014 Recall (广召回) \u2192 Rank (信任+经济) + 反馈循环\n\u2022 结算引擎 \u2014 联合曲线定价、托管、份额分配\n\u2022 访问控制 \u2014 L0 元数据 / L1 采样 / L2 计算 / L3 完整\n\u2022 P2P 网络 \u2014 Ed25519 身份、gossip 同步、PoS 共识\n\u2022 风险引擎 \u2014 自动分级 (public / internal / sensitive)',
-      'about-econ': '代币: OAS\n\n定价: 联合曲线 (储备率 0.35) \u2014 买家越多价格越高\n份额: 早期买家获利更多 (递减: 100% \u2192 80% \u2192 60% \u2192 40%)\n权利系数: 原创 1.0x / 共创 0.9x / 授权 0.7x / 收藏 0.3x\n质押: 验证者质押 OAS 出块并获得奖励\n区块奖励: 4.0 OAS (主网)，每约 100 万块减半\n托管: 执行前锁定资金，质量验证后释放',
-      'about-update': '更新:\n  pip install --upgrade oasyce\n\n从源码构建:\n  git clone <engine-repo>\n  cd Oasyce_Claw_Plugin_Engine && pip install -e .\n\n运行测试:\n  python -m pytest tests/ -v\n\n贡献: Fork \u2192 Branch \u2192 PR (详见 CONTRIBUTING.md)',
-      'link-intro': '项目介绍',
-      'link-intro-d': '什么是 Oasyce，为什么重要',
-      'link-whitepaper': '白皮书',
-      'link-whitepaper-d': '完整协议设计与经济模型论文',
-      'link-docs': '协议概览',
-      'link-docs-d': '技术参考、API 与架构',
-      'link-github-project': 'GitHub (项目)',
-      'link-github-project-d': '规范、文档与路线图',
-      'link-github-engine': 'GitHub (引擎)',
-      'link-github-engine-d': '插件引擎源代码',
-      'link-discord': 'Discord 社区',
-      'link-discord-d': '聊天、支持与治理',
-      'link-contact': '联系我们',
-    }
-  };
-
-  function applyLang() {
-    var t = _t[_lang];
-    // Nav links
-    document.querySelectorAll('.nav-link').forEach(function(el){
-      el.textContent = el.getAttribute('data-'+_lang) || el.textContent;
-    });
-    // Lang button
-    document.getElementById('lang-btn').textContent = t['lang-btn'];
-    // Page titles & descs
-    ['register','trade','assets','agents','network'].forEach(function(pg){
-      var title = document.querySelector('#pg-'+pg+' .page-title');
-      var desc = document.querySelector('#pg-'+pg+' .page-desc');
-      if(title) title.textContent = t['pg-'+pg+'-title'] || title.textContent;
-      if(desc) desc.textContent = t['pg-'+pg+'-desc'] || desc.textContent;
-    });
-    // Stat labels
-    var statLabels = document.querySelectorAll('.stat-l');
-    if(statLabels[0]) statLabels[0].textContent = t['stat-assets'];
-    if(statLabels[1]) statLabels[1].textContent = t['stat-blocks'];
-    if(statLabels[2]) statLabels[2].textContent = t['stat-watermarks'];
-    // Buttons
-    document.getElementById('reg-btn').textContent = t['reg-btn'];
-    document.getElementById('quote-btn').textContent = t['quote-btn'];
-    document.getElementById('buy-btn').textContent = t['buy-btn'];
-    document.getElementById('stake-btn').textContent = t['stake-btn'];
-    document.getElementById('ahrp-announce-btn').textContent = t['announce-btn'];
-    document.getElementById('ahrp-find-btn').textContent = t['find-btn'];
-    document.getElementById('tx-accept-btn').textContent = t['accept-btn'];
-    document.getElementById('tx-deliver-btn').textContent = t['deliver-btn'];
-    document.getElementById('tx-confirm-btn').textContent = t['confirm-btn'];
-    document.getElementById('emb-btn').textContent = t['embed-btn'];
-    document.getElementById('fp-trace-btn').textContent = t['trace-btn'];
-    document.getElementById('fp-list-btn').textContent = t['lookup-btn'];
-    // Placeholders
-    document.getElementById('reg-path').placeholder = t['reg-path-ph'];
-    document.getElementById('reg-owner').placeholder = t['reg-owner-ph'];
-    document.getElementById('reg-tags').placeholder = t['reg-tags-ph'];
-    document.getElementById('buy-asset').placeholder = t['buy-asset-ph'];
-    document.getElementById('stake-node').placeholder = t['stake-node-ph'];
-    document.getElementById('asset-search').placeholder = t['search-ph'];
-    // Card titles
-    var cardTitles = document.querySelectorAll('.card-title');
-    var cardMap = ['card-buy','card-portfolio','card-stake','card-announce','card-discover','card-tx','card-node','','card-watermark'];
-    cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
-    // Field labels
-    var labels = document.querySelectorAll('.field-label');
-
-
-  }
-
-  // Lang toggle
-  document.getElementById('lang-btn').addEventListener('click', function(){
-    _lang = _lang === 'en' ? 'zh' : 'en';
-    applyLang();
-  });
-
-  // About panel — tabbed info hub for all audiences
-  document.getElementById('about-btn').addEventListener('click', function(){
-    var ex=document.getElementById('about-overlay');if(ex){ex.remove();return;}
-    var t = _t[_lang];
-    var overlay=document.createElement('div');overlay.id='about-overlay';
-    overlay.innerHTML='<div class="about-overlay" onclick="document.getElementById(\'about-overlay\').remove()"></div>'+
-      '<div class="about-panel">'+
-      '<button class="about-close" onclick="document.getElementById(\'about-overlay\').remove()">&times;</button>'+
-      '<h3>'+t['about-title']+'<span class="about-version">'+t['about-version']+'</span></h3>'+
-      '<p>'+t['about-desc']+'</p>'+
-      '<div class="about-tabs">'+
-        '<button class="about-tab active" data-about-tab="overview">'+t['tab-overview']+'</button>'+
-        '<button class="about-tab" data-about-tab="start">'+t['tab-start']+'</button>'+
-        '<button class="about-tab" data-about-tab="arch">'+t['tab-arch']+'</button>'+
-        '<button class="about-tab" data-about-tab="econ">'+t['tab-econ']+'</button>'+
-        '<button class="about-tab" data-about-tab="update">'+t['tab-update']+'</button>'+
-        '<button class="about-tab" data-about-tab="links">'+t['tab-links']+'</button>'+
-      '</div>'+
-      '<div class="about-section active" data-about-section="overview">'+
-        '<p>'+t['about-how']+'</p>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="start">'+
-        '<pre>'+t['about-quickstart']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="arch">'+
-        '<pre>'+t['about-arch']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="econ">'+
-        '<pre>'+t['about-econ']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="update">'+
-        '<pre>'+t['about-update']+'</pre>'+
-      '</div>'+
-      '<div class="about-section" data-about-section="links">'+
-        '<ul class="about-links">'+
-          '<li><a href="https://oasyce.com" target="_blank"><div><div class="link-label">'+t['link-intro']+'</div><div class="link-desc">'+t['link-intro-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md" target="_blank"><div><div class="link-label">'+t['link-whitepaper']+'</div><div class="link-desc">'+t['link-whitepaper-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md" target="_blank"><div><div class="link-label">'+t['link-docs']+'</div><div class="link-desc">'+t['link-docs-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Project" target="_blank"><div><div class="link-label">'+t['link-github-project']+'</div><div class="link-desc">'+t['link-github-project-d']+'</div></div></a></li>'+
-          '<li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank"><div><div class="link-label">'+t['link-github-engine']+'</div><div class="link-desc">'+t['link-github-engine-d']+'</div></div></a></li>'+
-          '<li><a href="https://discord.gg/oasyce" target="_blank"><div><div class="link-label">'+t['link-discord']+'</div><div class="link-desc">'+t['link-discord-d']+'</div></div></a></li>'+
-        '</ul>'+
-        '<div class="about-contact">'+t['link-contact']+'<br><a href="mailto:wutc@oasyce.com">wutc@oasyce.com</a></div>'+
-      '</div>'+
-      '</div>';
-    document.body.appendChild(overlay);
-    // Tab switching
-    overlay.querySelectorAll('.about-tab').forEach(function(tab){
-      tab.addEventListener('click',function(){
-        overlay.querySelectorAll('.about-tab').forEach(function(t){t.classList.remove('active');});
-        overlay.querySelectorAll('.about-section').forEach(function(s){s.classList.remove('active');});
-        tab.classList.add('active');
-        var sec=overlay.querySelector('[data-about-section="'+tab.dataset.aboutTab+'"]');
-        if(sec)sec.classList.add('active');
-      });
-    });
-  });
-
-
-  try{var saved=localStorage.getItem('oasyce-lang');if(saved)_lang=saved;}catch(e){}
-  applyLang();
-
-  loadStatus();}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Embed';btn.disabled=false;});
+  document.getElementById('emb-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Embedding...';btn.disabled=true;var aid=document.getElementById('emb-asset').value.trim();var caller=document.getElementById('emb-caller').value.trim();var content=document.getElementById('emb-content').value;var div=document.getElementById('emb-result');if(!aid||!caller||!content){div.innerHTML='<p class="err">Fill all fields</p>';btn.textContent='Embed';btn.disabled=false;return;}try{var r=await postApi('/api/fingerprint/embed',{asset_id:aid,caller_id:caller,content:content});if(r.ok){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Fingerprint</span><span class="kv-v">'+esc(trunc(r.fingerprint,24))+'</span></div></div><textarea readonly style="width:100%;min-height:60px;margin-top:8px;color:var(--success);">'+esc(r.watermarked_content)+'</textarea>';toast('Embedded');}else{div.innerHTML='<p class="err">'+esc(r.error)+'</p>';}}catch(e){div.innerHTML='<p class="err">'+esc(e.message)+'</p>';}btn.textContent='Embed';btn.disabled=false;});
   document.getElementById('fp-trace-btn').addEventListener('click',async function(){var fp=document.getElementById('fp-input').value.trim();if(!fp)return;var r=await api('/api/trace?fp='+encodeURIComponent(fp));var div=document.getElementById('fp-trace-result');if(!r||r.error){div.innerHTML='<p class="err">Not found</p>';}else{div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Asset</span><span class="kv-v">'+esc(r.asset_id)+'</span></div><div class="kv"><span class="kv-k">Buyer</span><span class="kv-v">'+esc(r.caller_id)+'</span></div><div class="kv"><span class="kv-k">When</span><span class="kv-v">'+timeAgo(r.timestamp||r.created_at)+'</span></div></div>';}});
   document.getElementById('fp-list-btn').addEventListener('click',async function(){var aid=document.getElementById('fp-asset-input').value.trim();if(!aid)return;var list=await api('/api/fingerprints?asset_id='+encodeURIComponent(aid));var c=document.getElementById('fp-dist-list');if(!list||!list.length){c.innerHTML='<p class="err">None found</p>';return;}var h='';list.forEach(function(r){h+='<div class="p-row"><span class="p-id" style="font-size:11px;">'+esc(trunc(r.fingerprint,18))+'</span><span class="p-v">'+esc(r.caller_id)+' &middot; '+timeAgo(r.timestamp)+'</span></div>';});c.innerHTML=h;});
 
   /* ── AHRP ──────────── */
   document.getElementById('ahrp-announce-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Announcing...';btn.disabled=true;var div=document.getElementById('ahrp-announce-result');var levels=[];document.querySelectorAll('.chk-g input:checked').forEach(function(cb){levels.push(cb.value);});var payload={agent_id:document.getElementById('ahrp-agent-id').value.trim(),public_key:document.getElementById('ahrp-pub-key').value.trim(),reputation:parseFloat(document.getElementById('ahrp-reputation').value)||10,stake:parseFloat(document.getElementById('ahrp-stake').value)||100,capabilities:[{capability_id:document.getElementById('ahrp-cap-id').value.trim(),tags:document.getElementById('ahrp-cap-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean),description:document.getElementById('ahrp-cap-desc').value.trim(),price_floor:parseFloat(document.getElementById('ahrp-cap-price').value)||1.0,origin_type:document.getElementById('ahrp-cap-origin').value,access_levels:levels}]};var d=await postApi('/ahrp/v1/announce',payload);if(d&&!d.error){div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Status</span><span class="kv-v ok">Announced</span></div></div>';toast('Agent announced');}else{div.innerHTML='<p class="err">'+esc(d?d.error:'Failed')+'</p>';}btn.textContent='Announce';btn.disabled=false;});
 
-  document.getElementById('ahrp-find-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Searching...';btn.disabled=true;var c=document.getElementById('ahrp-matches');var payload={description:document.getElementById('ahrp-search-desc').value.trim(),tags:document.getElementById('ahrp-search-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean),min_reputation:parseFloat(document.getElementById('ahrp-search-rep').value)||0,max_price:parseFloat(document.getElementById('ahrp-search-price').value)||1000,required_access_level:document.getElementById('ahrp-search-access').value};var d=await postApi('/ahrp/v1/request',payload);var matches=d?(d.matches||d.results||[]):[];if(!matches.length){c.innerHTML='<div class="empty">No matches found</div>';}else{var h='';matches.forEach(function(m){var score=Math.round((m.score||0)*100);h+='<div class="m-card"><div class="m-top"><span class="m-agent">'+esc(m.agent_id||'')+' / '+esc(m.capability_id||'')+'</span><span class="m-origin">'+esc(m.origin_type||'')+'</span></div><div class="m-bar"><div class="m-bar-fill" style="width:'+score+'%"></div></div><div class="m-bot"><span>'+score+'% match</span><span>'+esc(m.price_floor||0)+' OAS</span></div></div>';});c.innerHTML=h;}btn.textContent='Find';btn.disabled=false;});
+  document.getElementById('ahrp-find-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Searching...';btn.disabled=true;var c=document.getElementById('ahrp-matches');var payload={description:document.getElementById('ahrp-search-desc').value.trim(),tags:document.getElementById('ahrp-search-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean),};var d=await postApi('/ahrp/v1/request',payload);var matches=d?(d.matches||d.results||[]):[];if(!matches.length){c.innerHTML='<div class="empty">No matches found</div>';}else{var h='';matches.forEach(function(m){var score=Math.round((m.score||0)*100);h+='<div class="m-card"><div class="m-top"><span class="m-agent">'+esc(m.agent_id||'')+' / '+esc(m.capability_id||'')+'</span><span class="m-origin">'+esc(m.origin_type||'')+'</span></div><div class="m-bar"><div class="m-bar-fill" style="width:'+score+'%"></div></div><div class="m-bot"><span>'+score+'% match</span><span>'+esc(m.price_floor||0)+' OAS</span></div></div>';});c.innerHTML=h;}btn.textContent='Find';btn.disabled=false;});
 
   /* ── TX Pipeline ──────────── */
   var _steps=['request','offer','accept','deliver','confirm'],_rating=5;
   function updatePipe(step){for(var i=0;i<_steps.length;i++){var el=document.getElementById('tx-s-'+_steps[i]);el.className='pipe-s';if(i<step)el.className='pipe-s done';else if(i===step)el.className='pipe-s active';}for(var j=1;j<=4;j++){document.getElementById('tx-l-'+j).className=j<=step?'pipe-line done':'pipe-line';}}
-  var stars=document.querySelectorAll('#star-rating span');stars.forEach(function(s){s.addEventListener('click',function(){_rating=parseInt(this.getAttribute('data-v'));stars.forEach(function(x){x.className=parseInt(x.getAttribute('data-v'))<=_rating?'lit':'';});});});stars.forEach(function(s){s.className=parseInt(s.getAttribute('data-v'))<=_rating?'lit':'';});
+  var stars=document.querySelectorAll('#star-rating span');stars.forEach(function(s){s.addEventListener('click',function(){var v=parseInt(this.getAttribute('data-v'));if(!isNaN(v)&&v>=1&&v<=5)_rating=v;stars.forEach(function(x){x.className=parseInt(x.getAttribute('data-v'))<=_rating?'lit':'';});});});stars.forEach(function(s){s.className=parseInt(s.getAttribute('data-v'))<=_rating?'lit':'';});
 
   document.getElementById('tx-accept-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Creating...';btn.disabled=true;var div=document.getElementById('tx-accept-result');updatePipe(0);var payload={buyer_id:document.getElementById('tx-buyer').value.trim(),seller_id:document.getElementById('tx-seller').value.trim(),capability_id:document.getElementById('tx-cap-id').value.trim(),price_oas:parseFloat(document.getElementById('tx-price').value)||10};await new Promise(function(r){setTimeout(r,200);});updatePipe(1);await new Promise(function(r){setTimeout(r,200);});var d=await postApi('/ahrp/v1/accept',payload);if(d&&!d.error){var txId=d.tx_id||d.transaction_id||'';document.getElementById('tx-deliver-id').value=txId;document.getElementById('tx-confirm-id').value=txId;updatePipe(2);div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Transaction</span><span class="kv-v">'+esc(txId)+'</span></div></div>';}else{div.innerHTML='<p class="err">'+esc(d?d.error:'Failed')+'</p>';updatePipe(0);}btn.textContent='Accept & Create';btn.disabled=false;});
   document.getElementById('tx-deliver-btn').addEventListener('click',async function(){var btn=this;btn.textContent='Delivering...';btn.disabled=true;var div=document.getElementById('tx-deliver-result');var d=await postApi('/ahrp/v1/deliver',{tx_id:document.getElementById('tx-deliver-id').value.trim(),content_hash:document.getElementById('tx-content-hash').value.trim()});if(d&&!d.error){updatePipe(3);div.innerHTML='<div class="res"><div class="kv"><span class="kv-k">Status</span><span class="kv-v ok">Delivered</span></div></div>';}else{div.innerHTML='<p class="err">'+esc(d?d.error:'Failed')+'</p>';}btn.textContent='Deliver';btn.disabled=false;});
@@ -5561,86 +4549,6 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   updatePipe(0);
 
   /* ── Init ──────────── */
-  // ── Drop Zone ──
-  var dropZone = document.getElementById('drop-zone');
-  var filePick = document.getElementById('file-pick');
-  var regFields = document.getElementById('reg-fields');
-  var dropFileInfo = document.getElementById('drop-file-info');
-  var dropText = document.getElementById('drop-text');
-  var _droppedPath = '';
-
-  function formatSize(bytes){
-    if(bytes<1024)return bytes+' B';
-    if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
-    return(bytes/1048576).toFixed(1)+' MB';
-  }
-
-  function handleFile(file){
-    _droppedPath = file.name;
-    // Try to get full path (only works in some browsers via webkitRelativePath)
-    if(file.path) _droppedPath = file.path;
-    else if(file.webkitRelativePath) _droppedPath = file.webkitRelativePath;
-
-    document.getElementById('reg-path').value = _droppedPath;
-
-    // Auto-generate tags from file extension and name
-    var ext = file.name.split('.').pop().toLowerCase();
-    var autoTags = [];
-    if(['csv','json','xml','parquet','sqlite','db'].indexOf(ext)!==-1) autoTags.push('dataset');
-    if(['jpg','jpeg','png','gif','webp','svg','bmp'].indexOf(ext)!==-1) autoTags.push('image');
-    if(['mp4','mov','avi','mkv'].indexOf(ext)!==-1) autoTags.push('video');
-    if(['mp3','wav','flac','ogg'].indexOf(ext)!==-1) autoTags.push('audio');
-    if(['pdf','doc','docx','txt','md'].indexOf(ext)!==-1) autoTags.push('document');
-    if(['py','js','ts','go','rs','java','c','cpp'].indexOf(ext)!==-1) autoTags.push('code');
-    if(ext) autoTags.push(ext);
-    document.getElementById('reg-tags').value = autoTags.join(', ');
-
-    // Show file info in drop zone
-    dropZone.classList.add('has-file');
-    dropFileInfo.style.display = 'flex';
-    dropFileInfo.innerHTML = '<div><div class="drop-file-name">'+esc(file.name)+'</div><div class="drop-file-size">'+formatSize(file.size)+'</div></div><button class="drop-file-remove" onclick="clearFile()">&times;</button>';
-    dropText.style.display = 'none';
-    document.querySelector('.drop-icon').style.display = 'none';
-    document.querySelector('.drop-hint').style.display = 'none';
-
-    // Show form fields
-    regFields.style.display = 'block';
-  }
-
-  window.clearFile = function(){
-    _droppedPath = '';
-    document.getElementById('reg-path').value = '';
-    document.getElementById('reg-tags').value = '';
-    dropZone.classList.remove('has-file');
-    dropFileInfo.style.display = 'none';
-    dropFileInfo.innerHTML = '';
-    dropText.style.display = '';
-    document.querySelector('.drop-icon').style.display = '';
-    document.querySelector('.drop-hint').style.display = '';
-    regFields.style.display = 'none';
-    filePick.value = '';
-  };
-
-  // Drag events
-  ['dragenter','dragover'].forEach(function(evt){
-    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('over');});
-  });
-  ['dragleave','drop'].forEach(function(evt){
-    dropZone.addEventListener(evt, function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('over');});
-  });
-  dropZone.addEventListener('drop', function(e){
-    var files = e.dataTransfer.files;
-    if(files.length > 0) handleFile(files[0]);
-  });
-  dropZone.addEventListener('click', function(e){
-    if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'LABEL' && !dropZone.classList.contains('has-file')){
-      filePick.click();
-    }
-  });
-  filePick.addEventListener('change', function(){
-    if(this.files.length > 0) handleFile(this.files[0]);
-  });
-
   // ── i18n ──
   var _lang = (navigator.language||'').startsWith('zh') ? 'zh' : 'en';
   var _t = {
@@ -5701,6 +4609,25 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'lbl-asset-id': 'Asset ID',
       'lbl-amount': 'Amount (OAS)',
       'lbl-node-id': 'Node ID',
+      'lbl-stake-amount': 'Amount',
+      'lbl-agent-id': 'Agent ID',
+      'lbl-pub-key': 'Public key',
+      'lbl-reputation': 'Reputation',
+      'lbl-stake-val': 'Stake',
+      'lbl-cap-id': 'Capability ID',
+      'lbl-description': 'Description',
+      'lbl-price-floor': 'Price floor',
+      'lbl-origin': 'Origin',
+      'lbl-access-levels': 'Access levels',
+      'lbl-search-desc': 'What do you need?',
+      'lbl-buyer': 'Buyer',
+      'lbl-seller': 'Seller',
+      'lbl-capability': 'Capability',
+      'lbl-price': 'Price',
+      'lbl-tx-id': 'Transaction ID',
+      'lbl-content-hash': 'Content hash',
+      'lbl-buyer-id': 'Buyer ID',
+      'lbl-content': 'Content',
       'empty-assets': 'No assets yet. Go to <strong>Register</strong> to add your first.',
       'empty-portfolio': 'No holdings yet',
       'stat-assets': 'Assets',
@@ -5715,7 +4642,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': 'auto',
       'loading-identity': 'Loading...',
       'about-title': 'About Oasyce',
-      'about-version': 'v1.5.0',
+      'about-version': 'v2.1.2',
       'about-desc': 'The data-rights clearing network for the machine economy. Agents autonomously register, license, settle, and enforce data rights.',
       'tab-overview': 'Overview',
       'tab-start': 'Quick Start',
@@ -5799,6 +4726,25 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'lbl-asset-id': '资产 ID',
       'lbl-amount': '数量（OAS）',
       'lbl-node-id': '节点 ID',
+      'lbl-stake-amount': '数量',
+      'lbl-agent-id': '代理 ID',
+      'lbl-pub-key': '公钥',
+      'lbl-reputation': '信誉',
+      'lbl-stake-val': '质押',
+      'lbl-cap-id': '能力 ID',
+      'lbl-description': '描述',
+      'lbl-price-floor': '底价',
+      'lbl-origin': '来源',
+      'lbl-access-levels': '访问等级',
+      'lbl-search-desc': '你需要什么？',
+      'lbl-buyer': '买方',
+      'lbl-seller': '卖方',
+      'lbl-capability': '能力',
+      'lbl-price': '价格',
+      'lbl-tx-id': '交易 ID',
+      'lbl-content-hash': '内容哈希',
+      'lbl-buyer-id': '买方 ID',
+      'lbl-content': '内容',
       'empty-assets': '暂无资产。前往 <strong>注册</strong> 添加你的第一个资产。',
       'empty-portfolio': '暂无持仓',
       'stat-assets': '资产',
@@ -5813,7 +4759,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
       'auto-default': '自动',
       'loading-identity': '加载中...',
       'about-title': '关于 Oasyce',
-      'about-version': 'v1.5.0',
+      'about-version': 'v2.1.2',
       'about-desc': '面向机器经济的数据权利清算网络。代理自主注册、许可、结算和执行数据权利。',
       'tab-overview': '概览',
       'tab-start': '快速开始',
@@ -5882,19 +4828,32 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
     document.getElementById('buy-asset').placeholder = t['buy-asset-ph'];
     document.getElementById('stake-node').placeholder = t['stake-node-ph'];
     document.getElementById('asset-search').placeholder = t['search-ph'];
-    // Card titles
-    var cardTitles = document.querySelectorAll('.card-title');
-    var cardMap = ['card-buy','card-portfolio','card-stake','card-announce','card-discover','card-tx','card-node','','card-watermark'];
-    cardTitles.forEach(function(el,i){if(cardMap[i]&&t[cardMap[i]])el.textContent=t[cardMap[i]];});
-    // Field labels
-    var labels = document.querySelectorAll('.field-label');
-
-
+    // Card titles (translate via data-i18n attribute)
+    document.querySelectorAll('.card-title[data-i18n]').forEach(function(el){
+      var key = el.getAttribute('data-i18n');
+      if(key && t[key]) el.textContent = t[key];
+    });
+    // Field labels (translate via data-i18n attribute)
+    document.querySelectorAll('.field-label[data-i18n]').forEach(function(el){
+      var key = el.getAttribute('data-i18n');
+      if(key && t[key]) el.textContent = t[key];
+    });
+    // Field hints (translate via data-i18n attribute)
+    document.querySelectorAll('.field-hint[data-i18n]').forEach(function(el){
+      var key = el.getAttribute('data-i18n');
+      if(key && t[key]) el.textContent = t[key];
+    });
+    // Select options (translate via data-i18n attribute)
+    document.querySelectorAll('option[data-i18n]').forEach(function(el){
+      var key = el.getAttribute('data-i18n');
+      if(key && t[key]) el.textContent = t[key];
+    });
   }
 
   // Lang toggle
   document.getElementById('lang-btn').addEventListener('click', function(){
     _lang = _lang === 'en' ? 'zh' : 'en';
+    try{localStorage.setItem('oasyce-lang',_lang);}catch(e){}
     applyLang();
   });
 
@@ -5961,6 +4920,7 @@ textarea{height:auto;min-height:80px;padding:12px 14px;resize:vertical;}
   applyLang();
 
   loadStatus();
+  loadIdentity();
   setInterval(loadStatus,30000);
 })();
 </script>

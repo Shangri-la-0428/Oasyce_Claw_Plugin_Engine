@@ -102,8 +102,8 @@ oasyce agent config --trade-max-spend 20.0  # max OAS per cycle
 ## Reputation & Access
 
 ```bash
-oasyce reputation show <address>
-oasyce reputation feedback <target> --score 5
+oasyce reputation check <address>
+oasyce reputation update <target> --score 5
 oasyce access buy <asset_id> --level L0|L1|L2|L3 --agent <name>
 ```
 
@@ -147,8 +147,8 @@ oasyce governance vote <proposal_id> --option yes|no|abstain
 oasyce serve                    # Dashboard at http://localhost:8420
 oasyce node info                # Ed25519 identity
 oasyce node peers               # connected peers
-oasyce testnet onboard          # one-click testnet setup
-oasyce testnet faucet           # free test OAS
+oasyce testnet onboard          # PoW self-registration (sha256 puzzle)
+oasyce testnet faucet           # test OAS (requires PoW registration first)
 ```
 
 ## Fingerprint & Watermark
@@ -177,7 +177,7 @@ oasyce info --section economics # token economics
 - **OAS**: Protocol token (uoas = 10^-6 OAS). All transactions settle in OAS.
 - **Bonding Curve**: `tokens = supply * (sqrt(1 + payment/reserve) - 1)`. More buyers = higher price.
 - **Sell**: Inverse curve: `payout = reserve * (1 - (1 - tokens/supply)^2)`, 95% reserve cap.
-- **2% Burn**: Every settlement burns 2% (93% provider, 5% protocol, 2% burn). Deflationary.
+- **2% Burn**: Every settlement burns 2% (93% provider, 5% protocol, 2% burn). Deflationary. (Whitepaper v4 target: 60/20/15/5 — pending chain upgrade)
 - **Access Levels**: Hold equity to unlock: >=0.1% L0, >=1% L1, >=5% L2, >=10% L3.
 - **Jury Voting**: 5 jurors, `sha256(disputeID+nodeID) * log(1+reputation)`, 2/3 majority.
 - **Escrow**: Lock funds before execution, release after verification. Auto-expiry refund.
@@ -228,3 +228,27 @@ All methods return `ServiceResult(success: bool, data: dict, error: str | None)`
 - [Plugin Engine](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine) — Python client
 - [DataVault](https://github.com/Shangri-la-0428/DataVault) — Data scanning skill
 - Discord: https://discord.gg/tfrCn54yZW
+
+---
+
+## Design Context
+
+### Users
+- **Primary:** Data providers/creators monetizing data assets — focused on earnings, security, rights
+- **Secondary:** AI developers/researchers buying data and capabilities — focused on efficiency, precision
+- **Context:** Professional users managing valuable digital assets. Expect financial-grade reliability.
+
+### Brand Personality
+**Precise. Restrained. Trustworthy.** Like a well-engineered instrument panel.
+
+### Design Principles
+1. **Earn every pixel** — No decoration. Every element serves a purpose.
+2. **Monospace signals trust** — IDs, hashes, prices, addresses all use monospace.
+3. **Semantic color only** — Green/red/yellow/blue for status only. Everything else is grayscale.
+4. **Subtle motion** — 0.12-0.3s max, cubic-bezier easing, respect prefers-reduced-motion.
+5. **Data density** — Show useful information, maintain clear hierarchy.
+
+### Anti-References
+Colorful crypto dashboards, gradient Web3 UIs, gamified interfaces, gratuitous animation.
+
+Full design tokens and component specs in `.impeccable.md`.

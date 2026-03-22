@@ -241,5 +241,10 @@ class ConfirmationInbox:
         if os.path.exists(self._inbox_path):
             with open(self._inbox_path) as f:
                 data = json.load(f)
-                for k, v in data.items():
-                    self._items[k] = InboxItem(**v)
+                if isinstance(data, dict):
+                    for k, v in data.items():
+                        self._items[k] = InboxItem(**v)
+                elif isinstance(data, list):
+                    for v in data:
+                        item = InboxItem(**v)
+                        self._items[item.item_id] = item

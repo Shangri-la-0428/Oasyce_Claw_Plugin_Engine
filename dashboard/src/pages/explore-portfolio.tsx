@@ -25,6 +25,14 @@ export default function ExplorePortfolio() {
     loadPortfolio();
   }, []);
 
+  /* Close dispute overlay on Escape */
+  useEffect(() => {
+    if (!disputeAssetId) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDisputeAssetId(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [disputeAssetId]);
+
   const loadPortfolio = async () => {
     setHoldingsLoading(true);
     const res = await get<Holding[]>(`/shares?owner=${walletAddress()}`);

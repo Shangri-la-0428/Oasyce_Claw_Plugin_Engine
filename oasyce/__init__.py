@@ -10,7 +10,7 @@ __all__ = [
     "OasyceServiceFacade",
     "ServiceResult",
 ]
-__version__ = "2.1.0"
+__version__ = "2.1.2"
 
 # Data Security & Access Control (§11)
 from oasyce.services.access import AccessLevel  # noqa: F401

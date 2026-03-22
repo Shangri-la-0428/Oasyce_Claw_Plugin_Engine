@@ -29,15 +29,27 @@ export interface Notification {
 export const notifications = signal<Notification[]>([]);
 export const unreadCount = signal<number>(0);
 
+async function readJsonSafe(res: Response): Promise<any> {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 /** Load notifications from backend */
 export async function loadNotifications(): Promise<void> {
   const addr = walletAddress();
-  if (addr === 'anonymous') return;
+  if (addr === 'anonymous') {
+    notifications.value = [];
+    unreadCount.value = 0;
+    return;
+  }
   try {
     const res = await fetch(`/api/notifications?address=${encodeURIComponent(addr)}&limit=50`);
     if (res.ok) {
-      const data = await res.json();
-      notifications.value = data.notifications || [];
+      const data = await readJsonSafe(res);
+      notifications.value = data?.notifications || [];
     }
   } catch {
     // Backend not available
@@ -59,11 +71,13 @@ export async function markNotificationsRead(notificationId?: string): Promise<vo
   const addr = walletAddress();
   const body: any = notificationId ? { notification_id: notificationId } : { address: addr };
   try {
-    await fetch('/api/notifications/read', {
+    const res = await fetch('/api/notifications/read', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    const data = await readJsonSafe(res);
+    if (!res.ok || !data?.ok) return;
     if (notificationId) {
       notifications.value = notifications.value.map(n =>
         n.id === notificationId ? { ...n, read: true } : n
@@ -111,8 +125,14 @@ export async function loadBalance(): Promise<void> {
   }
 }
 
-/** Claim test OAS from faucet */
-export async function claimFaucet(): Promise<{ ok: boolean; amount?: number; error?: string }> {
+/** Claim test OAS from faucet (dev/testnet only) */
+export async function claimFaucet(): Promise<{
+  ok: boolean;
+  amount?: number;
+  error?: string;
+  cooldown?: boolean;
+  nextClaimAt?: number | null;
+}> {
   const addr = walletAddress();
   if (addr === 'anonymous') return { ok: false, error: 'no wallet' };
   try {
@@ -121,15 +141,55 @@ export async function claimFaucet(): Promise<{ ok: boolean; amount?: number; err
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ address: addr }),
     });
-    const data = await res.json();
-    if (data.ok) {
+    const data = await readJsonSafe(res);
+    if (data?.ok) {
       balance.value = data.new_balance ?? balance.value;
       faucetCooldown.value = false;
       return { ok: true, amount: data.amount };
     }
-    faucetCooldown.value = true;
+    const cooldown = res.status === 429 || !!data?.next_claim_at;
+    faucetCooldown.value = cooldown;
+    return {
+      ok: false,
+      error: data?.error || 'network error',
+      cooldown,
+      nextClaimAt: data?.next_claim_at ?? null,
+    };
+  } catch {
+    return { ok: false, error: 'network error' };
+  }
+}
+
+/** PoW self-registration progress signal */
+export const powProgress = signal<{ mining: boolean; attempts: number; found: boolean }>({
+  mining: false, attempts: 0, found: false,
+});
+
+/** Self-register via PoW — computes nonce client-side, then submits to backend */
+export async function selfRegister(): Promise<{ ok: boolean; amount?: number; error?: string }> {
+  const addr = walletAddress();
+  if (addr === 'anonymous') return { ok: false, error: 'no wallet' };
+
+  powProgress.value = { mining: true, attempts: 0, found: false };
+
+  try {
+    // Backend computes PoW and registers (blocking but server-side is faster)
+    const res = await fetch('/api/onboarding/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: addr }),
+    });
+    const data = await res.json();
+    powProgress.value = { mining: false, attempts: data.attempts ?? 0, found: data.ok };
+
+    if (data.ok) {
+      balance.value = data.new_balance ?? balance.value;
+      await loadBalance();
+      return { ok: true, amount: data.amount };
+    }
     return { ok: false, error: data.error };
   } catch {
+    powProgress.value = { mining: false, attempts: 0, found: false };
     return { ok: false, error: 'network error' };
   }
 }
@@ -336,7 +396,7 @@ const dict: Record<string, Record<string, string>> = {
     'val-reputation': '信誉',
     'scanner-desc': '扫描本地目录，自动发现可注册的数据资产',
     'automation': '自动化', 'automation-desc': '管理自动注册与交易规则，审批待确认任务',
-    'auto-queue': '任务队列', 'auto-rules': '规则设置',
+    'auto-queue': '任务队列', 'auto-rules': '规则设置', 'coming-soon': '即将推出',
     'pending-tasks': '待确认', 'completed-tasks': '已完成',
     'approve-all': '全部通过', 'all-approved': '已全部通过',
     'queue-empty': '没有待处理任务', 'queue-empty-hint': '扫描目录或等待 Agent 提交新任务',
@@ -466,14 +526,20 @@ const dict: Record<string, Record<string, string>> = {
     'agent-run-now': '立即执行', 'agent-history': '执行历史',
     'agent-save-config': '保存配置', 'agent-no-history': '暂无执行记录',
     'balance-label': '余额',
-    'faucet-claim': '领取测试币',
+    'faucet-claim': '补充 OAS',
     'faucet-success': '已领取 {amount} OAS',
     'faucet-cooldown': '请稍后再试',
     'wallet-needed': '创建钱包以开始使用',
     'create-wallet': '创建钱包',
     'wallet-created': '钱包已创建',
     'onboard-step1': '创建钱包',
-    'onboard-step2': '领取测试币',
+    'onboard-step2': '领取启动资金',
+    'onboard-step2-desc': '完成算力验证，获得 {amount} OAS 启动资金',
+    'onboard-step2-btn': '开始验证',
+    'onboard-step2-mining': '正在计算...',
+    'onboard-step2-done': '验证完成',
+    'onboard-already': '已注册',
+    'register-success': '获得 {amount} OAS',
     'onboard-step3': '注册你的第一个资产',
     'onboard-complete': '准备就绪！',
     'total-earned': '总收入',
@@ -671,7 +737,7 @@ const dict: Record<string, Record<string, string>> = {
     'val-reputation': 'Reputation',
     'scanner-desc': 'Scan local directories to discover registerable data assets',
     'automation': 'Automation', 'automation-desc': 'Manage auto-registration and trading rules, review pending tasks',
-    'auto-queue': 'Queue', 'auto-rules': 'Rules',
+    'auto-queue': 'Queue', 'auto-rules': 'Rules', 'coming-soon': 'Coming Soon',
     'pending-tasks': 'Pending', 'completed-tasks': 'Completed',
     'approve-all': 'Approve all', 'all-approved': 'All approved',
     'queue-empty': 'No pending tasks', 'queue-empty-hint': 'Scan a directory or wait for agents to submit tasks',
@@ -801,14 +867,20 @@ const dict: Record<string, Record<string, string>> = {
     'agent-run-now': 'Run Now', 'agent-history': 'Run History',
     'agent-save-config': 'Save Config', 'agent-no-history': 'No runs yet',
     'balance-label': 'Balance',
-    'faucet-claim': 'Claim Test OAS',
+    'faucet-claim': 'Top Up OAS',
     'faucet-success': 'Claimed {amount} OAS',
     'faucet-cooldown': 'Please try again later',
     'wallet-needed': 'Create your wallet to get started',
     'create-wallet': 'Create Wallet',
     'wallet-created': 'Wallet created',
     'onboard-step1': 'Create Wallet',
-    'onboard-step2': 'Claim Test OAS',
+    'onboard-step2': 'Claim Starter OAS',
+    'onboard-step2-desc': 'Complete proof-of-work to receive {amount} OAS',
+    'onboard-step2-btn': 'Start Verification',
+    'onboard-step2-mining': 'Computing...',
+    'onboard-step2-done': 'Verified',
+    'onboard-already': 'Already registered',
+    'register-success': 'Received {amount} OAS',
     'onboard-step3': 'Register Your First Asset',
     'onboard-complete': "You're all set!",
     'total-earned': 'Total Earned',

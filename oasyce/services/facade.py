@@ -16,12 +16,23 @@ used SettlementEngine directly, producing different prices for the same asset.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from oasyce.chain_client import OasyceClient
+from oasyce.services.settlement.engine import AssetStatus, QuoteResult, SettlementConfig
+
 logger = logging.getLogger(__name__)
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ---------------------------------------------------------------------------
@@ -39,17 +50,22 @@ class ServiceResult:
 # ---------------------------------------------------------------------------
 from oasyce.core.formulas import (
     EQUITY_ACCESS_THRESHOLDS,
+    INITIAL_PRICE,
     LEVEL_INDEX as _LEVEL_INDEX,
     REPUTATION_SANDBOX,
     REPUTATION_LIMITED,
+    bonding_curve_buy,
+    calculate_fees,
     equity_to_access_level,
+    price_impact,
+    spot_price as _spot_price,
 )
 
 ACCESS_LEVELS = {
     "L0": {"name": "Query", "multiplier": 1.0, "lock_days": 1},
     "L1": {"name": "Sample", "multiplier": 2.0, "lock_days": 3},
     "L2": {"name": "Compute", "multiplier": 3.0, "lock_days": 7},
-    "L3": {"name": "Deliver", "multiplier": 15.0, "lock_days": 30},
+    "L3": {"name": "Deliver", "multiplier": 5.0, "lock_days": 30},
 }
 
 REPUTATION_THRESHOLDS = {
@@ -64,10 +80,21 @@ REPUTATION_THRESHOLDS = {
 class OasyceServiceFacade:
     """Single entry point for quote, buy, access-control, and registration."""
 
-    def __init__(self, config=None, ledger=None, verify_identity: bool = False):
+    def __init__(
+        self,
+        config=None,
+        ledger=None,
+        verify_identity: bool = False,
+        allow_local_fallback: Optional[bool] = None,
+    ):
         self._config = config
         self._ledger = ledger
         self._verify_identity = verify_identity
+        self._allow_local_fallback = (
+            _env_flag("OASYCE_ALLOW_LOCAL_FALLBACK")
+            if allow_local_fallback is None
+            else allow_local_fallback
+        )
         self._init_lock = threading.Lock()
 
         # Lazy-initialised service instances
@@ -76,6 +103,7 @@ class OasyceServiceFacade:
         self._reputation = None
         self._skills = None
         self._dispute_manager = None
+        self._chain_client = None
 
     # -- lazy accessors -----------------------------------------------------
 
@@ -85,8 +113,102 @@ class OasyceServiceFacade:
                 if self._settlement is None:  # double-check
                     from oasyce.services.settlement.engine import SettlementEngine
 
-                    self._settlement = SettlementEngine()
+                    self._settlement = SettlementEngine(
+                        config=SettlementConfig(
+                            chain_required=not self._allow_local_fallback,
+                            allow_local_fallback=self._allow_local_fallback,
+                        )
+                    )
         return self._settlement
+
+    def _get_chain_client(self):
+        if self._chain_client is None:
+            with self._init_lock:
+                if self._chain_client is None:  # double-check
+                    rest_url = getattr(self._config, "rest_url", "http://localhost:1317")
+                    self._chain_client = OasyceClient(
+                        rest_url=rest_url,
+                        allow_local_fallback=self._allow_local_fallback,
+                    )
+        return self._chain_client
+
+    def _strict_chain_mode(self) -> bool:
+        return not self._allow_local_fallback
+
+    @staticmethod
+    def _parse_number(value: Any, scale: float = 1.0) -> float:
+        if isinstance(value, dict):
+            value = value.get("amount", 0)
+        try:
+            return float(value) / scale
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _get_chain_market_state(self, asset_id: str) -> Dict[str, float]:
+        data = self._get_chain_client().get_bonding_curve_price(asset_id)
+        supply = self._parse_number(data.get("supply", 0))
+        reserve = self._parse_number(data.get("reserve", {}), scale=1e8)
+        quoted_price = self._parse_number(data.get("price", {}), scale=1e8)
+        if quoted_price > 0:
+            spot_price = quoted_price
+        elif supply <= 0 and reserve <= 0:
+            spot_price = INITIAL_PRICE
+        else:
+            spot_price = _spot_price(supply, reserve)
+        return {
+            "supply": supply,
+            "reserve": reserve,
+            "spot_price": spot_price,
+        }
+
+    def _quote_from_chain_state(
+        self,
+        asset_id: str,
+        amount_oas: float,
+        max_slippage: Optional[float] = None,
+    ) -> QuoteResult:
+        state = self._get_chain_market_state(asset_id)
+        price_before = state["spot_price"]
+        fee, burn, net_payment = calculate_fees(amount_oas)
+        tokens = bonding_curve_buy(state["supply"], state["reserve"], net_payment)
+        new_reserve = state["reserve"] + net_payment
+        new_supply = state["supply"] + tokens
+        price_after = _spot_price(new_supply, new_reserve)
+        impact = price_impact(price_before, price_after)
+        if max_slippage is not None and abs(impact) > max_slippage * 100:
+            raise ValueError(
+                f"Price impact {impact:.2f}% exceeds max slippage {max_slippage * 100:.2f}%"
+            )
+        return QuoteResult(
+            asset_id=asset_id,
+            payment_oas=round(amount_oas, 6),
+            equity_minted=tokens,
+            spot_price_before=price_before,
+            spot_price_after=price_after,
+            price_impact_pct=impact,
+            protocol_fee=fee,
+            burn_amount=burn,
+        )
+
+    def _get_onchain_holdings(self, asset_id: str, agent_id: str) -> tuple[float, float]:
+        market = self._get_chain_market_state(asset_id)
+        if market["supply"] <= 0:
+            return 0.0, 0.0
+
+        holdings = 0.0
+        shareholders = self._get_chain_client().get_shareholders(asset_id)
+        for holder in shareholders:
+            address = (
+                holder.get("address")
+                or holder.get("owner")
+                or holder.get("shareholder")
+                or holder.get("holder")
+                or ""
+            )
+            if address == agent_id:
+                holdings = self._parse_number(holder.get("shares", holder.get("amount", 0)))
+                break
+        return holdings, market["supply"]
 
     def _get_reputation(self):
         if self._reputation is None:
@@ -238,11 +360,14 @@ class OasyceServiceFacade:
         Returns the level string ("L0"-"L3") or None if no equity or
         insufficient holdings.
         """
-        se = self._get_settlement()
-        supply = se.get_supply(asset_id)
+        if self._strict_chain_mode():
+            holdings, supply = self._get_onchain_holdings(asset_id, agent_id)
+        else:
+            se = self._get_settlement()
+            supply = se.get_supply(asset_id)
+            holdings = se.get_equity(asset_id, agent_id)
         if supply <= 0:
             return None
-        holdings = se.get_equity(asset_id, agent_id)
         if holdings <= 0:
             return None
         pct = holdings / supply
@@ -256,8 +381,11 @@ class OasyceServiceFacade:
     def quote(self, asset_id: str, amount_oas: float = 10.0) -> ServiceResult:
         """Get bonding-curve price quote for an asset."""
         try:
-            se = self._get_settlement()
-            qr = se.quote(asset_id, amount_oas)
+            if self._strict_chain_mode():
+                qr = self._quote_from_chain_state(asset_id, amount_oas)
+            else:
+                se = self._get_settlement()
+                qr = se.quote(asset_id, amount_oas)
             return ServiceResult(
                 success=True,
                 data={
@@ -283,20 +411,58 @@ class OasyceServiceFacade:
         if not self._verify_agent(buyer, signature):
             return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
         try:
+            if self._strict_chain_mode():
+                from oasyce.bridge.core_bridge import bridge_buy
+
+                qr = self._quote_from_chain_state(asset_id, amount_oas)
+                result = bridge_buy(asset_id, buyer, amount_oas, ledger=self._ledger)
+                if "error" in result:
+                    return ServiceResult(success=False, error=result["error"])
+
+                access_granted = None
+                try:
+                    access_granted = self.get_equity_access_level(asset_id, buyer)
+                except Exception:
+                    pass
+
+                return ServiceResult(
+                    success=True,
+                    data={
+                        "tx_id": result.get("tx_id"),
+                        "receipt_id": result.get("tx_id"),
+                        "asset_id": asset_id,
+                        "buyer": buyer,
+                        "amount_oas": amount_oas,
+                        "settled": True,
+                        "quote": {
+                            "equity_minted": qr.equity_minted,
+                            "spot_price_after": qr.spot_price_after,
+                            "protocol_fee": qr.protocol_fee,
+                        },
+                        "access_granted": access_granted,
+                    },
+                )
+
             se = self._get_settlement()
             pool = se.get_pool(asset_id)
 
             if pool is None:
-                # Fallback to chain bridge
-                try:
-                    from oasyce.bridge.core_bridge import bridge_buy
+                # Check if asset exists in local ledger — auto-register pool
+                local_asset = self._ledger.get_asset(asset_id) if self._ledger else None
+                if local_asset:
+                    owner = local_asset.get("owner", "protocol")
+                    se.register_asset(asset_id, owner)
+                else:
+                    # Truly unknown — fallback to chain bridge
+                    try:
+                        from oasyce.bridge.core_bridge import bridge_buy
 
-                    result = bridge_buy(asset_id, buyer, amount_oas, ledger=self._ledger)
-                    if "error" not in result:
-                        return ServiceResult(success=True, data=result)
-                    return ServiceResult(success=False, error=result["error"])
-                except Exception as e:
-                    return ServiceResult(success=False, error=str(e))
+                        result = bridge_buy(asset_id, buyer, amount_oas, ledger=self._ledger)
+                        if "error" not in result:
+                            return ServiceResult(success=True, data=result)
+                        return ServiceResult(success=False, error=result["error"])
+                    except Exception as e:
+                        return ServiceResult(success=False, error=str(e))
 
             receipt = se.execute(asset_id, buyer, amount_oas)
             if receipt.status.value == "failed":
@@ -337,6 +503,11 @@ class OasyceServiceFacade:
         """Sell tokens back to the bonding curve for OAS payout."""
         if not self._verify_agent(seller, signature):
             return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
+        if self._strict_chain_mode():
+            return ServiceResult(
+                success=False,
+                error="Sell is unavailable in formal chain mode until on-chain redemption is implemented.",
+            )
         # Default slippage protection: 10% max
         if max_slippage is None:
             max_slippage = 0.10
@@ -366,7 +537,6 @@ class OasyceServiceFacade:
         try:
             rep = self._get_reputation()
             score = rep.get_reputation(buyer)
-            discount = rep.get_bond_discount(buyer)
 
             # Determine max allowed level based on reputation
             if score < REPUTATION_THRESHOLDS["sandbox"]:
@@ -376,14 +546,27 @@ class OasyceServiceFacade:
             else:
                 max_level = 3  # all levels
 
-            # Get base price (TWAP proxy: use spot price from settlement)
-            se = self._get_settlement()
-            pool = se.get_pool(asset_id)
-            base_price = pool.spot_price if pool else 1.0
+            if self._strict_chain_mode():
+                base_price = self._get_chain_market_state(asset_id)["spot_price"]
+            else:
+                se = self._get_settlement()
+                pool = se.get_pool(asset_id)
+                base_price = pool.spot_price if pool else INITIAL_PRICE
+
+            # Determine risk level from asset metadata (default: public)
+            risk_level = "public"
+            if self._ledger is not None:
+                meta = self._ledger.get_asset_metadata(asset_id)
+                if meta is not None:
+                    risk_level = meta.get("risk_level", "public")
+
+            # Use DataAccessProvider.bond_for for the full bond formula
+            # (includes RiskFactor and ExposureFactor)
+            provider = self._get_access_provider()
 
             levels = []
             for i, (level_key, info) in enumerate(ACCESS_LEVELS.items()):
-                bond = base_price * info["multiplier"] * discount
+                bond = provider.bond_for(buyer, base_price, level_key, risk_level=risk_level)
                 levels.append(
                     {
                         "level": level_key,
@@ -584,6 +767,9 @@ class OasyceServiceFacade:
             if meta is None:
                 return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
 
+            if consumer_id == meta.get("owner"):
+                return ServiceResult(success=False, error="Cannot dispute your own asset")
+
             meta["disputed"] = True
             meta["dispute_reason"] = reason
             meta["dispute_time"] = int(time.time())
@@ -773,6 +959,11 @@ class OasyceServiceFacade:
     def sell_quote(self, asset_id: str, seller: str, tokens: float) -> ServiceResult:
         """Get a quote for selling tokens back to the bonding curve."""
         try:
+            if self._strict_chain_mode():
+                return ServiceResult(
+                    success=False,
+                    error="Sell quote is unavailable in formal chain mode until on-chain redemption is implemented.",
+                )
             se = self._get_settlement()
             sq = se.sell_quote(asset_id, tokens, seller)
             return ServiceResult(
@@ -909,26 +1100,167 @@ class OasyceServiceFacade:
         self._ledger.update_asset_metadata(asset_id, {"delisted": True})
         return ServiceResult(success=True, data={"asset_id": asset_id, "delisted": True, "owner": owner})
 
-    def delete_asset(self, asset_id: str, signature: Optional[str] = None) -> ServiceResult:
+    # -----------------------------------------------------------------------
+    # Asset Versioning
+    # -----------------------------------------------------------------------
+    def add_asset_version(
+        self, asset_id: str, file_hash: str, owner: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        signature: Optional[str] = None,
+    ) -> ServiceResult:
+        """Register a new version of an existing asset. Only the owner can add versions."""
+        if not self._verify_agent(owner, signature):
+            return ServiceResult(success=False, error="Identity verification failed")
+        if self._ledger is None:
+            return ServiceResult(success=False, error="Ledger not available")
+        asset_meta = self._ledger.get_asset_metadata(asset_id)
+        if asset_meta is None:
+            return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
+        if asset_meta.get("owner") != owner:
+            return ServiceResult(success=False, error="Only the asset owner can add versions")
+        prev_hash = asset_meta.get("file_hash", "")
+        version = self._ledger.add_version(asset_id, file_hash, prev_hash, metadata or {})
+        return ServiceResult(success=True, data={
+            "asset_id": asset_id, "version": version,
+            "file_hash": file_hash, "prev_hash": prev_hash,
+        })
+
+    def get_asset_versions(self, asset_id: str) -> ServiceResult:
+        """Get full version history for an asset."""
+        if self._ledger is None:
+            return ServiceResult(success=False, error="Ledger not available")
+        versions = self._ledger.get_versions(asset_id)
+        return ServiceResult(success=True, data={
+            "asset_id": asset_id, "versions": versions, "count": len(versions),
+        })
+
+    # -----------------------------------------------------------------------
+    # Asset Lifecycle — Graceful Exit
+    # -----------------------------------------------------------------------
+    def initiate_shutdown(
+        self, asset_id: str, owner: str, signature: Optional[str] = None
+    ) -> ServiceResult:
+        """Owner initiates graceful shutdown. ACTIVE → SHUTDOWN_PENDING (7d cooldown).
+
+        During SHUTDOWN_PENDING: buy disabled, new access disabled, sell allowed.
+        """
+        if not self._verify_agent(owner, signature):
+            return ServiceResult(success=False, error="Identity verification failed")
+        try:
+            se = self._get_settlement()
+            se.initiate_shutdown(asset_id, owner)
+            info = se.get_shutdown_info(asset_id)
+            # Notify all equity holders
+            pool = se.get_pool(asset_id)
+            if pool is not None:
+                notif = self._get_notifications()
+                for holder in pool.equity:
+                    if holder != owner:
+                        notif.notify(
+                            holder,
+                            "SHUTDOWN_INITIATED",
+                            f"Asset {asset_id} is shutting down. You have 7 days to sell your shares.",
+                            {"asset_id": asset_id, "owner": owner},
+                        )
+            return ServiceResult(success=True, data=info or {})
+        except (ValueError, PermissionError) as e:
+            return ServiceResult(success=False, error=str(e))
+
+    def finalize_termination(
+        self, asset_id: str, sender: str = "", signature: Optional[str] = None
+    ) -> ServiceResult:
+        """Anyone can finalize after cooldown. SHUTDOWN_PENDING → TERMINATED.
+
+        Snapshots reserve and total_shares for pro-rata claim.
+        """
+        if sender and not self._verify_agent(sender, signature):
+            return ServiceResult(success=False, error="Identity verification failed")
+        try:
+            se = self._get_settlement()
+            se.finalize_termination(asset_id)
+            info = se.get_shutdown_info(asset_id)
+            # Notify all holders that they can claim
+            pool = se.get_pool(asset_id)
+            if pool is not None:
+                notif = self._get_notifications()
+                for holder in pool.equity:
+                    notif.notify(
+                        holder,
+                        "ASSET_TERMINATED",
+                        f"Asset {asset_id} is terminated. Claim your funds.",
+                        {"asset_id": asset_id, "snapshot_reserve": pool.snapshot_reserve},
+                    )
+            return ServiceResult(success=True, data=info or {})
+        except ValueError as e:
+            return ServiceResult(success=False, error=str(e))
+
+    def claim_termination(
+        self, asset_id: str, holder: str, signature: Optional[str] = None
+    ) -> ServiceResult:
+        """Holder claims pro-rata share of reserve after termination.
+
+        payout = (holder_shares / snapshot_total_shares) * snapshot_reserve
+        """
+        if not self._verify_agent(holder, signature):
+            return ServiceResult(success=False, error="Identity verification failed")
+        try:
+            se = self._get_settlement()
+            payout = se.claim_termination(asset_id, holder)
+            notif = self._get_notifications()
+            notif.notify(
+                holder,
+                "TERMINATION_CLAIMED",
+                f"Claimed {payout:.6f} OAS from terminated asset {asset_id}.",
+                {"asset_id": asset_id, "payout_oas": payout},
+            )
+            return ServiceResult(
+                success=True,
+                data={"asset_id": asset_id, "holder": holder, "payout_oas": payout},
+            )
+        except (ValueError, PermissionError) as e:
+            return ServiceResult(success=False, error=str(e))
+
+    def asset_lifecycle_info(self, asset_id: str) -> ServiceResult:
+        """Return lifecycle status info for an asset."""
+        se = self._get_settlement()
+        info = se.get_shutdown_info(asset_id)
+        if info is None:
+            return ServiceResult(success=False, error=f"Asset {asset_id} not found in settlement")
+        return ServiceResult(success=True, data=info)
+
+    def delete_asset(self, asset_id: str, owner: str = "", signature: Optional[str] = None) -> ServiceResult:
         """Delete an asset and its associated records.
 
-        Removes from ledger, fingerprint records, and settlement pool.
+        Only allowed after TERMINATED state and all holders have claimed.
+        Use initiate_shutdown → finalize_termination → claim for graceful exit.
         """
-        if not self._verify_agent(asset_id, signature):
+        if not self._verify_agent(owner, signature):
             return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
 
-        # Prevent deletion if anyone holds equity
+        # Verify caller is the asset owner
+        meta = self._ledger.get_asset_metadata(asset_id)
+        if meta is None:
+            return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
+        if owner and meta.get("owner") != owner:
+            return ServiceResult(success=False, error="Caller is not the asset owner")
+
+        # Check lifecycle state — must be TERMINATED or have no pool
         se = self._get_settlement()
         pool = se.get_pool(asset_id)
         if pool is not None:
-            holders = {k: v for k, v in pool.equity.items() if v > 0}
-            if holders:
+            if pool.status != AssetStatus.TERMINATED:
                 return ServiceResult(
                     success=False,
-                    error=f"Cannot delete: {len(holders)} equity holder(s) have active positions. "
-                    f"All holders must sell before deletion.",
+                    error=f"Cannot delete: asset is {pool.status.value}. "
+                    f"Use initiate_shutdown first.",
+                )
+            unclaimed = {k: v for k, v in pool.equity.items() if v > 0 and not pool.claimed.get(k)}
+            if unclaimed:
+                return ServiceResult(
+                    success=False,
+                    error=f"Cannot delete: {len(unclaimed)} holder(s) have unclaimed funds.",
                 )
 
         try:

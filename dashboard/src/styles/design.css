@@ -29,18 +29,33 @@
   --yellow: #b8a44a;
   --blue: #6a8fb5;
 
+  --yellow-bg: rgba(184, 164, 74, 0.12);
+  --green-bg: rgba(90, 158, 122, 0.12);
+
   --shadow-s: 0 1px 2px rgba(0,0,0,0.5);
   --shadow-m: 0 4px 12px rgba(0,0,0,0.6);
+  --surface-0: color-mix(in srgb, var(--bg-1) 82%, var(--bg-0));
+  --surface-1: color-mix(in srgb, var(--bg-2) 78%, var(--bg-0));
+  --surface-2: color-mix(in srgb, var(--bg-3) 92%, var(--bg-1));
+  --shell-border: color-mix(in srgb, var(--fg-3) 84%, transparent);
+  --shell-border-strong: color-mix(in srgb, var(--fg-2) 38%, transparent);
+  --shell-panel-top: color-mix(in srgb, var(--fg-0) 14%, transparent);
+  --shell-grid: color-mix(in srgb, var(--fg-3) 56%, transparent);
+  --shell-orb: color-mix(in srgb, var(--fg-0) 10%, transparent);
+  --shell-shadow: 0 24px 56px rgba(0,0,0,0.42);
+  --shell-shadow-soft: 0 16px 34px rgba(0,0,0,0.24);
 
   --r-s: 2px;
   --r-m: 6px;
   --r-l: 8px;
+  --r-xl: 16px;
 
   --mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
   --sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
 
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --max-w: 640px;
+  --main-w: 1240px;
   --nav-h: 48px;
   --gap: 28px;
 }
@@ -68,8 +83,21 @@
   --yellow: #7a6a2e;
   --blue: #3a5f8a;
 
+  --yellow-bg: rgba(122, 106, 46, 0.1);
+  --green-bg: rgba(53, 122, 72, 0.1);
+
   --shadow-s: 0 1px 2px rgba(0,0,0,0.05);
   --shadow-m: 0 4px 12px rgba(0,0,0,0.08);
+  --surface-0: color-mix(in srgb, var(--bg-1) 94%, white 6%);
+  --surface-1: color-mix(in srgb, var(--bg-2) 88%, white 12%);
+  --surface-2: color-mix(in srgb, var(--bg-3) 94%, var(--bg-1));
+  --shell-border: color-mix(in srgb, var(--fg-3) 18%, var(--border));
+  --shell-border-strong: color-mix(in srgb, var(--fg-2) 28%, var(--border-active));
+  --shell-panel-top: color-mix(in srgb, var(--fg-0) 18%, transparent);
+  --shell-grid: color-mix(in srgb, var(--fg-3) 22%, transparent);
+  --shell-orb: color-mix(in srgb, var(--fg-0) 8%, transparent);
+  --shell-shadow: 0 28px 56px rgba(17,17,17,0.08);
+  --shell-shadow-soft: 0 14px 30px rgba(17,17,17,0.06);
 }
 
 /* 系统偏好回退（JS 未加载时） */
@@ -95,8 +123,21 @@
     --yellow: #7a6a2e;
     --blue: #3a5f8a;
 
+    --yellow-bg: rgba(122, 106, 46, 0.1);
+    --green-bg: rgba(53, 122, 72, 0.1);
+
     --shadow-s: 0 1px 2px rgba(0,0,0,0.05);
     --shadow-m: 0 4px 12px rgba(0,0,0,0.08);
+    --surface-0: color-mix(in srgb, var(--bg-1) 94%, white 6%);
+    --surface-1: color-mix(in srgb, var(--bg-2) 88%, white 12%);
+    --surface-2: color-mix(in srgb, var(--bg-3) 94%, var(--bg-1));
+    --shell-border: color-mix(in srgb, var(--fg-3) 18%, var(--border));
+    --shell-border-strong: color-mix(in srgb, var(--fg-2) 28%, var(--border-active));
+    --shell-panel-top: color-mix(in srgb, var(--fg-0) 18%, transparent);
+    --shell-grid: color-mix(in srgb, var(--fg-3) 22%, transparent);
+    --shell-orb: color-mix(in srgb, var(--fg-0) 8%, transparent);
+    --shell-shadow: 0 28px 56px rgba(17,17,17,0.08);
+    --shell-shadow-soft: 0 14px 30px rgba(17,17,17,0.06);
   }
 }
 
@@ -115,16 +156,105 @@ html {
 }
 
 /* 主题切换过渡 — 主要表面和文本 */
-.nav, .card, .toast, .dropzone, .input, .search-box, .btn-ghost, .data-detail, .explore-inline {
+.app-shell, .nav, .shell-panel, .card, .toast, .notif-panel, .dropzone, .input, .search-box, .btn-ghost, .data-detail, .explore-inline {
   transition: background 0.3s var(--ease), color 0.3s var(--ease), border-color 0.3s var(--ease);
 }
-body { height: 100%; }
+body {
+  height: 100%;
+  overflow-x: clip;
+}
 
 /* ── Layout ── */
 .app { display: flex; flex-direction: column; min-height: 100vh; }
+.app-shell {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--shell-orb) 100%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-0) 94%, var(--bg-1)), var(--bg-0));
+}
+.app-backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+.app-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at top, transparent 0, transparent 48%, color-mix(in srgb, var(--bg-0) 22%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-0) 6%, transparent), color-mix(in srgb, var(--bg-0) 22%, transparent));
+}
+.app-backdrop-grid {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--shell-grid) 100%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--shell-grid) 100%, transparent) 1px, transparent 1px);
+  background-size: 84px 84px;
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.4), transparent 70%);
+  opacity: 0.48;
+}
+.app-backdrop-orb {
+  position: absolute;
+  border-radius: 999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--shell-orb) 100%, transparent), transparent 68%);
+  filter: blur(110px);
+  opacity: 0.7;
+}
+.app-backdrop-orb-a {
+  top: -10%;
+  left: -6%;
+  width: min(36vw, 480px);
+  aspect-ratio: 1;
+}
+.app-backdrop-orb-b {
+  right: -8%;
+  top: 18%;
+  width: min(26vw, 360px);
+  aspect-ratio: 1;
+  opacity: 0.44;
+}
+.app-frame {
+  position: relative;
+  z-index: 1;
+  width: min(1320px, calc(100vw - 48px));
+  margin: 0 auto;
+  padding: 24px 0 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
 .main {
-  flex: 1; width: 100%; max-width: var(--max-w);
-  margin: 0 auto; padding: 56px var(--gap) 120px;
+  flex: 1;
+  width: 100%;
+  max-width: var(--main-w);
+  margin: 0 auto;
+  padding: 0 0 120px;
+}
+.shell-panel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--shell-border);
+  border-radius: var(--r-xl);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 84%, transparent), color-mix(in srgb, var(--surface-0) 96%, transparent));
+  box-shadow: var(--shell-shadow-soft);
+  backdrop-filter: blur(18px);
+}
+.shell-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--shell-panel-top), transparent);
+}
+.shell-panel > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* ── Typography — 严格 4 级 ── */
@@ -250,7 +380,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 }
 .btn-ghost:hover:not(:disabled) { border-color: var(--border-active); color: var(--fg-0); }
 .btn-danger { background: transparent; color: var(--red); border: 1px solid transparent; padding: 4px 8px; font-size: 12px; }
-.btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.08); }
+.btn-danger:hover:not(:disabled) { background: rgba(184,92,92,0.12); }
 .btn-full { width: 100%; }
 .btn-sm { height: 32px; padding: 0 10px; font-size: 12px; }
 .btn-active {
@@ -301,7 +431,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 .skeleton {
   background: linear-gradient(90deg, var(--bg-1) 25%, var(--bg-2) 50%, var(--bg-1) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.5s infinite; /* Loading skeleton: longer duration is intentional for visual rhythm */
   border-radius: var(--r-m);
 }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
@@ -373,7 +503,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   min-height: 44px; padding: 0 10px;
   font-family: var(--sans); font-size: 12px; font-weight: 500;
   color: var(--fg-2); background: transparent;
-  border: 1px solid var(--border); border-radius: 14px;
+  border: 1px solid var(--border); border-radius: 999px;
   cursor: pointer; transition: all 0.12s var(--ease);
 }
 .tag-chip:hover { border-color: var(--border-active); color: var(--fg-0); }
@@ -555,18 +685,25 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   font-size: 11px; font-weight: 500;
   background: var(--bg-2); color: var(--fg-1);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--r-l);
 }
 
 /* ── Tablet ── */
 @media (max-width: 768px) {
-  :root { --max-w: 100%; }
+  :root { --max-w: 100%; --main-w: 100%; }
+  .app-frame { width: calc(100vw - 36px); padding-top: 18px; }
   .card { padding: 24px; }
 }
 
 /* ── Mobile ── */
 @media (max-width: 600px) {
   :root { --gap: 16px; }
+  .app-frame {
+    width: calc(100vw - 24px);
+    gap: 18px;
+    padding-bottom: 44px;
+  }
+  .main { padding-bottom: 88px; }
   .display { font-size: 24px; }
   .card { padding: 16px; }
   .kv { flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 0; }

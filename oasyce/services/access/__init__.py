@@ -12,7 +12,7 @@ Bond formula per access request:
 
   Bond = TWAP(Value) × Multiplier(Level) × RiskFactor × (1 - R/100) × ExposureFactor
 
-  Multiplier:  L0=1×  L1=2×  L2=3×  L3=5×
+  Multiplier:  L0=1×  L1=2×  L2=3×  L3=15×
   RiskFactor:  public=1.0  low=1.2  medium=1.5  high=2.0  critical=3.0
 """
 

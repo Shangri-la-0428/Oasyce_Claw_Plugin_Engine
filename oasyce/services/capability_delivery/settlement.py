@@ -1,6 +1,11 @@
 """
 Settlement Protocol — ties together escrow, gateway, and registry.
 
+DEPRECATED: The escrow and settlement logic in this module duplicates
+the Go chain (x/settlement). In production, capability invocations
+should be settled on-chain. The HTTP proxy layer (gateway.py) should
+be preserved; this settlement orchestration is scheduled for removal.
+
 This is the top-level orchestrator for capability invocations:
 
   1. Consumer requests invocation

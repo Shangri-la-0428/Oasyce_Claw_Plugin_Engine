@@ -1,6 +1,10 @@
 """
 Reputation Engine — Agent Trust Scoring for Access Control
 
+DEPRECATED: Local fallback only. The canonical reputation scoring lives
+in the Go chain (x/reputation). This module is only active when
+OASYCE_ALLOW_LOCAL_FALLBACK=true. Scheduled for removal.
+
 Tracks per-agent reputation scores that influence bond discounts and
 sandbox restrictions.
 

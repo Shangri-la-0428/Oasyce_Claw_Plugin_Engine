@@ -80,6 +80,14 @@ export default function ExploreBrowse({ subpath }: Props) {
     return () => clearTimeout(debounceRef.current);
   }, []);
 
+  /* Close preview overlay on Escape */
+  useEffect(() => {
+    if (!previewId) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreviewId(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [previewId]);
+
   /* Auto-select asset from deep link subpath (e.g. #explore/CAP_ABC123) */
   useEffect(() => {
     if (subpath && allAssets.length > 0) {

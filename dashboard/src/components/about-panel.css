@@ -41,7 +41,7 @@
 .about-badge {
   font-size: 11px; color: var(--fg-2);
   background: var(--bg-2);
-  padding: 1px 7px; border-radius: 10px;
+  padding: 1px 7px; border-radius: var(--r-l);
   font-family: var(--mono);
 }
 

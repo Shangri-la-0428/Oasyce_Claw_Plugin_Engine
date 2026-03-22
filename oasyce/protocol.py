@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -87,12 +86,13 @@ class OasyceProtocol:
                 rights_type=rights_type,
                 tags=tags or [],
             )
-            asset_id = tx_result.get("tx_response", {}).get(
-                "txhash",
-                hashlib.sha256(f"{creator}:{pack.media_hash}".encode()).hexdigest()[:16],
-            )
-        except ChainClientError:
-            # Fallback: generate local asset ID
+            asset_id = tx_result.get("tx_response", {}).get("txhash") or tx_result.get("txhash")
+            if not asset_id:
+                raise ChainClientError("Chain registration returned no txhash")
+        except ChainClientError as exc:
+            if not self._chain.allow_local_fallback:
+                logger.error("Chain registration failed: %s", exc)
+                return SubmitResult(valid=False, reason=str(exc), asset_id=None)
             asset_id = hashlib.sha256(f"{creator}:{pack.media_hash}".encode()).hexdigest()[:16]
             logger.warning("Chain unavailable; registered locally as %s", asset_id)
 
@@ -112,7 +112,9 @@ class OasyceProtocol:
                 asset_id=asset_id,
                 amount_uoas=amount_uoas,
             )
-            tx_id = tx_result.get("tx_response", {}).get("txhash", uuid.uuid4().hex)
+            tx_id = tx_result.get("tx_response", {}).get("txhash") or tx_result.get("txhash")
+            if not tx_id:
+                raise ChainClientError("Chain buy returned no txhash")
             return BuyResult(
                 asset_id=asset_id,
                 buyer=buyer,

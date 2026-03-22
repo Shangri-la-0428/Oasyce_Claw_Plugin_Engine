@@ -235,9 +235,17 @@ class TestOasyceClientFallback:
         result = client.list_capabilities()
         assert result == [{"id": "c1"}]
 
+    def test_strict_mode_raises_when_chain_is_down(self):
+        client = OasyceClient(rest_url="http://127.0.0.1:19999")
+        with pytest.raises(ChainClientError, match="fallback is disabled"):
+            client.list_capabilities()
+
     def test_list_capabilities_falls_back_to_local(self):
         """When chain is down, list_capabilities should fall back to local engine."""
-        client = OasyceClient(rest_url="http://127.0.0.1:19999")
+        client = OasyceClient(
+            rest_url="http://127.0.0.1:19999",
+            allow_local_fallback=True,
+        )
 
         # Inject a mock local engine.
         mock_engine = MagicMock()
@@ -250,7 +258,10 @@ class TestOasyceClientFallback:
 
     def test_get_balance_falls_back(self):
         """Balance query should fall back when chain is down."""
-        client = OasyceClient(rest_url="http://127.0.0.1:19999")
+        client = OasyceClient(
+            rest_url="http://127.0.0.1:19999",
+            allow_local_fallback=True,
+        )
         mock_engine = MagicMock()
         mock_engine.get_balance.return_value = {"balances": []}
         client._local_engine = mock_engine
@@ -260,7 +271,10 @@ class TestOasyceClientFallback:
 
     def test_null_engine_raises(self):
         """When local engine is also unavailable, operations should raise."""
-        client = OasyceClient(rest_url="http://127.0.0.1:19999")
+        client = OasyceClient(
+            rest_url="http://127.0.0.1:19999",
+            allow_local_fallback=True,
+        )
 
         # Force _NullEngine by making the import fail.
         with patch("oasyce.chain_client.OasyceClient._get_local_engine") as mock_gle:

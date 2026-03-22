@@ -1,5 +1,10 @@
 """Escrow Manager for capability invocations.
 
+DEPRECATED: This is a local fallback implementation. The canonical escrow
+logic lives in the Go chain (x/settlement). This module is only used when
+OASYCE_ALLOW_LOCAL_FALLBACK=true. Scheduled for removal once all consumers
+migrate to chain RPC.
+
 Locks consumer funds during execution, then releases to provider
 or refunds to consumer based on outcome.
 

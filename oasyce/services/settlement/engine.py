@@ -1,6 +1,12 @@
 """
 Settlement engine -- delegates to the Cosmos chain via OasyceClient.
 
+DEPRECATED: The bonding curve implementation in this module duplicates
+the Go chain (x/settlement, x/datarights). In strict chain mode
+(allow_local_fallback=False, the default), the facade bypasses local
+pool operations and delegates to chain RPC. This module is scheduled
+for simplification to a pure chain RPC wrapper.
+
 Provides backward-compatible types and methods for GUI and legacy code.
 Actual settlement operations go through the chain's settlement module.
 """
@@ -8,6 +14,7 @@ Actual settlement operations go through the chain's settlement module.
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -20,6 +27,13 @@ class TradeStatus(str, Enum):
     PENDING = "pending"
     SETTLED = "settled"
     FAILED = "failed"
+
+
+class AssetStatus(str, Enum):
+    """Asset lifecycle states: ACTIVE → SHUTDOWN_PENDING → TERMINATED."""
+    ACTIVE = "active"
+    SHUTDOWN_PENDING = "shutdown_pending"
+    TERMINATED = "terminated"
 
 
 class PriceModel(str, Enum):
@@ -97,6 +111,7 @@ class SettlementConfig:
     rest_url: str = "http://localhost:1317"
     min_initial_reserve: float = MIN_INITIAL_RESERVE
     chain_required: bool = True  # fail settlement if chain escrow fails
+    allow_local_fallback: Optional[bool] = None
 
 
 @dataclass
@@ -106,6 +121,14 @@ class AssetPool:
     supply: float = 1.0
     reserve_balance: float = 0.0
     equity: Dict[str, float] = field(default_factory=dict)
+    # Lifecycle fields
+    status: AssetStatus = AssetStatus.ACTIVE
+    shutdown_start_time: float = 0.0
+    shutdown_end_time: float = 0.0
+    # Snapshot at TERMINATED — used for pro-rata claim
+    snapshot_reserve: float = 0.0
+    snapshot_total_shares: float = 0.0
+    claimed: Dict[str, bool] = field(default_factory=dict)
 
     @property
     def spot_price(self) -> float:
@@ -121,7 +144,13 @@ class SettlementEngine:
 
     def __init__(self, config: Optional[SettlementConfig] = None):
         self._config = config or SettlementConfig()
-        self._chain = OasyceClient(rest_url=self._config.rest_url)
+        allow_local_fallback = self._config.allow_local_fallback
+        if allow_local_fallback is None:
+            allow_local_fallback = not self._config.chain_required
+        self._chain = OasyceClient(
+            rest_url=self._config.rest_url,
+            allow_local_fallback=allow_local_fallback,
+        )
         self._pools: Dict[str, AssetPool] = {}
         self.receipts: List[SettlementReceipt] = []
         self._protocol_fees_collected: float = 0.0
@@ -176,7 +205,7 @@ class SettlementEngine:
         """
         pool = self._pools.get(asset_id)
         if pool is None:
-            pool = self.register_asset(asset_id, "protocol")
+            pool = AssetPool(asset_id=asset_id, owner="protocol")
 
         price_before = pool.spot_price
         fee, burn, net_payment = calculate_fees(amount_oas)
@@ -216,6 +245,14 @@ class SettlementEngine:
         If chain escrow fails, local state is rolled back and receipt is FAILED.
         """
         with self._lock:
+            pool = self._pools.get(asset_id)
+            if pool is not None and pool.status != AssetStatus.ACTIVE:
+                raise ValueError(
+                    f"Cannot buy: asset is {pool.status.value} "
+                    f"(only ACTIVE assets accept purchases)"
+                )
+            if pool is None:
+                pool = self.register_asset(asset_id, "protocol")
             q = self.quote(asset_id, amount_oas, max_slippage=max_slippage)
             pool = self._pools[asset_id]
 
@@ -347,6 +384,9 @@ class SettlementEngine:
         needed because the facade re-checks equity on every access attempt.
         """
         with self._lock:
+            pool = self._pools.get(asset_id)
+            if pool is not None and pool.status == AssetStatus.TERMINATED:
+                raise ValueError("Cannot sell: asset is terminated. Use claim to retrieve funds.")
             sq = self.sell_quote(asset_id, tokens_to_sell, seller, max_slippage)
             pool = self._pools[asset_id]
 
@@ -407,6 +447,111 @@ class SettlementEngine:
 
             self.receipts.append(receipt)
             return receipt
+
+    # ── Lifecycle ──────────────────────────────────────────────────
+
+    SHUTDOWN_COOLDOWN_SECONDS: float = 7 * 24 * 3600  # 7 days
+
+    def initiate_shutdown(self, asset_id: str, owner: str) -> None:
+        """Owner initiates graceful shutdown. ACTIVE → SHUTDOWN_PENDING.
+
+        During SHUTDOWN_PENDING:
+          - Buy is disabled
+          - New access is disabled
+          - Sell remains enabled (market exit window)
+          - Disputes remain enabled
+        """
+        with self._lock:
+            pool = self._pools.get(asset_id)
+            if pool is None:
+                raise ValueError(f"Asset {asset_id} not found")
+            if pool.owner != owner:
+                raise PermissionError("Only the asset owner can initiate shutdown")
+            if pool.status != AssetStatus.ACTIVE:
+                raise ValueError(
+                    f"Cannot shutdown: asset is {pool.status.value} (must be ACTIVE)"
+                )
+            pool.status = AssetStatus.SHUTDOWN_PENDING
+            pool.shutdown_start_time = time.time()
+            pool.shutdown_end_time = pool.shutdown_start_time + self.SHUTDOWN_COOLDOWN_SECONDS
+
+    def finalize_termination(self, asset_id: str) -> None:
+        """Anyone can finalize after cooldown expires. SHUTDOWN_PENDING → TERMINATED.
+
+        Snapshots reserve and total_shares for pro-rata claim.
+        No funds move here — holders pull via claim_termination().
+        """
+        with self._lock:
+            pool = self._pools.get(asset_id)
+            if pool is None:
+                raise ValueError(f"Asset {asset_id} not found")
+            if pool.status != AssetStatus.SHUTDOWN_PENDING:
+                raise ValueError(
+                    f"Cannot finalize: asset is {pool.status.value} (must be SHUTDOWN_PENDING)"
+                )
+            if time.time() < pool.shutdown_end_time:
+                remaining = pool.shutdown_end_time - time.time()
+                raise ValueError(
+                    f"Cooldown not finished: {remaining:.0f}s remaining"
+                )
+            # Snapshot for pro-rata distribution
+            pool.snapshot_reserve = pool.reserve_balance
+            pool.snapshot_total_shares = pool.supply
+            pool.status = AssetStatus.TERMINATED
+
+    def claim_termination(self, asset_id: str, holder: str) -> float:
+        """Holder claims their pro-rata share of reserve after termination.
+
+        payout = (holder_shares / snapshot_total_shares) * snapshot_reserve
+
+        Returns the payout amount in OAS.
+        """
+        with self._lock:
+            pool = self._pools.get(asset_id)
+            if pool is None:
+                raise ValueError(f"Asset {asset_id} not found")
+            if pool.status != AssetStatus.TERMINATED:
+                raise ValueError(
+                    f"Cannot claim: asset is {pool.status.value} (must be TERMINATED)"
+                )
+            if pool.claimed.get(holder):
+                raise ValueError(f"Already claimed: {holder}")
+
+            shares = pool.equity.get(holder, 0.0)
+            if shares <= 0:
+                raise ValueError(f"No shares to claim for {holder}")
+
+            if pool.snapshot_total_shares <= 0:
+                raise ValueError("No shares existed at termination")
+
+            payout = (shares / pool.snapshot_total_shares) * pool.snapshot_reserve
+
+            # Mark claimed, clear equity
+            pool.claimed[holder] = True
+            pool.equity.pop(holder, None)
+            pool.reserve_balance -= payout
+
+            return round(payout, 6)
+
+    def get_shutdown_info(self, asset_id: str) -> Optional[Dict[str, Any]]:
+        """Return lifecycle status info for an asset."""
+        pool = self._pools.get(asset_id)
+        if pool is None:
+            return None
+        info: Dict[str, Any] = {
+            "asset_id": asset_id,
+            "status": pool.status.value,
+        }
+        if pool.status == AssetStatus.SHUTDOWN_PENDING:
+            remaining = max(0, pool.shutdown_end_time - time.time())
+            info["shutdown_end_time"] = pool.shutdown_end_time
+            info["remaining_seconds"] = remaining
+        elif pool.status == AssetStatus.TERMINATED:
+            info["snapshot_reserve"] = pool.snapshot_reserve
+            info["snapshot_total_shares"] = pool.snapshot_total_shares
+            unclaimed = {k: v for k, v in pool.equity.items() if v > 0 and not pool.claimed.get(k)}
+            info["unclaimed_holders"] = len(unclaimed)
+        return info
 
     # ── Stats ──────────────────────────────────────────────────────
 

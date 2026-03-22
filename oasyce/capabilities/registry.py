@@ -1,6 +1,11 @@
 """
 Capability Registry — register, discover, and manage capability assets.
 
+DEPRECATED: Local fallback only. The canonical capability registry lives
+in the Go chain (x/capability). For capability delivery, use
+DeliveryRegistry (oasyce.services.capability_delivery.registry).
+Scheduled for removal.
+
 Each node maintains a local registry. Discovery uses semantic similarity
 (cosine of embedding vectors) + tag overlap, following the AHRP match_score pattern.
 """

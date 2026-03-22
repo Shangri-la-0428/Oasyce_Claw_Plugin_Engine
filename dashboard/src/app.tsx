@@ -23,16 +23,23 @@ export default function App() {
   }, []);
 
   return (
-    <div class="app">
+    <div class="app app-shell">
+      <div class="app-backdrop" aria-hidden="true">
+        <div class="app-backdrop-grid" />
+        <div class="app-backdrop-orb app-backdrop-orb-a" />
+        <div class="app-backdrop-orb app-backdrop-orb-b" />
+      </div>
       <a href="#main-content" class="skip-link">Skip to content</a>
-      <Nav current={page} go={go} />
-      <main class="main no-outline" id="main-content" tabIndex={-1}>
-        {page === 'home' && <Home go={go} />}
-        {page === 'mydata' && <MyData />}
-        {page === 'explore' && <Explore subpath={subpath} />}
-        {page === 'network' && <Network subpath={subpath} />}
-        {page === 'auto' && <Automation />}
-      </main>
+      <div class="app-frame">
+        <Nav current={page} go={go} />
+        <main class="main no-outline" id="main-content" tabIndex={-1}>
+          {page === 'home' && <Home go={go} />}
+          {page === 'mydata' && <MyData />}
+          {page === 'explore' && <Explore subpath={subpath} />}
+          {page === 'network' && <Network subpath={subpath} />}
+          {page === 'auto' && <Automation />}
+        </main>
+      </div>
       <ToastContainer />
     </div>
   );

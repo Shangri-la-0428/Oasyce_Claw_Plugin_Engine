@@ -1,7 +1,7 @@
 """
 Oasyce Chain RPC Client — connects Python SDK to the Cosmos chain.
 Uses the chain's REST API (default localhost:1317).
-Falls back to local Python engine if chain is unavailable.
+Local fallback is opt-in and disabled by default for formal deployments.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import logging
 import os
 import shutil
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
@@ -26,6 +26,13 @@ _OASYCED_SEARCH_PATHS = [
     os.path.expanduser("~/Desktop/oasyce-chain/build/oasyced"),
     "/usr/local/bin/oasyced",
 ]
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _find_oasyced() -> Optional[str]:
@@ -59,7 +66,7 @@ class ChainClient:
         timeout: int = _DEFAULT_TIMEOUT,
         chain_id: str = "oasyce-local-1",
         keyring_backend: str = "test",
-        default_from: str = "validator",
+        default_from: Optional[str] = None,
         fees: str = "500uoas",
     ):
         self.rest_url = rest_url.rstrip("/")
@@ -181,6 +188,15 @@ class ChainClient:
         except FileNotFoundError:
             raise ChainClientError(f"oasyced not found at {self._oasyced}")
 
+    def _resolve_from_key(self, actor: str, from_key: Optional[str] = None) -> str:
+        """Resolve the CLI signer without silently changing the business actor."""
+        signer = from_key or actor or self.default_from
+        if signer:
+            return signer
+        raise ChainClientError(
+            "No signer configured. Pass from_key explicitly or configure default_from."
+        )
+
     def _query_cli(
         self,
         args: List[str],
@@ -267,6 +283,7 @@ class ChainClient:
         timeout_seconds: int = 3600,
         capability_id: str = "",
         asset_id: str = "",
+        from_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a new escrow."""
         if self.has_cli:
@@ -275,7 +292,7 @@ class ChainClient:
                 args += ["--asset-id", asset_id]
             if capability_id:
                 args += ["--capability-id", capability_id]
-            return self._run_cli(args, from_key=self.default_from)
+            return self._run_cli(args, from_key=self._resolve_from_key(creator, from_key))
         msg = {
             "creator": creator,
             "provider": provider,
@@ -287,22 +304,32 @@ class ChainClient:
             msg["asset_id"] = asset_id
         return self._broadcast_tx("/oasyce.settlement.v1.MsgCreateEscrow", msg)
 
-    def release_escrow(self, escrow_id: str, releaser: str) -> Dict[str, Any]:
+    def release_escrow(
+        self,
+        escrow_id: str,
+        releaser: str,
+        from_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Release escrowed funds to the provider."""
         if self.has_cli:
             return self._run_cli(
                 ["tx", "settlement", "release-escrow", escrow_id],
-                from_key=self.default_from,
+                from_key=self._resolve_from_key(releaser, from_key),
             )
         msg = {"creator": releaser, "escrow_id": escrow_id}
         return self._broadcast_tx("/oasyce.settlement.v1.MsgReleaseEscrow", msg)
 
-    def refund_escrow(self, escrow_id: str, refunder: str) -> Dict[str, Any]:
+    def refund_escrow(
+        self,
+        escrow_id: str,
+        refunder: str,
+        from_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Refund escrowed funds to the consumer."""
         if self.has_cli:
             return self._run_cli(
                 ["tx", "settlement", "refund-escrow", escrow_id],
-                from_key=self.default_from,
+                from_key=self._resolve_from_key(refunder, from_key),
             )
         msg = {"creator": refunder, "escrow_id": escrow_id}
         return self._broadcast_tx("/oasyce.settlement.v1.MsgRefundEscrow", msg)
@@ -332,6 +359,7 @@ class ChainClient:
         price_uoas: int,
         tags: Optional[List[str]] = None,
         rate_limit: int = 0,
+        from_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Register a new capability."""
         if self.has_cli:
@@ -349,7 +377,7 @@ class ChainClient:
                 args += ["--tags", ",".join(tags)]
             if rate_limit:
                 args += ["--rate-limit", str(rate_limit)]
-            return self._run_cli(args, from_key=self.default_from)
+            return self._run_cli(args, from_key=self._resolve_from_key(provider, from_key))
         msg = {
             "creator": provider,
             "name": name,
@@ -366,12 +394,13 @@ class ChainClient:
         consumer: str,
         capability_id: str,
         input_data: str,
+        from_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Invoke a capability."""
         if self.has_cli:
             return self._run_cli(
                 ["tx", "oasyce_capability", "invoke", capability_id, "--input", input_data],
-                from_key=self.default_from,
+                from_key=self._resolve_from_key(consumer, from_key),
             )
         msg = {
             "creator": consumer,
@@ -414,6 +443,7 @@ class ChainClient:
         rights_type: str = "original",
         tags: Optional[List[str]] = None,
         co_creators: Optional[List[Dict[str, Any]]] = None,
+        from_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Register a new data asset."""
         if self.has_cli:
@@ -424,7 +454,7 @@ class ChainClient:
                 args += ["--rights-type", rights_type]
             if tags:
                 args += ["--tags", ",".join(tags)]
-            return self._run_cli(args, from_key=self.default_from)
+            return self._run_cli(args, from_key=self._resolve_from_key(owner, from_key))
         rights_map = {
             "original": 0,
             "co_creation": 1,
@@ -447,12 +477,13 @@ class ChainClient:
         buyer: str,
         asset_id: str,
         amount_uoas: int,
+        from_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Buy shares of a data asset."""
         if self.has_cli:
             return self._run_cli(
                 ["tx", "datarights", "buy-shares", asset_id, f"{amount_uoas}uoas"],
-                from_key=self.default_from,
+                from_key=self._resolve_from_key(buyer, from_key),
             )
         msg = {
             "creator": buyer,
@@ -633,12 +664,14 @@ class ChainClient:
 
 
 class OasyceClient:
-    """Unified client that attempts chain RPC first, falls back to local engine.
+    """Unified client that attempts chain RPC first.
+
+    Local fallback is only used when explicitly enabled.
 
     Usage::
 
         client = OasyceClient()
-        # Transparently uses the chain if available, local engine otherwise.
+        # Uses the chain and raises when unavailable unless fallback is enabled.
         caps = client.list_capabilities(tag="nlp")
     """
 
@@ -647,10 +680,16 @@ class OasyceClient:
         rest_url: str = "http://localhost:1317",
         grpc_url: str = "localhost:9090",
         timeout: int = _DEFAULT_TIMEOUT,
+        allow_local_fallback: Optional[bool] = None,
     ):
         self._chain = ChainClient(rest_url=rest_url, grpc_url=grpc_url, timeout=timeout)
         self._local_engine: Optional[Any] = None
         self._chain_available: Optional[bool] = None
+        self._allow_local_fallback = (
+            _env_flag("OASYCE_ALLOW_LOCAL_FALLBACK")
+            if allow_local_fallback is None
+            else allow_local_fallback
+        )
 
     # ------------------------------------------------------------------
     # Connectivity
@@ -677,6 +716,11 @@ class OasyceClient:
         """Direct access to the underlying ChainClient."""
         return self._chain
 
+    @property
+    def allow_local_fallback(self) -> bool:
+        """True when local-engine fallback is explicitly enabled."""
+        return self._allow_local_fallback
+
     # ------------------------------------------------------------------
     # Local engine (lazy-loaded)
     # ------------------------------------------------------------------
@@ -697,6 +741,36 @@ class OasyceClient:
                 self._local_engine = _NullEngine()
         return self._local_engine
 
+    def _fallback_disabled_error(self, operation: str) -> ChainClientError:
+        return ChainClientError(
+            f"Chain unavailable for {operation}; local fallback is disabled."
+        )
+
+    def _call_with_optional_fallback(
+        self,
+        operation: str,
+        chain_call: Callable[[], Any],
+        local_method: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if self._check_chain():
+            try:
+                return chain_call()
+            except ChainClientError as exc:
+                if not self._allow_local_fallback:
+                    raise
+                logger.warning(
+                    "Chain query failed for %s, falling back to local engine: %s",
+                    operation,
+                    exc,
+                )
+        elif not self._allow_local_fallback:
+            raise self._fallback_disabled_error(operation)
+
+        engine = self._get_local_engine()
+        return getattr(engine, local_method)(*args, **kwargs)
+
     # ------------------------------------------------------------------
     # Capability methods
     # ------------------------------------------------------------------
@@ -707,36 +781,33 @@ class OasyceClient:
         provider: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """List capabilities from chain or local engine."""
-        if self._check_chain():
-            try:
-                data = self._chain.list_capabilities(tag=tag, provider=provider)
-                return data.get("capabilities", [])
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        # Fallback: local engine
-        engine = self._get_local_engine()
-        return engine.list_capabilities(tag=tag, provider=provider)
+        return self._call_with_optional_fallback(
+            "list_capabilities",
+            lambda: self._chain.list_capabilities(tag=tag, provider=provider).get(
+                "capabilities", []
+            ),
+            "list_capabilities",
+            tag=tag,
+            provider=provider,
+        )
 
     def get_capability(self, capability_id: str) -> Dict[str, Any]:
         """Get a single capability."""
-        if self._check_chain():
-            try:
-                data = self._chain.get_capability(capability_id)
-                return data.get("capability", {})
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_capability(capability_id)
+        return self._call_with_optional_fallback(
+            "get_capability",
+            lambda: self._chain.get_capability(capability_id).get("capability", {}),
+            "get_capability",
+            capability_id,
+        )
 
     def get_earnings(self, provider: str) -> Dict[str, Any]:
         """Get earnings for a provider."""
-        if self._check_chain():
-            try:
-                return self._chain.get_earnings(provider)
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_earnings(provider)
+        return self._call_with_optional_fallback(
+            "get_earnings",
+            lambda: self._chain.get_earnings(provider),
+            "get_earnings",
+            provider,
+        )
 
     # ------------------------------------------------------------------
     # DataRights methods
@@ -748,25 +819,22 @@ class OasyceClient:
         owner: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """List data assets from chain or local engine."""
-        if self._check_chain():
-            try:
-                data = self._chain.list_data_assets(tag=tag, owner=owner)
-                return data.get("assets", [])
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.list_data_assets(tag=tag, owner=owner)
+        return self._call_with_optional_fallback(
+            "list_data_assets",
+            lambda: self._chain.list_data_assets(tag=tag, owner=owner).get("assets", []),
+            "list_data_assets",
+            tag=tag,
+            owner=owner,
+        )
 
     def get_data_asset(self, asset_id: str) -> Dict[str, Any]:
         """Get a single data asset."""
-        if self._check_chain():
-            try:
-                data = self._chain.get_data_asset(asset_id)
-                return data.get("asset", {})
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_data_asset(asset_id)
+        return self._call_with_optional_fallback(
+            "get_data_asset",
+            lambda: self._chain.get_data_asset(asset_id).get("asset", {}),
+            "get_data_asset",
+            asset_id,
+        )
 
     # ------------------------------------------------------------------
     # Settlement methods
@@ -774,24 +842,21 @@ class OasyceClient:
 
     def get_escrow(self, escrow_id: str) -> Dict[str, Any]:
         """Get a single escrow."""
-        if self._check_chain():
-            try:
-                data = self._chain.get_escrow(escrow_id)
-                return data.get("escrow", {})
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_escrow(escrow_id)
+        return self._call_with_optional_fallback(
+            "get_escrow",
+            lambda: self._chain.get_escrow(escrow_id).get("escrow", {}),
+            "get_escrow",
+            escrow_id,
+        )
 
     def get_bonding_curve_price(self, asset_id: str) -> Dict[str, Any]:
         """Get bonding curve price for an asset."""
-        if self._check_chain():
-            try:
-                return self._chain.get_bonding_curve_price(asset_id)
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_bonding_curve_price(asset_id)
+        return self._call_with_optional_fallback(
+            "get_bonding_curve_price",
+            lambda: self._chain.get_bonding_curve_price(asset_id),
+            "get_bonding_curve_price",
+            asset_id,
+        )
 
     # ------------------------------------------------------------------
     # Reputation methods
@@ -799,13 +864,12 @@ class OasyceClient:
 
     def get_reputation(self, address: str) -> Dict[str, Any]:
         """Get reputation for an address."""
-        if self._check_chain():
-            try:
-                return self._chain.get_reputation(address)
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_reputation(address)
+        return self._call_with_optional_fallback(
+            "get_reputation",
+            lambda: self._chain.get_reputation(address),
+            "get_reputation",
+            address,
+        )
 
     # ------------------------------------------------------------------
     # DataRights tx methods
@@ -829,36 +893,30 @@ class OasyceClient:
 
     def get_dispute(self, dispute_id: str) -> Dict[str, Any]:
         """Get a single dispute."""
-        if self._check_chain():
-            try:
-                data = self._chain.get_dispute(dispute_id)
-                return data.get("dispute", {})
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_dispute(dispute_id)
+        return self._call_with_optional_fallback(
+            "get_dispute",
+            lambda: self._chain.get_dispute(dispute_id).get("dispute", {}),
+            "get_dispute",
+            dispute_id,
+        )
 
     def list_disputes(self, asset_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """List disputes."""
-        if self._check_chain():
-            try:
-                data = self._chain.list_disputes(asset_id=asset_id)
-                return data.get("disputes", [])
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.list_disputes(asset_id=asset_id)
+        return self._call_with_optional_fallback(
+            "list_disputes",
+            lambda: self._chain.list_disputes(asset_id=asset_id).get("disputes", []),
+            "list_disputes",
+            asset_id=asset_id,
+        )
 
     def get_shareholders(self, asset_id: str) -> List[Dict[str, Any]]:
         """Get shareholders for a data asset."""
-        if self._check_chain():
-            try:
-                data = self._chain.get_shareholders(asset_id)
-                return data.get("shareholders", [])
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_shareholders(asset_id)
+        return self._call_with_optional_fallback(
+            "get_shareholders",
+            lambda: self._chain.get_shareholders(asset_id).get("shareholders", []),
+            "get_shareholders",
+            asset_id,
+        )
 
     # ------------------------------------------------------------------
     # Settlement tx methods
@@ -910,23 +968,21 @@ class OasyceClient:
 
     def get_feedback(self, invocation_id: str) -> Dict[str, Any]:
         """Get feedback for an invocation."""
-        if self._check_chain():
-            try:
-                return self._chain.get_feedback(invocation_id)
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_feedback(invocation_id)
+        return self._call_with_optional_fallback(
+            "get_feedback",
+            lambda: self._chain.get_feedback(invocation_id),
+            "get_feedback",
+            invocation_id,
+        )
 
     def get_leaderboard(self, limit: int = 100) -> Dict[str, Any]:
         """Get reputation leaderboard."""
-        if self._check_chain():
-            try:
-                return self._chain.get_leaderboard(limit=limit)
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_leaderboard(limit=limit)
+        return self._call_with_optional_fallback(
+            "get_leaderboard",
+            lambda: self._chain.get_leaderboard(limit=limit),
+            "get_leaderboard",
+            limit=limit,
+        )
 
     # ------------------------------------------------------------------
     # Bank / Account
@@ -934,13 +990,12 @@ class OasyceClient:
 
     def get_balance(self, address: str) -> Dict[str, Any]:
         """Get token balances for an address."""
-        if self._check_chain():
-            try:
-                return self._chain.get_balance(address)
-            except ChainClientError:
-                logger.warning("Chain query failed, falling back to local engine.")
-        engine = self._get_local_engine()
-        return engine.get_balance(address)
+        return self._call_with_optional_fallback(
+            "get_balance",
+            lambda: self._chain.get_balance(address),
+            "get_balance",
+            address,
+        )
 
     def is_connected(self) -> bool:
         """Check if chain is reachable."""

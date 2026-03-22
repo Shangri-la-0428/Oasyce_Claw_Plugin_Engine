@@ -1,5 +1,9 @@
 """Dispute Manager + Jury System for capability invocations.
 
+DEPRECATED: Local fallback only. The canonical jury voting and dispute
+resolution lives in the Go chain (x/datarights). This module is only
+active when OASYCE_ALLOW_LOCAL_FALLBACK=true. Scheduled for removal.
+
 Handles dispute lifecycle:
     1. open_dispute()   — consumer disputes a result within the dispute window
     2. select_jury()    — pick jurors weighted by reputation

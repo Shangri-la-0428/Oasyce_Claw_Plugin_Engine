@@ -107,7 +107,7 @@ def test_cannot_delete_asset_with_equity_holders():
     ledger = Ledger(db_path=":memory:")
     ledger.register_asset("DEL_TEST", "creator", "hash123", {"tags": ["test"]})
 
-    facade = OasyceServiceFacade(ledger=ledger)
+    facade = OasyceServiceFacade(ledger=ledger, allow_local_fallback=True)
     se = facade._get_settlement()
     se._config = SettlementConfig(chain_required=False)
 
@@ -115,10 +115,10 @@ def test_cannot_delete_asset_with_equity_holders():
     se.register_asset("DEL_TEST", "creator", initial_reserve=100.0)
     se.execute("DEL_TEST", "buyer", 10.0)
 
-    # Attempt to delete — should fail
+    # Attempt to delete — should fail (asset is ACTIVE, must shutdown first)
     result = facade.delete_asset("DEL_TEST")
     assert not result.success
-    assert "equity holder" in result.error.lower()
+    assert "cannot delete" in result.error.lower()
 
 
 def test_sell_has_default_slippage_protection():
@@ -126,7 +126,7 @@ def test_sell_has_default_slippage_protection():
     from oasyce.services.facade import OasyceServiceFacade
     from oasyce.services.settlement.engine import SettlementConfig
 
-    facade = OasyceServiceFacade()
+    facade = OasyceServiceFacade(allow_local_fallback=True)
     se = facade._get_settlement()
     se._config = SettlementConfig(chain_required=False)
 
@@ -172,7 +172,7 @@ def test_identity_verification_rejects_unsigned():
     """When verify_identity=True, operations without signature are rejected."""
     from oasyce.services.facade import OasyceServiceFacade
 
-    facade = OasyceServiceFacade(verify_identity=True)
+    facade = OasyceServiceFacade(verify_identity=True, allow_local_fallback=True)
     se = facade._get_settlement()
     se.register_asset("AUTH_TEST", "creator", initial_reserve=100.0)
 

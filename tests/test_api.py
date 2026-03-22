@@ -97,22 +97,27 @@ async def test_submit_invalid_pack(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_buy_success(client: AsyncClient):
+async def test_buy_success(client: AsyncClient, monkeypatch):
     # Register asset through the facade's settlement engine (single entry point)
     from oasyce.api.deps import get_facade
     from oasyce.services.settlement.engine import SettlementConfig
 
-    facade = get_facade()
-    se = facade._get_settlement()
-    se._config = SettlementConfig(chain_required=False)
-    se.register_asset("TEST_BUY_ASSET", owner="alice")
+    monkeypatch.setenv("OASYCE_ALLOW_LOCAL_FALLBACK", "1")
+    get_facade.cache_clear()
+    try:
+        facade = get_facade()
+        se = facade._get_settlement()
+        se._config = SettlementConfig(chain_required=False, allow_local_fallback=True)
+        se.register_asset("TEST_BUY_ASSET", owner="alice")
 
-    resp = await client.post("/v1/buy", json={"asset_id": "TEST_BUY_ASSET", "buyer": "bob"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["ok"] is True
-    assert body["data"]["quote"]["price_oas"] > 0
-    assert body["data"]["settlement"]["success"] is True
+        resp = await client.post("/v1/buy", json={"asset_id": "TEST_BUY_ASSET", "buyer": "bob"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["data"]["quote"]["price_oas"] > 0
+        assert body["data"]["settlement"]["success"] is True
+    finally:
+        get_facade.cache_clear()
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,9 @@
 """
 Contribution Proof — Three-Layer Fingerprint Verification for Data Provenance
 
+DEPRECATED: Local fallback only. The canonical contribution proof lives
+in the Go chain (x/datarights). Scheduled for removal.
+
 Verifies data contribution authenticity through:
   1. Content hash (SHA-256) — integrity proof
   2. Semantic fingerprint (embedding vector) — similarity detection

@@ -5,7 +5,7 @@
   min-width: 22px; height: 22px; padding: 0 6px;
   font-family: var(--mono); font-size: 12px; font-weight: 600;
   background: var(--fg-0); color: var(--bg-0);
-  border-radius: 11px;
+  border-radius: 999px;
 }
 
 /* Scan bar */
@@ -124,7 +124,7 @@
   display: inline-block;
   margin-top: 6px; padding: 2px 6px;
   font-size: 11px; font-weight: 400; letter-spacing: 0.03em;
-  color: var(--fg-2); border: 1px solid var(--border); border-radius: 3px;
+  color: var(--fg-2); border: 1px solid var(--border); border-radius: var(--r-s);
 }
 
 /* Custom agent config */

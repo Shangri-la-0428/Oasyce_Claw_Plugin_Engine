@@ -1,4 +1,8 @@
-"""Feedback loop for skill discovery — tracks execution outcomes."""
+"""Feedback loop for skill discovery — tracks execution outcomes.
+
+DEPRECATED: Local fallback only. The canonical feedback logic lives in
+the Go chain (x/reputation). Scheduled for removal.
+"""
 
 from __future__ import annotations
 

@@ -213,6 +213,28 @@ class DataAccessProvider:
 
         return True
 
+    def bond_for(
+        self,
+        agent_id: str,
+        base_value: float,
+        level: str,
+        risk_level: str = "public",
+    ) -> float:
+        """Compute bond for an access level without requiring prior asset registration.
+
+        Uses the full formula:
+          Bond = base_value × Multiplier(Level) × RiskFactor × (1 - R/100) × ExposureFactor
+
+        This is the public API for bond calculation.
+        """
+        multiplier = self.config.multiplier_for(level)
+        risk_factor = self.config.risk_factor_for(risk_level)
+        rep_discount = self.reputation.get_bond_discount(agent_id)
+        # ExposureFactor defaults to 1.0 when no prior tracking exists
+        exposure_factor = 1.0
+        bond = base_value * multiplier * risk_factor * rep_discount * exposure_factor
+        return round(bond, 6)
+
     def _calculate_bond(self, agent_id: str, asset_id: str, access_level: AccessLevel) -> float:
         """Compute bond amount.
 

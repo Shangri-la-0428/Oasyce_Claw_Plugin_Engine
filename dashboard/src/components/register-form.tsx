@@ -50,6 +50,18 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
   const _ = i18n.value;
 
   const hasSelection = !!(file || folderName);
+  const owner = walletAddress();
+  const filledCoCreators = coCreators
+    .map(c => ({ address: c.address.trim(), share: Number(c.share) || 0 }))
+    .filter(c => c.address);
+  const totalCoCreatorShare = filledCoCreators.reduce((sum, c) => sum + c.share, 0);
+  const coCreationError = rightsType !== 'co_creation'
+    ? ''
+    : filledCoCreators.length < 2
+      ? (_['co-creators-hint'] || 'Co-creation requires at least 2 people, shares must total 100%')
+      : Math.abs(totalCoCreatorShare - 100) > 0.01
+        ? `${_['co-creators-sum'] || 'Total shares'}: ${totalCoCreatorShare}%`
+        : '';
 
   const clearSelection = () => {
     setFile(null); setDesc('');
@@ -90,11 +102,28 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
 
   const submitFile = async () => {
     if (!file) return;
+    if (owner === 'anonymous') {
+      showToast(_['wallet-needed'] || 'Create your wallet to get started', 'error');
+      return;
+    }
+    if (rightsType === 'co_creation' && coCreationError) {
+      showToast(coCreationError, 'error');
+      return;
+    }
+    if ((priceModel === 'fixed' || priceModel === 'floor') && !(parseFloat(manualPrice) > 0)) {
+      showToast(_['error-generic'], 'error');
+      return;
+    }
     setLoading(true);
     const tags = desc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean).join(',');
-    const fields: Record<string, string> = { tags, rights_type: rightsType, price_model: priceModel };
+    const fields: Record<string, string> = {
+      owner,
+      tags,
+      rights_type: rightsType,
+      price_model: priceModel,
+    };
     if (rightsType === 'co_creation') {
-      fields.co_creators = JSON.stringify(coCreators.filter(c => c.address.trim()));
+      fields.co_creators = JSON.stringify(filledCoCreators);
     }
     if ((priceModel === 'fixed' || priceModel === 'floor') && manualPrice) {
       fields.price = manualPrice;
@@ -112,9 +141,17 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
 
   const submitBundle = async () => {
     if (folderFiles.length === 0) return;
+    if (owner === 'anonymous') {
+      showToast(_['wallet-needed'] || 'Create your wallet to get started', 'error');
+      return;
+    }
     setLoading(true);
     const tags = desc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean).join(',');
-    const res = await postBundle(folderFiles, { name: folderName || 'bundle', tags });
+    const res = await postBundle(folderFiles, {
+      name: folderName || 'bundle',
+      owner,
+      tags,
+    });
     if (res.success) {
       showToast(_['protected'], 'success');
       loadAssets(); clearSelection();
@@ -127,11 +164,15 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
 
   const submitCap = async () => {
     if (!capName.trim() || !capEndpoint.trim()) return;
+    if (owner === 'anonymous') {
+      showToast(_['wallet-needed'] || 'Create your wallet to get started', 'error');
+      return;
+    }
     setLoading(true);
     const tags = capTags.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
     const res = await post<{ ok?: boolean; capability_id?: string; error?: string }>('/delivery/register', {
       name: capName.trim(),
-      provider: walletAddress(),
+      provider: owner,
       description: capDesc.trim(),
       endpoint: capEndpoint.trim(),
       api_key: capApiKey.trim() || undefined,
@@ -214,7 +255,11 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
           </>
         )}
 
-        <button class="btn btn-primary btn-full" onClick={submitCap} disabled={loading || !capName.trim() || !capEndpoint.trim()}>
+        <button
+          class="btn btn-primary btn-full"
+          onClick={submitCap}
+          disabled={loading || owner === 'anonymous' || !capName.trim() || !capEndpoint.trim()}
+        >
           {loading ? _['protecting'] : (_['publish-cap'] || '\u53d1\u5e03\u80fd\u529b')}
         </button>
       </div>
@@ -317,10 +362,13 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
                     <button class="btn btn-ghost btn-sm" onClick={() => setCoCreators([...coCreators, {address: '', share: 0}])}>
                       + {_['add-co-creator']}
                     </button>
-                    <span class={`caption mono ${coCreators.reduce((s, c) => s + c.share, 0) === 100 ? '' : 'style-warn'}`}>
-                      {_['co-creators-sum']}: {coCreators.reduce((s, c) => s + c.share, 0)}%
+                    <span class={`caption mono ${Math.abs(totalCoCreatorShare - 100) <= 0.01 ? '' : 'style-warn'}`}>
+                      {_['co-creators-sum']}: {totalCoCreatorShare}%
                     </span>
                   </div>
+                  {coCreationError && (
+                    <div class="caption style-warn mt-8">{coCreationError}</div>
+                  )}
                 </div>
               )}
               <div>
@@ -351,7 +399,16 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
               </div>
             </>
           )}
-          <button class="btn btn-primary btn-full" onClick={submitFile} disabled={loading}>
+          <button
+            class="btn btn-primary btn-full"
+            onClick={submitFile}
+            disabled={
+              loading
+              || owner === 'anonymous'
+              || !!coCreationError
+              || ((priceModel === 'fixed' || priceModel === 'floor') && !(parseFloat(manualPrice) > 0))
+            }
+          >
             {loading ? _['protecting'] : _['protect']}
           </button>
         </div>

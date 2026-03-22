@@ -5,15 +5,13 @@ Converts plugin-side signed metadata into CapturePack, verifies locally,
 then delegates all chain operations (register, quote, buy, stake, shares)
 to the Go chain via OasyceClient (REST/gRPC).
 
-If the chain is unavailable, operations will fall back to the local engine
-(if installed) or raise ChainClientError.
+Formal mode raises when the chain is unavailable. Local fallback is only
+used when explicitly enabled.
 """
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
-import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -108,10 +106,19 @@ def bridge_register(signed_metadata: dict, creator: Optional[str] = None) -> dic
             rights_type=rights_type,
             tags=tags,
         )
-        asset_id = tx_result.get("tx_response", {}).get("txhash", uuid.uuid4().hex)
-    except ChainClientError:
-        # Fallback: generate a local asset ID
-        asset_id = hashlib.sha256(f"{creator}:{content_hash}".encode()).hexdigest()[:16]
+        asset_id = tx_result.get("tx_response", {}).get("txhash") or tx_result.get("txhash")
+        if not asset_id:
+            raise ChainClientError("Chain registration returned no txhash")
+    except ChainClientError as exc:
+        if client.allow_local_fallback:
+            asset_id = hashlib.sha256(f"{creator}:{content_hash}".encode()).hexdigest()[:16]
+        else:
+            return {
+                "valid": False,
+                "reason": verify["reason"],
+                "core_asset_id": None,
+                "error": f"Chain registration failed: {exc}",
+            }
 
     return {"valid": True, "reason": verify["reason"], "core_asset_id": asset_id}
 
@@ -160,7 +167,9 @@ def bridge_buy(
             asset_id=asset_id,
             amount_uoas=amount_uoas,
         )
-        tx_id = tx_result.get("tx_response", {}).get("txhash", uuid.uuid4().hex)
+        tx_id = tx_result.get("tx_response", {}).get("txhash") or tx_result.get("txhash")
+        if not tx_id:
+            raise ChainClientError("Chain buy returned no txhash")
         result: dict = {
             "asset_id": asset_id,
             "buyer": buyer,

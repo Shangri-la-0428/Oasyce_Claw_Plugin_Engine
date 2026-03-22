@@ -17,7 +17,7 @@ class AccessControlConfig:
     L0_multiplier: float = 1.0
     L1_multiplier: float = 2.0
     L2_multiplier: float = 3.0
-    L3_multiplier: float = 15.0  # raised from 5.0 — reflects full data exposure risk
+    L3_multiplier: float = 5.0  # whitepaper v4 §3.2 — full data delivery
 
     # ─── Reputation parameters ────────────────────────────────────
     rep_initial: float = 0.0  # start at 0, not sandbox — agents must earn trust

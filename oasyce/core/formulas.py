@@ -1,6 +1,12 @@
 """
 Layer 0 — Pure functions for Oasyce protocol math.
 
+DEPRECATED: Local fallback only. The canonical bonding curve, fee split,
+and access level calculations live in the Go chain (x/settlement,
+x/datarights). These Python implementations are only active when
+OASYCE_ALLOW_LOCAL_FALLBACK=true. Constants here should stay in sync
+with Go chain constants in x/settlement/types/types.go.
+
 These functions have NO side effects, NO state, NO I/O.
 They are the irreducible mathematical primitives of the protocol.
 Every formula is independently testable with zero mocking.

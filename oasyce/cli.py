@@ -417,16 +417,26 @@ def cmd_jury_vote(args):
     ledger = Ledger(config.db_path) if config.db_path else None
     facade = OasyceServiceFacade(config=config, ledger=ledger)
 
-    uphold = args.verdict == "uphold"
-    # Delegate to chain if available, otherwise note for future implementation.
-    data = {"dispute_id": args.dispute_id, "juror": args.juror, "uphold": uphold}
+    # Map CLI verdicts to facade verdicts:
+    # "uphold" = upholding the dispute = ruling for consumer
+    # "reject" = rejecting the dispute = ruling for provider
+    verdict_map = {"uphold": "consumer", "reject": "provider"}
+    facade_verdict = verdict_map[args.verdict]
+
+    result = facade.jury_vote(
+        dispute_id=args.dispute_id,
+        juror_id=args.juror,
+        verdict=facade_verdict,
+    )
 
     if args.json:
-        print(json.dumps(data, indent=2))
+        print(json.dumps(result.data if result.success else {"error": result.error}, indent=2))
     else:
-        verdict_str = "UPHOLD" if uphold else "REJECT"
-        print(f"Jury vote recorded: {args.dispute_id} -> {verdict_str} by {args.juror}")
-        print("  (Vote will be submitted to chain when connected)")
+        if result.success:
+            verdict_str = "UPHOLD" if args.verdict == "uphold" else "REJECT"
+            print(f"Jury vote recorded: {args.dispute_id} -> {verdict_str} by {args.juror}")
+        else:
+            print(f"Error: {result.error}")
 
 
 def cmd_discover(args):
@@ -2007,7 +2017,7 @@ def cmd_capability_earnings(args):
             print(json.dumps(data, indent=2))
             return
 
-            print(f"\n  {label}")
+        print(f"\n  {label}")
         print("  " + "─" * 30)
         for k, v in data.items():
             if "earned" in k or "spent" in k:
@@ -2853,8 +2863,14 @@ def cmd_cache(args):
 
 def cmd_serve(args):
     """Start the Oasyce API server."""
+    import sys
     from oasyce.server import main as server_main
 
+    sys.argv = ["oasyce", "serve"]
+    if hasattr(args, "port") and args.port is not None:
+        sys.argv.extend(["--port", str(args.port)])
+    if hasattr(args, "host") and args.host is not None:
+        sys.argv.extend(["--host", str(args.host)])
     server_main()
 
 
@@ -3117,6 +3133,7 @@ def main():
     # Search command
     search_parser = subparsers.add_parser("search", help="Search assets by tag")
     search_parser.add_argument("tag", help="Tag to search for")
+    search_parser.add_argument("--json", action="store_true", help="JSON output")
     search_parser.set_defaults(func=cmd_search)
 
     # Quote command
@@ -3162,6 +3179,7 @@ def main():
     # Shares command
     shares_parser = subparsers.add_parser("shares", help="Show share holdings for an owner")
     shares_parser.add_argument("owner", help="Owner identity")
+    shares_parser.add_argument("--json", action="store_true", help="JSON output")
     shares_parser.set_defaults(func=cmd_shares)
 
     # Asset info command (OAS-DAS)
