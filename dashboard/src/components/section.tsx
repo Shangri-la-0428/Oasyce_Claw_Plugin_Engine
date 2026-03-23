@@ -14,7 +14,7 @@ export function Section({ id, title, desc, defaultOpen = false, forceOpen = fals
       const saved = localStorage.getItem(storageKey);
       return saved !== null ? saved === '1' : defaultOpen;
     } catch {
-      return defaultOpen;
+      return defaultOpen; // localStorage unavailable (private browsing)
     }
   });
 

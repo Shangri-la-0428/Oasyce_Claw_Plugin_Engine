@@ -30,7 +30,7 @@ async function readJsonSafe(res: Response): Promise<any> {
   try {
     return await res.json();
   } catch {
-    return null;
+    return null; // Response body not valid JSON
   }
 }
 
@@ -196,7 +196,7 @@ export function showToast(message: string, type = 'info') {
   // Resolve i18n key if the message matches a known key (e.g. error keys from client.ts)
   const resolved = i18n.value[message] || message;
   toasts.value = [...toasts.value, { id, message: resolved, type }];
-  setTimeout(() => toasts.value = toasts.value.filter(t => t.id !== id), 3000);
+  setTimeout(() => toasts.value = toasts.value.filter(t => t.id !== id), 3000); // 3s auto-dismiss
 }
 
 const dict: Record<string, Record<string, string>> = {

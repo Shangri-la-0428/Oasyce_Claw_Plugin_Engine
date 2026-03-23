@@ -53,8 +53,20 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
   const _ = i18n.value;
 
   useEffect(() => {
-    loadPortfolio();
-    loadTransactions();
+    let cancelled = false;
+    const load = async () => {
+      setHoldingsLoading(true);
+      const res = await get<Holding[]>(`/shares?owner=${walletAddress()}`);
+      if (!cancelled && res.success && Array.isArray(res.data)) setHoldings(res.data);
+      if (!cancelled) setHoldingsLoading(false);
+
+      setTxLoading(true);
+      const txRes = await get<Transaction[]>('/transactions');
+      if (!cancelled && txRes.success && Array.isArray(txRes.data)) setTransactions(txRes.data);
+      if (!cancelled) setTxLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   /* Close dispute overlay on Escape */

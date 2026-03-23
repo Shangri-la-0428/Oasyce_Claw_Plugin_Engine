@@ -215,6 +215,10 @@
   background: var(--bg-1);
   font-weight: 600; color: var(--fg-1);
 }
+@media (max-width: 600px) {
+  .preview-table { font-size: var(--text-xs); }
+  .preview-table th, .preview-table td { padding: var(--space-xxs) var(--space-xs); }
+}
 .preview-info { font-size: var(--text-md); color: var(--fg-2); padding: var(--space-s) 0; }
 
 /* ── Dispute form ── */

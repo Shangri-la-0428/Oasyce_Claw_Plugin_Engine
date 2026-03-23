@@ -70,18 +70,20 @@ export default function ExploreBrowse({ subpath }: Props) {
 
   /* 加载数据资产 + capability 资产 */
   useEffect(() => {
+    let cancelled = false;
     Promise.all([
       get<Asset[]>('/assets'),
       get<Asset[]>('/capabilities'),
     ]).then(([dataRes, capRes]) => {
+      if (cancelled) return;
       const rawData = dataRes.success && Array.isArray(dataRes.data) ? dataRes.data : [];
       const rawCaps = capRes.success && Array.isArray(capRes.data) ? capRes.data : [];
       const dataAssets = rawData.map(a => ({ ...a, asset_type: 'data' as const }));
       const capAssets = rawCaps.map(a => ({ ...a, asset_type: 'capability' as const }));
       setAllAssets([...dataAssets, ...capAssets]);
-    }).finally(() => setInitialLoading(false));
+    }).finally(() => { if (!cancelled) setInitialLoading(false); });
 
-    return () => clearTimeout(debounceRef.current);
+    return () => { cancelled = true; clearTimeout(debounceRef.current); };
   }, []);
 
   /* Close preview overlay on Escape */
