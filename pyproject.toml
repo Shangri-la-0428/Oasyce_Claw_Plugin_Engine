@@ -39,12 +39,13 @@ dev = ["black>=23.0", "flake8>=6.0", "mypy>=1.0"]
 server = ["fastapi>=0.100.0", "uvicorn>=0.20.0", "pydantic>=2.0.0"]
 
 [project.scripts]
-oasyce = "oasyce.cli:main"
+oas = "oasyce.cli:main"
+oasyce = "oasyce.cli:main"  # backward compat alias
 
 [project.urls]
-Homepage = "https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine"
-Documentation = "https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/tree/main/docs"
-Issues = "https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues"
+Homepage = "https://github.com/Shangri-la-0428/oasyce-net"
+Documentation = "https://github.com/Shangri-la-0428/oasyce-net/tree/main/docs"
+Issues = "https://github.com/Shangri-la-0428/oasyce-net/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

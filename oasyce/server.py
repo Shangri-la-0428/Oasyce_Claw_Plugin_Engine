@@ -211,9 +211,9 @@ def create_app(
 
 
 def main():
-    """CLI entry point: oasyce serve"""
+    """CLI entry point: oas serve"""
     parser = argparse.ArgumentParser(
-        prog="oasyce",
+        prog="oas",
         description="Oasyce Protocol Node -- Data Rights Clearing Network",
     )
     sub = parser.add_subparsers(dest="command")
@@ -261,7 +261,7 @@ def main():
         uvicorn.run(app, host=args.host, port=args.port)
 
     elif args.command == "version":
-        print("oasyce 0.3.0")
+        print("oas 0.3.0")
 
     elif args.command == "status":
         import urllib.request

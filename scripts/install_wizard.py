@@ -220,16 +220,16 @@ def print_next_steps():
 接下来你可以：
 
 1️⃣  注册你的第一个文件
-    oasyce register ~/Desktop/我的文件.pdf
+    oas register ~/Desktop/我的文件.pdf
 
 2️⃣  查看帮助
-    oasyce --help
+    oas --help
 
 3️⃣  阅读详细文档
-    打开：https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine
+    打开：https://github.com/Shangri-la-0428/oasyce-net
 
 4️⃣  遇到问题？
-    提 issue: https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues
+    提 issue: https://github.com/Shangri-la-0428/oasyce-net/issues
 
 """
     )

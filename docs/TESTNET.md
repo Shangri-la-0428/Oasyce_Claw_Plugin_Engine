@@ -24,13 +24,13 @@ The Oasyce testnet (`oasyce-testnet-1`) is a public test environment for validat
 
 ```bash
 pip install oasyce
-oasyce doctor
+oas doctor
 ```
 
 ### 2. One-Click Onboarding
 
 ```bash
-oasyce testnet onboard
+oas testnet onboard
 ```
 
 This performs PoW registration (20 OAS debt airdrop), claims supplemental testnet OAS, registers a sample asset, and stakes as a validator — all in one command.
@@ -38,7 +38,7 @@ This performs PoW registration (20 OAS debt airdrop), claims supplemental testne
 ### 3. Check Status
 
 ```bash
-oasyce testnet status
+oas testnet status
 oasyce chain info
 ```
 
@@ -50,13 +50,13 @@ oasyce chain info
 
 ```bash
 # 1. Register identity (PoW → 20 OAS airdrop as debt)
-oasyce testnet onboard
+oas testnet onboard
 
 # 2. (Optional) Claim supplemental testnet OAS
-oasyce testnet faucet
+oas testnet faucet
 
 # 3. Register as validator (stake 100+ OAS)
-oasyce node become-validator --stake 200
+oas node become-validator --stake 200
 
 # 4. Check your status (Dashboard API)
 # Open http://localhost:8420 → Network page → Validators section
@@ -67,26 +67,26 @@ oasyce node become-validator --stake 200
 ```bash
 # 1. Obtain the genesis.json from the testnet coordinator
 # 2. Join the network
-oasyce testnet join --genesis genesis.json
+oas testnet join --genesis genesis.json
 
 # 3. Register identity + claim supplemental OAS
-oasyce testnet onboard
+oas testnet onboard
 
 # 4. Register as validator
-oasyce node become-validator --stake 200
+oas node become-validator --stake 200
 ```
 
 #### Option C: Deploy Your Own Testnet
 
 ```bash
 # Initialize a 3-validator testnet
-oasyce testnet init --validators 3 --output ./my-testnet
+oas testnet init --validators 3 --output ./my-testnet
 
 # Or use the deployment script
 ./scripts/deploy_testnet.sh --validators 3 --output ./my-testnet
 
 # Start a validator node
-oasyce testnet join --genesis ./my-testnet/genesis.json --data-dir ./my-testnet/node-0
+oas testnet join --genesis ./my-testnet/genesis.json --data-dir ./my-testnet/node-0
 ```
 
 ### Validator Operations (via Dashboard API)
@@ -129,13 +129,13 @@ The Dashboard displays governance state via `/api/governance/proposals` and `/ap
 
 ### Prerequisites
 
-- Must complete PoW registration first (`oasyce testnet onboard`)
+- Must complete PoW registration first (`oas testnet onboard`)
 - Unregistered addresses are rejected (403)
 
 ### CLI Usage
 
 ```bash
-oasyce testnet faucet
+oas testnet faucet
 ```
 
 ### Limits
@@ -218,10 +218,10 @@ This will:
 
 ```bash
 # Generate genesis with 3 validators
-oasyce testnet init --validators 3 --output ./testnet-data --json
+oas testnet init --validators 3 --output ./testnet-data --json
 
 # Create genesis from a config file
-oasyce testnet genesis --config testnet-config.json --output genesis.json
+oas testnet genesis --config testnet-config.json --output genesis.json
 ```
 
 ### Validator Node Setup
@@ -262,7 +262,7 @@ oasyce testnet genesis --config testnet-config.json --output genesis.json
 A: No. Testnet tokens have no monetary value and exist only for testing.
 
 **Q: How do I reset my testnet state?**
-A: Run `oasyce testnet reset --force` to delete all testnet data.
+A: Run `oas testnet reset --force` to delete all testnet data.
 
 **Q: Can I run testnet and mainnet simultaneously?**
 A: Yes. They use separate data directories (`~/.oasyce-testnet` vs `~/.oasyce`) and ports (9528 vs 9527).
@@ -271,7 +271,7 @@ A: Yes. They use separate data directories (`~/.oasyce-testnet` vs `~/.oasyce`) 
 A: Claim supplemental OAS from the faucet (max 3 claims per address). Slashing on testnet is a learning experience, not a loss.
 
 **Q: How do I connect to other testnet nodes?**
-A: Use `oasyce testnet join --genesis genesis.json --bootstrap <host:port>` to connect to a bootstrap peer.
+A: Use `oas testnet join --genesis genesis.json --bootstrap <host:port>` to connect to a bootstrap peer.
 
 **Q: Where are my keys stored?**
 A: Node identity keys are in `~/.oasyce-testnet/node_id.json`. Signing keys are in `~/.oasyce/keys/` (shared across networks).

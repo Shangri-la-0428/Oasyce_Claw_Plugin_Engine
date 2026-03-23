@@ -148,8 +148,8 @@ def main():
         print(f"✅ 所有检查通过！Oasyce 已就绪 ({passed} 通过, {warnings} 警告)")
         print()
         print("下一步:")
-        print("  - 运行：oasyce --help  查看 CLI 帮助")
-        print("  - 运行：oasyce register /path/to/file.pdf  注册文件")
+        print("  - 运行：oas --help  查看 CLI 帮助")
+        print("  - 运行：oas register /path/to/file.pdf  注册文件")
         print("  - 查看：examples/ 目录获取示例代码")
         return 0
     else:

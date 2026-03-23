@@ -179,13 +179,13 @@ On-chain governance allows stake-weighted voting on protocol parameter changes.
 
 1. **Propose**: Any participant deposits OAS and submits a proposal with title, description, and parameter changes
    ```bash
-   oasyce governance propose --title "Increase block reward" \
+   oas governance propose --title "Increase block reward" \
      --description "..." --changes '[...]' --deposit 1000
    ```
 
 2. **Voting period**: Validators and delegators vote `yes`, `no`, or `abstain`
    ```bash
-   oasyce governance vote PROPOSAL_ID --option yes
+   oas governance vote PROPOSAL_ID --option yes
    ```
 
 3. **Tally**: Votes are weighted by stake
@@ -204,7 +204,7 @@ Parameters are registered in the governance registry. Examples include:
 
 Query available parameters:
 ```bash
-oasyce governance params [--module consensus]
+oas governance params [--module consensus]
 ```
 
 ---

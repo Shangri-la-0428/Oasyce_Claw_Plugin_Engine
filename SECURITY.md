@@ -56,4 +56,4 @@ The following are generally not considered security vulnerabilities:
 ## Questions
 
 For general security questions that are not vulnerability reports, open a
-discussion on the [GitHub repository](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine).
+discussion on the [GitHub repository](https://github.com/Shangri-la-0428/oasyce-net).

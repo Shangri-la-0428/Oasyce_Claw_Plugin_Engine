@@ -39,7 +39,7 @@ Handles all financial operations:
 ### 4. Identity Layer
 
 Ed25519 cryptographic identities for all network participants:
-- **Key generation**: `oasyce keys generate`
+- **Key generation**: `oas keys generate`
 - **Signing**: All operations can be signed for replay protection
 - **Chain ID**: Operations include `chain_id` to prevent cross-chain replay
 - **Watermarking**: Content fingerprinting and distribution tracing
@@ -66,7 +66,7 @@ Each asset includes metadata: owner, tags, timestamps, risk level, rights type, 
 ### 1. Register
 
 ```bash
-oasyce register photo.jpg --owner alice --tags "photography,landscape"
+oas register photo.jpg --owner alice --tags "photography,landscape"
 ```
 
 The engine pipeline runs: **Scan -> Classify -> Metadata -> PoPc Certificate -> Register**
@@ -79,7 +79,7 @@ The engine pipeline runs: **Scan -> Classify -> Metadata -> PoPc Certificate -> 
 ### 2. Price
 
 ```bash
-oasyce quote ASSET_ID
+oas quote ASSET_ID
 ```
 
 The bonding curve computes the current price based on:
@@ -92,7 +92,7 @@ The bonding curve computes the current price based on:
 ### 3. Trade
 
 ```bash
-oasyce buy ASSET_ID
+oas buy ASSET_ID
 ```
 
 - Buyer pays the quoted price in OAS
@@ -115,7 +115,7 @@ AI capability providers can list endpoints that other agents invoke via the prot
 ### 1. Register Endpoint
 
 ```bash
-oasyce capability register \
+oas capability register \
   --name "Translation API" \
   --endpoint https://api.example.com/translate \
   --api-key sk-xxx \
@@ -128,7 +128,7 @@ The provider's API key is encrypted at rest and never exposed to consumers.
 ### 2. Discover
 
 ```bash
-oasyce discover --intents "translate" --tags nlp
+oas discover --intents "translate" --tags nlp
 ```
 
 The discovery engine uses a four-layer pipeline:
@@ -144,7 +144,7 @@ When a consumer invokes a capability, funds are locked in escrow before executio
 ### 4. Invoke
 
 ```bash
-oasyce capability invoke CAP_ID --input '{"text": "hello", "target": "es"}'
+oas capability invoke CAP_ID --input '{"text": "hello", "target": "es"}'
 ```
 
 The gateway routes the request to the provider's registered endpoint.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Oasyce Claw Plugin Engine - CLI
+Oasyce Network - CLI
 
 Command-line interface for data asset registration, search, and pricing.
 """
@@ -96,7 +96,7 @@ def cmd_info(args):
         print(f"  Schema version: {info['schema_version']}")
         print()
         print(
-            "  For details: oasyce info --section <quickstart|architecture|economics|update|links>"
+            "  For details: oas info --section <quickstart|architecture|economics|update|links>"
         )
         print()
 
@@ -116,7 +116,7 @@ def cmd_register(args):
         else:
             _output_error(
                 args,
-                "--owner is required (or create a wallet with: oasyce keys generate)",
+                "--owner is required (or create a wallet with: oas keys generate)",
                 code="OWNER_REQUIRED",
             )
             sys.exit(1)
@@ -1212,7 +1212,7 @@ def cmd_node_become_arbitrator(args):
     else:
         print(f"Node {node_id_short} is now an arbitrator")
         print(f"  Tags: {', '.join(tags)}")
-        print(f"  Discoverable via: oasyce discover --intents dispute_arbitrate")
+        print(f"  Discoverable via: oas discover --intents dispute_arbitrate")
         if api_key:
             print(f"  AI API key: configured ({api_provider or 'claude'})")
 
@@ -1232,7 +1232,7 @@ def cmd_node_role(args):
     else:
         if not roles:
             print(f"Node {node_id_short}: no special role (standard peer)")
-            print(f"  Use 'oasyce node become-validator' or 'oasyce node become-arbitrator'")
+            print(f"  Use 'oas node become-validator' or 'oas node become-arbitrator'")
         else:
             print(f"Node {node_id_short}")
             for r in roles:
@@ -2805,9 +2805,9 @@ def cmd_keys_show(args):
 
     if not os.path.exists(pub_file):
         if args.json:
-            print(json.dumps({"ok": False, "error": "no keys found, run: oasyce keys generate"}))
+            print(json.dumps({"ok": False, "error": "no keys found, run: oas keys generate"}))
         else:
-            print("No keys found. Run: oasyce keys generate")
+            print("No keys found. Run: oas keys generate")
         return
 
     pub_hex = open(pub_file).read().strip()
@@ -2947,7 +2947,7 @@ def cmd_cache(args):
             print(f"  Purged {removed} expired entries.")
 
         else:
-            print("  Usage: oasyce cache {list|clear|stats|purge}")
+            print("  Usage: oas cache {list|clear|stats|purge}")
     finally:
         cache.close()
 
@@ -2957,7 +2957,7 @@ def cmd_serve(args):
     import sys
     from oasyce.server import main as server_main
 
-    sys.argv = ["oasyce", "serve"]
+    sys.argv = ["oas", "serve"]
     if hasattr(args, "port") and args.port is not None:
         sys.argv.extend(["--port", str(args.port)])
     if hasattr(args, "host") and args.host is not None:
@@ -3190,7 +3190,7 @@ def cmd_update(args):
             )
         else:
             print(f"  Update available: {current} -> {latest}")
-            print("  Run 'oasyce update' to upgrade.")
+            print("  Run 'oas update' to upgrade.")
         return
 
     # Perform upgrade
@@ -3255,7 +3255,7 @@ def _maybe_check_for_update():
                     ) > _parse_version_tuple(current):
                         print(
                             f"  Update available: {current} \u2192 {cached_latest}."
-                            f" Run 'oasyce update'\n"
+                            f" Run 'oas update'\n"
                         )
                     return
             except Exception:
@@ -3270,14 +3270,14 @@ def _maybe_check_for_update():
         )
 
         if latest and _parse_version_tuple(latest) > _parse_version_tuple(current):
-            print(f"  Update available: {current} \u2192 {latest}. Run 'oasyce update'\n")
+            print(f"  Update available: {current} \u2192 {latest}. Run 'oas update'\n")
     except Exception:
         pass  # Never block CLI execution
 
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="oasyce", description="Oasyce Claw Plugin Engine - Data Asset Management CLI"
+        prog="oas", description="Oasyce — Data Rights Settlement Network CLI"
     )
     parser.add_argument("--json", action="store_true", help="Output in JSON format")
     parser.add_argument("--use-core", action="store_true", help="Route through Go chain")
@@ -4057,11 +4057,11 @@ def main():
             print("  Welcome to Oasyce! Looks like this is your first time.")
             print()
             print("  Quick start:")
-            print("    oasyce doctor    — check your setup")
-            print("    oasyce demo      — run a full demo (register → quote → buy)")
-            print("    oasyce start     — launch Dashboard at http://localhost:8420")
+            print("    oas doctor    — check your setup")
+            print("    oas demo      — run a full demo (register → quote → buy)")
+            print("    oas start     — launch Dashboard at http://localhost:8420")
             print()
-            print("  For more: oasyce info")
+            print("  For more: oas info")
             print()
             sys.exit(0)
         parser.print_help()

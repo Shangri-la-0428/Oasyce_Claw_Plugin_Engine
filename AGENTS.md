@@ -2,13 +2,13 @@
 
 > This file is the source of truth for AI tool integration. It is read automatically by Claude Code (CLAUDE.md), Cursor (.cursorrules), Windsurf (.windsurfrules), and any AI tool that supports project-level instructions.
 
-You have access to the `oasyce` CLI — a unified client for the Oasyce decentralized AI data marketplace. One install gives you everything: data asset management, AI capability trading, local data scanning, and chain interaction.
+You have access to the `oas` CLI — a unified client for the Oasyce decentralized AI data marketplace. One install gives you everything: data asset management, AI capability trading, local data scanning, and chain interaction.
 
 ## Install
 
 ```bash
 pip install oasyce        # includes DataVault (odv) automatically
-oasyce doctor             # verify installation
+oas doctor             # verify installation
 ```
 
 ## What Is Oasyce?
@@ -19,7 +19,7 @@ Three components, one install:
 
 | Component | What It Does | Command |
 |-----------|-------------|---------|
-| **oasyce** (this package) | Python client + Dashboard | `oasyce` |
+| **oasyce** (this package) | Python client + Dashboard | `oas` |
 | **odv** (DataVault) | Local data scanning, classification, PII detection | `datavault` |
 | **oasyce-chain** | L1 Cosmos SDK appchain (Go) | `oasyced` |
 
@@ -36,15 +36,15 @@ datavault privacy              # check for PII
 datavault report               # review results
 
 # 2. Register safe assets to the network
-oasyce register data.csv --owner alice --tags research,nlp
+oas register data.csv --owner alice --tags research,nlp
 
 # 3. Check pricing and trade
-oasyce quote ASSET_ID          # bonding curve spot price
-oasyce buy ASSET_ID --buyer bob --amount 10.0
-oasyce sell ASSET_ID --tokens 5 --seller bob
+oas quote ASSET_ID          # bonding curve spot price
+oas buy ASSET_ID --buyer bob --amount 10.0
+oas sell ASSET_ID --tokens 5 --seller bob
 
 # 4. Start Dashboard
-oasyce start                   # http://localhost:8420
+oas start                   # http://localhost:8420
 ```
 
 ## Running Modes
@@ -61,55 +61,55 @@ In standalone mode, all features work locally without a running chain. Chain-lin
 ## Data Assets
 
 ```bash
-oasyce register <file> --owner <name> --tags <tag1,tag2>
+oas register <file> --owner <name> --tags <tag1,tag2>
   --rights-type original|co_creation|licensed|collection
   --co-creators '[{"address":"A","share":60},...]'
   --price-model auto|fixed|floor --price <OAS>
   --free                                           # attribution only
 
-oasyce search <keyword>
-oasyce quote <asset_id>
-oasyce buy <asset_id> --buyer <name> --amount <OAS>
-oasyce sell <asset_id> --tokens <n> --seller <name>
-oasyce shares <owner_id>
-oasyce asset-info <asset_id>
+oas search <keyword>
+oas quote <asset_id>
+oas buy <asset_id> --buyer <name> --amount <OAS>
+oas sell <asset_id> --tokens <n> --seller <name>
+oas shares <owner_id>
+oas asset-info <asset_id>
 ```
 
 ## AI Capability Marketplace
 
 ```bash
-oasyce capability register --name "Translation API" \
+oas capability register --name "Translation API" \
   --endpoint https://api.example.com/translate \
   --api-key sk-xxx --price 0.5 --tags nlp,translation
 
-oasyce capability list [--tag nlp] [--provider addr]
-oasyce capability invoke CAP_ID --input '{"text":"hello"}'
-oasyce capability earnings --provider addr
-oasyce discover --intents "translate" --tags nlp
+oas capability list [--tag nlp] [--provider addr]
+oas capability invoke CAP_ID --input '{"text":"hello"}'
+oas capability earnings --provider addr
+oas discover --intents "translate" --tags nlp
 ```
 
 ## Dispute & Resolution
 
 ```bash
-oasyce dispute <asset_id> --reason "..."
-oasyce resolve <asset_id> --remedy delist|transfer|rights_correction|share_adjustment
+oas dispute <asset_id> --reason "..."
+oas resolve <asset_id> --remedy delist|transfer|rights_correction|share_adjustment
 ```
 
 ## Task Bounties (AHRP)
 
 ```bash
-oasyce task post "description" --budget 50 --deadline 3600
-oasyce task list
-oasyce task bid TASK_ID --price 30 --seconds 1800
-oasyce task select TASK_ID --agent AGENT_ID
-oasyce task complete TASK_ID
-oasyce task cancel TASK_ID
+oas task post "description" --budget 50 --deadline 3600
+oas task list
+oas task bid TASK_ID --price 30 --seconds 1800
+oas task select TASK_ID --agent AGENT_ID
+oas task complete TASK_ID
+oas task cancel TASK_ID
 ```
 
 ## Feedback (AI Agent Reports)
 
 ```bash
-oasyce feedback "message" --type bug|suggestion|other --agent <agent-id> --json
+oas feedback "message" --type bug|suggestion|other --agent <agent-id> --json
 ```
 
 Feedback is stored locally (SQLite) and optionally forwarded to:
@@ -119,22 +119,22 @@ Feedback is stored locally (SQLite) and optionally forwarded to:
 ## Agent Scheduler (Autonomous Mode)
 
 ```bash
-oasyce agent start                          # enable scheduler
-oasyce agent stop                           # disable
-oasyce agent status                         # show status + stats
-oasyce agent run                            # trigger one cycle
-oasyce agent config --interval 12           # run every 12h
-oasyce agent config --scan-paths ~/data     # directories to scan
-oasyce agent config --auto-trade            # enable auto-buying
-oasyce agent config --trade-max-spend 20.0  # max OAS per cycle
+oas agent start                          # enable scheduler
+oas agent stop                           # disable
+oas agent status                         # show status + stats
+oas agent run                            # trigger one cycle
+oas agent config --interval 12           # run every 12h
+oas agent config --scan-paths ~/data     # directories to scan
+oas agent config --auto-trade            # enable auto-buying
+oas agent config --trade-max-spend 20.0  # max OAS per cycle
 ```
 
 ## Reputation & Access
 
 ```bash
-oasyce reputation check <address>
-oasyce reputation update <target> --score 5
-oasyce access buy <asset_id> --level L0|L1|L2|L3 --agent <name>
+oas reputation check <address>
+oas reputation update <target> --score 5
+oas access buy <asset_id> --level L0|L1|L2|L3 --agent <name>
 ```
 
 ## Local Data Scanning (DataVault)
@@ -178,28 +178,28 @@ See [oasyce-chain CLAUDE.md](https://github.com/Shangri-la-0428/oasyce-chain) fo
 ## Node & Network
 
 ```bash
-oasyce start                    # Dashboard at http://localhost:8420
-oasyce node info                # Ed25519 identity
-oasyce node peers               # connected peers
-oasyce testnet onboard          # PoW self-registration (sha256 puzzle)
-oasyce testnet faucet           # testnet-only supplemental OAS (requires registration)
+oas start                    # Dashboard at http://localhost:8420
+oas node info                # Ed25519 identity
+oas node peers               # connected peers
+oas testnet onboard          # PoW self-registration (sha256 puzzle)
+oas testnet faucet           # testnet-only supplemental OAS (requires registration)
 ```
 
 ## Fingerprint & Watermark
 
 ```bash
-oasyce fingerprint embed <file> --caller <id>
-oasyce fingerprint extract <file>
-oasyce fingerprint trace <fingerprint_hex>
+oas fingerprint embed <file> --caller <id>
+oas fingerprint extract <file>
+oas fingerprint trace <fingerprint_hex>
 ```
 
 ## Diagnostics
 
 ```bash
-oasyce doctor                   # health check
-oasyce demo                     # full pipeline demo
-oasyce info                     # project info and links
-oasyce info --section economics # token economics
+oas doctor                   # health check
+oas demo                     # full pipeline demo
+oas info                     # project info and links
+oas info --section economics # token economics
 ```
 
 ## All commands support `--json` for structured output.
@@ -259,7 +259,7 @@ All methods return `ServiceResult(success: bool, data: dict, error: str | None)`
 ## Links
 
 - [oasyce-chain](https://github.com/Shangri-la-0428/oasyce-chain) — L1 appchain (Go)
-- [Plugin Engine](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine) — Python client
+- [Plugin Engine](https://github.com/Shangri-la-0428/oasyce-net) — Python client
 - [DataVault](https://github.com/Shangri-la-0428/DataVault) — Data scanning skill
 - Discord: https://discord.gg/tfrCn54yZW
 

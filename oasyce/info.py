@@ -1,6 +1,6 @@
 """Project-wide information hub — single source of truth for all audiences.
 
-Consumed by: GUI about panel, CLI `oasyce info`, API `/api/info`.
+Consumed by: GUI about panel, CLI `oas info`, API `/api/info`.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ LICENSE = "MIT"
 LINKS = {
     "homepage": "https://oasyce.com",
     "github_project": "https://github.com/Shangri-la-0428/Oasyce_Project",
-    "github_engine": "https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine",
+    "github_engine": "https://github.com/Shangri-la-0428/oasyce-net",
     "whitepaper": "https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/WHITEPAPER.md",
     "protocol_overview": "https://github.com/Shangri-la-0428/Oasyce_Project/blob/main/docs/PROTOCOL_OVERVIEW.md",
     "discord": "https://discord.gg/oasyce",
@@ -32,14 +32,14 @@ LINKS = {
 QUICK_START: Dict[str, str] = {
     "en": (
         "1. pip install oasyce\n"
-        "2. oasyce doctor          # verify setup\n"
-        "3. oasyce start           # launch node + dashboard\n"
+        "2. oas doctor             # verify setup\n"
+        "3. oas start              # launch node + dashboard\n"
         "4. Open http://localhost:8420 in your browser"
     ),
     "zh": (
         "1. pip install oasyce\n"
-        "2. oasyce doctor          # 验证安装\n"
-        "3. oasyce start           # 启动节点 + 仪表盘\n"
+        "2. oas doctor             # 验证安装\n"
+        "3. oas start              # 启动节点 + 仪表盘\n"
         "4. 浏览器打开 http://localhost:8420"
     ),
 }
@@ -114,8 +114,8 @@ UPDATE_GUIDE: Dict[str, str] = {
         "  pip install --upgrade oasyce\n"
         "\n"
         "Build from source:\n"
-        "  git clone https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine\n"
-        "  cd Oasyce_Claw_Plugin_Engine\n"
+        "  git clone https://github.com/Shangri-la-0428/oasyce-net\n"
+        "  cd oasyce-net\n"
         "  pip install -e .\n"
         "\n"
         "Run tests:\n"
@@ -129,8 +129,8 @@ UPDATE_GUIDE: Dict[str, str] = {
         "  pip install --upgrade oasyce\n"
         "\n"
         "从源码构建:\n"
-        "  git clone https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine\n"
-        "  cd Oasyce_Claw_Plugin_Engine\n"
+        "  git clone https://github.com/Shangri-la-0428/oasyce-net\n"
+        "  cd oasyce-net\n"
         "  pip install -e .\n"
         "\n"
         "运行测试:\n"

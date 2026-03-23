@@ -805,7 +805,7 @@ def _api_delivery_invocations(consumer_id=None, provider_id=None, limit=20):
 
 _AHRP_CORE_BASE = os.getenv("OASYCE_CORE_BASE", "http://localhost:8000")
 _AHRP_UNREACHABLE = json.dumps(
-    {"ok": False, "error": "AHRP node not running. Start with: oasyce serve"}
+    {"ok": False, "error": "AHRP node not running. Start with: oas serve"}
 ).encode("utf-8")
 
 
@@ -3498,7 +3498,7 @@ class OasyceGUI:
 
         if server is None:
             print(f"❌ Could not bind to any port in range {self._port}-{self._port + 9}.")
-            print(f"   Try: oasyce start --port <available_port>")
+            print(f"   Try: oas start --port <available_port>")
             return
 
         if bound_port != self._port:

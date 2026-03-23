@@ -107,8 +107,8 @@ Oasyce 协议不绑定特定钱包实现。任何支持 Ed25519/Secp256k1 签名
 **购买方式：**
 | 场景 | 操作 | 结果 |
 |------|------|------|
-| 买入数据份额 | `oasyce buy <asset_id> --amount 10` | Bancor 曲线铸造份额 → 份额比例决定访问级别 |
-| 调用 AI 能力 | `oasyce capability invoke <cap_id>` | Escrow 锁资金 → 调用端点 → 返回结果 → 结算 |
+| 买入数据份额 | `oas buy <asset_id> --amount 10` | Bancor 曲线铸造份额 → 份额比例决定访问级别 |
+| 调用 AI 能力 | `oas capability invoke <cap_id>` | Escrow 锁资金 → 调用端点 → 返回结果 → 结算 |
 
 ---
 
@@ -163,7 +163,7 @@ Oasyce 同时交易两种资产：
 
 **Access 流程：**
 ```
-1. 查询报价 → oasyce access quote <asset_id>
+1. 查询报价 → oas access quote <asset_id>
 2. 锁定 bond → 系统锁定临时保证金
 3. 获取数据 → L0(查询)/L1(采样)/L2(计算)/L3(交付)
 4. 完成 → bond 自动释放
@@ -238,7 +238,7 @@ Oasyce 的核心设计原则是 **Shares = 经济权，不等于控制权**。
 |------|------|
 | 修改文件内容 | hash 改变 → 必须注册为新资产（重复 hash 会被拒绝） |
 | 原资产 | 不受影响，hash 永远匹配原始内容 |
-| 验证 | 任何人可以 `oasyce fingerprint extract` 验证完整性 |
+| 验证 | 任何人可以 `oas fingerprint extract` 验证完整性 |
 
 **架构支持：** ✅ 完整。`file_hash` 在注册时写入，不可更改。后端对重复 hash 返回 409。
 
@@ -442,14 +442,14 @@ ACTIVE → owner 发起 shutdown → SHUTTING_DOWN（7天 cooldown）→ SETTLED
 
 **注册能力（Provider）：**
 ```bash
-oasyce capability register --name "Translation API" \
+oas capability register --name "Translation API" \
   --endpoint https://api.example.com/translate \
   --api-key sk-xxx --price 0.5 --tags nlp,translation
 ```
 
 **调用能力（Consumer）：**
 ```bash
-oasyce capability invoke CAP_ID --input '{"text":"hello"}'
+oas capability invoke CAP_ID --input '{"text":"hello"}'
 ```
 
 **结算流程：**

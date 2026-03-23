@@ -12,8 +12,8 @@ cd dashboard && npm run dev    # http://localhost:5173
 npm run build                  # 输出到 dist/
 
 # 通过协议启动（推荐）
-oasyce start                   # http://localhost:8420（自动开浏览器）
-oasyce start --no-browser      # 不自动开浏览器
+oas start                   # http://localhost:8420（自动开浏览器）
+oas start --no-browser      # 不自动开浏览器
 ```
 
 ## 架构

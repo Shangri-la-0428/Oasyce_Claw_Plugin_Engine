@@ -1,6 +1,6 @@
 # Oasyce
 
-[![CI](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/actions/workflows/ci.yml)
+[![CI](https://github.com/Shangri-la-0428/oasyce-net/actions/workflows/ci.yml/badge.svg)](https://github.com/Shangri-la-0428/oasyce-net/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/oasyce)](https://pypi.org/project/oasyce/)
 [![Python](https://img.shields.io/pypi/pyversions/oasyce)](https://pypi.org/project/oasyce/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -15,8 +15,8 @@ Think of it this way: you take a photo, and an AI wants to use it for training. 
 
 ```bash
 pip install oasyce
-oasyce doctor            # Health check
-oasyce start             # Dashboard at localhost:8420
+oas doctor            # Health check
+oas start             # Dashboard at localhost:8420
 ```
 
 Browser opens automatically. You're in.
@@ -30,7 +30,7 @@ Browser opens automatically. You're in.
 Register your data as an on-chain asset. Any AI that accesses it must pay. The more people use it, the higher the price goes (automatic pricing via bonding curves). Register early, earn more.
 
 ```bash
-oasyce register myfile.csv --owner alice --tags medical,imaging
+oas register myfile.csv --owner alice --tags medical,imaging
 ```
 
 ### I'm an AI developer
@@ -47,7 +47,7 @@ Oasyce is a protocol, not a platform. You can build anything on top — data exc
 
 ```bash
 pip install oasyce
-oasyce demo
+oas demo
 ```
 
 This runs the full pipeline end to end: **register -> price -> purchase -> settle -> distribute earnings**. You'll see how data rights are created and traded in real time.
@@ -67,7 +67,7 @@ pip install oasyce
 ### 2. Health check
 
 ```bash
-oasyce doctor
+oas doctor
 ```
 
 Checks your keys, ports, dependencies, and network connectivity. If something is wrong, it tells you how to fix it.
@@ -75,12 +75,12 @@ Checks your keys, ports, dependencies, and network connectivity. If something is
 ### 3. Start Dashboard
 
 ```bash
-oasyce start
+oas start
 ```
 
 Browser auto-opens `http://localhost:8420` — register data, browse assets, invoke capabilities.
 
-For API server (programmatic access), run `oasyce serve` separately.
+For API server (programmatic access), run `oas serve` separately.
 
 Or use Docker:
 
@@ -92,7 +92,7 @@ docker compose up -d
 
 Command line:
 ```bash
-oasyce register myfile.csv --owner alice --tags medical,imaging
+oas register myfile.csv --owner alice --tags medical,imaging
 ```
 
 Or drag and drop in the Dashboard.
@@ -108,8 +108,8 @@ Open `http://localhost:8420/explore` to see all data assets and AI capabilities 
 Don't want to use real OAS? Join the testnet:
 
 ```bash
-oasyce testnet onboard    # Join the testnet
-oasyce testnet faucet     # Get free test tokens
+oas testnet onboard    # Join the testnet
+oas testnet faucet     # Get free test tokens
 ```
 
 ---
@@ -117,36 +117,36 @@ oasyce testnet faucet     # Get free test tokens
 ## CLI Reference
 
 ```
-oasyce start              # Start Dashboard (recommended)
-oasyce serve              # Start API server (programmatic access)
-oasyce demo               # Run the full demo pipeline
-oasyce doctor             # Health check
-oasyce update             # Auto-update to latest version
-oasyce info               # Project info, links, architecture, economics
-oasyce info --section economics    # Token economics details
-oasyce info --section architecture # Technical architecture
-oasyce info --json        # Full info as JSON
+oas start              # Start Dashboard (recommended)
+oas serve              # Start API server (programmatic access)
+oas demo               # Run the full demo pipeline
+oas doctor             # Health check
+oas update             # Auto-update to latest version
+oas info               # Project info, links, architecture, economics
+oas info --section economics    # Token economics details
+oas info --section architecture # Technical architecture
+oas info --json        # Full info as JSON
 ```
 
 ### Data Assets
 
 ```
-oasyce register <file>    # Register a data asset
+oas register <file>    # Register a data asset
   --rights-type original|co_creation|licensed|collection
   --co-creators '[{"address":"A","share":60},{"address":"B","share":40}]'
-oasyce search <tag>       # Search by tag
-oasyce quote <asset_id>   # Get bonding curve price
-oasyce buy <asset_id>     # Buy shares
-oasyce sell <asset_id> --amount <n>  # Sell shares back to the curve
+oas search <tag>       # Search by tag
+oas quote <asset_id>   # Get bonding curve price
+oas buy <asset_id>     # Buy shares
+oas sell <asset_id> --amount <n>  # Sell shares back to the curve
   --max-slippage 0.05               # Slippage protection (default 5%)
 ```
 
 ### Disputes
 
 ```
-oasyce dispute <id> --reason "..."     # File a dispute against an asset
-oasyce jury-vote <id> --verdict consumer|provider  # Jury vote
-oasyce resolve <id> --remedy delist    # Resolve a dispute
+oas dispute <id> --reason "..."     # File a dispute against an asset
+oas jury-vote <id> --verdict consumer|provider  # Jury vote
+oas resolve <id> --remedy delist    # Resolve a dispute
   --remedy delist|transfer|rights_correction|share_adjustment
   --details '{"new_owner":"0x..."}'
 ```
@@ -154,37 +154,37 @@ oasyce resolve <id> --remedy delist    # Resolve a dispute
 ### Capability Discovery
 
 ```
-oasyce discover --intents "translation,text processing"  # Recall->Rank discovery
+oas discover --intents "translation,text processing"  # Recall->Rank discovery
   --tags ai,nlp --limit 5
 ```
 
 ### Capability Marketplace
 
 ```
-oasyce capability register --name "Translation API" \
+oas capability register --name "Translation API" \
   --endpoint https://api.example.com/translate \
   --api-key sk-xxx --price 0.5 --tags nlp,translation
-oasyce capability list [--tag nlp]
-oasyce capability invoke CAP_ID --input '{"text":"hello"}'
-oasyce capability earnings --provider addr
+oas capability list [--tag nlp]
+oas capability invoke CAP_ID --input '{"text":"hello"}'
+oas capability earnings --provider addr
 ```
 
 ### Task Bounties (AHRP)
 
 ```
-oasyce task post "Translate this document" --budget 50 --deadline 3600
-oasyce task list                                  # List all tasks
-oasyce task bid TASK_ID --price 30 --seconds 1800 # Place a bid
-oasyce task select TASK_ID --agent AGENT_ID       # Select winner
-oasyce task complete TASK_ID                      # Mark complete
-oasyce task cancel TASK_ID                        # Cancel task
+oas task post "Translate this document" --budget 50 --deadline 3600
+oas task list                                  # List all tasks
+oas task bid TASK_ID --price 30 --seconds 1800 # Place a bid
+oas task select TASK_ID --agent AGENT_ID       # Select winner
+oas task complete TASK_ID                      # Mark complete
+oas task cancel TASK_ID                        # Cancel task
 ```
 
 ### AI Feedback
 
 ```
-oasyce feedback "Buy flow has a bug" --type bug --agent my-agent
-oasyce feedback "Add batch import" --type suggestion --json
+oas feedback "Buy flow has a bug" --type bug --agent my-agent
+oas feedback "Add batch import" --type suggestion --json
 ```
 
 ### Consensus & Governance (Chain-Only)
@@ -203,33 +203,33 @@ See [oasyce-chain](https://github.com/Shangri-la-0428/oasyce-chain) for full cha
 ### Node Management
 
 ```
-oasyce node start         # Start P2P node only
-oasyce node info          # Show node identity
-oasyce node peers         # List known peers
-oasyce node ping <host>   # Ping another node
+oas node start         # Start P2P node only
+oas node info          # Show node identity
+oas node peers         # List known peers
+oas node ping <host>   # Ping another node
 ```
 
 ### Tiered Access
 
 ```
-oasyce access quote <asset_id>                     # Quote bond for all levels (L0-L3)
-oasyce access buy <asset_id> --level L0|L1|L2|L3   # Buy tiered access
-oasyce access query <asset_id>                     # L0: aggregated stats
-oasyce access sample <asset_id>                    # L1: redacted fragments
-oasyce access compute <asset_id>                   # L2: TEE execution
-oasyce access deliver <asset_id>                   # L3: full data delivery
+oas access quote <asset_id>                     # Quote bond for all levels (L0-L3)
+oas access buy <asset_id> --level L0|L1|L2|L3   # Buy tiered access
+oas access query <asset_id>                     # L0: aggregated stats
+oas access sample <asset_id>                    # L1: redacted fragments
+oas access compute <asset_id>                   # L2: TEE execution
+oas access deliver <asset_id>                   # L3: full data delivery
 ```
 
 ### Other
 
 ```
-oasyce testnet onboard    # Join the testnet
-oasyce testnet faucet     # Get test tokens
-oasyce update             # Auto-update to latest version
-oasyce start --no-browser # Start Dashboard without auto-open
-oasyce explorer           # Block explorer (port 8421)
-oasyce keys generate      # Generate Ed25519 keypair
-oasyce keys show          # Show public key
+oas testnet onboard    # Join the testnet
+oas testnet faucet     # Get test tokens
+oas update             # Auto-update to latest version
+oas start --no-browser # Start Dashboard without auto-open
+oas explorer           # Block explorer (port 8421)
+oas keys generate      # Generate Ed25519 keypair
+oas keys show          # Show public key
 ```
 
 All commands support `--json` output for programmatic use.
@@ -272,7 +272,7 @@ Your agent will install the Oasyce skill automatically, letting you register dat
 
 ## Dashboard
 
-Run `oasyce start` — browser opens automatically at `http://localhost:8420`. The dashboard provides:
+Run `oas start` — browser opens automatically at `http://localhost:8420`. The dashboard provides:
 
 - **Home** — Register data assets (drag & drop), network status, earnings overview
 - **My Data** — Manage your assets and published capabilities, edit tags, delist/terminate
@@ -401,7 +401,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute.
 ## Community
 
 - [Discord](https://discord.gg/tfrCn54yZW) — Questions, feedback, chat
-- [GitHub Issues](https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/issues) — Bug reports and feature requests
+- [GitHub Issues](https://github.com/Shangri-la-0428/oasyce-net/issues) — Bug reports and feature requests
 
 ## License
 

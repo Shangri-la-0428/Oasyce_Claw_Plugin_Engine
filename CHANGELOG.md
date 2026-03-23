@@ -7,7 +7,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [2.3.0] - 2026-03-23
 
 ### Added
-- **Feedback system** — AI agents can submit bug reports and suggestions via CLI (`oasyce feedback`), API (`POST /api/feedback`), or Dashboard
+- **Feedback system** — AI agents can submit bug reports and suggestions via CLI (`oas feedback`), API (`POST /api/feedback`), or Dashboard
 - **Feedback forwarding** — Optional webhook (Discord/Slack) and GitHub Issues integration via env vars
 - **GUI: Feedback section** — Submit and view feedback in Network page (`components/network/feedback.tsx`)
 - **i18n**: 12 new feedback keys (zh + en), `loading` key for all loading states
@@ -36,7 +36,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - **Facade: `query_disputes()`** — Disputes now routed through facade instead of direct SQLite access (P1 architecture convergence)
 - **Facade: Task Market** — 8 methods: `post_task`, `submit_task_bid`, `select_task_winner`, `complete_task`, `cancel_task`, `query_tasks`, `query_task`, `_get_task_market`
 - **Facade: Contribution/Leakage/Cache** — 6 methods: `query_contribution`, `verify_contribution`, `query_leakage`, `reset_leakage`, `query_cache_stats`, `purge_cache`
-- **CLI: `oasyce task`** — 7 subcommands: post, list, info, bid, select, complete, cancel (all support `--json`)
+- **CLI: `oas task`** — 7 subcommands: post, list, info, bid, select, complete, cancel (all support `--json`)
 - **API: Task Market endpoints** — `GET /api/tasks`, `GET /api/task/{id}`, `POST /api/task/post`, `POST /api/task/{id}/bid`, `POST /api/task/{id}/select`, `POST /api/task/{id}/complete`, `POST /api/task/{id}/cancel`
 - **API: Contribution/Leakage/Cache** — `POST /api/contribution/prove`, `POST /api/contribution/verify`, `GET /api/leakage`, `POST /api/leakage/reset`, `GET /api/cache/stats`, `POST /api/cache/purge`
 - **GUI: Bounty tab** — `explore-bounty.tsx` — post tasks, browse, bid, select winner, complete, cancel (`explore.tsx` 4th tab)
@@ -161,7 +161,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - **Reputation hardening**: non-linear diminishing returns, Sybil-resistance scoring
 - **Dispute mechanism improvements**: fixed jury reward distribution, 5-juror collusion resistance threshold
 - **L0-L3 tiered access**: stake-based access levels with configurable requirements
-- **Auto-update command**: `oasyce update` checks PyPI and upgrades in-place
+- **Auto-update command**: `oas update` checks PyPI and upgrades in-place
 - **Docker support**: production Dockerfile and docker-compose for containerised deployment
 - **CI auto-publish**: GitHub Actions workflow publishes to PyPI on `v*` tags (OIDC + fallback token)
 - **Structured JSON error output**: all CLI commands support `--json` for machine-readable errors
@@ -182,8 +182,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - **Dashboard deep links**: split Explore page with shared register form and deep-link routing
 - **Collapsible Network page** in Dashboard
 - **Fingerprint Watermarking CLI**: content fingerprinting and infringement detection commands
-- **Consensus / Governance CLI**: full suite of `oasyce consensus` and `oasyce governance` commands
-- **Testnet onboarding**: `oasyce testnet init/genesis/join/faucet/faucet-serve`
+- **Consensus / Governance CLI**: full suite of `oasyce consensus` and `oas governance` commands
+- **Testnet onboarding**: `oas testnet init/genesis/join/faucet/faucet-serve`
 - **Capability delivery protocol**: provider endpoint registry, encrypted API keys, escrow gateway, 5% protocol fee
 
 ### Changed
@@ -239,7 +239,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - **Feedback Loop**: `FeedbackStore` with time-decayed learned trust, per-skill execution tracking (`services/discovery/feedback.py`)
 - **Risk auto-classification**: `auto_classify_risk()` — public/internal/sensitive based on PrivacyFilter + extensions + rights_type (`engines/risk.py`)
 - **Info hub**: `oasyce_plugin/info.py` — single source of truth for project info (consumed by GUI, CLI, API)
-- `oasyce info` CLI command with `--section quickstart|architecture|economics|update|links` and `--json`
+- `oas info` CLI command with `--section quickstart|architecture|economics|update|links` and `--json`
 - `/api/info` endpoint (supports `?lang=zh`)
 - Dashboard about panel upgraded: tabbed UI (Overview / Quick Start / Architecture / Economics / Maintain / Links)
 - Discord community link and dual GitHub repo links in about panel
@@ -249,9 +249,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Co-creator support with share validation (must sum to 100%)
 - Dispute mechanism: file disputes, auto-discover arbitrators via Recall→Rank Discovery
 - Dispute resolution: `delist`, `transfer`, `rights_correction`, `share_adjustment` remedies
-- `oasyce dispute` CLI command
-- `oasyce resolve` CLI command
-- `oasyce discover` CLI command (Recall→Rank capability search)
+- `oas dispute` CLI command
+- `oas resolve` CLI command
+- `oas discover` CLI command (Recall→Rank capability search)
 - Capability publishing from Dashboard home page
 - `/api/dispute`, `/api/dispute/resolve`, `/api/discover` API endpoints
 - SkillAffinity: agents remember successful skill pairings
@@ -273,7 +273,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - CLAUDE.md for Claude Code integration
 - OpenClaw Skill v3.0.0 (unified 4-in-1)
 - Capability assets in Dashboard Explore view
-- Testnet onboarding (`oasyce testnet onboard/faucet`)
+- Testnet onboarding (`oas testnet onboard/faucet`)
 
 ### Changed
 - README rewritten for accessibility (role-based guide, collapsible tech details)
