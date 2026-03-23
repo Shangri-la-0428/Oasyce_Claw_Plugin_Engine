@@ -32,6 +32,13 @@ export function safePct(n: number | undefined | null, decimals = 1): string {
   return (n * 100).toFixed(decimals) + '%';
 }
 
+/** Format unix timestamp (seconds) → locale string */
+export function fmtDate(ts: number | undefined | null, style: 'date' | 'datetime' = 'datetime'): string {
+  if (ts == null || !Number.isFinite(ts)) return '—';
+  const d = new Date(ts * 1000);
+  return style === 'date' ? d.toLocaleDateString() : d.toLocaleString();
+}
+
 /** 递归读取 DataTransferItem 里的文件夹，返回所有 File (带深度限制) */
 export async function readEntryFiles(entry: any, maxDepth = 5): Promise<File[]> {
   if (maxDepth <= 0) return [];

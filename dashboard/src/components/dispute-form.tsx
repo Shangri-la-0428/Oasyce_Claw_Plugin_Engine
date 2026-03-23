@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from 'preact/hooks';
 import { post, get } from '../api/client';
+import { fmtDate } from '../utils';
 import { i18n, walletAddress, showToast, loadNotifications } from '../store/ui';
 import { maskIdShort } from '../utils';
 
@@ -210,7 +211,10 @@ export function MyDisputes() {
       {loading ? (
         <div class="skeleton skeleton-md mb-8" />
       ) : disputes.length === 0 ? (
-        <div class="caption fg-muted">{_['dispute-no-disputes']}</div>
+        <div class="caption fg-muted">
+          <div class="mb-4">{_['dispute-no-disputes']}</div>
+          <div>{_['dispute-no-disputes-hint']}</div>
+        </div>
       ) : (
         <div class="dispute-list">
           {disputes.map(d => (
@@ -222,12 +226,12 @@ export function MyDisputes() {
               <div class="dispute-item-reason">{d.reason}</div>
               <div class="kv">
                 <span class="kv-key">{_['dispute-created']}</span>
-                <span class="kv-val">{d.created_at ? new Date(d.created_at * 1000).toLocaleString() : '—'}</span>
+                <span class="kv-val">{fmtDate(d.created_at)}</span>
               </div>
               {d.resolved_at && (
                 <div class="kv">
                   <span class="kv-key">{_['dispute-resolved-at']}</span>
-                  <span class="kv-val">{new Date(d.resolved_at * 1000).toLocaleString()}</span>
+                  <span class="kv-val">{fmtDate(d.resolved_at)}</span>
                 </div>
               )}
               {d.resolution && (

@@ -3,3 +3,10 @@
   height: 160px;
   display: block;
 }
+
+/* ── Mobile ── */
+@media (max-width: 600px) {
+  .network-grid {
+    height: 100px;
+  }
+}

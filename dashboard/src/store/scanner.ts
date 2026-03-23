@@ -1,5 +1,8 @@
 /**
  * Scanner + Inbox Store
+ *
+ * Mutations update the local signal optimistically and fire-and-forget
+ * the HTTP call.  Only loadInbox() does a full round-trip refresh.
  */
 import { signal } from '@preact/signals';
 import { get, post } from '../api/client';
@@ -51,22 +54,35 @@ export async function scanDirectory(path: string) {
   return res;
 }
 
+/** Approve one item — optimistic update, no refetch */
 export async function approveItem(id: string) {
-  const res = await post(`/inbox/${id}/approve`);
-  if (res.success) await loadInbox();
-  return res;
+  inboxItems.value = inboxItems.value.map(i => i.item_id === id ? { ...i, status: 'approved' as const } : i);
+  return post(`/inbox/${id}/approve`);
 }
 
+/** Reject one item — optimistic update, no refetch */
 export async function rejectItem(id: string) {
-  const res = await post(`/inbox/${id}/reject`);
-  if (res.success) await loadInbox();
-  return res;
+  inboxItems.value = inboxItems.value.map(i => i.item_id === id ? { ...i, status: 'rejected' as const } : i);
+  return post(`/inbox/${id}/reject`);
+}
+
+/** Approve all pending — single signal write + parallel HTTP */
+export async function approveAll() {
+  const pending = inboxItems.value.filter(i => i.status === 'pending');
+  inboxItems.value = inboxItems.value.map(i => i.status === 'pending' ? { ...i, status: 'approved' as const } : i);
+  await Promise.all(pending.map(i => post(`/inbox/${i.item_id}/approve`)));
+}
+
+/** Reject all pending — single signal write + parallel HTTP */
+export async function rejectAll() {
+  const pending = inboxItems.value.filter(i => i.status === 'pending');
+  inboxItems.value = inboxItems.value.map(i => i.status === 'pending' ? { ...i, status: 'rejected' as const } : i);
+  await Promise.all(pending.map(i => post(`/inbox/${i.item_id}/reject`)));
 }
 
 export async function editItem(id: string, changes: Partial<Pick<InboxItem, 'suggested_name' | 'suggested_tags' | 'suggested_description'>>) {
-  const res = await post(`/inbox/${id}/edit`, changes);
-  if (res.success) await loadInbox();
-  return res;
+  inboxItems.value = inboxItems.value.map(i => i.item_id === id ? { ...i, ...changes } : i);
+  return post(`/inbox/${id}/edit`, changes);
 }
 
 export async function setTrust(level?: number, threshold?: number) {

@@ -57,7 +57,7 @@ describe('API client', () => {
 
       const res = await get('/down');
       expect(res.success).toBe(false);
-      expect(res.error).toContain('Network error');
+      expect(res.error).toBe('error-network');
     });
 
     it('handles empty response body', async () => {

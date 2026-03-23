@@ -2,12 +2,14 @@
  * Automation — Agent Scheduler + 自动注册/交易管控 + 手动确认队列
  */
 import { useEffect, useState } from 'preact/hooks';
-import { showToast, i18n, lang } from '../store/ui';
+import { showToast, i18n } from '../store/ui';
 import { get, post } from '../api/client';
 import { Section } from '../components/section';
+import { EmptyState } from '../components/empty-state';
 import {
   inboxItems, trustConfig, scanning, lastScan,
   loadInbox, loadTrust, scanDirectory, approveItem, rejectItem, editItem, setTrust,
+  approveAll as storeApproveAll, rejectAll as storeRejectAll,
 } from '../store/scanner';
 import './automation.css';
 
@@ -46,21 +48,14 @@ interface HistoryRun {
 
 /* Section component imported from ../components/section */
 
-interface AgentConfig {
-  id: string;
-  name: string;
-  icon: string;
-  desc_zh: string;
-  desc_en: string;
-  status: 'connected' | 'coming_soon' | 'unavailable';
-}
+const TRUST_LEVELS = [0, 1, 2] as const;
+const TRUST_ICONS = ['I', 'II', 'III'] as const;
 
-const KNOWN_AGENTS: AgentConfig[] = [
-  { id: 'openclaw', name: 'OpenClaw', icon: 'O', desc_zh: '本地 Agent Runtime，全功能', desc_en: 'Local agent runtime, full-featured', status: 'coming_soon' },
-  { id: 'cursor', name: 'Cursor', icon: 'C', desc_zh: 'AI 代码编辑器，擅长代码类资产（即将推出）', desc_en: 'AI code editor, great for code assets (coming soon)', status: 'coming_soon' },
-  { id: 'claude-code', name: 'Claude Code', icon: 'CC', desc_zh: 'Anthropic CLI Agent（即将推出）', desc_en: 'Anthropic CLI Agent (coming soon)', status: 'coming_soon' },
-  { id: 'custom', name: 'Custom', icon: '?', desc_zh: '自定义 Agent（通过 API 接入）', desc_en: 'Custom agent (via API)', status: 'coming_soon' },
-];
+const THRESHOLD_TIERS = [
+  { value: 0.9, key: 'threshold-strict' as const },
+  { value: 0.7, key: 'threshold-balanced' as const },
+  { value: 0.5, key: 'threshold-permissive' as const },
+] as const;
 
 export default function Automation() {
   const [tab, setTab] = useState<Tab>('queue');
@@ -69,9 +64,6 @@ export default function Automation() {
   const [editName, setEditName] = useState('');
   const [editTags, setEditTags] = useState('');
   const [editDesc, setEditDesc] = useState('');
-  const [selectedAgent, setSelectedAgent] = useState('openclaw');
-  const [customEndpoint, setCustomEndpoint] = useState('');
-  const [customName, setCustomName] = useState('');
   const _ = i18n.value;
 
   /* ── Agent Scheduler state ── */
@@ -195,11 +187,14 @@ export default function Automation() {
     showToast(_['saved'], 'success');
   };
 
-  const approveAll = async () => {
-    for (const item of pendingItems) {
-      await approveItem(item.item_id);
-    }
+  const onApproveAll = async () => {
+    await storeApproveAll();
     showToast(_['all-approved'], 'success');
+  };
+
+  const onRejectAll = async () => {
+    await storeRejectAll();
+    showToast(_['all-rejected'], 'success');
   };
 
   return (
@@ -210,116 +205,13 @@ export default function Automation() {
       </div>
       <p class="caption mb-24">{_['automation-desc']}</p>
 
-      {/* ══ Agent Scheduler ══ */}
-      <Section id="agent-status" title={_['agent-schedule']} desc={_['agent-schedule-desc']} defaultOpen={true}>
-        {/* Status + toggle */}
-        <div class="row between mb-16">
-          <div class="row gap-8 align-center">
-            <span class={`auto-status-dot ${agentStatus?.running ? 'auto-dot-running' : 'auto-dot-disabled'}`} />
-            <span class="caption">{agentStatus?.running ? _['agent-running'] : _['agent-disabled']}</span>
-          </div>
-          <div class="row gap-8">
-            <button class={`btn btn-sm ${agentConfig?.enabled ? 'btn-active' : 'btn-ghost'}`} onClick={toggleEnabled}>
-              {_['agent-enabled']}
-            </button>
-            <button class="btn btn-sm btn-ghost" onClick={runNow} disabled={runningNow}>
-              {runningNow ? '...' : _['agent-run-now']}
-            </button>
-          </div>
-        </div>
-
-        {/* Quick stats */}
-        {agentStatus && (
-          <div class="auto-agent-stats mb-16">
-            <div class="kv"><span class="caption">{_['agent-last-run']}</span><span class="mono">{agentStatus.last_run || '—'}</span></div>
-            <div class="kv"><span class="caption">{_['agent-next-run']}</span><span class="mono">{agentStatus.next_run || '—'}</span></div>
-            <div class="kv"><span class="caption">{_['agent-total-runs']}</span><span class="mono">{agentStatus.total_runs}</span></div>
-            <div class="kv"><span class="caption">{_['agent-total-registered']}</span><span class="mono">{agentStatus.total_registered}</span></div>
-            <div class="kv"><span class="caption">{_['agent-total-errors']}</span><span class="mono">{agentStatus.total_errors}</span></div>
-          </div>
-        )}
-      </Section>
-
-      {/* Scheduler Config */}
-      <Section id="agent-config" title={_['agent-save-config']}>
-        <div class="col gap-12">
-          {/* Interval */}
-          <div>
-            <div class="caption mb-4">{_['agent-interval']}</div>
-            <div class="row gap-8 align-center">
-              <input class="input auto-input-sm" type="number" min={1} value={cfgInterval} onInput={e => setCfgInterval(Number((e.target as HTMLInputElement).value))} />
-              <span class="caption">{_['agent-interval-hours']}</span>
-            </div>
-          </div>
-
-          {/* Scan paths */}
-          <div>
-            <div class="caption mb-4">{_['agent-scan-paths']}</div>
-            <textarea class="input auto-textarea" rows={3} value={cfgScanPaths} onInput={e => setCfgScanPaths((e.target as HTMLTextAreaElement).value)} placeholder={_['agent-scan-paths-hint']} />
-          </div>
-
-          {/* Auto register */}
-          <label class="row gap-8 align-center auto-check-row">
-            <input type="checkbox" checked={cfgAutoRegister} onChange={e => setCfgAutoRegister((e.target as HTMLInputElement).checked)} />
-            <span>{_['agent-auto-register']}</span>
-          </label>
-
-          {/* Auto trade */}
-          <label class="row gap-8 align-center auto-check-row">
-            <input type="checkbox" checked={cfgAutoTrade} onChange={e => setCfgAutoTrade((e.target as HTMLInputElement).checked)} />
-            <span>{_['agent-auto-trade']}</span>
-          </label>
-          <div class="caption auto-trade-warning">{_['agent-auto-trade-desc']}</div>
-
-          {/* Trade tags */}
-          {cfgAutoTrade && (
-            <div>
-              <div class="caption mb-4">{_['agent-trade-tags']}</div>
-              <input class="input" value={cfgTradeTags} onInput={e => setCfgTradeTags((e.target as HTMLInputElement).value)} placeholder={_['agent-trade-tags-hint']} />
-            </div>
-          )}
-
-          {/* Max spend */}
-          {cfgAutoTrade && (
-            <div>
-              <div class="caption mb-4">{_['agent-trade-max']} (OAS)</div>
-              <input class="input auto-input-sm" type="number" min={0} value={cfgTradeMax} onInput={e => setCfgTradeMax(Number((e.target as HTMLInputElement).value))} />
-            </div>
-          )}
-
-          <button class="btn btn-primary btn-sm self-start" onClick={saveConfig} disabled={savingCfg}>
-            {savingCfg ? '...' : _['agent-save-config']}
-          </button>
-        </div>
-      </Section>
-
-      {/* Run History */}
-      <Section id="agent-history" title={_['agent-history']}>
-        {agentHistory.length === 0 && (
-          <div class="caption">{_['agent-no-history']}</div>
-        )}
-        {agentHistory.length > 0 && (
-          <div class="auto-history-list">
-            {agentHistory.map((run, i) => (
-              <div key={i} class="auto-history-row">
-                <span class="mono caption">{run.timestamp}</span>
-                <span class="caption">scan {run.scan_count}</span>
-                <span class="caption">reg {run.register_count}</span>
-                <span class="caption">trade {run.trade_count}</span>
-                {run.errors > 0 && <span class="caption auto-history-err">err {run.errors}</span>}
-                <span class="mono caption">{run.duration_ms}ms</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
-
-      <div class="tabs mb-24">
-        <button class={`tab ${tab === 'queue' ? 'active' : ''}`} onClick={() => setTab('queue')}>
+      {/* ══ Queue / Rules — actionable items first ══ */}
+      <div class="tabs mb-24" role="tablist" aria-label={_['automation']}>
+        <button role="tab" aria-selected={tab === 'queue'} class={`tab ${tab === 'queue' ? 'active' : ''}`} onClick={() => setTab('queue')}>
           {_['auto-queue']}
           {pendingItems.length > 0 && <span class="tab-count">{pendingItems.length}</span>}
         </button>
-        <button class={`tab ${tab === 'rules' ? 'active' : ''}`} onClick={() => setTab('rules')}>
+        <button role="tab" aria-selected={tab === 'rules'} class={`tab ${tab === 'rules' ? 'active' : ''}`} onClick={() => setTab('rules')}>
           {_['auto-rules']}
         </button>
       </div>
@@ -334,7 +226,15 @@ export default function Automation() {
             </button>
           </div>
 
-          {lastScan.value && (
+          {scanning.value && (
+            <div class="col gap-8 mb-16">
+              <div class="skeleton skeleton-sm" />
+              <div class="skeleton skeleton-sm" style={{ width: '75%' }} />
+              <div class="skeleton skeleton-sm" style={{ width: '50%' }} />
+            </div>
+          )}
+
+          {lastScan.value && !scanning.value && (
             <div class="auto-scan-result mb-16">
               <span class="caption">{_['scan-found']} <strong class="mono">{lastScan.value.scanned}</strong></span>
               <span class="caption">→ {_['scan-added']} <strong class="mono">{lastScan.value.added}</strong></span>
@@ -345,7 +245,10 @@ export default function Automation() {
             <div class="mb-24">
               <div class="row between mb-12">
                 <span class="label m-0">{_['pending-tasks']}</span>
-                <button class="btn btn-ghost btn-sm" onClick={approveAll}>{_['approve-all']}</button>
+                <div class="row gap-8">
+                  <button class="btn btn-ghost btn-sm" onClick={onRejectAll}>{_['reject-all']}</button>
+                  <button class="btn btn-ghost btn-sm" onClick={onApproveAll}>{_['approve-all']}</button>
+                </div>
               </div>
               {pendingItems.map(item => (
                 <div key={item.item_id} class="auto-item">
@@ -362,9 +265,9 @@ export default function Automation() {
                     </div>
                     {editingId !== item.item_id && (
                       <div class="auto-item-actions">
-                        <button class="auto-action-btn auto-action-approve" onClick={() => onApprove(item.item_id)} title={_['approve']}>✓</button>
-                        <button class="auto-action-btn auto-action-edit" onClick={() => startEdit(item)} title={_['edit']}>✎</button>
-                        <button class="auto-action-btn auto-action-reject" onClick={() => onReject(item.item_id)} title={_['reject']}>✕</button>
+                        <button class="auto-action-btn auto-action-approve" onClick={() => onApprove(item.item_id)} title={_['approve']} aria-label={_['approve']}>✓</button>
+                        <button class="auto-action-btn auto-action-edit" onClick={() => startEdit(item)} title={_['edit']} aria-label={_['edit']}>✎</button>
+                        <button class="auto-action-btn auto-action-reject" onClick={() => onReject(item.item_id)} title={_['reject']} aria-label={_['reject']}>✕</button>
                       </div>
                     )}
                   </div>
@@ -385,11 +288,7 @@ export default function Automation() {
           )}
 
           {pendingItems.length === 0 && inboxItems.value.length === 0 && (
-            <div class="auto-empty">
-              <div class="auto-empty-icon">—</div>
-              <div>{_['queue-empty']}</div>
-              <div class="caption">{_['queue-empty-hint']}</div>
-            </div>
+            <EmptyState icon="—" title={_['queue-empty']} hint={_['queue-empty-hint']} />
           )}
 
           {doneItems.length > 0 && (
@@ -421,9 +320,9 @@ export default function Automation() {
             <div class="label">{_['trust-level']}</div>
             <div class="caption mb-16">{_['trust-level-desc']}</div>
             <div class="auto-trust-levels">
-              {([0, 1, 2] as const).map(lv => (
+              {TRUST_LEVELS.map(lv => (
                 <button key={lv} class={`auto-trust-card ${trustConfig.value.trust_level === lv ? 'active' : ''}`} onClick={() => setTrust(lv)}>
-                  <div class="auto-trust-icon">{['I', 'II', 'III'][lv]}</div>
+                  <div class="auto-trust-icon">{TRUST_ICONS[lv]}</div>
                   <div class="auto-trust-name">{_[`trust-${lv}`]}</div>
                   <div class="caption">{_[`trust-${lv}-desc`]}</div>
                 </button>
@@ -431,52 +330,12 @@ export default function Automation() {
             </div>
           </div>
 
-          {/* Agent Executor */}
-          <div class="card mb-16">
-            <div class="label">{_['agent-executor']}</div>
-            <div class="caption mb-16">{_['agent-executor-desc']}</div>
-            <div class="agent-grid">
-              {KNOWN_AGENTS.map(agent => (
-                <button key={agent.id} class={`agent-card ${selectedAgent === agent.id ? 'active' : ''}`} onClick={() => setSelectedAgent(agent.id)}>
-                  <div class="agent-card-top">
-                    <span class="agent-icon">{agent.icon}</span>
-                    <span class={`agent-status-dot agent-dot-${agent.status}`} />
-                  </div>
-                  <div class="agent-name">{agent.name}</div>
-                  <div class="caption">{lang.value === 'zh' ? agent.desc_zh : agent.desc_en}</div>
-                  {agent.status === 'coming_soon' && <div class="agent-connected-tag" style="opacity:0.6">{_['coming-soon'] || 'Coming Soon'}</div>}
-                </button>
-              ))}
-            </div>
-            {selectedAgent === 'custom' && (
-              <div class="auto-custom-agent mt-16">
-                <div class="caption mb-8">{_['custom-agent-config']}</div>
-                <div class="col gap-8">
-                  <input class="input" value={customName} onInput={e => setCustomName((e.target as HTMLInputElement).value)} placeholder={_['custom-agent-name']} />
-                  <input class="input input-mono" value={customEndpoint} onInput={e => setCustomEndpoint((e.target as HTMLInputElement).value)} placeholder={_['custom-agent-endpoint']} />
-                  <button class="btn btn-primary btn-sm self-start" disabled={!customEndpoint.trim()}>
-                    {_['custom-agent-test']}
-                  </button>
-                </div>
-              </div>
-            )}
-            {selectedAgent !== 'openclaw' && selectedAgent !== 'custom' && (
-              <div class="auto-agent-hint mt-16">
-                <span class="caption">{_['agent-setup-hint']}</span>
-              </div>
-            )}
-          </div>
-
           {/* Threshold */}
           <div class="card mb-16">
             <div class="label">{_['auto-threshold']}</div>
             <div class="caption mb-16">{_['auto-threshold-desc']}</div>
             <div class="auto-trust-levels">
-              {([
-                { value: 0.9, key: 'threshold-strict' as const },
-                { value: 0.7, key: 'threshold-balanced' as const },
-                { value: 0.5, key: 'threshold-permissive' as const },
-              ]).map(tier => (
+              {THRESHOLD_TIERS.map(tier => (
                 <button key={tier.key} class={`auto-trust-card ${Math.abs(trustConfig.value.auto_threshold - tier.value) < 0.05 ? 'active' : ''}`} onClick={() => setTrust(undefined, tier.value)}>
                   <div class="auto-trust-icon">{tier.value === 0.9 ? '90' : tier.value === 0.7 ? '70' : '50'}</div>
                   <div class="auto-trust-name">{_[tier.key]}</div>
@@ -500,6 +359,93 @@ export default function Automation() {
           </div>
         </div>
       )}
+
+      {/* ══ Agent Scheduler (collapsible, below the fold) ══ */}
+      <Section id="agent-status" title={_['agent-schedule']} desc={_['agent-schedule-desc']}>
+        <div class="row between mb-16">
+          <div class="row gap-8 align-center">
+            <span class={`auto-status-dot ${agentStatus?.running ? 'auto-dot-running' : 'auto-dot-disabled'}`} />
+            <span class="caption">{agentStatus?.running ? _['agent-running'] : _['agent-disabled']}</span>
+          </div>
+          <div class="row gap-8">
+            <button class={`btn btn-sm ${agentConfig?.enabled ? 'btn-active' : 'btn-ghost'}`} onClick={toggleEnabled}>
+              {_['agent-enabled']}
+            </button>
+            <button class="btn btn-sm btn-ghost" onClick={runNow} disabled={runningNow}>
+              {runningNow ? _['loading'] : _['agent-run-now']}
+            </button>
+          </div>
+        </div>
+        {agentStatus && (
+          <div class="auto-agent-stats mb-16">
+            <div class="kv"><span class="caption">{_['agent-last-run']}</span><span class="mono">{agentStatus.last_run || '—'}</span></div>
+            <div class="kv"><span class="caption">{_['agent-next-run']}</span><span class="mono">{agentStatus.next_run || '—'}</span></div>
+            <div class="kv"><span class="caption">{_['agent-total-runs']}</span><span class="mono">{agentStatus.total_runs}</span></div>
+            <div class="kv"><span class="caption">{_['agent-total-registered']}</span><span class="mono">{agentStatus.total_registered}</span></div>
+            <div class="kv"><span class="caption">{_['agent-total-errors']}</span><span class="mono">{agentStatus.total_errors}</span></div>
+          </div>
+        )}
+      </Section>
+
+      <Section id="agent-config" title={_['agent-save-config']}>
+        <div class="col gap-12">
+          <div>
+            <div class="caption mb-4">{_['agent-interval']}</div>
+            <div class="row gap-8 align-center">
+              <input class="input auto-input-sm" type="number" min={1} value={cfgInterval} onInput={e => setCfgInterval(Number((e.target as HTMLInputElement).value))} />
+              <span class="caption">{_['agent-interval-hours']}</span>
+            </div>
+          </div>
+          <div>
+            <div class="caption mb-4">{_['agent-scan-paths']}</div>
+            <textarea class="input auto-textarea" rows={3} value={cfgScanPaths} onInput={e => setCfgScanPaths((e.target as HTMLTextAreaElement).value)} placeholder={_['agent-scan-paths-hint']} />
+          </div>
+          <label class="row gap-8 align-center auto-check-row">
+            <input type="checkbox" checked={cfgAutoRegister} onChange={e => setCfgAutoRegister((e.target as HTMLInputElement).checked)} />
+            <span>{_['agent-auto-register']}</span>
+          </label>
+          <label class="row gap-8 align-center auto-check-row">
+            <input type="checkbox" checked={cfgAutoTrade} onChange={e => setCfgAutoTrade((e.target as HTMLInputElement).checked)} />
+            <span>{_['agent-auto-trade']}</span>
+          </label>
+          <div class="caption auto-trade-warning">{_['agent-auto-trade-desc']}</div>
+          {cfgAutoTrade && (
+            <div>
+              <div class="caption mb-4">{_['agent-trade-tags']}</div>
+              <input class="input" value={cfgTradeTags} onInput={e => setCfgTradeTags((e.target as HTMLInputElement).value)} placeholder={_['agent-trade-tags-hint']} />
+            </div>
+          )}
+          {cfgAutoTrade && (
+            <div>
+              <div class="caption mb-4">{_['agent-trade-max']} (OAS)</div>
+              <input class="input auto-input-sm" type="number" min={0} value={cfgTradeMax} onInput={e => setCfgTradeMax(Number((e.target as HTMLInputElement).value))} />
+            </div>
+          )}
+          <button class="btn btn-primary btn-sm self-start" onClick={saveConfig} disabled={savingCfg}>
+            {savingCfg ? '...' : _['agent-save-config']}
+          </button>
+        </div>
+      </Section>
+
+      <Section id="agent-history" title={_['agent-history']}>
+        {agentHistory.length === 0 && (
+          <EmptyState icon="▷" title={_['agent-no-history']} hint={_['agent-no-history-hint']} />
+        )}
+        {agentHistory.length > 0 && (
+          <div class="auto-history-list">
+            {agentHistory.map((run) => (
+              <div key={run.timestamp} class="auto-history-row">
+                <span class="mono caption">{run.timestamp}</span>
+                <span class="caption">scan {run.scan_count}</span>
+                <span class="caption">reg {run.register_count}</span>
+                <span class="caption">trade {run.trade_count}</span>
+                {run.errors > 0 && <span class="caption auto-history-err">err {run.errors}</span>}
+                <span class="mono caption">{run.duration_ms}ms</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
     </div>
   );
 }

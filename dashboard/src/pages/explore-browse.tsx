@@ -2,10 +2,12 @@
  * Browse tab — search, type/tag filtering, asset list, tiered access quote/buy, capability invoke
  */
 import { useEffect, useState, useRef, useMemo } from 'preact/hooks';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { get, post } from '../api/client';
 import { showToast, i18n, walletAddress } from '../store/ui';
 import type { Asset } from '../store/assets';
 import { maskIdShort, maskIdLong, maskOwner, fmtPrice, safePct, safeNum } from '../utils';
+import { EmptyState } from '../components/empty-state';
 import DataPreview from '../components/data-preview';
 import './explore.css';
 
@@ -83,12 +85,7 @@ export default function ExploreBrowse({ subpath }: Props) {
   }, []);
 
   /* Close preview overlay on Escape */
-  useEffect(() => {
-    if (!previewId) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreviewId(null); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [previewId]);
+  useEscapeKey(() => setPreviewId(null), !!previewId);
 
   /* Auto-select asset from deep link subpath (e.g. #explore/CAP_ABC123) */
   useEffect(() => {
@@ -336,14 +333,9 @@ export default function ExploreBrowse({ subpath }: Props) {
           <div class="skeleton skeleton-sm mb-8" />
         </div>
       ) : list.length === 0 && allAssets.length === 0 ? (
-        <div class="center p-0-64">
-          <div class="empty-text-md mb-8">{_['explore-empty']}</div>
-          <div class="caption">{_['explore-browse']}</div>
-        </div>
+        <EmptyState icon="⌕" title={_['explore-empty']} hint={_['explore-browse']} />
       ) : list.length === 0 ? (
-        <div class="center p-0-64">
-          <div class="empty-text">{q ? _['inbox-no-match'] : _['explore-empty']}</div>
-        </div>
+        <EmptyState icon={q ? '∅' : '⌕'} title={q ? _['inbox-no-match'] : _['explore-empty']} />
       ) : (
         <div class="item-list">
           {list.map(a => {
@@ -361,9 +353,9 @@ export default function ExploreBrowse({ subpath }: Props) {
                       {!isCap && (a as any).price_model === 'floor' && <span class="badge ml-8">{_['price-model-floor']}</span>}
                     </div>
                     <div class="item-meta">
-                      <span class="mono explore-id-inline">{maskIdShort(a.asset_id)}</span>
-                      {isCap && a.provider && <span class="explore-owner-inline">{maskOwner(a.provider)}</span>}
-                      {!isCap && a.owner && <span class="explore-owner-inline">{maskOwner(a.owner)}</span>}
+                      <span class="mono item-id-inline">{maskIdShort(a.asset_id)}</span>
+                      {isCap && a.provider && <span class="item-owner-inline">{maskOwner(a.provider)}</span>}
+                      {!isCap && a.owner && <span class="item-owner-inline">{maskOwner(a.owner)}</span>}
                     </div>
                   </div>
                   <span class="mono item-price">{fmtPrice(a.spot_price)} <span class="oas-unit">OAS</span></span>

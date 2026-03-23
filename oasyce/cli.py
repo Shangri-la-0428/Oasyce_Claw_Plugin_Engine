@@ -439,6 +439,84 @@ def cmd_jury_vote(args):
             print(f"Error: {result.error}")
 
 
+def cmd_feedback(args):
+    """Submit feedback (bug report or suggestion) from an AI agent."""
+    import urllib.request
+    import urllib.error
+
+    message = args.message.strip()
+    if not message:
+        _output_error(args, "message is required", code="FEEDBACK_EMPTY")
+        sys.exit(1)
+
+    fb_type = args.type or "bug"
+    agent_id = args.agent or "anonymous"
+    context_str = args.context or "{}"
+
+    # Try local API first (if server is running)
+    payload = json.dumps({
+        "message": message,
+        "type": fb_type,
+        "agent_id": agent_id,
+        "context": json.loads(context_str) if context_str.startswith("{") else {},
+    }).encode("utf-8")
+
+    try:
+        port = int(os.getenv("OASYCE_PORT", "8420"))
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/feedback",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        resp = urllib.request.urlopen(req, timeout=5)
+        data = json.loads(resp.read().decode("utf-8"))
+        if args.json:
+            print(json.dumps(data, indent=2))
+        else:
+            print(f"Feedback submitted: {data.get('feedback_id', '')}")
+            if data.get("github_issue"):
+                print(f"  GitHub issue: {data['github_issue']}")
+        return
+    except (urllib.error.URLError, OSError):
+        pass  # server not running, fall back to direct DB write
+
+    # Direct DB write fallback
+    import sqlite3
+    import secrets as _secrets
+    import time as _time
+
+    config = Config.from_env()
+    data_dir = config.data_dir if hasattr(config, "data_dir") else os.path.join(os.path.expanduser("~"), ".oasyce")
+    os.makedirs(data_dir, exist_ok=True)
+    db_path = os.path.join(data_dir, "feedback.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS feedback (
+            feedback_id TEXT PRIMARY KEY,
+            type TEXT NOT NULL DEFAULT 'bug',
+            message TEXT NOT NULL,
+            context TEXT DEFAULT '{}',
+            agent_id TEXT DEFAULT '',
+            status TEXT DEFAULT 'open',
+            created_at REAL NOT NULL
+        )"""
+    )
+    feedback_id = f"FB_{_secrets.token_hex(8)}"
+    conn.execute(
+        "INSERT INTO feedback (feedback_id, type, message, context, agent_id, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, 'open', ?)",
+        (feedback_id, fb_type, message, context_str, agent_id, _time.time()),
+    )
+    conn.commit()
+    conn.close()
+
+    if args.json:
+        print(json.dumps({"ok": True, "feedback_id": feedback_id}))
+    else:
+        print(f"Feedback saved locally: {feedback_id}")
+        print("  (Server not running — webhook/GitHub forwarding skipped)")
+
+
 def cmd_discover(args):
     """Discover capabilities/skills using four-layer search."""
     from oasyce.services.discovery import SkillDiscoveryEngine
@@ -3277,6 +3355,15 @@ def main():
     resolve_parser.add_argument("--details", help='Details JSON, e.g. \'{"new_owner":"0x..."}\'')
     resolve_parser.add_argument("--json", action="store_true", help="Output as JSON")
     resolve_parser.set_defaults(func=cmd_resolve)
+
+    # Feedback command (AI agent bug reports / suggestions)
+    feedback_parser = subparsers.add_parser("feedback", help="Submit feedback (bug/suggestion) from an AI agent")
+    feedback_parser.add_argument("message", help="Feedback message")
+    feedback_parser.add_argument("--type", choices=["bug", "suggestion", "other"], default="bug", help="Feedback type")
+    feedback_parser.add_argument("--agent", default=None, help="Agent identifier")
+    feedback_parser.add_argument("--context", default=None, help='Context JSON, e.g. \'{"version":"2.1.1"}\'')
+    feedback_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    feedback_parser.set_defaults(func=cmd_feedback)
 
     # Discover command
     discover_parser = subparsers.add_parser(

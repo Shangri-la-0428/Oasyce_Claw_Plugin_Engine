@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.3.0] - 2026-03-23
+
+### Added
+- **Feedback system** — AI agents can submit bug reports and suggestions via CLI (`oasyce feedback`), API (`POST /api/feedback`), or Dashboard
+- **Feedback forwarding** — Optional webhook (Discord/Slack) and GitHub Issues integration via env vars
+- **GUI: Feedback section** — Submit and view feedback in Network page (`components/network/feedback.tsx`)
+- **i18n**: 12 new feedback keys (zh + en), `loading` key for all loading states
+
+### Changed
+- **Dead consensus routes removed** — 8 GET + 5 POST handlers that immediately raised ImportError replaced with clean 501 stubs (-170 lines)
+- **Redundant `import time as _time`** → uses global `time` module
+- **Hardcoded "Loading..." → i18n** in bounty, feedback, automation pages
+- **Console.warn removed** from production code (home, network, store)
+- **UX copy** — "发起退出"→"发起退市", "移除"→"删除记录" with consequence descriptions
+- **Design system** — `--ease` token updated to ease-out-quart, all transitions use `var(--ease)`, min duration 0.12s
+
+### Removed
+- **6 internal docs**: MIGRATION.md, TODO.md, PHASE3_PLUS_DESIGN.md, PRODUCT_AUDIT, WALKTHROUGH_CHECKLIST, USER_JOURNEY_MAP
+- **`_LEGACY_HTML_REMOVED`** marker variable
+- **Dead code** in consensus handlers (~170 lines of unreachable code)
+
+### Extracted (Design System)
+- **`fmtDate()`** — Shared date formatter in `utils.ts` (10 inline calls replaced)
+- **`useEscapeKey()`** — Shared hook in `hooks/useEscapeKey.ts` (4 blocks replaced)
+- **`<EmptyState />`** — Shared component in `components/empty-state.tsx` (11 instances replaced)
+
 ## [2.2.0] - 2026-03-22
 
 ### Added

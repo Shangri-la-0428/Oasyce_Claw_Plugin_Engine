@@ -4,6 +4,17 @@ import preact from '@preact/preset-vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [preact()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/preact') || id.includes('node_modules/@preact/signals') || id.includes('node_modules/preact-router')) {
+            return 'vendor';
+          }
+        },
+      },
+    },
+  },
   server: {
     port: 3000,
     proxy: {

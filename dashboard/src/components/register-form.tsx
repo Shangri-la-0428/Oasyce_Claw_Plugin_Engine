@@ -272,10 +272,14 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
       {/* Dropzone */}
       <div
         class={`dropzone ${dragging ? 'dropzone-active' : ''} ${hasSelection ? 'dropzone-done' : ''} ${compact ? 'mb-24' : ''}`}
+        role="button"
+        tabIndex={0}
+        aria-label={hasSelection ? (folderName || file?.name || '') : (_['drop-browse'] || 'Select file')}
         onDrop={onDrop}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onClick={() => { if (!hasSelection) ref.current?.click(); }}
+        onKeyDown={e => { if (!hasSelection && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); ref.current?.click(); } }}
       >
         {hasSelection ? (
           <div class="dropzone-selected">
@@ -293,7 +297,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
           </div>
         ) : (
           <>
-            <div class="dropzone-icon">&uarr;</div>
+            <div class="dropzone-icon" aria-hidden="true">&uarr;</div>
             <div class="dropzone-text">
               <strong>{_['drop-browse'] || '\u9009\u62e9\u6587\u4ef6'}</strong>
             </div>

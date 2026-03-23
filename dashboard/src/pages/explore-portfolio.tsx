@@ -2,10 +2,12 @@
  * Portfolio tab — holdings display
  */
 import { useEffect, useState } from 'preact/hooks';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { get, post } from '../api/client';
 import { showToast, i18n, walletAddress } from '../store/ui';
-import { maskIdShort, maskIdLong, fmtPrice } from '../utils';
+import { maskIdShort, fmtPrice, fmtDate } from '../utils';
 import { DisputeForm, MyDisputes } from '../components/dispute-form';
+import { EmptyState } from '../components/empty-state';
 import './explore.css';
 
 interface Holding {
@@ -14,7 +16,9 @@ interface Holding {
   avg_price: number;
 }
 
-export default function ExplorePortfolio() {
+interface Props { onBrowse?: () => void; }
+
+export default function ExplorePortfolio({ onBrowse }: Props) {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [holdingsLoading, setHoldingsLoading] = useState(false);
   const [disputeAssetId, setDisputeAssetId] = useState<string | null>(null);
@@ -42,12 +46,7 @@ export default function ExplorePortfolio() {
   }, []);
 
   /* Close dispute overlay on Escape */
-  useEffect(() => {
-    if (!disputeAssetId) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDisputeAssetId(null); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [disputeAssetId]);
+  useEscapeKey(() => setDisputeAssetId(null), !!disputeAssetId);
 
   const loadPortfolio = async () => {
     setHoldingsLoading(true);
@@ -112,10 +111,9 @@ export default function ExplorePortfolio() {
       {holdingsLoading ? (
         <div class="skeleton skeleton-md mb-8" />
       ) : holdings.length === 0 ? (
-        <div class="center p-0-64">
-          <div class="caption mb-8">{_['no-holdings']}</div>
-          <div class="caption fg-muted">{_['portfolio-hint']}</div>
-        </div>
+        <EmptyState icon="◇" title={_['no-holdings']} hint={_['portfolio-hint']}>
+          {onBrowse && <button class="btn btn-ghost" onClick={onBrowse}>{_['portfolio-browse-cta']}</button>}
+        </EmptyState>
       ) : (
         <div class="portfolio-list">
           {holdings.map(h => (
@@ -198,9 +196,7 @@ export default function ExplorePortfolio() {
         {txLoading ? (
           <div class="skeleton skeleton-md mb-8" />
         ) : transactions.length === 0 ? (
-          <div class="center p-0-64">
-            <div class="caption fg-muted">{_['tx-no-history']}</div>
-          </div>
+          <EmptyState icon="⇄" title={_['tx-no-history']} hint={_['tx-no-history-hint']} />
         ) : (
           <div class="col gap-8">
             {transactions.map((tx, i) => (
@@ -208,7 +204,7 @@ export default function ExplorePortfolio() {
                 <div class="kv"><span class="kv-key mono">{maskIdShort(tx.asset_id)}</span></div>
                 <span class="mono">{fmtPrice(tx.amount)} OAS</span>
                 {tx.type && <span class="caption">{tx.type}</span>}
-                {tx.timestamp && <span class="caption fg-muted">{new Date(tx.timestamp * 1000).toLocaleDateString()}</span>}
+                {tx.timestamp && <span class="caption fg-muted">{fmtDate(tx.timestamp, 'date')}</span>}
               </div>
             ))}
           </div>

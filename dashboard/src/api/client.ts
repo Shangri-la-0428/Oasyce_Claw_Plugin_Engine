@@ -36,27 +36,27 @@ function authHeaders(): Record<string, string> {
   return { 'Authorization': `Bearer ${_token}` };
 }
 
-/** Map HTTP status to a user-facing error message key */
+/** Map HTTP status to an i18n key (resolved by showToast) */
 function httpError(status: number, serverError?: string): string {
   if (serverError) return serverError;
   switch (status) {
     case 401: case 403: return 'error-unauthorized';
     case 429: return 'error-rate-limit';
-    case 404: return 'Resource not found';
-    case 500: case 502: case 503: return 'Server error. Please try again later.';
-    default: return `Request failed (${status})`;
+    case 404: return 'error-not-found';
+    case 500: case 502: case 503: return 'error-server';
+    default: return 'error-generic';
   }
 }
 
-/** Classify network errors into user-friendly messages */
+/** Classify network errors into i18n keys */
 function networkError(e: unknown): string {
   if (e instanceof DOMException && e.name === 'AbortError') {
-    return 'Request timed out. Check your connection and try again.';
+    return 'error-timeout';
   }
   if (e instanceof TypeError && (e.message.includes('fetch') || e.message.includes('network') || e.message.includes('Failed'))) {
-    return 'Network error. The server may be offline.';
+    return 'error-network';
   }
-  return (e instanceof Error ? e.message : String(e)) || 'Unknown error';
+  return 'error-generic';
 }
 
 /** Safely parse JSON from a Response, returning null on failure */

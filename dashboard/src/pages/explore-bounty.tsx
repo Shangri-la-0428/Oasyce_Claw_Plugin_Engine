@@ -5,6 +5,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { showToast, i18n, walletAddress } from '../store/ui';
 import { maskIdShort, fmtPrice } from '../utils';
+import { EmptyState } from '../components/empty-state';
 import './explore-bounty.css';
 
 type TaskStatus = 'open' | 'bidding' | 'assigned' | 'completed' | 'cancelled';
@@ -230,12 +231,10 @@ export default function ExploreBounty() {
       {/* ── Task List ── */}
       <h2 class="label-inline mb-16">{_['bounty-list']}</h2>
 
-      {loading && <div class="caption fg-muted">Loading...</div>}
+      {loading && <div class="caption fg-muted">{_['loading']}</div>}
 
       {!loading && tasks.length === 0 && (
-        <div class="center p-0-64">
-          <div class="caption">{_['bounty-no-tasks']}</div>
-        </div>
+        <EmptyState icon="◎" title={_['bounty-no-tasks']} hint={_['bounty-no-tasks-hint']} />
       )}
 
       <div class="col gap-8">
@@ -270,8 +269,8 @@ export default function ExploreBounty() {
                     <div class="mt-12">
                       <div class="caption mb-4">{_['bounty-bids']} ({t.bids.length})</div>
                       <div class="col gap-4">
-                        {t.bids.map((b, i) => (
-                          <div key={i} class="bounty-bid-row">
+                        {t.bids.map((b) => (
+                          <div key={b.agent_id} class="bounty-bid-row">
                             <span class="mono">{maskIdShort(b.agent_id)}</span>
                             <span class="mono">{fmtPrice(b.price)} OAS</span>
                             <span class="caption">{b.estimated_seconds}s</span>

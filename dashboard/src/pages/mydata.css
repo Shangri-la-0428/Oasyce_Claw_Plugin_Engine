@@ -1,41 +1,69 @@
 /* MyData — page-specific overrides (base list styles in design.css .item-*) */
 .data-item { border-bottom: 1px solid var(--bg-2); }
-.data-id-inline { font-size: 12px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.data-owner-inline { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Row state tinting */
+.data-item.is-disputed { background: color-mix(in srgb, var(--red) 4%, transparent); }
+.data-item.is-lifecycle { background: color-mix(in srgb, var(--yellow) 4%, transparent); }
+.data-item.is-delisted { background: color-mix(in srgb, var(--red) 3%, transparent); }
+
+/* Alternating rows for scanning */
+.data-item:nth-child(even) { background: var(--bg-hover); }
+.data-item.is-disputed:nth-child(even) { background: color-mix(in srgb, var(--red) 6%, transparent); }
+/* id/owner inline → shared .item-id-inline / .item-owner-inline in design.css */
 .data-chevron {
-  font-size: 16px; color: var(--fg-3);
+  font-size: var(--text-xl); color: var(--fg-3);
   transition: transform 0.15s var(--ease);
 }
 .data-chevron.open { transform: rotate(90deg); }
 
 .data-detail {
-  padding: 0 0 16px 16px;
+  padding: 0 0 var(--space-l) var(--space-l);
   animation: field-in 0.2s var(--ease);
+}
+
+/* ── Detail sections ── */
+.detail-actions {
+  display: flex; flex-wrap: wrap; gap: var(--space-s);
+  padding-top: var(--space-m); margin-top: var(--space-m);
+  border-top: 1px solid var(--border-subtle);
+}
+.detail-inline-form {
+  margin-top: var(--space-s);
+}
+.detail-lifecycle {
+  padding-top: var(--space-m); margin-top: var(--space-m);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .data-del-confirm {
-  display: flex; flex-direction: column; gap: 8px;
-  margin-top: 12px; padding: 10px;
+  display: flex; flex-direction: column; gap: var(--space-s);
+  margin-top: var(--space-m); padding: var(--space-m);
   border: 1px solid var(--border); border-radius: var(--r-m);
-}
-
-
-.get-section {
-  padding: 24px 0;
-  animation: field-in 0.2s var(--ease);
 }
 
 /* .mydata-reg-fields moved to register-form.css as .register-fields */
 
 /* ── Co-creator list ── */
-.cocreator-list { margin-top: 8px; }
-.cocreator-list-inner { margin-top: 4px; }
-.cocreator-item { margin-left: 12px; }
+.cocreator-list { margin-top: var(--space-s); }
+.cocreator-list-inner { margin-top: var(--space-xs); list-style: none; padding: 0; }
+.cocreator-item { margin-left: var(--space-m); }
 
 /* ── Dispute section ── */
-.dispute-box { margin-top: 8px; }
-.dispute-arb-wrap { margin-top: 6px; }
-.dispute-arb-item { margin-left: 8px; margin-bottom: 2px; }
+.dispute-arb-wrap { margin-top: var(--space-s); }
+.dispute-arb-item { margin-left: var(--space-s); margin-bottom: 2px; }
 
 /* ── Re-register inline button ── */
-.btn-reregister { margin-left: 6px; font-size: 12px; }
+.btn-reregister { margin-left: var(--space-s); font-size: var(--text-sm); }
+
+/* ── Tablet ── */
+@media (max-width: 768px) {
+  .data-detail { padding-left: var(--space-s); }
+}
+
+/* ── Mobile ── */
+@media (max-width: 600px) {
+  .data-detail { padding: var(--space-s) 0 var(--space-m) var(--space-s); border-top: 1px solid var(--border-subtle); }
+  .cocreator-item { margin-left: 0; }
+  .dispute-arb-item { margin-left: 0; }
+  .data-del-confirm { margin-top: var(--space-s); padding: var(--space-s); }
+}

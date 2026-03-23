@@ -1,17 +1,25 @@
 /**
  * Network — 节点身份、AI 算力配置、角色管理、水印工具
  * Sections are collapsible to reduce visual overload.
+ * Heavy independent sections extracted to sub-components to reduce re-render scope.
  */
 import { useEffect, useState } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { showToast, i18n, identity, loadIdentity, walletAddress } from '../store/ui';
+import { fmtDate } from '../utils';
 import { safeNum, safePct } from '../utils';
 import { useChain } from '../hooks/useChain';
 import { getValidators, type Validator } from '../api/chain';
 import { Section } from '../components/section';
+import { GovernanceSection } from '../components/network/governance';
+import { WatermarkSection } from '../components/network/watermark';
+import { FingerprintsSection } from '../components/network/fingerprints';
+import { ContributionSection } from '../components/network/contribution';
+import { LeakageSection } from '../components/network/leakage';
+import { CacheSection } from '../components/network/cache';
+import { FeedbackSection } from '../components/network/feedback';
 import './network.css';
 
-type WmTool = null | 'embed' | 'extract' | 'trace';
 type CsAction = null | 'delegate' | 'undelegate';
 
 interface ConsensusStatus {
@@ -35,8 +43,6 @@ interface NodeRole {
   chain_height: number;
   peers: number;
 }
-
-/* Section component imported from ../components/section */
 
 interface NetworkProps { subpath?: string; }
 
@@ -70,62 +76,14 @@ export default function Network({ subpath }: NetworkProps) {
   const [csAmount, setCsAmount] = useState('');
   const [csSubmitting, setCsSubmitting] = useState(false);
 
-  // Watermark tool state
-  const [activeTool, setActiveTool] = useState<WmTool>(null);
-  const [wmFilePath, setWmFilePath] = useState('');
-  const [wmCallerId, setWmCallerId] = useState('');
-  const [wmAssetId, setWmAssetId] = useState('');
-  const [wmLoading, setWmLoading] = useState(false);
-  const [wmResult, setWmResult] = useState<any>(null);
-
   // Wallet export/import state
   const [showImport, setShowImport] = useState(false);
   const [importData, setImportData] = useState('');
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  // Fingerprint list state
-  const [fpAssetId, setFpAssetId] = useState('');
-  const [fpRecords, setFpRecords] = useState<any[]>([]);
-  const [fpLoading, setFpLoading] = useState(false);
-
-  // Governance state
-  const [proposals, setProposals] = useState<any[]>([]);
-  const [proposalsLoading, setProposalsLoading] = useState(false);
-  const [govAction, setGovAction] = useState<'propose' | 'vote' | null>(null);
-  const [propTitle, setPropTitle] = useState('');
-  const [propDesc, setPropDesc] = useState('');
-  const [propDeposit, setPropDeposit] = useState('');
-  const [govSubmitting, setGovSubmitting] = useState(false);
-  const [govChainOnly, setGovChainOnly] = useState(false);
-  const [govLoaded, setGovLoaded] = useState(false);
-
   // Reputation state
   const [reputation, setReputation] = useState<number | null>(null);
-
-  // Contribution proof state
-  const [cpFilePath, setCpFilePath] = useState('');
-  const [cpCreatorKey, setCpCreatorKey] = useState('');
-  const [cpSourceType, setCpSourceType] = useState('manual');
-  const [cpProving, setCpProving] = useState(false);
-  const [cpResult, setCpResult] = useState<any>(null);
-  const [cpCertJson, setCpCertJson] = useState('');
-  const [cpVerifyFile, setCpVerifyFile] = useState('');
-  const [cpVerifying, setCpVerifying] = useState(false);
-  const [cpVerifyResult, setCpVerifyResult] = useState<any>(null);
-
-  // Leakage budget state
-  const [lkAgentId, setLkAgentId] = useState('');
-  const [lkAssetId, setLkAssetId] = useState('');
-  const [lkChecking, setLkChecking] = useState(false);
-  const [lkResult, setLkResult] = useState<any>(null);
-  const [lkResetting, setLkResetting] = useState(false);
-
-  // Cache management state
-  const [cacheStats, setCacheStats] = useState<any>(null);
-  const [cacheLoading, setCacheLoading] = useState(false);
-  const [cachePurging, setCachePurging] = useState(false);
-  const [cacheLoaded, setCacheLoaded] = useState(false);
 
   // Cosmos chain connectivity
   const chain = useChain(true);
@@ -167,45 +125,48 @@ export default function Network({ subpath }: NetworkProps) {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); loadIdentity(); }, []);
-
-  // Lazy-load governance proposals on mount
   useEffect(() => {
-    if (govLoaded) return;
-    setGovLoaded(true);
-    setProposalsLoading(true);
-    get<any>('/governance/proposals').then(res => {
-      if (res.success && res.data) {
-        setProposals(Array.isArray(res.data) ? res.data : (res.data.proposals || []));
-      } else if (res.error && res.error.toLowerCase().includes('go chain')) {
-        setGovChainOnly(true);
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      const [idRes, roleRes, statsRes, tasksRes, csRes] = await Promise.all([
+        get('/identity'),
+        get<NodeRole>('/node/role'),
+        get<any>('/work/stats'),
+        get<any>('/work/tasks?limit=5'),
+        get<ConsensusStatus>('/consensus/status'),
+      ]);
+      if (cancelled) return;
+      if (idRes.success && idRes.data) setNodeIdentity(idRes.data);
+      if (roleRes.success && roleRes.data) {
+        setNodeRole(roleRes.data);
+        if (roleRes.data.api_provider) setApiProvider(roleRes.data.api_provider);
+        if (roleRes.data.api_endpoint) setApiEndpoint(roleRes.data.api_endpoint);
       }
-      setProposalsLoading(false);
-    }).catch(() => setProposalsLoading(false));
-  }, []);
-
-  // Lazy-load cache stats on mount
-  useEffect(() => {
-    if (cacheLoaded) return;
-    setCacheLoaded(true);
-    setCacheLoading(true);
-    get<any>('/cache/stats').then(res => {
-      if (res.success && res.data) setCacheStats(res.data);
-      setCacheLoading(false);
-    }).catch(() => setCacheLoading(false));
+      if (statsRes.success && statsRes.data) setWorkStats(statsRes.data);
+      if (tasksRes.success && tasksRes.data?.tasks) setWorkTasks(tasksRes.data.tasks);
+      if (csRes.success && csRes.data) setConsensus(csRes.data);
+      setLoading(false);
+    };
+    load();
+    loadIdentity();
+    return () => { cancelled = true; };
   }, []);
 
   // Load reputation from staking if not in nodeRole
   useEffect(() => {
     if ((nodeRole as any)?.reputation !== undefined) {
       setReputation((nodeRole as any).reputation);
-    } else if (nodeRole) {
-      get<any>('/staking').then(res => {
-        if (res.success && res.data?.reputation !== undefined) {
-          setReputation(res.data.reputation);
-        }
-      });
+      return;
     }
+    if (!nodeRole) return;
+    let cancelled = false;
+    get<any>('/staking').then(res => {
+      if (!cancelled && res.success && res.data?.reputation !== undefined) {
+        setReputation(res.data.reputation);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, [nodeRole]);
 
   const copyText = async (text: string, label: string) => {
@@ -241,11 +202,11 @@ export default function Network({ subpath }: NetworkProps) {
 
   const becomeValidator = async () => {
     setRoleAction(true);
-    const body: any = {};
+    const body: Record<string, string | number> = {};
     if (stakeAmount) body.amount = parseFloat(stakeAmount);
     if (apiKey.trim()) { body.api_key = apiKey.trim(); body.api_provider = apiProvider; }
     if (apiEndpoint.trim()) body.api_endpoint = apiEndpoint.trim();
-    const res = await post<any>('/node/become-validator', body);
+    const res = await post<{ ok?: boolean; error?: string }>('/node/become-validator', body);
     if (res.success && res.data?.ok) {
       showToast(_['net-role-validator-ok'], 'success');
       setStakeAmount(''); setApiKey('');
@@ -258,11 +219,11 @@ export default function Network({ subpath }: NetworkProps) {
 
   const becomeArbitrator = async () => {
     setRoleAction(true);
-    const body: any = {};
+    const body: Record<string, string | number> = {};
     if (arbTags.trim()) body.tags = arbTags.trim();
     if (apiKey.trim()) { body.api_key = apiKey.trim(); body.api_provider = apiProvider; }
     if (apiEndpoint.trim()) body.api_endpoint = apiEndpoint.trim();
-    const res = await post<any>('/node/become-arbitrator', body);
+    const res = await post<{ ok?: boolean; error?: string }>('/node/become-arbitrator', body);
     if (res.success && res.data?.ok) {
       showToast(_['net-role-arbitrator-ok'], 'success');
       setArbTags(''); setApiKey('');
@@ -271,39 +232,6 @@ export default function Network({ subpath }: NetworkProps) {
       showToast(res.error || res.data?.error || _['error-generic'], 'error');
     }
     setRoleAction(false);
-  };
-
-  // Watermark handlers
-  const onEmbed = async () => {
-    if (!wmFilePath.trim()) return;
-    setWmLoading(true); setWmResult(null);
-    const res = await post<any>('/fingerprint/embed', { file_path: wmFilePath.trim(), caller_id: wmCallerId.trim() || undefined });
-    if (res.success && res.data) { setWmResult(res.data); showToast(_['wm-embed-btn'], 'success'); }
-    else showToast(res.error || _['error-generic'], 'error');
-    setWmLoading(false);
-  };
-
-  const onExtract = async () => {
-    if (!wmFilePath.trim()) return;
-    setWmLoading(true); setWmResult(null);
-    const res = await post<any>('/fingerprint/extract', { file_path: wmFilePath.trim() });
-    if (res.success && res.data) setWmResult(res.data);
-    else showToast(res.error || _['error-generic'], 'error');
-    setWmLoading(false);
-  };
-
-  const onTrace = async () => {
-    if (!wmAssetId.trim()) return;
-    setWmLoading(true); setWmResult(null);
-    const res = await get<any>(`/fingerprint/distributions?asset_id=${encodeURIComponent(wmAssetId.trim())}`);
-    if (res.success && res.data) setWmResult(res.data);
-    else showToast(res.error || _['error-generic'], 'error');
-    setWmLoading(false);
-  };
-
-  const selectTool = (tool: WmTool) => {
-    setActiveTool(activeTool === tool ? null : tool);
-    setWmResult(null); setWmFilePath(''); setWmCallerId(''); setWmAssetId('');
   };
 
   if (loading) {
@@ -362,9 +290,9 @@ export default function Network({ subpath }: NetworkProps) {
 
       <div class="spacer-48" />
 
-      {/* ── 身份卡片 — always visible ── */}
+      {/* ── 身份 — flat, no card ── */}
       {pubkey ? (
-        <div class="card mb-24">
+        <div class="mb-24">
           <div class="label">{_['net-identity']}</div>
 
           <div class="kv">
@@ -389,7 +317,7 @@ export default function Network({ subpath }: NetworkProps) {
           {/* Wallet address */}
           {identity.value?.exists ? (
             <div class="kv">
-              <span class="kv-key">Wallet</span>
+              <span class="kv-key">{_['wallet']}</span>
               <span class="kv-val mono row gap-8">
                 <span>{identity.value.address.slice(0, 16)}...{identity.value.address.slice(-8)}</span>
                 <button class="btn-copy" onClick={() => copyText(identity.value!.address, 'Wallet')}>{_['copy']}</button>
@@ -397,19 +325,19 @@ export default function Network({ subpath }: NetworkProps) {
             </div>
           ) : (
             <div class="kv">
-              <span class="kv-key">Wallet</span>
+              <span class="kv-key">{_['wallet']}</span>
               <span class="kv-val row gap-8">
                 <span class="caption fg-muted">{_['no-key']}</span>
                 <button class="btn btn-sm btn-ghost" onClick={async () => {
                   const res = await post<any>('/identity/create', {});
                   if (res.success && res.data?.ok) {
-                    showToast('Wallet created', 'success');
+                    showToast(_['wallet-created'], 'success');
                     loadIdentity();
                     fetchData();
                   } else {
                     showToast(res.error || res.data?.error || _['error-generic'], 'error');
                   }
-                }}>Create Wallet</button>
+                }}>{_['create-wallet']}</button>
               </span>
             </div>
           )}
@@ -417,7 +345,11 @@ export default function Network({ subpath }: NetworkProps) {
           {nodeIdentity?.created_at && (
             <div class="kv">
               <span class="kv-key">{_['net-created']}</span>
-              <span class="kv-val">{new Date(nodeIdentity.created_at * 1000).toLocaleDateString()}</span>
+              <span class="kv-val">
+                <time dateTime={new Date(nodeIdentity.created_at * 1000).toISOString()}>
+                  {fmtDate(nodeIdentity.created_at, 'date')}
+                </time>
+              </span>
             </div>
           )}
 
@@ -492,12 +424,12 @@ export default function Network({ subpath }: NetworkProps) {
           )}
         </div>
       ) : (
-        <div class="card mb-24">
+        <div class="mb-24">
           <div class="label">{_['net-identity']}</div>
           {identity.value?.exists ? (
             <>
               <div class="kv">
-                <span class="kv-key">Wallet</span>
+                <span class="kv-key">{_['wallet']}</span>
                 <span class="kv-val mono row gap-8">
                   <span>{identity.value.address.slice(0, 16)}...{identity.value.address.slice(-8)}</span>
                   <button class="btn-copy" onClick={() => copyText(identity.value!.address, 'Wallet')}>{_['copy']}</button>
@@ -512,21 +444,24 @@ export default function Network({ subpath }: NetworkProps) {
               <button class="btn btn-primary btn-sm mt-12" onClick={async () => {
                 const res = await post<any>('/identity/create', {});
                 if (res.success && res.data?.ok) {
-                  showToast('Wallet created', 'success');
+                  showToast(_['wallet-created'], 'success');
                   loadIdentity();
                   fetchData();
                 } else {
                   showToast(res.error || res.data?.error || _['error-generic'], 'error');
                 }
-              }}>Create Wallet</button>
+              }}>{_['create-wallet']}</button>
             </>
           )}
           <button class="btn btn-ghost btn-sm mt-12" onClick={fetchData}>{_['net-retry']}</button>
         </div>
       )}
 
-      {/* ── AI 算力配置 — collapsible, default open ── */}
-      <Section id="ai" title={_['net-ai']} desc={_['net-ai-desc']} defaultOpen={true} forceOpen={subpath === 'ai'}>
+      {/* ═══ Configuration ═══ */}
+      <div class="label net-cat-label">{_['net-cat-config']}</div>
+
+      {/* ── AI 算力配置 ── */}
+      <Section id="ai" title={_['net-ai']} desc={_['net-ai-desc']} forceOpen={subpath === 'ai'}>
         {/* 当前状态 */}
         {hasApiKey && (
           <div class="net-role-badge mb-16 net-role-badge-active">
@@ -576,7 +511,7 @@ export default function Network({ subpath }: NetworkProps) {
       </Section>
 
       {/* ── 节点角色 — collapsible, default open ── */}
-      <Section id="role" title={_['net-role']} desc={_['net-role-desc']} defaultOpen={true} forceOpen={subpath === 'role'}>
+      <Section id="role" title={_['net-role']} desc={_['net-role-desc']} forceOpen={subpath === 'role'}>
         {/* 当前角色 */}
         {(isValidator || isArbitrator) && (
           <div class="net-roles-current mb-16">
@@ -685,6 +620,9 @@ export default function Network({ subpath }: NetworkProps) {
         )}
       </Section>
 
+      {/* ═══ Network & Consensus ═══ */}
+      <div class="label net-cat-label">{_['net-cat-chain']}</div>
+
       {/* ── 工作收益 — collapsible, default collapsed ── */}
       {(isValidator || isArbitrator) && (
         <Section id="work" title={_['net-work']} desc={_['net-work-desc']} forceOpen={subpath === 'work'}>
@@ -712,20 +650,23 @@ export default function Network({ subpath }: NetworkProps) {
               </div>
             </div>
           ) : (
-            <div class="caption fg-muted">{_['net-work-no-tasks']}</div>
+            <div class="caption fg-muted">
+              <div class="mb-4">{_['net-work-no-tasks']}</div>
+              <div>{_['net-work-no-tasks-hint']}</div>
+            </div>
           )}
 
           {workTasks.length > 0 && (
             <div class="net-work-recent-wrap">
               <div class="label-inline mb-8">{_['net-work-recent']}</div>
-              {workTasks.map((t: any) => (
+              {workTasks.map((t: { task_id: string; task_type: string; status: string; final_value?: number }) => (
                 <div key={t.task_id} class="kv kv-sm">
                   <span class="kv-key mono kv-key-xs">{t.task_id.slice(0, 12)}</span>
                   <span class="kv-val">
                     <span>{_[`net-work-type-${t.task_type}`] || t.task_type}</span>
                     {' · '}
                     <span class={t.status === 'settled' ? 'color-green' : ''}>{t.status}</span>
-                    {t.final_value > 0 && <span class="mono"> &middot; {safeNum(t.final_value)} OAS</span>}
+                    {t.final_value != null && t.final_value > 0 && <span class="mono"> &middot; {safeNum(t.final_value)} OAS</span>}
                   </span>
                 </div>
               ))}
@@ -737,23 +678,22 @@ export default function Network({ subpath }: NetworkProps) {
       {/* ── Cosmos Chain Info — shown when chain REST API is available ── */}
       <Section
         id="cosmos-chain"
-        title="Cosmos Chain"
-        desc={chain.isChainConnected ? `Connected — Block #${chain.blockHeight ?? '...'}` : 'Checking chain...'}
+        title={_['net-cosmos']}
+        desc={chain.isChainConnected ? (_['net-cosmos-connected'] || '').replace('{height}', String(chain.blockHeight ?? '...')) : _['net-cosmos-checking']}
         defaultOpen={chain.isChainConnected}
         forceOpen={subpath === 'chain'}
       >
         {chain.loading && !chain.isChainConnected && (
-          <div class="caption fg-muted">Connecting to Cosmos chain REST API...</div>
+          <div class="caption fg-muted">{_['net-cosmos-connecting']}</div>
         )}
 
         {!chain.loading && !chain.isChainConnected && (
           <div>
             <div class="caption fg-muted mb-8">
-              Cosmos chain REST API is not reachable (localhost:1317).
-              Showing Python backend data as fallback.
+              {_['net-cosmos-unreachable']}
             </div>
-            {chain.error && <div class="caption fg-muted">Error: {chain.error}</div>}
-            <button class="btn btn-ghost btn-sm mt-8" onClick={chain.refresh}>Retry</button>
+            {chain.error && <div class="caption fg-muted">{_['net-cosmos-error']}: {chain.error}</div>}
+            <button class="btn btn-ghost btn-sm mt-8" onClick={chain.refresh}>{_['net-cosmos-retry']}</button>
           </div>
         )}
 
@@ -763,23 +703,23 @@ export default function Network({ subpath }: NetworkProps) {
             {chain.chainInfo && (
               <>
                 <div class="kv">
-                  <span class="kv-key">Chain ID</span>
+                  <span class="kv-key">{_['net-cosmos-chain-id']}</span>
                   <span class="kv-val mono">{chain.chainId}</span>
                 </div>
                 <div class="kv">
-                  <span class="kv-key">Node ID</span>
+                  <span class="kv-key">{_['net-cosmos-node-id']}</span>
                   <span class="kv-val mono">{chain.chainInfo.default_node_info.default_node_id.slice(0, 16)}...</span>
                 </div>
                 <div class="kv">
-                  <span class="kv-key">Moniker</span>
+                  <span class="kv-key">{_['net-cosmos-moniker']}</span>
                   <span class="kv-val">{chain.chainInfo.default_node_info.moniker}</span>
                 </div>
                 <div class="kv">
-                  <span class="kv-key">Cosmos SDK</span>
+                  <span class="kv-key">{_['net-cosmos-sdk']}</span>
                   <span class="kv-val mono">{chain.chainInfo.application_version.cosmos_sdk_version}</span>
                 </div>
                 <div class="kv">
-                  <span class="kv-key">App Version</span>
+                  <span class="kv-key">{_['net-cosmos-app-ver']}</span>
                   <span class="kv-val mono">{chain.chainInfo.application_version.version}</span>
                 </div>
               </>
@@ -789,31 +729,35 @@ export default function Network({ subpath }: NetworkProps) {
             {chain.latestBlock && (
               <>
                 <div class="kv">
-                  <span class="kv-key">Block Height</span>
+                  <span class="kv-key">{_['net-cosmos-block-height']}</span>
                   <span class="kv-val mono">{chain.latestBlock.block.header.height}</span>
                 </div>
                 <div class="kv">
-                  <span class="kv-key">Block Time</span>
-                  <span class="kv-val">{new Date(chain.latestBlock.block.header.time).toLocaleString()}</span>
+                  <span class="kv-key">{_['net-cosmos-block-time']}</span>
+                  <span class="kv-val">
+                    <time dateTime={chain.latestBlock.block.header.time}>
+                      {new Date(chain.latestBlock.block.header.time).toLocaleString()}
+                    </time>
+                  </span>
                 </div>
                 <div class="kv">
-                  <span class="kv-key">Block Hash</span>
+                  <span class="kv-key">{_['net-cosmos-block-hash']}</span>
                   <span class="kv-val mono">{chain.latestBlock.block_id.hash.slice(0, 16)}...</span>
                 </div>
               </>
             )}
 
             {/* Cosmos validators */}
-            <div class="label-inline mt-16 mb-8">Cosmos Validators ({cosmosValidators.length})</div>
-            {cosmosValLoading && <div class="caption fg-muted">Loading validators...</div>}
+            <div class="label-inline mt-16 mb-8">{_['net-cosmos-validators']} ({cosmosValidators.length})</div>
+            {cosmosValLoading && <div class="caption fg-muted">{_['net-cosmos-val-loading']}</div>}
             {!cosmosValLoading && cosmosValidators.length === 0 && (
-              <div class="caption fg-muted">No bonded validators found.</div>
+              <div class="caption fg-muted">{_['net-cosmos-no-validators']}</div>
             )}
             {cosmosValidators.map((v) => (
               <div key={v.operator_address} class="kv kv-sm">
                 <span class="kv-key">
                   {v.description.moniker || v.operator_address.slice(0, 12) + '...'}
-                  {v.jailed && <span class="caption fg-muted"> (jailed)</span>}
+                  {v.jailed && <span class="caption fg-muted"> ({_['net-cosmos-jailed']})</span>}
                 </span>
                 <span class="kv-val mono">
                   {(Number(v.tokens) / 1_000_000).toFixed(2)} OAS
@@ -822,7 +766,7 @@ export default function Network({ subpath }: NetworkProps) {
               </div>
             ))}
 
-            <button class="btn btn-ghost btn-sm mt-12" onClick={chain.refresh}>Refresh</button>
+            <button class="btn btn-ghost btn-sm mt-12" onClick={chain.refresh}>{_['net-cosmos-refresh']}</button>
           </div>
         )}
       </Section>
@@ -912,429 +856,17 @@ export default function Network({ subpath }: NetworkProps) {
         </div>
       </Section>
 
-      {/* ── 水印工具 — collapsible, default collapsed ── */}
-      <Section id="watermark" title={_['net-watermark']} desc={_['net-watermark-desc']} forceOpen={subpath === 'watermark'}>
-        <div class="net-tools">
-          <button class={`nav-item ${activeTool === 'embed' ? 'nav-item-active' : ''}`} onClick={() => selectTool('embed')}>
-            <span class="nav-item-title">{_['net-embed']} {activeTool === 'embed' ? '↓' : '→'}</span>
-            <span class="nav-item-desc">{_['net-embed-desc']}</span>
-          </button>
-          {activeTool === 'embed' && (
-            <div class="net-tool-form">
-              <input class="input" value={wmFilePath} onInput={e => setWmFilePath((e.target as HTMLInputElement).value)} placeholder={_['wm-file-path']} />
-              <input class="input" value={wmCallerId} onInput={e => setWmCallerId((e.target as HTMLInputElement).value)} placeholder={_['wm-caller-id']} />
-              <button class="btn btn-primary btn-full" onClick={onEmbed} disabled={wmLoading || !wmFilePath.trim()}>
-                {wmLoading ? _['wm-embedding'] : _['wm-embed-btn']}
-              </button>
-              {wmResult && (
-                <div class="net-tool-result">
-                  {wmResult.watermarked_path && <div class="kv"><span class="kv-key">{_['wm-watermarked-path']}</span><span class="kv-val mono kv-val-xs">{wmResult.watermarked_path}</span></div>}
-                  {wmResult.fingerprint && <div class="kv"><span class="kv-key">{_['wm-fingerprint']}</span><span class="kv-val mono kv-val-xs-nowrap">{wmResult.fingerprint.slice(0, 16)}…</span></div>}
-                </div>
-              )}
-            </div>
-          )}
+      <GovernanceSection forceOpen={subpath === 'governance'} />
 
-          <button class={`nav-item ${activeTool === 'extract' ? 'nav-item-active' : ''}`} onClick={() => selectTool('extract')}>
-            <span class="nav-item-title">{_['net-extract']} {activeTool === 'extract' ? '↓' : '→'}</span>
-            <span class="nav-item-desc">{_['net-extract-desc']}</span>
-          </button>
-          {activeTool === 'extract' && (
-            <div class="net-tool-form">
-              <input class="input" value={wmFilePath} onInput={e => setWmFilePath((e.target as HTMLInputElement).value)} placeholder={_['wm-file-path']} />
-              <button class="btn btn-primary btn-full" onClick={onExtract} disabled={wmLoading || !wmFilePath.trim()}>
-                {wmLoading ? _['wm-extracting'] : _['wm-extract-btn']}
-              </button>
-              {wmResult && (
-                <div class="net-tool-result">
-                  {wmResult.fingerprint && <div class="kv"><span class="kv-key">{_['wm-fingerprint']}</span><span class="kv-val mono kv-val-xs-nowrap">{wmResult.fingerprint}</span></div>}
-                  {wmResult.caller_id && <div class="kv"><span class="kv-key">{_['wm-caller']}</span><span class="kv-val mono">{wmResult.caller_id}</span></div>}
-                  {wmResult.timestamp && <div class="kv"><span class="kv-key">{_['wm-timestamp']}</span><span class="kv-val">{new Date(wmResult.timestamp * 1000).toLocaleString()}</span></div>}
-                  {!wmResult.fingerprint && !wmResult.caller_id && <div class="caption fg-muted">{_['wm-no-records']}</div>}
-                </div>
-              )}
-            </div>
-          )}
+      {/* ═══ Tools ═══ */}
+      <div class="label net-cat-label">{_['net-cat-tools']}</div>
 
-          <button class={`nav-item ${activeTool === 'trace' ? 'nav-item-active' : ''}`} onClick={() => selectTool('trace')}>
-            <span class="nav-item-title">{_['net-trace']} {activeTool === 'trace' ? '↓' : '→'}</span>
-            <span class="nav-item-desc">{_['net-trace-desc']}</span>
-          </button>
-          {activeTool === 'trace' && (
-            <div class="net-tool-form">
-              <input class="input" value={wmAssetId} onInput={e => setWmAssetId((e.target as HTMLInputElement).value)} placeholder={_['wm-asset-id']} />
-              <button class="btn btn-primary btn-full" onClick={onTrace} disabled={wmLoading || !wmAssetId.trim()}>
-                {wmLoading ? _['wm-listing'] : _['wm-list-btn']}
-              </button>
-              {wmResult && (
-                <div class="net-tool-result">
-                  {Array.isArray(wmResult.distributions) && wmResult.distributions.length > 0 ? (
-                    wmResult.distributions.map((d: any, i: number) => (
-                      <div key={i} class="kv">
-                        <span class="kv-key mono kv-key-xs">{d.caller_id?.slice(0, 12) || '—'}</span>
-                        <span class="kv-val">{d.timestamp ? new Date(d.timestamp * 1000).toLocaleString() : '—'}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div class="caption fg-muted">{_['wm-no-records']}</div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </Section>
-
-      {/* ── Fingerprint List — collapsible ── */}
-      <Section id="fingerprints" title={_['fingerprint-list']}>
-        <div class="net-tool-form net-tool-form-flush">
-          <input class="input" value={fpAssetId}
-            onInput={e => setFpAssetId((e.target as HTMLInputElement).value)}
-            placeholder={_['fingerprint-asset']} />
-          <button class="btn btn-primary btn-full" disabled={fpLoading || !fpAssetId.trim()}
-            onClick={async () => {
-              setFpLoading(true);
-              const res = await get<any>(`/fingerprints?asset_id=${encodeURIComponent(fpAssetId.trim())}`);
-              if (res.success && res.data) {
-                setFpRecords(Array.isArray(res.data) ? res.data : (res.data.records || []));
-              } else {
-                showToast(res.error || _['error-generic'], 'error');
-                setFpRecords([]);
-              }
-              setFpLoading(false);
-            }}>
-            {fpLoading ? '...' : _['fingerprint-list']}
-          </button>
-        </div>
-        {fpRecords.length > 0 ? (
-          <div class="mt-12">
-            {fpRecords.map((r: any, i: number) => (
-              <div key={i} class="kv kv-sm">
-                <span class="kv-key mono kv-key-xs">{(r.fingerprint || r.hash || '—').slice(0, 16)}…</span>
-                <span class="kv-val">
-                  <span class="mono">{r.caller || r.caller_id || '—'}</span>
-                  {' · '}
-                  <span>{r.timestamp ? new Date(r.timestamp * 1000).toLocaleString() : '—'}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          fpAssetId && !fpLoading && <div class="caption fg-muted mt-8">{_['fingerprint-no-records']}</div>
-        )}
-      </Section>
-
-      {/* ── Governance — collapsible ── */}
-      <Section id="governance" title={_['governance']} desc={_['governance-desc']}>
-        {govChainOnly && (
-          <div class="caption fg-muted mb-12">{_['gov-chain-only']}</div>
-        )}
-
-        {proposalsLoading && <div class="caption fg-muted">{_['gov-proposals']}...</div>}
-
-        {!proposalsLoading && !govChainOnly && proposals.length === 0 && (
-          <div class="caption fg-muted mb-12">{_['gov-no-proposals']}</div>
-        )}
-
-        {proposals.length > 0 && (
-          <div class="mb-16">
-            <div class="label-inline mb-8">{_['gov-proposals']}</div>
-            {proposals.map((p: any) => (
-              <div key={p.proposal_id} class="card mb-8" style="padding: 12px;">
-                <div class="kv">
-                  <span class="kv-key">#{p.proposal_id}</span>
-                  <span class="kv-val">{p.title}</span>
-                </div>
-                <div class="kv">
-                  <span class="kv-key">{_['gov-status']}</span>
-                  <span class="kv-val mono">{p.status}</span>
-                </div>
-                {p.description && (
-                  <p class="caption mt-4">{p.description}</p>
-                )}
-                <div class="row gap-8 mt-8">
-                  <button class="btn btn-sm btn-ghost" disabled={govSubmitting}
-                    onClick={async () => {
-                      setGovSubmitting(true);
-                      const res = await post<any>('/governance/vote', { proposal_id: p.proposal_id, voter: walletAddress(), option: 'yes' });
-                      if (res.success && res.data?.ok) showToast(_['gov-vote-success'], 'success');
-                      else showToast(res.error || res.data?.error || _['error-generic'], 'error');
-                      setGovSubmitting(false);
-                    }}>
-                    {_['gov-vote-yes']}
-                  </button>
-                  <button class="btn btn-sm btn-ghost" disabled={govSubmitting}
-                    onClick={async () => {
-                      setGovSubmitting(true);
-                      const res = await post<any>('/governance/vote', { proposal_id: p.proposal_id, voter: walletAddress(), option: 'no' });
-                      if (res.success && res.data?.ok) showToast(_['gov-vote-success'], 'success');
-                      else showToast(res.error || res.data?.error || _['error-generic'], 'error');
-                      setGovSubmitting(false);
-                    }}>
-                    {_['gov-vote-no']}
-                  </button>
-                  <button class="btn btn-sm btn-ghost" disabled={govSubmitting}
-                    onClick={async () => {
-                      setGovSubmitting(true);
-                      const res = await post<any>('/governance/vote', { proposal_id: p.proposal_id, voter: walletAddress(), option: 'abstain' });
-                      if (res.success && res.data?.ok) showToast(_['gov-vote-success'], 'success');
-                      else showToast(res.error || res.data?.error || _['error-generic'], 'error');
-                      setGovSubmitting(false);
-                    }}>
-                    {_['gov-vote-abstain']}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Submit Proposal toggle */}
-        <div class="net-tools">
-          <button class={`nav-item ${govAction === 'propose' ? 'nav-item-active' : ''}`}
-            onClick={() => setGovAction(govAction === 'propose' ? null : 'propose')}>
-            <span class="nav-item-title">{_['gov-propose']} {govAction === 'propose' ? '↓' : '→'}</span>
-          </button>
-          {govAction === 'propose' && (
-            <div class="net-tool-form">
-              <input class="input" value={propTitle}
-                onInput={e => setPropTitle((e.target as HTMLInputElement).value)}
-                placeholder={_['gov-title']} />
-              <textarea class="input" rows={3} value={propDesc}
-                onInput={e => setPropDesc((e.target as HTMLTextAreaElement).value)}
-                placeholder={_['gov-description']} />
-              <input class="input" type="number" value={propDeposit}
-                onInput={e => setPropDeposit((e.target as HTMLInputElement).value)}
-                placeholder={_['gov-deposit']} />
-              <button class="btn btn-primary btn-full" disabled={govSubmitting || !propTitle.trim()}
-                onClick={async () => {
-                  setGovSubmitting(true);
-                  const res = await post<any>('/governance/propose', {
-                    title: propTitle.trim(),
-                    description: propDesc.trim(),
-                    deposit: parseFloat(propDeposit) || 0,
-                    proposer: walletAddress(),
-                  });
-                  if (res.success && res.data?.ok) {
-                    showToast(_['gov-propose-success'], 'success');
-                    setPropTitle(''); setPropDesc(''); setPropDeposit('');
-                    setGovAction(null);
-                    // Reload proposals
-                    setProposalsLoading(true);
-                    const pRes = await get<any>('/governance/proposals');
-                    if (pRes.success && pRes.data) setProposals(Array.isArray(pRes.data) ? pRes.data : (pRes.data.proposals || []));
-                    setProposalsLoading(false);
-                  } else {
-                    showToast(res.error || res.data?.error || _['error-generic'], 'error');
-                  }
-                  setGovSubmitting(false);
-                }}>
-                {govSubmitting ? _['gov-proposing'] : _['gov-propose']}
-              </button>
-            </div>
-          )}
-        </div>
-      </Section>
-
-      {/* ── Contribution Proof — collapsible ── */}
-      <Section id="contribution" title={_['contribution']} desc={_['contribution-desc']} forceOpen={subpath === 'contribution'}>
-        {/* Generate proof form */}
-        <div class="net-tool-form net-tool-form-flush">
-          <label class="label">{_['contribution-file']}</label>
-          <input class="input" value={cpFilePath}
-            onInput={e => setCpFilePath((e.target as HTMLInputElement).value)}
-            placeholder={_['contribution-file']} />
-          <label class="label">{_['contribution-creator']}</label>
-          <input class="input" value={cpCreatorKey}
-            onInput={e => setCpCreatorKey((e.target as HTMLInputElement).value)}
-            placeholder={_['contribution-creator']} />
-          <label class="label">{_['contribution-source']}</label>
-          <select class="input" value={cpSourceType}
-            onChange={e => setCpSourceType((e.target as HTMLSelectElement).value)}>
-            <option value="manual">manual</option>
-            <option value="tee_capture">tee_capture</option>
-            <option value="api_log">api_log</option>
-            <option value="sensor_sig">sensor_sig</option>
-            <option value="git_commit">git_commit</option>
-          </select>
-          <button class="btn btn-primary btn-full" disabled={cpProving || !cpFilePath.trim()}
-            onClick={async () => {
-              setCpProving(true); setCpResult(null);
-              const res = await post<any>('/contribution/prove', {
-                file_path: cpFilePath.trim(),
-                creator_key: cpCreatorKey.trim() || undefined,
-                source_type: cpSourceType,
-              });
-              if (res.success && res.data) {
-                setCpResult(res.data);
-                showToast(_['contribution-prove-success'], 'success');
-              } else {
-                showToast(res.error || _['error-generic'], 'error');
-              }
-              setCpProving(false);
-            }}>
-            {cpProving ? _['contribution-proving'] : _['contribution-prove']}
-          </button>
-        </div>
-
-        {cpResult && (
-          <div class="net-tool-result mt-12">
-            <div class="label-inline mb-8">{_['contribution-result']}</div>
-            {cpResult.content_hash && (
-              <div class="kv"><span class="kv-key">{_['contribution-content-hash']}</span><span class="kv-val mono kv-val-xs-nowrap">{cpResult.content_hash}</span></div>
-            )}
-            {cpResult.semantic_fingerprint && (
-              <div class="kv"><span class="kv-key">{_['contribution-semantic']}</span><span class="kv-val mono kv-val-xs-nowrap">{cpResult.semantic_fingerprint}</span></div>
-            )}
-            {cpResult.timestamp && (
-              <div class="kv"><span class="kv-key">{_['contribution-timestamp']}</span><span class="kv-val">{new Date(cpResult.timestamp * 1000).toLocaleString()}</span></div>
-            )}
-          </div>
-        )}
-
-        {/* Verify proof form */}
-        <div class="net-tool-form net-tool-form-flush mt-16">
-          <div class="label-inline mb-8">{_['contribution-verify']}</div>
-          <label class="label">{_['contribution-certificate']}</label>
-          <textarea class="input" rows={4} value={cpCertJson}
-            onInput={e => setCpCertJson((e.target as HTMLTextAreaElement).value)}
-            placeholder={_['contribution-certificate']} />
-          <label class="label">{_['contribution-file']}</label>
-          <input class="input" value={cpVerifyFile}
-            onInput={e => setCpVerifyFile((e.target as HTMLInputElement).value)}
-            placeholder={_['contribution-file']} />
-          <button class="btn btn-primary btn-full" disabled={cpVerifying || !cpCertJson.trim()}
-            onClick={async () => {
-              setCpVerifying(true); setCpVerifyResult(null);
-              let certData: any;
-              try { certData = JSON.parse(cpCertJson.trim()); } catch {
-                showToast('Invalid JSON', 'error');
-                setCpVerifying(false);
-                return;
-              }
-              const res = await post<any>('/contribution/verify', {
-                certificate: certData,
-                file_path: cpVerifyFile.trim() || undefined,
-              });
-              if (res.success && res.data) {
-                setCpVerifyResult(res.data);
-              } else {
-                showToast(res.error || _['error-generic'], 'error');
-              }
-              setCpVerifying(false);
-            }}>
-            {cpVerifying ? _['contribution-verifying'] : _['contribution-verify']}
-          </button>
-        </div>
-
-        {cpVerifyResult && (
-          <div class="net-tool-result mt-12">
-            <div class="kv">
-              <span class="kv-key">{_['contribution-result']}</span>
-              <span class={`kv-val mono ${cpVerifyResult.valid ? 'color-green' : 'color-red'}`}>
-                {cpVerifyResult.valid ? _['contribution-valid'] : _['contribution-invalid']}
-              </span>
-            </div>
-          </div>
-        )}
-      </Section>
-
-      {/* ── Leakage Budget — collapsible ── */}
-      <Section id="leakage" title={_['leakage']} desc={_['leakage-desc']} forceOpen={subpath === 'leakage'}>
-        <div class="net-tool-form net-tool-form-flush">
-          <label class="label">{_['leakage-agent']}</label>
-          <input class="input" value={lkAgentId}
-            onInput={e => setLkAgentId((e.target as HTMLInputElement).value)}
-            placeholder={_['leakage-agent']} />
-          <label class="label">{_['leakage-asset']}</label>
-          <input class="input" value={lkAssetId}
-            onInput={e => setLkAssetId((e.target as HTMLInputElement).value)}
-            placeholder={_['leakage-asset']} />
-          <div class="row gap-8">
-            <button class="btn btn-primary grow" disabled={lkChecking || !lkAgentId.trim() || !lkAssetId.trim()}
-              onClick={async () => {
-                setLkChecking(true); setLkResult(null);
-                const res = await get<any>(`/leakage?agent_id=${encodeURIComponent(lkAgentId.trim())}&asset_id=${encodeURIComponent(lkAssetId.trim())}`);
-                if (res.success && res.data) {
-                  setLkResult(res.data);
-                } else {
-                  showToast(res.error || _['error-generic'], 'error');
-                }
-                setLkChecking(false);
-              }}>
-              {lkChecking ? _['leakage-checking'] : _['leakage-check']}
-            </button>
-            <button class="btn btn-ghost grow" disabled={lkResetting || !lkAgentId.trim() || !lkAssetId.trim()}
-              onClick={async () => {
-                setLkResetting(true);
-                const res = await post<any>('/leakage/reset', {
-                  agent_id: lkAgentId.trim(),
-                  asset_id: lkAssetId.trim(),
-                });
-                if (res.success) {
-                  showToast(_['leakage-reset-success'], 'success');
-                  setLkResult(null);
-                } else {
-                  showToast(res.error || _['error-generic'], 'error');
-                }
-                setLkResetting(false);
-              }}>
-              {lkResetting ? _['leakage-resetting'] : _['leakage-reset']}
-            </button>
-          </div>
-        </div>
-
-        {lkResult && (
-          <div class="net-tool-result mt-12">
-            <div class="kv"><span class="kv-key">{_['leakage-remaining']}</span><span class="kv-val mono">{lkResult.remaining}</span></div>
-            <div class="kv"><span class="kv-key">{_['leakage-used']}</span><span class="kv-val mono">{lkResult.used}</span></div>
-            <div class="kv"><span class="kv-key">{_['leakage-budget-total']}</span><span class="kv-val mono">{lkResult.budget}</span></div>
-            <div class="kv"><span class="kv-key">{_['leakage-queries']}</span><span class="kv-val mono">{lkResult.queries}</span></div>
-            <div class="kv">
-              <span class="kv-key">{_['leakage-exhausted']}</span>
-              <span class={`kv-val mono ${lkResult.exhausted ? 'color-red' : 'color-green'}`}>
-                {lkResult.exhausted ? 'Yes' : 'No'}
-              </span>
-            </div>
-          </div>
-        )}
-      </Section>
-
-      {/* ── Cache Management — collapsible ── */}
-      <Section id="cache" title={_['cache']} desc={_['cache-stats']} forceOpen={subpath === 'cache'}>
-        {cacheLoading && <div class="caption fg-muted">{_['cache-stats']}...</div>}
-
-        {!cacheLoading && cacheStats && (
-          <div>
-            <div class="kv"><span class="kv-key">{_['cache-total']}</span><span class="kv-val mono">{cacheStats.total}</span></div>
-            <div class="kv"><span class="kv-key">{_['cache-active']}</span><span class="kv-val mono">{cacheStats.active}</span></div>
-            <div class="kv"><span class="kv-key">{_['cache-expired']}</span><span class="kv-val mono">{cacheStats.expired}</span></div>
-            {cacheStats.db_path && (
-              <div class="kv"><span class="kv-key">{_['cache-db-path']}</span><span class="kv-val mono kv-val-xs">{cacheStats.db_path}</span></div>
-            )}
-            <button class="btn btn-primary btn-full mt-12" disabled={cachePurging}
-              onClick={async () => {
-                setCachePurging(true);
-                const res = await post<any>('/cache/purge', {});
-                if (res.success) {
-                  showToast(_['cache-purge-success'], 'success');
-                  // Reload stats
-                  const sRes = await get<any>('/cache/stats');
-                  if (sRes.success && sRes.data) setCacheStats(sRes.data);
-                } else {
-                  showToast(res.error || _['error-generic'], 'error');
-                }
-                setCachePurging(false);
-              }}>
-              {cachePurging ? _['cache-purging'] : _['cache-purge']}
-            </button>
-          </div>
-        )}
-
-        {!cacheLoading && !cacheStats && (
-          <div class="caption fg-muted">{_['cache-stats']}...</div>
-        )}
-      </Section>
+      <WatermarkSection forceOpen={subpath === 'watermark'} />
+      <FingerprintsSection forceOpen={subpath === 'fingerprints'} />
+      <ContributionSection forceOpen={subpath === 'contribution'} />
+      <LeakageSection forceOpen={subpath === 'leakage'} />
+      <CacheSection forceOpen={subpath === 'cache'} />
+      <FeedbackSection forceOpen={subpath === 'feedback'} />
     </div>
   );
 }

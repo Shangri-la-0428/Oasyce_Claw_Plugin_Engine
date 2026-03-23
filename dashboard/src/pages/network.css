@@ -3,14 +3,14 @@
 .net-tools { display: flex; flex-direction: column; }
 
 /* Section toggle styles moved to design.css (.section-*) */
-.nav-item-active { background: var(--bg-1); border-radius: var(--r-m); padding-left: 12px; }
+.nav-item-active { background: var(--bg-1); border-radius: var(--r-m); padding-left: var(--space-m); }
 .net-tool-form {
-  display: flex; flex-direction: column; gap: 10px;
-  padding: 16px 0 16px 12px;
+  display: flex; flex-direction: column; gap: var(--space-m);
+  padding: var(--space-l) 0 var(--space-l) var(--space-m);
   animation: field-in 0.2s var(--ease);
 }
 .net-tool-result {
-  padding-top: 8px;
+  padding-top: var(--space-s);
   border-top: 1px solid var(--border);
   animation: field-in 0.15s var(--ease);
 }
@@ -18,24 +18,24 @@
 /* Show/hide toggle for sensitive fields */
 .net-toggle {
   opacity: 0.5;
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .net-toggle:hover { opacity: 1; }
 
 /* Role badges */
 .net-roles-current {
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: var(--space-s);
 }
 .net-role-badge {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 16px;
+  display: flex; align-items: center; gap: var(--space-m);
+  padding: var(--space-m) var(--space-l);
   border: 1px solid var(--border);
   border-radius: var(--r-m);
 }
 .net-role-badge-icon {
   width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 600;
+  font-size: var(--text-sm); font-weight: 600;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -46,7 +46,7 @@
   background: var(--fg-1); color: var(--bg-0);
 }
 .net-role-badge-title {
-  font-size: 13px; font-weight: 500; color: var(--fg-0);
+  font-size: var(--text-md); font-weight: 500; color: var(--fg-0);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .net-role-badge > div {
@@ -58,14 +58,14 @@
 
 /* API key field with toggle */
 .net-key-field {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: var(--space-s);
 }
 .net-key-field .input { flex: 1; }
 
 /* Warning hint */
 .net-warn {
   color: var(--fg-2);
-  padding: 8px 12px;
+  padding: var(--space-s) var(--space-m);
   background: var(--bg-1);
   border-radius: var(--r-m);
   border-left: 2px solid var(--fg-2);
@@ -73,32 +73,65 @@
 
 /* Explain blocks inside role panels */
 .net-explain {
-  padding: 14px 16px;
+  padding: var(--space-m) var(--space-l);
   background: var(--bg-1);
   border-radius: var(--r-m);
   border-left: 2px solid var(--border-active);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-s);
 }
 .net-explain-title {
-  font-size: 12px; font-weight: 600; color: var(--fg-0);
-  margin-bottom: 4px;
+  font-size: var(--text-sm); font-weight: 600; color: var(--fg-0);
+  margin-bottom: var(--space-xs);
 }
 .net-explain-list {
-  margin: 4px 0 0 0; padding-left: 18px;
+  margin: var(--space-xs) 0 0 0; padding-left: var(--space-l);
   list-style: disc;
   line-height: 1.7;
+}
+
+/* Category labels — generous top margin for section break, tight bottom */
+.net-cat-label {
+  margin-top: var(--space-3xl);
+  margin-bottom: var(--space-s);
+  padding-bottom: var(--space-s);
+  border-bottom: 1px solid var(--border);
 }
 
 /* Network utility overrides */
 .net-hero-light { color: var(--fg-1); }
 .net-tool-form-flush { padding-left: 0; }
-.net-tools-gap { margin-top: 4px; }
-.net-tools-gap-md { margin-top: 12px; }
-.net-work-recent-wrap { margin-top: 16px; }
-.kv-sm { font-size: 12px; }
-.kv-key-xs { font-size: 11px; }
-.kv-val-xs { font-size: 11px; word-break: break-all; }
-.kv-val-xs-nowrap { font-size: 11px; }
+.net-tools-gap { margin-top: var(--space-xs); }
+.net-tools-gap-md { margin-top: var(--space-m); }
+.net-work-recent-wrap { margin-top: var(--space-l); }
+.kv-sm { font-size: var(--text-sm); }
+.kv-key-xs { font-size: var(--text-xs); }
+.kv-val-xs { font-size: var(--text-xs); word-break: break-all; }
+.kv-val-xs-nowrap { font-size: var(--text-xs); }
 .net-role-badge-active { border-color: var(--green); }
 .net-role-badge-icon-active { background: var(--green); color: var(--bg-0); }
 .label-flush { margin-bottom: 0; }
+
+/* ── Tablet ── */
+@media (max-width: 768px) {
+  .net-explain { padding: var(--space-m); }
+  .net-role-badge { padding: var(--space-m); }
+}
+
+/* ── Mobile ── */
+@media (max-width: 600px) {
+  .net-hero .display { font-size: var(--text-3xl); }
+  .net-tool-form { padding: var(--space-m) 0 var(--space-m) 0; }
+  .net-key-field { flex-direction: column; align-items: stretch; }
+  .net-key-field .input { flex: none; }
+  .net-role-badge { flex-direction: column; align-items: flex-start; gap: var(--space-s); padding: var(--space-s) var(--space-m); }
+  .net-role-badge-icon { width: 24px; height: 24px; font-size: var(--text-xs); }
+  .net-explain { padding: var(--space-s) var(--space-m); }
+  .net-explain-list { padding-left: var(--space-m); }
+  .kv-val-xs, .kv-val-xs-nowrap { font-size: var(--text-xs); }
+}
+
+/* ── Small phone ── */
+@media (max-width: 375px) {
+  .net-hero .display { font-size: var(--text-3xl); }
+  .net-role-badge-title { font-size: var(--text-sm); }
+}

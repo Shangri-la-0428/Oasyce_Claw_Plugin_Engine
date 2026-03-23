@@ -4,44 +4,43 @@
  */
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { i18n } from '../store/ui';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import './about-panel.css';
 
 interface Props {
   onClose: () => void;
 }
 
-type Tab = 'overview' | 'start' | 'arch' | 'econ' | 'update' | 'links';
+type Tab = 'overview' | 'start' | 'links';
 
 export default function AboutPanel({ onClose }: Props) {
   const _ = i18n.value;
   const [tab, setTab] = useState<Tab>('overview');
   const panelRef = useRef<HTMLDivElement>(null);
 
+  useEscapeKey(onClose);
+
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
+    const previouslyFocused = document.activeElement as HTMLElement | null;
     document.body.style.overflow = 'hidden';
     panelRef.current?.focus();
     return () => {
-      document.removeEventListener('keydown', onKey);
       document.body.style.overflow = '';
+      previouslyFocused?.focus?.();
     };
-  }, [onClose]);
+  }, []);
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overview', label: _['about-tab-overview'] },
     { key: 'start', label: _['about-tab-start'] },
-    { key: 'arch', label: _['about-tab-arch'] },
-    { key: 'econ', label: _['about-tab-econ'] },
-    { key: 'update', label: _['about-tab-update'] },
     { key: 'links', label: _['about-tab-links'] },
   ];
 
   return (
     <div>
-      <div class="about-overlay" onClick={onClose} />
-      <div class="about-panel" role="dialog" aria-modal="true" ref={panelRef} tabIndex={-1}>
-        <button class="about-close" onClick={onClose}>&times;</button>
+      <div class="about-overlay" onClick={onClose} role="presentation" />
+      <div class="about-panel" role="dialog" aria-modal="true" aria-label="About Oasyce" ref={panelRef} tabIndex={-1}>
+        <button class="about-close" onClick={onClose} aria-label={_['close'] || 'Close'}>&times;</button>
 
         <div class="about-header">
           <h3>Oasyce</h3>
@@ -49,10 +48,12 @@ export default function AboutPanel({ onClose }: Props) {
         </div>
         <p class="about-desc">{_['about-desc']}</p>
 
-        <div class="about-tabs">
+        <div class="about-tabs" role="tablist" aria-label="About">
           {tabs.map(t => (
             <button
               key={t.key}
+              role="tab"
+              aria-selected={tab === t.key}
               class={`about-tab ${tab === t.key ? 'active' : ''}`}
               onClick={() => setTab(t.key)}
             >{t.label}</button>
@@ -67,21 +68,6 @@ export default function AboutPanel({ onClose }: Props) {
         {/* Quick Start */}
         <div class={`about-section ${tab === 'start' ? 'active' : ''}`}>
           <pre>{_['about-quickstart']}</pre>
-        </div>
-
-        {/* Architecture */}
-        <div class={`about-section ${tab === 'arch' ? 'active' : ''}`}>
-          <pre>{_['about-arch']}</pre>
-        </div>
-
-        {/* Economics */}
-        <div class={`about-section ${tab === 'econ' ? 'active' : ''}`}>
-          <pre>{_['about-econ']}</pre>
-        </div>
-
-        {/* Update */}
-        <div class={`about-section ${tab === 'update' ? 'active' : ''}`}>
-          <pre>{_['about-update']}</pre>
         </div>
 
         {/* Links */}

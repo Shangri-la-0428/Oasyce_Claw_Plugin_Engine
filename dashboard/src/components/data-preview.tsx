@@ -2,9 +2,10 @@
  * DataPreview — shows asset preview based on access level (L0-L3)
  */
 import { useState, useEffect } from 'preact/hooks';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { get } from '../api/client';
 import { i18n } from '../store/ui';
-import { fmtPrice } from '../utils';
+import { fmtPrice, fmtDate } from '../utils';
 
 interface PreviewData {
   asset_id: string;
@@ -38,31 +39,25 @@ export default function DataPreview({ assetId, onClose }: Props) {
   const [level, setLevel] = useState('L0');
   const _ = i18n.value;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  useEscapeKey(onClose);
 
-  const loadPreview = async (lvl: string) => {
+  const loadPreview = async (lvl: string, cancelled?: () => boolean) => {
     setLoading(true);
     setLevel(lvl);
     const res = await get<PreviewData>(`/asset/${assetId}/preview?level=${lvl}`);
+    if (cancelled && cancelled()) return;
     if (res.success && res.data) {
       setPreview(res.data);
     }
     setLoading(false);
   };
 
-  // Auto-load L0 on first render
-  if (!preview && !loading) {
-    loadPreview('L0');
-  }
-
-  const formatDate = (ts?: number) => {
-    if (!ts) return '-';
-    return new Date(ts * 1000).toLocaleDateString();
-  };
+  // Auto-load L0 on mount
+  useEffect(() => {
+    let cancelled = false;
+    loadPreview('L0', () => cancelled);
+    return () => { cancelled = true; };
+  }, [assetId]);
 
   const formatSize = (bytes?: number) => {
     if (!bytes) return '-';
@@ -110,7 +105,7 @@ export default function DataPreview({ assetId, onClose }: Props) {
     <div class="preview-panel">
       <div class="preview-header">
         <span class="preview-title">{_['preview']}</span>
-        <button class="btn btn-sm btn-ghost" onClick={onClose}>&times;</button>
+        <button class="btn btn-sm btn-ghost" onClick={onClose} aria-label={_['close'] || 'Close'}>&times;</button>
       </div>
 
       {loading ? (
@@ -126,8 +121,8 @@ export default function DataPreview({ assetId, onClose }: Props) {
               <div class="kv"><span class="kv-key">{_['tags']}</span><span class="kv-val">{preview.metadata.tags.join(', ')}</span></div>
             )}
             <div class="kv"><span class="kv-key">{_['rights-type']}</span><span class="kv-val">{preview.metadata.rights_type || 'original'}</span></div>
-            <div class="kv"><span class="kv-key">Size</span><span class="kv-val">{formatSize(preview.metadata.size)}</span></div>
-            <div class="kv"><span class="kv-key">{_['created-at']}</span><span class="kv-val">{formatDate(preview.metadata.created_at)}</span></div>
+            <div class="kv"><span class="kv-key">{_['preview-size']}</span><span class="kv-val">{formatSize(preview.metadata.size)}</span></div>
+            <div class="kv"><span class="kv-key">{_['created-at']}</span><span class="kv-val">{fmtDate(preview.metadata.created_at, 'date')}</span></div>
           </div>
 
           {/* Level selector */}

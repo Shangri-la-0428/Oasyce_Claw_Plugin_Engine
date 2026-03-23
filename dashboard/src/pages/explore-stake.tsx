@@ -5,6 +5,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { showToast, i18n } from '../store/ui';
 import { maskIdShort, fmtPrice } from '../utils';
+import { EmptyState } from '../components/empty-state';
 import './explore.css';
 
 interface ValidatorInfo {
@@ -48,10 +49,7 @@ export default function ExploreStake() {
     <>
       <h2 class="label-inline mb-16">{_['stake']}</h2>
       {validators.length === 0 ? (
-        <div class="center p-0-64">
-          <div class="caption mb-8">{_['no-validators']}</div>
-          <div class="caption fg-muted">{_['stake-hint']}</div>
-        </div>
+        <EmptyState icon="⬡" title={_['no-validators']} hint={_['stake-hint']} />
       ) : (
         <div class="col gap-16">
           {validators.map(v => (

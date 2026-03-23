@@ -21,7 +21,7 @@ export default function Explore({ subpath }: ExploreProps) {
   return (
     <div class="page">
       <h1 class="label m-0 mb-4">{_['explore-title']}</h1>
-      <p class="caption m-0 mb-48">{_['explore-desc']}</p>
+      <p class="caption m-0 mb-24">{_['explore-desc']}</p>
 
       {/* Section tabs */}
       <div class="tabs mb-24" role="tablist" aria-label={_['explore-title']}>
@@ -40,7 +40,7 @@ export default function Explore({ subpath }: ExploreProps) {
       </div>
 
       {exploreTab === 'browse' && <ExploreBrowse subpath={subpath} />}
-      {exploreTab === 'portfolio' && <ExplorePortfolio />}
+      {exploreTab === 'portfolio' && <ExplorePortfolio onBrowse={() => setExploreTab('browse')} />}
       {exploreTab === 'stake' && <ExploreStake />}
       {exploreTab === 'bounty' && <ExploreBounty />}
     </div>

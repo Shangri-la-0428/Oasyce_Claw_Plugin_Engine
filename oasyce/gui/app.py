@@ -52,6 +52,7 @@ _block_producer: Any = None
 _consensus_engine: Any = None
 _notification_service: Any = None
 _dispute_db_conn: Any = None
+_feedback_db_conn: Any = None
 
 
 def _get_notification_service():
@@ -99,6 +100,90 @@ def _get_dispute_db():
         )
         _dispute_db_conn.commit()
     return _dispute_db_conn
+
+
+def _get_feedback_db():
+    """Lazy-init feedback SQLite database."""
+    global _feedback_db_conn
+    if _feedback_db_conn is None:
+        data_dir = _config.data_dir if _config else os.path.join(os.path.expanduser("~"), ".oasyce")
+        os.makedirs(data_dir, exist_ok=True)
+        db_path = os.path.join(data_dir, "feedback.db")
+        _feedback_db_conn = sqlite3.connect(db_path, check_same_thread=False)
+        _feedback_db_conn.row_factory = sqlite3.Row
+        _feedback_db_conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS feedback (
+                feedback_id TEXT PRIMARY KEY,
+                type        TEXT NOT NULL DEFAULT 'bug',
+                message     TEXT NOT NULL,
+                context     TEXT DEFAULT '{}',
+                agent_id    TEXT DEFAULT '',
+                status      TEXT DEFAULT 'open',
+                created_at  REAL NOT NULL
+            )
+        """
+        )
+        _feedback_db_conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback (created_at DESC)"
+        )
+        _feedback_db_conn.commit()
+    return _feedback_db_conn
+
+
+def _forward_feedback_webhook(fb: dict):
+    """Best-effort forward feedback to webhook URL (Discord/Slack)."""
+    url = os.getenv("OASYCE_FEEDBACK_WEBHOOK", "")
+    if not url:
+        return
+    try:
+        import urllib.request
+        label = {"bug": "🐛 Bug", "suggestion": "💡 Suggestion", "other": "📝 Other"}.get(fb.get("type", ""), "📝")
+        text = f"**{label}** from `{fb.get('agent_id', 'anonymous')}`\n{fb['message']}"
+        payload = json.dumps({"content": text}).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass  # best-effort
+
+
+def _forward_feedback_github(fb: dict):
+    """Best-effort create GitHub issue from feedback."""
+    token = os.getenv("OASYCE_GITHUB_TOKEN", "")
+    repo = os.getenv("OASYCE_GITHUB_REPO", "")
+    if not token or not repo:
+        return
+    try:
+        import urllib.request
+        label_map = {"bug": "bug", "suggestion": "enhancement", "other": "feedback"}
+        title = fb["message"][:80]
+        if len(fb["message"]) > 80:
+            title += "…"
+        body_parts = [
+            f"**Type:** {fb.get('type', 'bug')}",
+            f"**Agent:** `{fb.get('agent_id', 'anonymous')}`",
+            f"**Feedback ID:** `{fb.get('feedback_id', '')}`",
+            "",
+            fb["message"],
+        ]
+        ctx = fb.get("context")
+        if ctx and ctx != "{}":
+            body_parts += ["", "### Context", f"```json\n{ctx}\n```"]
+        payload = json.dumps({
+            "title": title,
+            "body": "\n".join(body_parts),
+            "labels": [label_map.get(fb.get("type", ""), "feedback")],
+        }).encode("utf-8")
+        url = f"https://api.github.com/repos/{repo}/issues"
+        req = urllib.request.Request(url, data=payload, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+        })
+        resp = urllib.request.urlopen(req, timeout=10)
+        return json.loads(resp.read().decode("utf-8")).get("html_url", "")
+    except Exception:
+        return None
 
 
 def _default_identity() -> str:
@@ -1346,190 +1431,14 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 return _json_response(self, {"error": str(exc)}, 500)
 
-        # ── Consensus API (GET) ─────────────────────────────────
-        if path == "/api/consensus/status":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import get_consensus_params, get_economics, NetworkMode
-
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                status = engine.status()
-                return _json_response(self, status)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
-        if path == "/api/consensus/validators":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import get_consensus_params, get_economics, NetworkMode
-
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                include_all = qs.get("all", ["false"])[0] == "true"
-                validators = engine.get_validators(include_inactive=include_all)
-                return _json_response(self, validators)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
-        if path == "/api/consensus/rewards":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import get_consensus_params, get_economics, NetworkMode
-
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                epoch = qs.get("epoch", [None])[0]
-                epoch_num = int(epoch) if epoch else None
-                rewards = engine.get_rewards(epoch_number=epoch_num)
-                return _json_response(self, rewards)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
-        # ── Governance API (GET) ───────────────────────────────
-        if path == "/api/governance/proposals":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import get_consensus_params, get_economics, NetworkMode
-
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                status_filter = qs.get("status", [None])[0]
-                proposals = engine.list_proposals(status=status_filter)
-                return _json_response(self, proposals)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
-        if path.startswith("/api/governance/proposal/"):
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import get_consensus_params, get_economics, NetworkMode
-
-                proposal_id = path.split("/")[-1]
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                proposal = engine.get_proposal(proposal_id)
-                if proposal is None:
-                    return _json_response(self, {"error": "not found"}, 404)
-                return _json_response(self, proposal)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
-        if path == "/api/governance/params":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import get_consensus_params, get_economics, NetworkMode
-
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                module = qs.get("module", [None])[0]
-                params = engine.list_governable_params(module=module)
-                return _json_response(self, params)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
-        # ── Slashing & Sync API (GET) ──────────────────────────────
-        if path == "/api/consensus/slashing":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import get_consensus_params, get_economics, NetworkMode
-
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                validator_id = qs.get("validator", [None])[0]
-                slashing = engine.get_slashing(validator_id=validator_id)
-                return _json_response(self, slashing)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
-        if path == "/api/consensus/sync":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import get_consensus_params, NetworkMode
-
-                params = get_consensus_params(NetworkMode.TESTNET)
-                chain_id = params.get("chain_id", "oasyce-testnet-1")
-                genesis_hash = make_genesis_block(chain_id).block_hash
-                info = SyncInfo(
-                    state=SyncState.IDLE,
-                    chain_id=chain_id,
-                    genesis_hash=genesis_hash,
-                )
-                return _json_response(self, info.to_dict())
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
+        # Consensus & governance GET routes moved to Go chain
+        consensus_get_paths = (
+            "/api/consensus/status", "/api/consensus/validators", "/api/consensus/rewards",
+            "/api/governance/proposals", "/api/governance/params", "/api/consensus/slashing",
+            "/api/consensus/sync",
+        )
+        if path in consensus_get_paths or path.startswith("/api/governance/proposal/"):
+            return _json_response(self, {"error": "Consensus features moved to Go chain. Use oasyced CLI."}, 501)
 
         if path == "/api/consensus/mempool":
             if _mempool is None:
@@ -1809,6 +1718,35 @@ class _Handler(BaseHTTPRequestHandler):
             ns = _get_notification_service()
             count = ns.get_unread_count(address)
             return _json_response(self, {"unread_count": count})
+
+        # ── Feedback (GET) ──────────────────────────────────────────
+        if path == "/api/feedback":
+            try:
+                db = _get_feedback_db()
+                status_filter = qs.get("status", [""])[0]
+                type_filter = qs.get("type", [""])[0]
+                try:
+                    limit = int(qs.get("limit", ["50"])[0])
+                except (ValueError, TypeError):
+                    limit = 50
+                sql = "SELECT * FROM feedback"
+                params: list = []
+                clauses: list = []
+                if status_filter:
+                    clauses.append("status = ?")
+                    params.append(status_filter)
+                if type_filter:
+                    clauses.append("type = ?")
+                    params.append(type_filter)
+                if clauses:
+                    sql += " WHERE " + " AND ".join(clauses)
+                sql += " ORDER BY created_at DESC LIMIT ?"
+                params.append(limit)
+                rows = db.execute(sql, params).fetchall()
+                items = [dict(r) for r in rows]
+                return _json_response(self, {"feedback": items})
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
 
         # ── Leakage budget query (GET) ────────────────────────────
         if path == "/api/leakage":
@@ -3049,178 +2987,14 @@ class _Handler(BaseHTTPRequestHandler):
 
     # ── POST handler: Consensus routes ───────────────────────────
     def _handle_consensus(self, path, body, content_type):
-        if path == "/api/consensus/mempool/submit":
-            if _mempool is None:
-                return _json_response(self, {"error": "mempool not running"}, 503)
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                op_type_str = body.get("op_type", "")
-                try:
-                    op_type = OperationType(op_type_str)
-                except ValueError:
-                    return _json_response(self, {"error": f"invalid op_type: {op_type_str}"}, 400)
-                op = Operation(
-                    op_type=op_type,
-                    validator_id=body.get("validator_id", ""),
-                    amount=int(body.get("amount", 0)),
-                    from_addr=body.get("from_addr", ""),
-                    to_addr=body.get("to_addr", ""),
-                    asset_type=body.get("asset_type", "OAS"),
-                    commission_rate=int(body.get("commission_rate", 0)),
-                    reason=body.get("reason", ""),
-                )
-                result = _mempool.submit(op)
-                status_code = 200 if result.get("ok") else 400
-                return _json_response(self, result, status_code)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-
-        if path == "/api/consensus/delegate":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import (
-                    get_consensus_params,
-                    get_economics,
-                    NetworkMode,
-                    load_or_create_node_identity,
-                )
-
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                _priv, pubkey = load_or_create_node_identity(_config.data_dir)
-                from oasyce.utils import to_units  # dead code — raise above
-
-                validator_id = body.get("validator_id", "")
-                amount = float(body.get("amount", 0))
-                if not validator_id or amount <= 0:
-                    return _json_response(self, {"error": "validator_id and amount required"}, 400)
-                result = engine.delegate(pubkey, validator_id, to_units(amount))
-                status_code = 200 if result.get("ok") else 400
-                return _json_response(self, result, status_code)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
-        if path == "/api/consensus/undelegate":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import (
-                    get_consensus_params,
-                    get_economics,
-                    NetworkMode,
-                    load_or_create_node_identity,
-                )
-
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                _priv, pubkey = load_or_create_node_identity(_config.data_dir)
-                from oasyce.utils import to_units  # dead code — raise above
-
-                validator_id = body.get("validator_id", "")
-                amount = float(body.get("amount", 0))
-                if not validator_id or amount <= 0:
-                    return _json_response(self, {"error": "validator_id and amount required"}, 400)
-                result = engine.undelegate(pubkey, validator_id, to_units(amount))
-                status_code = 200 if result.get("ok") else 400
-                return _json_response(self, result, status_code)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
-        if path == "/api/governance/propose":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import (
-                    get_consensus_params,
-                    get_economics,
-                    NetworkMode,
-                    load_or_create_node_identity,
-                )
-
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                _priv, pubkey = load_or_create_node_identity(_config.data_dir)
-                title = body.get("title", "")
-                description = body.get("description", "")
-                changes_raw = body.get("changes", [])
-                deposit = int(body.get("deposit", 0))
-                if not title:
-                    return _json_response(self, {"error": "title required"}, 400)
-                changes = [ParameterChange(**c) for c in changes_raw]
-                result = engine.submit_proposal(
-                    pubkey,
-                    title,
-                    description,
-                    changes,
-                    deposit,
-                )
-                status_code = 200 if result.get("ok") else 400
-                return _json_response(self, result, status_code)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
-        if path == "/api/governance/vote":
-            if not _config:
-                return _json_response(self, {"error": "server not configured"}, 503)
-            engine = None
-            try:
-                raise ImportError("Consensus features moved to Go chain. Use oasyced CLI.")
-                from oasyce.config import (
-                    get_consensus_params,
-                    get_economics,
-                    NetworkMode,
-                    load_or_create_node_identity,
-                )
-
-                consensus_db = os.path.join(_config.data_dir, "consensus.db")
-                engine = ConsensusEngine(
-                    db_path=consensus_db,
-                    consensus_params=get_consensus_params(NetworkMode.TESTNET),
-                    economics=get_economics(NetworkMode.TESTNET),
-                )
-                _priv, pubkey = load_or_create_node_identity(_config.data_dir)
-                proposal_id = body.get("proposal_id", "")
-                option = body.get("option", "")
-                if not proposal_id or not option:
-                    return _json_response(self, {"error": "proposal_id and option required"}, 400)
-                vote_option = VoteOption(option)
-                result = engine.cast_vote(proposal_id, pubkey, vote_option)
-                status_code = 200 if result.get("ok") else 400
-                return _json_response(self, result, status_code)
-            except Exception as e:
-                return _json_response(self, {"error": str(e)}, 500)
-            finally:
-                if engine:
-                    engine.close()
-
+        # Consensus features (delegate, undelegate, governance) moved to Go chain.
+        # Use oasyced CLI for consensus operations.
+        consensus_paths = (
+            "/api/consensus/mempool/submit", "/api/consensus/delegate",
+            "/api/consensus/undelegate", "/api/governance/propose", "/api/governance/vote",
+        )
+        if path in consensus_paths:
+            return _json_response(self, {"error": "Consensus features moved to Go chain. Use oasyced CLI."}, 501)
         return None
 
     # ── POST handler: Fingerprint routes ─────────────────────────
@@ -3246,13 +3020,11 @@ class _Handler(BaseHTTPRequestHandler):
                     return _json_response(
                         self, {"error": "asset_id, caller_id, and content (or file_path) required"}, 400
                     )
-                import time as _time
-
-                fp = engine.generate_fingerprint(aid, caller, int(_time.time()))
+                fp = engine.generate_fingerprint(aid, caller, int(time.time()))
                 watermarked = engine.embed_text(content, fp)
                 if _ledger:
                     registry = FingerprintRegistry(_ledger)
-                    registry.record_distribution(aid, caller, fp, int(_time.time()))
+                    registry.record_distribution(aid, caller, fp, int(time.time()))
                 return _json_response(
                     self,
                     {
@@ -3548,6 +3320,38 @@ class _Handler(BaseHTTPRequestHandler):
 
         return None
 
+    def _handle_feedback(self, path, body, content_type):
+        if path == "/api/feedback":
+            message = (body.get("message") or "").strip()
+            if not message:
+                return _json_response(self, {"error": "message required"}, 400)
+            fb_type = body.get("type", "bug")
+            if fb_type not in ("bug", "suggestion", "other"):
+                fb_type = "bug"
+            agent_id = body.get("agent_id", "anonymous")
+            context_str = json.dumps(body.get("context", {})) if isinstance(body.get("context"), dict) else str(body.get("context", "{}"))
+            feedback_id = f"FB_{secrets.token_hex(8)}"
+            now = time.time()
+            try:
+                db = _get_feedback_db()
+                db.execute(
+                    "INSERT INTO feedback (feedback_id, type, message, context, agent_id, status, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, 'open', ?)",
+                    (feedback_id, fb_type, message, context_str, agent_id, now),
+                )
+                db.commit()
+            except Exception as e:
+                return _json_response(self, {"error": str(e)}, 500)
+            fb = {"feedback_id": feedback_id, "type": fb_type, "message": message,
+                  "context": context_str, "agent_id": agent_id}
+            _forward_feedback_webhook(fb)
+            github_url = _forward_feedback_github(fb)
+            result = {"ok": True, "feedback_id": feedback_id}
+            if github_url:
+                result["github_issue"] = github_url
+            return _json_response(self, result)
+        return None
+
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
@@ -3577,6 +3381,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_assets,
             self._handle_trading,
             self._handle_disputes,
+            self._handle_feedback,
             self._handle_node,
             self._handle_capabilities,
             self._handle_consensus,
@@ -3624,7 +3429,6 @@ class _Handler(BaseHTTPRequestHandler):
 # If dist/index.html is missing, the server returns a 503 with instructions.
 
 
-_LEGACY_HTML_REMOVED = True  # marker for grep/audit
 
 
 # ── GUI class ────────────────────────────────────────────────────────

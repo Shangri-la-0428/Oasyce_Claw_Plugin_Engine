@@ -168,9 +168,27 @@ oasyce capability invoke CAP_ID --input '{"text":"hello"}'
 oasyce capability earnings --provider addr
 ```
 
+### Task Bounties (AHRP)
+
+```
+oasyce task post "Translate this document" --budget 50 --deadline 3600
+oasyce task list                                  # List all tasks
+oasyce task bid TASK_ID --price 30 --seconds 1800 # Place a bid
+oasyce task select TASK_ID --agent AGENT_ID       # Select winner
+oasyce task complete TASK_ID                      # Mark complete
+oasyce task cancel TASK_ID                        # Cancel task
+```
+
+### AI Feedback
+
+```
+oasyce feedback "Buy flow has a bug" --type bug --agent my-agent
+oasyce feedback "Add batch import" --type suggestion --json
+```
+
 ### Consensus & Governance (Chain-Only)
 
-These commands are implemented on the **L1 chain** (`oasyced`), not the Python CLI:
+These commands are implemented on the **L1 chain** (`oasyced`):
 
 ```
 oasyced tx staking create-validator ...              # Register as validator
@@ -179,7 +197,7 @@ oasyced tx gov submit-proposal ...                   # Submit governance proposa
 oasyced tx gov vote <proposal_id> yes|no|abstain     # Vote on proposal
 ```
 
-The Dashboard provides a local simulation of consensus/governance state via API endpoints (`/api/consensus/*`, `/api/governance/*`). See [oasyce-chain](https://github.com/Shangri-la-0428/oasyce-chain) for full chain CLI reference.
+See [oasyce-chain](https://github.com/Shangri-la-0428/oasyce-chain) for full chain CLI reference.
 
 ### Node Management
 
@@ -255,14 +273,11 @@ Your agent will install the Oasyce skill automatically, letting you register dat
 
 After running `oasyce serve`, open `http://localhost:8420` in your browser. The dashboard provides:
 
-- **Overview** — Network status, registered assets, transaction volume
-- **Register** — Register files as data assets (drag and drop supported)
-- **Explore** — Browse all assets and capabilities, view prices, buy shares
-- **Market** — Tiered access marketplace with sell and slippage controls
-- **Watermark** — Embed data fingerprints and trace leaks
-- **Stake** — Stake OAS to become a validator
-
-A block explorer is also available at `http://localhost:8421`.
+- **Home** — Register data assets (drag & drop), network status, earnings overview
+- **My Data** — Manage your assets and published capabilities, edit tags, delist/terminate
+- **Market** — Browse assets, view prices, buy shares, task bounties, staking
+- **Automation** — Agent scheduler: auto-scan, register, and trade on a timer
+- **Network** — Node identity, fingerprint watermarks, contribution proofs, AI feedback
 
 ---
 
@@ -278,10 +293,10 @@ A block explorer is also available at `http://localhost:8421`.
 │  x/capability + x/reputation             │
 │  gRPC :9090 / REST :1317                 │
 ├──────────────────────────────────────────┤
-│           oasyce (Python v2.1.0)         │
+│           oasyce (Python v2.3.0)         │
 │  CLI + Dashboard + API + Skills Bridge   │
 │  Facade -> Settlement -> Ledger          │
-│  1063 tests                              │
+│  1083 tests                              │
 ├──────────────────────────────────────────┤
 │           DataVault (AI Skill)           │
 │  scan -> classify -> privacy -> report   │
@@ -340,7 +355,7 @@ All types are validated by the Schema Registry, each with independent schema ver
 ### Tests
 
 ```bash
-pytest      # 1063 tests, 19 skipped
+pytest      # 1083 tests, 19 skipped
 ```
 
 </details>

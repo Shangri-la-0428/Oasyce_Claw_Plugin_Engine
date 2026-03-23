@@ -95,6 +95,27 @@ oasyce dispute <asset_id> --reason "..."
 oasyce resolve <asset_id> --remedy delist|transfer|rights_correction|share_adjustment
 ```
 
+## Task Bounties (AHRP)
+
+```bash
+oasyce task post "description" --budget 50 --deadline 3600
+oasyce task list
+oasyce task bid TASK_ID --price 30 --seconds 1800
+oasyce task select TASK_ID --agent AGENT_ID
+oasyce task complete TASK_ID
+oasyce task cancel TASK_ID
+```
+
+## Feedback (AI Agent Reports)
+
+```bash
+oasyce feedback "message" --type bug|suggestion|other --agent <agent-id> --json
+```
+
+Feedback is stored locally (SQLite) and optionally forwarded to:
+- **Discord/Slack webhook** via `OASYCE_FEEDBACK_WEBHOOK` env var
+- **GitHub Issues** via `OASYCE_GITHUB_TOKEN` + `OASYCE_GITHUB_REPO` env vars
+
 ## Agent Scheduler (Autonomous Mode)
 
 ```bash
@@ -252,16 +273,29 @@ All methods return `ServiceResult(success: bool, data: dict, error: str | None)`
 - **Context:** Professional users managing valuable digital assets. Expect financial-grade reliability.
 
 ### Brand Personality
-**Precise. Restrained. Trustworthy.** Like a well-engineered instrument panel.
+**Precise. Restrained. Cutting-edge.** (精密 · 克制 · 前沿)
+Feeling: 未来感 + 克制 — cutting-edge technology that doesn't shout. Calm futurism.
 
 ### Design Principles
 1. **Earn every pixel** — No decoration. Every element serves a purpose.
-2. **Monospace signals trust** — IDs, hashes, prices, addresses all use monospace.
+2. **Monospace signals trust** — IDs, hashes, prices, addresses all use monospace (Geist Mono).
 3. **Semantic color only** — Green/red/yellow/blue for status only. Everything else is grayscale.
-4. **Subtle motion** — 0.12-0.3s max, cubic-bezier easing, respect prefers-reduced-motion.
-5. **Data density** — Show useful information, maintain clear hierarchy.
+4. **Data density** — Show useful information, maintain clear hierarchy.
+5. **Whitespace is structural** — Generous breathing room between sections; tight grouping within related elements.
+
+### Typography
+- Dramatic scale contrast between hierarchy levels. Weight pairing with clear distinction (700/400, not 500/400).
+- Rhythmic case and weight mixing within sections to create hierarchy before reaching for color or size.
+
+### Motion
+- Entrance choreography: staggered reveals (50–100ms offsets), fade + subtle translateY.
+- Easing: `cubic-bezier(0.25, 1, 0.5, 1)` (ease-out-quart). Duration 0.12–0.3s micro, up to 0.5s page transitions.
+- No bounce, no spring, no elastic. Always respect `prefers-reduced-motion`.
+
+### References
+Linear, Vercel, Stripe/Notion, Terminal/CLI, **Modus (fantik.studio)** for typographic rhythm and spatial composition.
 
 ### Anti-References
 Colorful crypto dashboards, gradient Web3 UIs, gamified interfaces, gratuitous animation.
 
-Full design tokens and component specs in `.impeccable.md`.
+Full design tokens and component specs in `dashboard/.impeccable.md`.

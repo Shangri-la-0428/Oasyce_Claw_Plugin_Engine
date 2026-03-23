@@ -92,7 +92,6 @@ export default function NetworkGrid() {
     const HEARTBEAT_MS = 4000;
     const IDLE_AFTER = 8000;
     const FADE_AFTER = 14000;
-    // const GONE_AFTER = 22000;
     const SPAWN_INTERVAL = 3000;
     const RIPPLE_INTERVAL = 3500;
     const MAX_NODES = 28;
