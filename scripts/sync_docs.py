@@ -23,7 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
 AGENTS_MD = ROOT / "AGENTS.md"
-DEFAULT_SKILL_PATH = ROOT.parent / "OpenClaw" / "workspace" / "skills" / "oasyce" / "SKILL.md"
+DEFAULT_SKILL_PATH = ROOT / "SKILL.md"
+CLAWHUB_SKILL_PATH = ROOT.parent / "OpenClaw" / "workspace" / "skills" / "oasyce" / "SKILL.md"
 
 SKILL_FRONTMATTER = '''---
 name: oasyce
@@ -121,7 +122,7 @@ def generate_skill(version: str) -> str:
 def check_symlinks() -> list[str]:
     """Verify CLAUDE.md and other tool files are symlinks to AGENTS.md."""
     errors = []
-    for name in ["CLAUDE.md", ".cursorrules", ".windsurfrules"]:
+    for name in ["CLAUDE.md", "CODEX.md", ".cursorrules", ".windsurfrules", ".github/copilot-instructions.md"]:
         path = ROOT / name
         if not path.exists():
             errors.append(f"MISSING: {name} does not exist")
@@ -165,24 +166,28 @@ def main():
     version_errors = check_version_consistency()
     errors.extend(version_errors)
 
-    # 3. Generate and compare/write SKILL.md
+    # 3. Generate and compare/write SKILL.md to all targets
     generated_skill = generate_skill(version)
+    skill_targets = [args.skill_path]
+    if CLAWHUB_SKILL_PATH.parent.exists():
+        skill_targets.append(CLAWHUB_SKILL_PATH)
 
-    if args.skill_path.exists():
-        current_skill = args.skill_path.read_text()
-        if current_skill != generated_skill:
-            if args.write:
-                args.skill_path.write_text(generated_skill)
-                print(f"UPDATED: {args.skill_path}")
-            else:
-                errors.append(f"STALE: {args.skill_path} differs from generated content. Run with --write to update.")
-    else:
-        if args.write:
-            args.skill_path.parent.mkdir(parents=True, exist_ok=True)
-            args.skill_path.write_text(generated_skill)
-            print(f"CREATED: {args.skill_path}")
+    for target in skill_targets:
+        if target.exists():
+            current_skill = target.read_text()
+            if current_skill != generated_skill:
+                if args.write:
+                    target.write_text(generated_skill)
+                    print(f"UPDATED: {target}")
+                else:
+                    errors.append(f"STALE: {target} differs from generated content. Run with --write to update.")
         else:
-            errors.append(f"MISSING: {args.skill_path} does not exist. Run with --write to create.")
+            if args.write:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(generated_skill)
+                print(f"CREATED: {target}")
+            else:
+                errors.append(f"MISSING: {target} does not exist. Run with --write to create.")
 
     # 4. Report
     if errors:
