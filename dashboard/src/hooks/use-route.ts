@@ -35,14 +35,23 @@ export function useRoute() {
 
   const go = useCallback((page: Page, subpath?: string) => {
     const hash = subpath ? `${page}/${subpath}` : page;
-    // Setting location.hash triggers hashchange, which updates state via the listener
-    location.hash = hash === 'home' ? '' : hash;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    // Move focus to main content for screen readers
-    requestAnimationFrame(() => {
-      const main = document.getElementById('main-content');
-      if (main) { main.focus({ preventScroll: true }); }
-    });
+    const apply = () => { location.hash = hash === 'home' ? '' : hash; };
+    const focusMain = () => {
+      const el = document.getElementById('main-content');
+      if (el) el.focus({ preventScroll: true });
+    };
+
+    if ('startViewTransition' in document) {
+      window.scrollTo({ top: 0 });
+      (document as any).startViewTransition(() => {
+        apply();
+        return new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      }).finished.then(focusMain);
+    } else {
+      apply();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      requestAnimationFrame(focusMain);
+    }
   }, []);
 
   return { page: route.page, subpath: route.subpath, go };

@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { get } from '../api/client';
-import { i18n } from '../store/ui';
+import { i18n, showToast } from '../store/ui';
 import { fmtPrice, fmtDate } from '../utils';
 
 interface PreviewData {
@@ -48,6 +48,8 @@ export default function DataPreview({ assetId, onClose }: Props) {
     if (cancelled && cancelled()) return;
     if (res.success && res.data) {
       setPreview(res.data);
+    } else if (!res.success) {
+      showToast(res.error || _['error-generic'], 'error');
     }
     setLoading(false);
   };

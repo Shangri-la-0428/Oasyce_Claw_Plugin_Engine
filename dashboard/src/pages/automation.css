@@ -2,7 +2,7 @@
 
 .auto-badge-pending {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 22px; height: 22px; padding: 0 var(--space-s);
+  min-width: 24px; height: 24px; padding: 0 var(--space-s);
   font-family: var(--mono); font-size: var(--text-sm); font-weight: 600;
   background: var(--fg-0); color: var(--bg-0);
   border-radius: var(--r-full);

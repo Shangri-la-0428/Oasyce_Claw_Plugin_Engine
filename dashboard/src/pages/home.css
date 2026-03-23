@@ -135,10 +135,12 @@
   font-size: var(--text-base);
   font-weight: 600;
   color: var(--fg-0);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .nav-row-desc {
   font-size: var(--text-sm);
   color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* ── Responsive ── */

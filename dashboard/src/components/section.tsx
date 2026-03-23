@@ -1,3 +1,4 @@
+import { ComponentChildren } from 'preact';
 import { useState, useEffect, useCallback } from 'preact/hooks';
 
 /**
@@ -5,7 +6,7 @@ import { useState, useEffect, useCallback } from 'preact/hooks';
  * Used across network, automation, and other pages.
  */
 export function Section({ id, title, desc, defaultOpen = false, forceOpen = false, children }: {
-  id: string; title: string; desc?: string; defaultOpen?: boolean; forceOpen?: boolean; children: any;
+  id: string; title: string; desc?: string; defaultOpen?: boolean; forceOpen?: boolean; children: ComponentChildren;
 }) {
   const storageKey = `section-${id}`;
   const [open, setOpen] = useState(() => {

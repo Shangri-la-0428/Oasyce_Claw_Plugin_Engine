@@ -13,10 +13,12 @@ export const maskIdShort = (id: string | undefined | null) => mask(id, 8);
 export const maskIdLong  = (id: string | undefined | null) => mask(id, 16);
 export const maskOwner   = (v: string | undefined | null) => mask(v, 6);
 
-/** 格式化价格：>= 1 显示 2 位，< 1 显示 4 位；handles NaN/Infinity */
+/** 格式化价格：>= 1 显示 2 位，< 1 显示 4 位；handles NaN/Infinity; grouping for large numbers */
 export function fmtPrice(p: number | undefined | null): string {
   if (p == null || !Number.isFinite(p)) return '--';
   if (p === 0) return '0.00';
+  if (p >= 1_000_000) return p.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  if (p >= 1_000) return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return p >= 1 ? p.toFixed(2) : p.toFixed(4);
 }
 

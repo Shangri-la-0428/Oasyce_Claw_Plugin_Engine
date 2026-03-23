@@ -87,7 +87,6 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
         routeWallet: '创建身份',
         routeFunds: '领取启动资金',
         routeLaunch: '登记并进入市场',
-        launchTitle: '开始',
         walletGateTitle: '创建你的链上身份',
         walletGateBody: '你的地址是所有操作的唯一身份。',
         fundsGateTitle: '获取启动资金',
@@ -119,7 +118,6 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
         routeWallet: 'Create identity',
         routeFunds: 'Claim starter funds',
         routeLaunch: 'Register and enter market',
-        launchTitle: 'Get started',
         walletGateTitle: 'Create your on-chain identity',
         walletGateBody: 'Your address becomes your single identity for all operations.',
         fundsGateTitle: 'Earn starter funds',
@@ -312,9 +310,9 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
         </div>
 
         {/* Recent trades */}
-        {ownerEarnings && ownerEarnings.transactions.length > 0 && (
-          <div class="mt-24">
-            <div class="label">{copy.recentTitle}</div>
+        <div class="mt-24">
+          <div class="label">{copy.recentTitle}</div>
+          {ownerEarnings && ownerEarnings.transactions.length > 0 ? (
             <div class="item-list">
               {ownerEarnings.transactions.slice(0, 5).map((tx) => (
                 <div key={`${tx.asset_id}-${tx.timestamp}`} class="item-row cursor-default">
@@ -327,8 +325,10 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <p class="caption fg-muted mt-8">{copy.noActivity}</p>
+          )}
+        </div>
 
         <div class="spacer-48" />
 
@@ -371,7 +371,8 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
       <div class="spacer-48" />
 
       {/* Steps — flat numbered list */}
-      <div class="label">{copy.launchTitle}</div>
+      <div class="label">{_['onboard-welcome']}</div>
+      <p class="caption fg-muted mb-12">{_['onboard-welcome-hint']}</p>
       <ol class="home-steps">
         {steps.map(step => (
           <li key={step.index}

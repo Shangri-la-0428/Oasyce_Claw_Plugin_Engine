@@ -12,7 +12,7 @@
 .net-tool-result {
   padding-top: var(--space-s);
   border-top: 1px solid var(--border);
-  animation: field-in 0.15s var(--ease);
+  animation: field-in 0.2s var(--ease);
 }
 
 /* Show/hide toggle for sensitive fields */
@@ -106,7 +106,7 @@
 .kv-sm { font-size: var(--text-sm); }
 .kv-key-xs { font-size: var(--text-xs); }
 .kv-val-xs { font-size: var(--text-xs); word-break: break-all; }
-.kv-val-xs-nowrap { font-size: var(--text-xs); }
+.kv-val-xs-nowrap { font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .net-role-badge-active { border-color: var(--green); }
 .net-role-badge-icon-active { background: var(--green); color: var(--bg-0); }
 .label-flush { margin-bottom: 0; }
