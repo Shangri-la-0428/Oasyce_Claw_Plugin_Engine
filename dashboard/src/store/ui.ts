@@ -191,6 +191,7 @@ export function toggleLang() {
 }
 
 export function showToast(message: string, type = 'info') {
+  // Unique ID: base-36 timestamp + 5 random chars to avoid collisions
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   // Resolve i18n key if the message matches a known key (e.g. error keys from client.ts)
   const resolved = i18n.value[message] || message;

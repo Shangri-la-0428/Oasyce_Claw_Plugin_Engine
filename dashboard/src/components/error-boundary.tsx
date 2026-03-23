@@ -12,33 +12,18 @@ export default class ErrorBoundary extends Component<Props, State> {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: any) {
-    console.error('[ErrorBoundary]', error, info);
+  componentDidCatch(_error: Error, _info: { componentStack?: string }) {
+    // Error already captured in state via getDerivedStateFromError
   }
 
   render() {
     if (this.state.error) {
       const _ = i18n.value;
       return (
-        <div style={{ padding: '2rem', maxWidth: '40rem' }}>
-          <h2 style={{ fontFamily: 'var(--mono)', fontSize: '1rem', marginBottom: '0.5rem', color: 'var(--red)' }}>
-            {_['error-boundary-title']}
-          </h2>
-          <pre style={{
-            fontFamily: 'var(--mono)', fontSize: '0.8125rem', color: 'var(--fg-2)',
-            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-          }}>
-            {this.state.error.message}
-          </pre>
-          <button
-            style={{
-              marginTop: '1rem', padding: '0.5rem 1rem',
-              fontFamily: 'var(--mono)', fontSize: '0.8125rem',
-              border: '1px solid var(--border)', background: 'var(--bg-1)',
-              color: 'var(--fg-0)', cursor: 'pointer',
-            }}
-            onClick={() => this.setState({ error: null })}
-          >
+        <div class="error-boundary">
+          <h2 class="error-boundary-title">{_['error-boundary-title']}</h2>
+          <pre class="error-boundary-detail">{this.state.error.message}</pre>
+          <button class="btn btn-ghost btn-sm" onClick={() => this.setState({ error: null })}>
             {_['error-boundary-retry']}
           </button>
         </div>

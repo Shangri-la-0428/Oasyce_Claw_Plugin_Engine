@@ -202,16 +202,18 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
           {_['cap-guide'] || '\u5c06\u4f60\u7684 AI \u80fd\u529b\u53d1\u5e03\u5230\u7f51\u7edc\uff0c\u5176\u4ed6\u4eba\u53ef\u4ee5\u53d1\u73b0\u548c\u8c03\u7528\u3002'}
         </div>
         <div>
-          <label class="label">{_['cap-name'] || '\u540d\u79f0'}</label>
-          <input class="input" value={capName}
+          <label class="label" htmlFor="cap-name">{_['cap-name'] || '\u540d\u79f0'}</label>
+          <input id="cap-name" class="input" value={capName}
             onInput={e => setCapName((e.target as HTMLInputElement).value)}
-            placeholder={_['cap-name-hint'] || '\u4f8b\u5982\uff1a\u56fe\u50cf\u98ce\u683c\u8fc1\u79fb'} />
+            placeholder={_['cap-name-hint'] || '\u4f8b\u5982\uff1a\u56fe\u50cf\u98ce\u683c\u8fc1\u79fb'}
+            required aria-required="true" />
         </div>
         <div>
-          <label class="label">{_['cap-endpoint']}</label>
-          <input class="input" value={capEndpoint}
+          <label class="label" htmlFor="cap-endpoint">{_['cap-endpoint']}</label>
+          <input id="cap-endpoint" class="input" value={capEndpoint}
             onInput={e => setCapEndpoint((e.target as HTMLInputElement).value)}
-            placeholder={_['cap-endpoint-hint']} />
+            placeholder={_['cap-endpoint-hint']}
+            required aria-required="true" />
         </div>
 
         {/* Advanced section — progressive disclosure */}
@@ -221,14 +223,14 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
         {capAdvanced && (
           <>
             <div>
-              <label class="label">{_['cap-api-key']}</label>
-              <input class="input" type="password" value={capApiKey}
+              <label class="label" htmlFor="cap-api-key">{_['cap-api-key']}</label>
+              <input id="cap-api-key" class="input" type="password" value={capApiKey}
                 onInput={e => setCapApiKey((e.target as HTMLInputElement).value)}
                 placeholder={_['cap-api-key-hint']} />
             </div>
             <div>
-              <label class="label">{_['describe']}</label>
-              <input class="input" value={capDesc}
+              <label class="label" htmlFor="cap-desc">{_['describe']}</label>
+              <input id="cap-desc" class="input" value={capDesc}
                 onInput={e => setCapDesc((e.target as HTMLInputElement).value)}
                 placeholder={_['cap-desc-hint'] || '\u8f93\u5165\u56fe\u7247\uff0c\u8f93\u51fa\u6307\u5b9a\u98ce\u683c\u7684\u65b0\u56fe\u7247'} />
               <div class="caption mt-4">
@@ -236,19 +238,19 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
               </div>
             </div>
             <div>
-              <label class="label">{_['cap-price']}</label>
-              <input class="input" type="number" value={capPrice} min="0" step="0.01"
+              <label class="label" htmlFor="cap-price">{_['cap-price']}</label>
+              <input id="cap-price" class="input" type="number" value={capPrice} min="0" step="0.01"
                 onInput={e => setCapPrice((e.target as HTMLInputElement).value)} />
             </div>
             <div>
-              <label class="label">{_['cap-tags']}</label>
-              <input class="input" value={capTags}
+              <label class="label" htmlFor="cap-tags">{_['cap-tags']}</label>
+              <input id="cap-tags" class="input" value={capTags}
                 onInput={e => setCapTags((e.target as HTMLInputElement).value)}
                 placeholder={_['cap-tags-hint']} />
             </div>
             <div>
-              <label class="label">{_['cap-rate-limit']}</label>
-              <input class="input" type="number" value={capRateLimit} min="1"
+              <label class="label" htmlFor="cap-rate-limit">{_['cap-rate-limit']}</label>
+              <input id="cap-rate-limit" class="input" type="number" value={capRateLimit} min="1"
                 onInput={e => setCapRateLimit((e.target as HTMLInputElement).value)} />
               <div class="caption mt-4">{_['cap-rate-limit-hint']}</div>
             </div>
@@ -316,10 +318,11 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
       {folderName && (
         <div class={`${fieldsClass} ${compact ? 'mb-24' : ''}`}>
           <div>
-            <label class="label">{_['describe']}</label>
-            <input class="input" value={desc}
+            <label class="label" htmlFor="folder-desc">{_['describe']}</label>
+            <input id="folder-desc" class="input" value={desc}
               onInput={e => setDesc((e.target as HTMLInputElement).value)}
-              placeholder={folderName} />
+              placeholder={folderName}
+              required aria-required="true" />
           </div>
           <button class="btn btn-primary btn-full" onClick={submitBundle} disabled={loading}>
             {loading ? _['protecting'] : _['protect']}
@@ -331,16 +334,17 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
       {file && (
         <div class={`${fieldsClass} ${compact ? 'mb-24' : ''}`}>
           <div>
-            <label class="label">{_['describe']}</label>
-            <input class="input" value={desc}
+            <label class="label" htmlFor="file-desc">{_['describe']}</label>
+            <input id="file-desc" class="input" value={desc}
               onInput={e => setDesc((e.target as HTMLInputElement).value)}
-              placeholder={_['describe-hint']} />
+              placeholder={_['describe-hint']}
+              required aria-required="true" />
           </div>
           {!compact && (
             <>
               <div>
-                <label class="label">{_['rights-type']}</label>
-                <select class="input" value={rightsType} onChange={e => setRightsType((e.target as HTMLSelectElement).value)}>
+                <label class="label" htmlFor="rights-type">{_['rights-type']}</label>
+                <select id="rights-type" class="input" value={rightsType} onChange={e => setRightsType((e.target as HTMLSelectElement).value)}>
                   <option value="original">{_['rights-original']}</option>
                   <option value="co_creation">{_['rights-co_creation']}</option>
                   <option value="licensed">{_['rights-licensed']}</option>
@@ -349,7 +353,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
               </div>
               {rightsType === 'co_creation' && (
                 <div>
-                  <label class="label">{_['co-creators']}</label>
+                  <label class="label" htmlFor="co-creators">{_['co-creators']}</label>
                   <div class="caption mb-8">{_['co-creators-hint']}</div>
                   {coCreators.map((c, i) => (
                     <div key={i} class="row gap-8 mb-6">
@@ -376,7 +380,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
                 </div>
               )}
               <div>
-                <label class="label">{_['price-model']}</label>
+                <label class="label" id="price-model-label">{_['price-model']}</label>
                 <div class="row gap-8 mb-8">
                   {(['auto', 'fixed', 'floor'] as const).map(pm => (
                     <button

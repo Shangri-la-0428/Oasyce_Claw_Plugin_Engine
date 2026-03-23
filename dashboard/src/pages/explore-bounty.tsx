@@ -166,33 +166,38 @@ export default function ExploreBounty() {
         {showPost && (
           <div class="card mt-8 bounty-post-form">
             <div class="col gap-8">
-              <label class="caption">{_['bounty-description']}</label>
+              <label class="caption" htmlFor="bounty-description">{_['bounty-description']}</label>
               <textarea
+                id="bounty-description"
                 class="input input-textarea"
                 value={postDesc}
                 onInput={e => setPostDesc((e.target as HTMLTextAreaElement).value)}
                 rows={3}
+                required
+                aria-required="true"
               />
 
               <div class="row gap-16">
                 <div class="col gap-4 grow">
-                  <label class="caption">{_['bounty-budget']}</label>
-                  <input class="input" type="number" min="0" step="0.01"
+                  <label class="caption" htmlFor="bounty-budget">{_['bounty-budget']}</label>
+                  <input id="bounty-budget" class="input" type="number" min="0" step="0.01"
                     value={postBudget}
                     onInput={e => setPostBudget((e.target as HTMLInputElement).value)}
+                    required
+                    aria-required="true"
                   />
                 </div>
                 <div class="col gap-4 grow">
-                  <label class="caption">{_['bounty-deadline']}</label>
-                  <input class="input" type="number" min="0.1" step="0.5"
+                  <label class="caption" htmlFor="bounty-deadline">{_['bounty-deadline']}</label>
+                  <input id="bounty-deadline" class="input" type="number" min="0.1" step="0.5"
                     value={postDeadline}
                     onInput={e => setPostDeadline((e.target as HTMLInputElement).value)}
                   />
                 </div>
               </div>
 
-              <label class="caption">{_['bounty-capabilities']}</label>
-              <input class="input" type="text"
+              <label class="caption" htmlFor="bounty-capabilities">{_['bounty-capabilities']}</label>
+              <input id="bounty-capabilities" class="input" type="text"
                 placeholder={_['bounty-capabilities-hint']}
                 value={postCaps}
                 onInput={e => setPostCaps((e.target as HTMLInputElement).value)}
@@ -200,8 +205,8 @@ export default function ExploreBounty() {
 
               <div class="row gap-16">
                 <div class="col gap-4 grow">
-                  <label class="caption">{_['bounty-strategy']}</label>
-                  <select class="input"
+                  <label class="caption" htmlFor="bounty-strategy">{_['bounty-strategy']}</label>
+                  <select id="bounty-strategy" class="input"
                     value={postStrategy}
                     onChange={e => setPostStrategy((e.target as HTMLSelectElement).value as SelectionStrategy)}
                   >
@@ -212,8 +217,8 @@ export default function ExploreBounty() {
                   </select>
                 </div>
                 <div class="col gap-4 grow">
-                  <label class="caption">{_['bounty-min-rep']}</label>
-                  <input class="input" type="number" min="0" step="1"
+                  <label class="caption" htmlFor="bounty-min-rep">{_['bounty-min-rep']}</label>
+                  <input id="bounty-min-rep" class="input" type="number" min="0" step="1"
                     value={postMinRep}
                     onInput={e => setPostMinRep((e.target as HTMLInputElement).value)}
                   />

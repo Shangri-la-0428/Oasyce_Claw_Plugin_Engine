@@ -9,7 +9,7 @@
 
 .about-panel {
   position: fixed; top: 0; right: 0; bottom: 0;
-  width: 380px; max-width: 92vw;
+  width: 384px; max-width: 92vw;
   background: var(--bg-0);
   border-left: 1px solid var(--border);
   box-shadow: var(--shell-shadow);

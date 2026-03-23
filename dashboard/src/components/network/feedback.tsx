@@ -60,10 +60,10 @@ export function FeedbackSection({ forceOpen }: { forceOpen: boolean }) {
     setSubmitting(false);
   };
 
-  const statusColor = (s: string) => {
-    if (s === 'resolved') return 'var(--green)';
-    if (s === 'dismissed') return 'var(--red)';
-    return 'var(--fg-2)';
+  const statusClass = (s: string) => {
+    if (s === 'resolved') return 'color-green';
+    if (s === 'dismissed') return 'color-red';
+    return 'fg-muted';
   };
 
   return (
@@ -121,10 +121,10 @@ export function FeedbackSection({ forceOpen }: { forceOpen: boolean }) {
           {items.map(fb => (
             <div key={fb.feedback_id} class="card">
               <div class="row gap-8" style={{ alignItems: 'baseline' }}>
-                <span class="mono" style={{ fontSize: '0.85em' }}>{maskIdShort(fb.feedback_id)}</span>
+                <span class="mono text-sm">{maskIdShort(fb.feedback_id)}</span>
                 <span class="badge">{fb.type}</span>
-                <span style={{ color: statusColor(fb.status) }}>{fb.status}</span>
-                <span class="caption fg-muted" style={{ marginInlineStart: 'auto' }}>{fmtDate(fb.created_at, 'datetime')}</span>
+                <span class={statusClass(fb.status)}>{fb.status}</span>
+                <span class="caption fg-muted ml-auto">{fmtDate(fb.created_at, 'datetime')}</span>
               </div>
               <div class="mt-4">{fb.message}</div>
               {fb.agent_id && fb.agent_id !== 'anonymous' && (

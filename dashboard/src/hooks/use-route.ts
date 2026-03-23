@@ -35,9 +35,8 @@ export function useRoute() {
 
   const go = useCallback((page: Page, subpath?: string) => {
     const hash = subpath ? `${page}/${subpath}` : page;
+    // Setting location.hash triggers hashchange, which updates state via the listener
     location.hash = hash === 'home' ? '' : hash;
-    // hashchange event will update state, but set immediately for responsiveness
-    setRoute({ page, subpath: subpath || '' });
     window.scrollTo({ top: 0, behavior: 'smooth' });
     // Move focus to main content for screen readers
     requestAnimationFrame(() => {

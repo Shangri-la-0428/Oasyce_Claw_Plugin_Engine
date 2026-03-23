@@ -247,15 +247,15 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
     <>
       <div class="label">{copy.destinationsTitle}</div>
       <nav class="home-nav">
-        <button class="nav-row" role="link" onClick={() => go('mydata')}>
+        <button class="nav-row" onClick={() => go('mydata')}>
           <span class="nav-row-title">{_['nav-mydata']} →</span>
           <span class="nav-row-desc">{_['nav-mydata-desc']}</span>
         </button>
-        <button class="nav-row" role="link" onClick={() => go('explore')}>
+        <button class="nav-row" onClick={() => go('explore')}>
           <span class="nav-row-title">{_['nav-explore']} →</span>
           <span class="nav-row-desc">{_['nav-explore-desc']}</span>
         </button>
-        <button class="nav-row" role="link" onClick={() => go('network')}>
+        <button class="nav-row" onClick={() => go('network')}>
           <span class="nav-row-title">{_['nav-network']} →</span>
           <span class="nav-row-desc">{_['nav-network-desc']}</span>
         </button>

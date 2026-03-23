@@ -115,7 +115,9 @@
   cursor: pointer; font-size: var(--text-md); color: var(--fg-0);
 }
 .auto-check-row input[type="checkbox"] {
-  width: 16px; height: 16px; accent-color: var(--fg-0);
+  width: 20px; height: 20px; accent-color: var(--fg-0);
+  min-width: 44px; min-height: 44px;
+  margin: 0; cursor: pointer;
 }
 
 .auto-trade-warning {
@@ -137,4 +139,5 @@
 
 @media (max-width: 600px) {
   .auto-history-row { flex-wrap: wrap; gap: var(--space-s); }
+  .auto-input-sm { max-width: 100%; }
 }

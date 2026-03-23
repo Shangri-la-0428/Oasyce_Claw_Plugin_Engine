@@ -16,6 +16,18 @@ interface Holding {
   avg_price: number;
 }
 
+interface Transaction {
+  asset_id: string;
+  amount: number;
+  type?: string;
+  timestamp?: number;
+}
+
+/** Access result is an opaque server response displayed as JSON */
+interface AccessResult {
+  [key: string]: unknown;
+}
+
 interface Props { onBrowse?: () => void; }
 
 export default function ExplorePortfolio({ onBrowse }: Props) {
@@ -30,12 +42,12 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
   const [selling, setSelling] = useState(false);
 
   /* Transaction history state */
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [txLoading, setTxLoading] = useState(false);
 
   /* Access operations state */
   const [accessTarget, setAccessTarget] = useState<string | null>(null);
-  const [accessResult, setAccessResult] = useState<any>(null);
+  const [accessResult, setAccessResult] = useState<AccessResult | null>(null);
   const [accessLoading, setAccessLoading] = useState(false);
 
   const _ = i18n.value;
@@ -57,7 +69,7 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
 
   const loadTransactions = async () => {
     setTxLoading(true);
-    const res = await get<any[]>('/transactions');
+    const res = await get<Transaction[]>('/transactions');
     if (res.success && Array.isArray(res.data)) setTransactions(res.data);
     setTxLoading(false);
   };
@@ -95,9 +107,9 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
       : level === 'L1' ? '/access/sample'
       : level === 'L2' ? '/access/compute'
       : '/access/deliver';
-    const res = await post(endpoint, { asset_id: assetId, buyer: walletAddress() });
+    const res = await post<AccessResult>(endpoint, { asset_id: assetId, buyer: walletAddress() });
     if (res.success) {
-      setAccessResult(res.data);
+      setAccessResult(res.data ?? null);
     } else {
       showToast(res.error || _['error-generic'], 'error');
       setAccessResult(null);

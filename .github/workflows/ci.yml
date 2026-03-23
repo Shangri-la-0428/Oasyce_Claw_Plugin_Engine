@@ -24,8 +24,7 @@ jobs:
       - name: Install package
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]" || pip install -e .
-          pip install pytest httpx
+          pip install -e ".[test,dev,server]"
 
       - name: Run tests
         run: pytest --tb=short -q
@@ -44,7 +43,7 @@ jobs:
 
       - name: Check symlinks
         run: |
-          for f in CLAUDE.md .cursorrules .windsurfrules; do
+          for f in CLAUDE.md CODEX.md .cursorrules .windsurfrules .github/copilot-instructions.md; do
             if [ ! -L "$f" ]; then echo "FAIL: $f is not a symlink to AGENTS.md" && exit 1; fi
           done
           echo "Symlinks OK"
@@ -55,7 +54,7 @@ jobs:
           python-version: "3.12"
 
       - name: Verify SKILL.md is up to date
-        run: python scripts/sync_docs.py --skill-path /dev/null || echo "SKILL.md sync check skipped (ClawHub not in repo)"
+        run: python scripts/sync_docs.py
 
   build:
     runs-on: ubuntu-latest

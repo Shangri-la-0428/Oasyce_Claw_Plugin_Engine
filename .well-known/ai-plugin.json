@@ -14,6 +14,6 @@
     "url": "/openapi.yaml"
   },
   "logo_url": "/favicon.svg",
-  "contact_email": "",
-  "legal_info_url": ""
+  "contact_email": "wutc@oasyce.com",
+  "legal_info_url": "https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine/blob/main/LICENSE"
 }

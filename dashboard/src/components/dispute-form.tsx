@@ -38,13 +38,16 @@ export function DisputeForm({ assetId, onClose, onFiled }: DisputeFormProps) {
   const [reason, setReason] = useState('');
   const [evidence, setEvidence] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [reasonError, setReasonError] = useState('');
   const _ = i18n.value;
 
   const onSubmit = async () => {
     if (!reason) {
+      setReasonError(_['dispute-reason-select']);
       showToast(_['dispute-reason-select'], 'error');
       return;
     }
+    setReasonError('');
     setSubmitting(true);
     const res = await post<{ ok: boolean; dispute_id: string; error?: string }>('/dispute/file', {
       asset_id: assetId,
@@ -71,16 +74,18 @@ export function DisputeForm({ assetId, onClose, onFiled }: DisputeFormProps) {
         <span class="kv-val mono">{maskIdShort(assetId)}</span>
       </div>
 
-      <label class="label">{_['dispute-reason']}</label>
-      <select class="input" value={reason} onChange={e => setReason((e.target as HTMLSelectElement).value)}>
+      <label class="label" htmlFor="dispute-reason">{_['dispute-reason']}</label>
+      <select id="dispute-reason" class="input" value={reason} onChange={e => { setReason((e.target as HTMLSelectElement).value); setReasonError(''); }} required aria-required="true" aria-describedby={reasonError ? 'dispute-reason-error' : undefined} aria-invalid={!!reasonError}>
         <option value="">{_['dispute-reason-select']}</option>
         {REASONS.map(r => (
           <option key={r} value={r}>{_[r]}</option>
         ))}
       </select>
+      {reasonError && <div id="dispute-reason-error" class="caption style-warn" role="alert">{reasonError}</div>}
 
-      <label class="label mt-12">{_['dispute-evidence']}</label>
+      <label class="label mt-12" htmlFor="dispute-evidence">{_['dispute-evidence']}</label>
       <textarea
+        id="dispute-evidence"
         class="input input-textarea"
         value={evidence}
         onInput={e => setEvidence((e.target as HTMLTextAreaElement).value)}

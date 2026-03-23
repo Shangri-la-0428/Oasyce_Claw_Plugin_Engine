@@ -231,7 +231,8 @@ class ChainClient:
         auth_info or signatures — the caller (or a future signer module)
         must complete and broadcast it.
 
-        TODO: Integrate with chain keyring for actual signing.
+        Note: signing is handled by oasyced CLI or external wallet; this
+        client builds unsigned payloads only (chain-linked mode).
         """
         return {
             "tx": {

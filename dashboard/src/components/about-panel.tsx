@@ -30,6 +30,29 @@ export default function AboutPanel({ onClose }: Props) {
     };
   }, []);
 
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Tab') return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusable = panel.querySelectorAll<HTMLElement>(
+      'a[href], button, textarea, input, select, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  };
+
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overview', label: _['about-tab-overview'] },
     { key: 'start', label: _['about-tab-start'] },
@@ -39,7 +62,7 @@ export default function AboutPanel({ onClose }: Props) {
   return (
     <div>
       <div class="about-overlay" onClick={onClose} role="presentation" />
-      <div class="about-panel" role="dialog" aria-modal="true" aria-label="About Oasyce" ref={panelRef} tabIndex={-1}>
+      <div class="about-panel" role="dialog" aria-modal="true" aria-label="About Oasyce" ref={panelRef} tabIndex={-1} onKeyDown={handleKeyDown}>
         <button class="about-close" onClick={onClose} aria-label={_['close'] || 'Close'}>&times;</button>
 
         <div class="about-header">

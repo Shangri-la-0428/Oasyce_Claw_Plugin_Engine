@@ -70,12 +70,12 @@ export function useChain(autoPoll = true): ChainState {
       setIsConnected(true);
       setChainInfo(info);
       setLatestBlock(block);
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (!mountedRef.current) return;
       setIsConnected(false);
       setChainInfo(null);
       setLatestBlock(null);
-      setError(e?.message || 'Chain check failed');
+      setError(e instanceof Error ? e.message : 'Chain check failed');
     } finally {
       if (mountedRef.current) setLoading(false);
     }

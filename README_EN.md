@@ -367,7 +367,7 @@ pytest      # 1083 tests, 19 skipped
 | Repository | Version | Tests | Status |
 |-----------|---------|-------|--------|
 | **oasyce-chain** (Go L1) | Cosmos SDK v0.50.10 | 30+ | Phase A complete |
-| **oasyce** (this repo) | v2.1.0 | 1063 | Feature complete, architecture enforced |
+| **oasyce** (this repo) | v2.3.0 | 1083 | Feature complete, architecture enforced |
 | **DataVault** | v0.2.0 | 44 | AI Skill mode ready |
 
 ### Completed
