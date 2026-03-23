@@ -2111,8 +2111,10 @@ def cmd_capability_earnings(args):
 
 
 def cmd_start(args):
-    """Start the Oasyce Dashboard and optionally the API server."""
+    """Start the Oasyce Dashboard (auto-opens browser)."""
     import threading
+    import time
+    import webbrowser
 
     gui_port = args.port
 
@@ -2123,11 +2125,17 @@ def cmd_start(args):
 \u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563
 \u2551  Dashboard:   http://localhost:{gui_port:<14}\u2551
 \u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563
-\u2551  Open Dashboard in your browser to begin.    \u2551
 \u2551  Press Ctrl+C to stop.                       \u2551
 \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
 """
     )
+
+    # Auto-open browser unless --no-browser
+    if not getattr(args, "no_browser", False):
+        def _open():
+            time.sleep(1.5)
+            webbrowser.open(f"http://localhost:{gui_port}")
+        threading.Thread(target=_open, daemon=True).start()
 
     # Start Dashboard
     try:
@@ -3664,26 +3672,10 @@ def main():
     leak_reset_parser.add_argument("asset_id", help="Asset ID")
     leak_reset_parser.set_defaults(func=cmd_leakage_reset)
 
-    # GUI command
-    gui_parser = subparsers.add_parser("gui", help="Launch web dashboard (port 8420)")
-    gui_parser.add_argument("--port", type=int, default=8420, help="Port (default: 8420)")
-
-    def _run_gui(args):
-        import threading
-        import time
-        import webbrowser
-
-        from oasyce.gui.app import OasyceGUI
-
-        port = args.port
-        def _open():
-            time.sleep(1.5)
-            webbrowser.open(f"http://localhost:{port}")
-        threading.Thread(target=_open, daemon=True).start()
-
-        OasyceGUI(port=port).run()
-
-    gui_parser.set_defaults(func=_run_gui)
+    # gui → alias for start (backward compat)
+    gui_parser = subparsers.add_parser("gui", help=argparse.SUPPRESS)
+    gui_parser.add_argument("--port", type=int, default=8420)
+    gui_parser.set_defaults(func=cmd_start, no_browser=False)
 
     # Explorer command
     explorer_parser = subparsers.add_parser("explorer", help="Launch block explorer (port 8421)")
@@ -4026,6 +4018,9 @@ def main():
     start_parser = subparsers.add_parser("start", help="Start Dashboard (recommended)")
     start_parser.add_argument(
         "--port", type=int, default=8420, help="Dashboard port (default: 8420)"
+    )
+    start_parser.add_argument(
+        "--no-browser", action="store_true", help="Don't auto-open browser"
     )
     start_parser.set_defaults(func=cmd_start)
 

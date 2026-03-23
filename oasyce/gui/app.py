@@ -3498,7 +3498,7 @@ class OasyceGUI:
 
         if server is None:
             print(f"❌ Could not bind to any port in range {self._port}-{self._port + 9}.")
-            print(f"   Try: oasyce gui --port <available_port>")
+            print(f"   Try: oasyce start --port <available_port>")
             return
 
         if bound_port != self._port:

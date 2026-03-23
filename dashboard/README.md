@@ -11,9 +11,9 @@ cd dashboard && npm run dev    # http://localhost:5173
 # 生产构建
 npm run build                  # 输出到 dist/
 
-# 通过协议服务器启动（推荐）
-oasyce gui                     # http://localhost:8420
-oasyce start                   # 含 Core 节点
+# 通过协议启动（推荐）
+oasyce start                   # http://localhost:8420（自动开浏览器）
+oasyce start --no-browser      # 不自动开浏览器
 ```
 
 ## 架构

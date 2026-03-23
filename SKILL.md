@@ -76,7 +76,7 @@ oasyce buy ASSET_ID --buyer bob --amount 10.0
 oasyce sell ASSET_ID --tokens 5 --seller bob
 
 # 4. Start Dashboard
-oasyce serve                   # http://localhost:8420
+oasyce start                   # http://localhost:8420
 ```
 
 ## Running Modes
@@ -210,7 +210,7 @@ See [oasyce-chain CLAUDE.md](https://github.com/Shangri-la-0428/oasyce-chain) fo
 ## Node & Network
 
 ```bash
-oasyce serve                    # Dashboard at http://localhost:8420
+oasyce start                    # Dashboard at http://localhost:8420
 oasyce node info                # Ed25519 identity
 oasyce node peers               # connected peers
 oasyce testnet onboard          # PoW self-registration (sha256 puzzle)

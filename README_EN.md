@@ -16,10 +16,10 @@ Think of it this way: you take a photo, and an AI wants to use it for training. 
 ```bash
 pip install oasyce
 oasyce doctor            # Health check
-oasyce serve             # Dashboard at localhost:8420
+oasyce start             # Dashboard at localhost:8420
 ```
 
-Open `http://localhost:8420` and you're in.
+Browser opens automatically. You're in.
 
 ---
 
@@ -72,15 +72,15 @@ oasyce doctor
 
 Checks your keys, ports, dependencies, and network connectivity. If something is wrong, it tells you how to fix it.
 
-### 3. Start the node
+### 3. Start Dashboard
 
 ```bash
-oasyce serve
+oasyce start
 ```
 
-This launches:
-- **API server** — matching, bidding, settlement
-- **Dashboard** (port 8420) — register data, browse assets, invoke capabilities
+Browser auto-opens `http://localhost:8420` — register data, browse assets, invoke capabilities.
+
+For API server (programmatic access), run `oasyce serve` separately.
 
 Or use Docker:
 
@@ -117,7 +117,8 @@ oasyce testnet faucet     # Get free test tokens
 ## CLI Reference
 
 ```
-oasyce serve              # Start API server + Dashboard (recommended)
+oasyce start              # Start Dashboard (recommended)
+oasyce serve              # Start API server (programmatic access)
 oasyce demo               # Run the full demo pipeline
 oasyce doctor             # Health check
 oasyce update             # Auto-update to latest version
@@ -202,7 +203,7 @@ See [oasyce-chain](https://github.com/Shangri-la-0428/oasyce-chain) for full cha
 ### Node Management
 
 ```
-oasyce node start         # Start P2P node only (use 'oasyce serve' for full stack)
+oasyce node start         # Start P2P node only
 oasyce node info          # Show node identity
 oasyce node peers         # List known peers
 oasyce node ping <host>   # Ping another node
@@ -225,7 +226,7 @@ oasyce access deliver <asset_id>                   # L3: full data delivery
 oasyce testnet onboard    # Join the testnet
 oasyce testnet faucet     # Get test tokens
 oasyce update             # Auto-update to latest version
-oasyce gui                # Start Dashboard only (port 8420)
+oasyce start --no-browser # Start Dashboard without auto-open
 oasyce explorer           # Block explorer (port 8421)
 oasyce keys generate      # Generate Ed25519 keypair
 oasyce keys show          # Show public key
@@ -271,7 +272,7 @@ Your agent will install the Oasyce skill automatically, letting you register dat
 
 ## Dashboard
 
-After running `oasyce serve`, open `http://localhost:8420` in your browser. The dashboard provides:
+Run `oasyce start` — browser opens automatically at `http://localhost:8420`. The dashboard provides:
 
 - **Home** — Register data assets (drag & drop), network status, earnings overview
 - **My Data** — Manage your assets and published capabilities, edit tags, delist/terminate
