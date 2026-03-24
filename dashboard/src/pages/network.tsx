@@ -3,7 +3,7 @@
  * Sections are collapsible to reduce visual overload.
  * Heavy independent sections extracted to sub-components to reduce re-render scope.
  */
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useState, useRef } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { showToast, i18n, identity, loadIdentity, walletAddress } from '../store/ui';
 import { fmtDate } from '../utils';
@@ -47,6 +47,10 @@ interface NodeRole {
 interface NetworkProps { subpath?: string; }
 
 export default function Network({ subpath }: NetworkProps) {
+  const mountedRef = useRef(true);
+  const busyRef = useRef(false);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   const [nodeIdentity, setNodeIdentity] = useState<any>(null);
   const [nodeRole, setNodeRole] = useState<NodeRole | null>(null);
   const [loading, setLoading] = useState(true);
@@ -113,6 +117,7 @@ export default function Network({ subpath }: NetworkProps) {
       get<any>('/work/tasks?limit=5'),
       get<ConsensusStatus>('/consensus/status'),
     ]);
+    if (!mountedRef.current) return;
     if (idRes.success && idRes.data) setNodeIdentity(idRes.data);
     if (roleRes.success && roleRes.data) {
       setNodeRole(roleRes.data);
@@ -127,7 +132,7 @@ export default function Network({ subpath }: NetworkProps) {
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    const doFetch = async () => {
       setLoading(true);
       const [idRes, roleRes, statsRes, tasksRes, csRes] = await Promise.all([
         get('/identity'),
@@ -148,9 +153,14 @@ export default function Network({ subpath }: NetworkProps) {
       if (csRes.success && csRes.data) setConsensus(csRes.data);
       setLoading(false);
     };
-    load();
+    doFetch();
     loadIdentity();
-    return () => { cancelled = true; };
+    const pollTimer = setInterval(async () => {
+      const csRes = await get<ConsensusStatus>('/consensus/status');
+      if (cancelled) return;
+      if (csRes.success && csRes.data) setConsensus(csRes.data);
+    }, 30_000);
+    return () => { cancelled = true; clearInterval(pollTimer); };
   }, []);
 
   // Load reputation from staking if not in nodeRole
@@ -183,55 +193,73 @@ export default function Network({ subpath }: NetworkProps) {
   const hasApiKey = nodeRole?.api_key_set ?? false;
 
   const saveApiKey = async () => {
+    if (busyRef.current) return;
     if (!apiKey.trim() && !apiEndpoint.trim()) return;
+    busyRef.current = true;
     setSavingKey(true);
-    const res = await post<any>('/node/api-key', {
-      api_provider: apiProvider,
-      api_key: apiKey.trim() || undefined,
-      api_endpoint: apiEndpoint.trim() || undefined,
-    });
-    if (res.success && res.data?.ok) {
-      showToast(_['net-key-saved'], 'success');
-      setApiKey('');
-      fetchData();
-    } else {
-      showToast(res.error || res.data?.error || _['error-generic'], 'error');
+    try {
+      const res = await post<any>('/node/api-key', {
+        api_provider: apiProvider,
+        api_key: apiKey.trim() || undefined,
+        api_endpoint: apiEndpoint.trim() || undefined,
+      });
+      if (res.success && res.data?.ok) {
+        showToast(_['net-key-saved'], 'success');
+        setApiKey('');
+        fetchData();
+      } else {
+        showToast(res.error || res.data?.error || _['error-generic'], 'error');
+      }
+    } finally {
+      setSavingKey(false);
+      busyRef.current = false;
     }
-    setSavingKey(false);
   };
 
   const becomeValidator = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setRoleAction(true);
-    const body: Record<string, string | number> = {};
-    if (stakeAmount) body.amount = parseFloat(stakeAmount);
-    if (apiKey.trim()) { body.api_key = apiKey.trim(); body.api_provider = apiProvider; }
-    if (apiEndpoint.trim()) body.api_endpoint = apiEndpoint.trim();
-    const res = await post<{ ok?: boolean; error?: string }>('/node/become-validator', body);
-    if (res.success && res.data?.ok) {
-      showToast(_['net-role-validator-ok'], 'success');
-      setStakeAmount(''); setApiKey('');
-      fetchData();
-    } else {
-      showToast(res.error || res.data?.error || _['error-generic'], 'error');
+    try {
+      const body: Record<string, string | number> = {};
+      if (stakeAmount) body.amount = parseFloat(stakeAmount);
+      if (apiKey.trim()) { body.api_key = apiKey.trim(); body.api_provider = apiProvider; }
+      if (apiEndpoint.trim()) body.api_endpoint = apiEndpoint.trim();
+      const res = await post<{ ok?: boolean; error?: string }>('/node/become-validator', body);
+      if (res.success && res.data?.ok) {
+        showToast(_['net-role-validator-ok'], 'success');
+        setStakeAmount(''); setApiKey('');
+        fetchData();
+      } else {
+        showToast(res.error || res.data?.error || _['error-generic'], 'error');
+      }
+    } finally {
+      setRoleAction(false);
+      busyRef.current = false;
     }
-    setRoleAction(false);
   };
 
   const becomeArbitrator = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setRoleAction(true);
-    const body: Record<string, string | number> = {};
-    if (arbTags.trim()) body.tags = arbTags.trim();
-    if (apiKey.trim()) { body.api_key = apiKey.trim(); body.api_provider = apiProvider; }
-    if (apiEndpoint.trim()) body.api_endpoint = apiEndpoint.trim();
-    const res = await post<{ ok?: boolean; error?: string }>('/node/become-arbitrator', body);
-    if (res.success && res.data?.ok) {
-      showToast(_['net-role-arbitrator-ok'], 'success');
-      setArbTags(''); setApiKey('');
-      fetchData();
-    } else {
-      showToast(res.error || res.data?.error || _['error-generic'], 'error');
+    try {
+      const body: Record<string, string | number> = {};
+      if (arbTags.trim()) body.tags = arbTags.trim();
+      if (apiKey.trim()) { body.api_key = apiKey.trim(); body.api_provider = apiProvider; }
+      if (apiEndpoint.trim()) body.api_endpoint = apiEndpoint.trim();
+      const res = await post<{ ok?: boolean; error?: string }>('/node/become-arbitrator', body);
+      if (res.success && res.data?.ok) {
+        showToast(_['net-role-arbitrator-ok'], 'success');
+        setArbTags(''); setApiKey('');
+        fetchData();
+      } else {
+        showToast(res.error || res.data?.error || _['error-generic'], 'error');
+      }
+    } finally {
+      setRoleAction(false);
+      busyRef.current = false;
     }
-    setRoleAction(false);
   };
 
   if (loading) {

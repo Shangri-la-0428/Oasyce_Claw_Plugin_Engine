@@ -9,6 +9,8 @@ import { loadAssets } from '../store/assets';
 import { readEntryFiles } from '../utils';
 import './register-form.css';
 
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
+
 interface Props {
   mode: 'data' | 'capability';
   onSuccess?: (result: any) => void;
@@ -46,6 +48,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
   const [capAdvanced, setCapAdvanced] = useState(false);
 
   const ref = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
 
   const _ = i18n.value;
 
@@ -72,12 +75,21 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
   };
 
   const onFile = (f: File) => {
+    if (f.size > MAX_FILE_SIZE) {
+      showToast(_['file-too-large'] || `File too large (max ${MAX_FILE_SIZE / 1024 / 1024} MB)`, 'error');
+      return;
+    }
     setFile(f);
     setFolderName(null); setFolderFiles([]);
     if (!desc) setDesc(baseName(f.name));
   };
 
   const onFolderDetected = (name: string, files: File[]) => {
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+    if (totalSize > MAX_FILE_SIZE) {
+      showToast(_['file-too-large'] || `Total size too large (max ${MAX_FILE_SIZE / 1024 / 1024} MB)`, 'error');
+      return;
+    }
     setFolderName(name); setFolderFiles(files);
     setFile(null);
     if (!desc) setDesc(name);
@@ -101,6 +113,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
   };
 
   const submitFile = async () => {
+    if (submittingRef.current) return;
     if (!file) return;
     if (owner === 'anonymous') {
       showToast(_['wallet-needed'] || 'Create your wallet to get started', 'error');
@@ -114,6 +127,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
       showToast(_['error-generic'], 'error');
       return;
     }
+    submittingRef.current = true;
     setLoading(true);
     const tags = desc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean).join(',');
     const fields: Record<string, string> = {
@@ -137,14 +151,17 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
       showToast(res.error || _['error-generic'], 'error');
     }
     setLoading(false);
+    submittingRef.current = false;
   };
 
   const submitBundle = async () => {
+    if (submittingRef.current) return;
     if (folderFiles.length === 0) return;
     if (owner === 'anonymous') {
       showToast(_['wallet-needed'] || 'Create your wallet to get started', 'error');
       return;
     }
+    submittingRef.current = true;
     setLoading(true);
     const tags = desc.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean).join(',');
     const res = await postBundle(folderFiles, {
@@ -160,14 +177,17 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
       showToast(res.error || _['error-generic'], 'error');
     }
     setLoading(false);
+    submittingRef.current = false;
   };
 
   const submitCap = async () => {
+    if (submittingRef.current) return;
     if (!capName.trim() || !capEndpoint.trim()) return;
     if (owner === 'anonymous') {
       showToast(_['wallet-needed'] || 'Create your wallet to get started', 'error');
       return;
     }
+    submittingRef.current = true;
     setLoading(true);
     const tags = capTags.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
     const res = await post<{ ok?: boolean; capability_id?: string; error?: string }>('/delivery/register', {
@@ -191,6 +211,13 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
       showToast(res.error || res.data?.error || _['error-generic'], 'error');
     }
     setLoading(false);
+    submittingRef.current = false;
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const fieldsClass = compact ? 'register-fields compact' : 'register-fields';
@@ -288,6 +315,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
             <span class="dropzone-selected-name">
               {folderName ? `${folderName}/` : file!.name}
             </span>
+            {file && <span class="caption mono">{formatFileSize(file.size)}</span>}
             {folderName && (
               <span class="caption">{folderFiles.length} {_['files'] || '\u4e2a\u6587\u4ef6'}</span>
             )}
@@ -308,7 +336,9 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
             </div>
           </>
         )}
-        <input ref={ref} type="file" class="hidden" aria-label="Upload file" onChange={e => {
+        <input ref={ref} type="file" class="hidden" aria-label="Upload file"
+          accept=".csv,.json,.txt,.md,.xml,.yaml,.yml,.pdf,.png,.jpg,.jpeg,.gif,.zip,.tar,.gz,.parquet,.xlsx,.xls,.doc,.docx"
+          onChange={e => {
           const f = (e.target as HTMLInputElement).files?.[0];
           if (f) onFile(f);
         }} />

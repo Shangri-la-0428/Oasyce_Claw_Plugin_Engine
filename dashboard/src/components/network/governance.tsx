@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { get, post } from '../../api/client';
 import { showToast, i18n, walletAddress } from '../../store/ui';
 import { Section } from '../section';
@@ -12,6 +12,9 @@ export function GovernanceSection({ forceOpen }: { forceOpen: boolean }) {
   const [propDeposit, setPropDeposit] = useState('');
   const [govSubmitting, setGovSubmitting] = useState(false);
   const [govChainOnly, setGovChainOnly] = useState(false);
+  const votingRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const _ = i18n.value;
 
@@ -20,13 +23,14 @@ export function GovernanceSection({ forceOpen }: { forceOpen: boolean }) {
     setProposalsLoading(true);
     get<any>('/governance/proposals').then(res => {
       if (cancelled) return;
+      if (!mountedRef.current) return;
       if (res.success && res.data) {
         setProposals(Array.isArray(res.data) ? res.data : (res.data.proposals || []));
       } else if (res.error && res.error.toLowerCase().includes('go chain')) {
         setGovChainOnly(true);
       }
       setProposalsLoading(false);
-    }).catch(() => { if (!cancelled) setProposalsLoading(false); });
+    }).catch(() => { if (!cancelled && mountedRef.current) setProposalsLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -65,11 +69,21 @@ export function GovernanceSection({ forceOpen }: { forceOpen: boolean }) {
                 {(['yes', 'no', 'abstain'] as const).map(option => (
                   <button key={option} class="btn btn-sm btn-ghost" disabled={govSubmitting}
                     onClick={async () => {
+                      if (votingRef.current) return;
+                      votingRef.current = true;
                       setGovSubmitting(true);
                       const res = await post<any>('/governance/vote', { proposal_id: p.proposal_id, voter: walletAddress(), option });
-                      if (res.success && res.data?.ok) showToast(_['gov-vote-success'], 'success');
-                      else showToast(res.error || res.data?.error || _['error-generic'], 'error');
+                      if (!mountedRef.current) return;
+                      if (res.success && res.data?.ok) {
+                        showToast(_['gov-vote-success'], 'success');
+                        // Refresh proposals to show updated vote counts
+                        const pRes = await get<any>('/governance/proposals');
+                        if (pRes.success && pRes.data) setProposals(Array.isArray(pRes.data) ? pRes.data : (pRes.data.proposals || []));
+                      } else {
+                        showToast(res.error || res.data?.error || _['error-generic'], 'error');
+                      }
                       setGovSubmitting(false);
+                      votingRef.current = false;
                     }}>
                     {_[`gov-vote-${option}`]}
                   </button>
@@ -99,6 +113,8 @@ export function GovernanceSection({ forceOpen }: { forceOpen: boolean }) {
               placeholder={_['gov-deposit']} />
             <button class="btn btn-primary btn-full" disabled={govSubmitting || !propTitle.trim()}
               onClick={async () => {
+                if (votingRef.current) return;
+                votingRef.current = true;
                 setGovSubmitting(true);
                 const res = await post<any>('/governance/propose', {
                   title: propTitle.trim(),
@@ -106,6 +122,7 @@ export function GovernanceSection({ forceOpen }: { forceOpen: boolean }) {
                   deposit: parseFloat(propDeposit) || 0,
                   proposer: walletAddress(),
                 });
+                if (!mountedRef.current) return;
                 if (res.success && res.data?.ok) {
                   showToast(_['gov-propose-success'], 'success');
                   setPropTitle(''); setPropDesc(''); setPropDeposit('');
@@ -118,6 +135,7 @@ export function GovernanceSection({ forceOpen }: { forceOpen: boolean }) {
                   showToast(res.error || res.data?.error || _['error-generic'], 'error');
                 }
                 setGovSubmitting(false);
+                votingRef.current = false;
               }}>
               {govSubmitting ? _['gov-proposing'] : _['gov-propose']}
             </button>

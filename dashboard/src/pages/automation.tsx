@@ -1,7 +1,7 @@
 /**
  * Automation — Agent Scheduler + 自动注册/交易管控 + 手动确认队列
  */
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { showToast, i18n } from '../store/ui';
 import { get, post } from '../api/client';
 import { Section } from '../components/section';
@@ -80,6 +80,8 @@ export default function Automation() {
   const [cfgTradeTags, setCfgTradeTags] = useState('');
   const [cfgTradeMax, setCfgTradeMax] = useState(0);
 
+  const busyRef = useRef(false);
+
   const loadAgentStatus = async () => {
     const res = await get<AgentStatus>('/agent/status');
     if (res.success && res.data) setAgentStatus(res.data);
@@ -102,6 +104,8 @@ export default function Automation() {
   };
 
   const toggleEnabled = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     const next = !(agentConfig?.enabled ?? false);
     const res = await post<AgentCfg>('/agent/config', { enabled: next });
     if (res.success && res.data) {
@@ -111,9 +115,12 @@ export default function Automation() {
     } else {
       showToast(res.error || _['error-generic'], 'error');
     }
+    busyRef.current = false;
   };
 
   const runNow = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setRunningNow(true);
     const res = await post<{ ok: boolean; result: string }>('/agent/run', {});
     setRunningNow(false);
@@ -124,22 +131,30 @@ export default function Automation() {
     } else {
       showToast(res.error || _['error-generic'], 'error');
     }
+    busyRef.current = false;
   };
 
   const saveConfig = async () => {
+    // Validate interval (minimum 1 hour)
+    const validInterval = Math.max(1, Math.floor(cfgInterval) || 1);
+    // Validate tradeMax (non-negative)
+    const validTradeMax = Math.max(0, cfgTradeMax || 0);
+
     setSavingCfg(true);
     const payload: Partial<AgentCfg> = {
-      interval_hours: cfgInterval,
+      interval_hours: validInterval,
       scan_paths: cfgScanPaths.split('\n').map(s => s.trim()).filter(Boolean),
       auto_register: cfgAutoRegister,
       auto_trade: cfgAutoTrade,
       trade_tags: cfgTradeTags.split(/[,，\s]+/).filter(Boolean),
-      trade_max_spend: cfgTradeMax,
+      trade_max_spend: validTradeMax,
     };
     const res = await post<AgentCfg>('/agent/config', payload);
     setSavingCfg(false);
     if (res.success && res.data) {
       setAgentConfig(res.data);
+      setCfgInterval(validInterval);
+      setCfgTradeMax(validTradeMax);
       showToast(_['saved'], 'success');
     } else {
       showToast(res.error || _['error-generic'], 'error');
@@ -178,23 +193,44 @@ export default function Automation() {
   };
 
   const saveEdit = async (id: string) => {
-    await editItem(id, {
+    const res = await editItem(id, {
       suggested_name: editName,
       suggested_tags: editTags.split(/[,，\s]+/).filter(Boolean),
       suggested_description: editDesc,
     });
     setEditingId(null);
-    showToast(_['saved'], 'success');
+    if (res.success) {
+      showToast(_['saved'], 'success');
+    } else {
+      showToast(res.error || _['error-generic'], 'error');
+    }
   };
 
   const onApproveAll = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     await storeApproveAll();
-    showToast(_['all-approved'], 'success');
+    // Check if any items remained pending (partial failure)
+    const stillPending = inboxItems.value.filter(i => i.status === 'pending');
+    if (stillPending.length > 0) {
+      showToast(_['partial-failure'] || `${stillPending.length} items failed`, 'error');
+    } else {
+      showToast(_['all-approved'], 'success');
+    }
+    busyRef.current = false;
   };
 
   const onRejectAll = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     await storeRejectAll();
-    showToast(_['all-rejected'], 'success');
+    const stillPending = inboxItems.value.filter(i => i.status === 'pending');
+    if (stillPending.length > 0) {
+      showToast(_['partial-failure'] || `${stillPending.length} items failed`, 'error');
+    } else {
+      showToast(_['all-rejected'], 'success');
+    }
+    busyRef.current = false;
   };
 
   return (

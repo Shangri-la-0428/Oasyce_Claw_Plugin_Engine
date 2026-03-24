@@ -23,6 +23,7 @@ interface Node {
   lastHeartbeat: number; // timestamp of last heartbeat
   heartbeatPhase: number; // offset so nodes don't pulse in sync
   satellites: Array<{ dx: number; dy: number; dist: number }>;
+  depth: number;         // 0.2–0.8, parallax depth layer
 }
 
 interface Ripple {
@@ -62,13 +63,20 @@ function makeSatellites(seed: number): Array<{ dx: number; dy: number; dist: num
 export default function NetworkGrid() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef(0);
+  // Delight: click/touch canvas to emit a ripple from cursor — "you are a node"
+  const pendingClick = useRef<{ x: number; y: number } | null>(null);
+  const cursorRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     let imgW = 0, imgH = 0;
+    let imgBuf: ImageData | null = null;
+    let imgU32: Uint32Array | null = null;  // 32-bit view for fast bg fill
     let visible = true;
+    const ctx2d = canvas.getContext('2d');
+    const prefersStill = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const nodes: Node[] = [];
     const ripples: Ripple[] = [];
     let lastSpawn = 0;
@@ -76,9 +84,11 @@ export default function NetworkGrid() {
     const gossipTimers = new Set<ReturnType<typeof setTimeout>>();
 
     // Cache computed CSS colors — only recalculate on theme change
+    let cachedDark = isDark();
     let cachedBgR = 0, cachedBgG = 0, cachedBgB = 0;
     function refreshCachedColors() {
-      const dark = isDark();
+      cachedDark = isDark();
+      const dark = cachedDark;
       const rootStyle = getComputedStyle(document.documentElement);
       const bgHex = rootStyle.getPropertyValue('--bg-0').trim();
       cachedBgR = parseInt(bgHex.slice(1, 3), 16) || (dark ? 10 : 250);
@@ -96,16 +106,42 @@ export default function NetworkGrid() {
     const SPAWN_INTERVAL = 3000;
     const RIPPLE_INTERVAL = 3500;
     const MAX_NODES = 28;
+    const MAX_RIPPLES = 12;
+
+    // Delight: process user-triggered ripple
+    function drainClick(now: number) {
+      const click = pendingClick.current;
+      if (!click) return;
+      pendingClick.current = null;
+      if (ripples.length >= MAX_RIPPLES) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const cx = Math.round(click.x * dpr);
+      const cy = Math.round(click.y * dpr);
+      ripples.push({
+        cx, cy,
+        radius: 0,
+        maxRadius: Math.max(imgW, imgH) * 0.35,
+        speed: 0.03,
+        strength: 0.8,
+        startTime: now,
+        sourceIdx: -1,
+        generation: 0,
+      });
+    }
 
     function init() {
       const W = canvas!.parentElement?.clientWidth ?? canvas!.clientWidth;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      imgW = Math.floor(W * dpr);
-      imgH = Math.floor(HEIGHT * dpr);
+      imgW = Math.max(1, Math.floor(W * dpr));
+      imgH = Math.max(1, Math.floor(HEIGHT * dpr));
       canvas!.width = imgW;
       canvas!.height = imgH;
       canvas!.style.width = `${W}px`;
       canvas!.style.height = `${HEIGHT}px`;
+
+      // Persistent pixel buffer — avoids ~1MB allocation per frame
+      imgBuf = ctx2d!.createImageData(imgW, imgH);
+      imgU32 = new Uint32Array(imgBuf.data.buffer);
 
       nodes.length = 0;
       ripples.length = 0;
@@ -114,12 +150,16 @@ export default function NetworkGrid() {
       const initial = 10 + Math.floor(Math.random() * 5);
       const minDist = Math.min(imgW, imgH) * 0.18;
       const now = performance.now();
+      const padX = Math.min(30, imgW >> 2);
+      const padY = Math.min(20, imgH >> 2);
+      const spanX = Math.max(1, imgW - padX * 2);
+      const spanY = Math.max(1, imgH - padY * 2);
 
       for (let i = 0; i < initial; i++) {
         let x: number, y: number, ok: boolean, tries = 0;
         do {
-          x = 30 + Math.floor(Math.random() * (imgW - 60));
-          y = 20 + Math.floor(Math.random() * (imgH - 40));
+          x = padX + Math.floor(Math.random() * spanX);
+          y = padY + Math.floor(Math.random() * spanY);
           ok = true;
           for (const n of nodes) { if (Math.hypot(n.x - x, n.y - y) < minDist) { ok = false; break; } }
           tries++;
@@ -136,6 +176,7 @@ export default function NetworkGrid() {
           lastHeartbeat: now - Math.random() * HEARTBEAT_MS,
           heartbeatPhase: Math.random() * Math.PI * 2,
           satellites: makeSatellites(i * 137 + x),
+          depth: isVal ? 0.25 : 0.4 + Math.random() * 0.35,
         });
       }
       lastSpawn = lastRipple = now;
@@ -146,10 +187,14 @@ export default function NetworkGrid() {
     function spawnNode(now: number) {
       if (nodes.length >= MAX_NODES) return;
       const minDist = Math.min(imgW, imgH) * 0.15;
+      const padX = Math.min(30, imgW >> 2);
+      const padY = Math.min(20, imgH >> 2);
+      const spanX = Math.max(1, imgW - padX * 2);
+      const spanY = Math.max(1, imgH - padY * 2);
       let x: number, y: number, ok: boolean, tries = 0;
       do {
-        x = 30 + Math.floor(Math.random() * (imgW - 60));
-        y = 20 + Math.floor(Math.random() * (imgH - 40));
+        x = padX + Math.floor(Math.random() * spanX);
+        y = padY + Math.floor(Math.random() * spanY);
         ok = true;
         for (const n of nodes) { if (Math.hypot(n.x - x, n.y - y) < minDist) { ok = false; break; } }
         tries++;
@@ -166,10 +211,12 @@ export default function NetworkGrid() {
         lastHeartbeat: now,
         heartbeatPhase: Math.random() * Math.PI * 2,
         satellites: makeSatellites(nodes.length * 137 + x),
+        depth: 0.4 + Math.random() * 0.35,
       });
     }
 
     function emitRipple(idx: number, generation: number) {
+      if (ripples.length >= MAX_RIPPLES) return;
       const n = nodes[idx];
       if (!n) return;
       n.energy = Math.min(1, n.energy + 0.4);
@@ -191,8 +238,7 @@ export default function NetworkGrid() {
       });
     }
 
-    function drawBlock(px: Uint8ClampedArray, bx: number, by: number, size: number, shade: number) {
-      const dark = isDark();
+    function drawBlock(px: Uint8ClampedArray, bx: number, by: number, size: number, shade: number, dark: boolean) {
       const half = (size - 1) >> 1;
       for (let py = 0; py < size; py++) {
         for (let ppx = 0; ppx < size; ppx++) {
@@ -211,29 +257,46 @@ export default function NetworkGrid() {
     const hitNodes = new Set<number>();
 
     function frame(now: number) {
-      const ctx = canvas!.getContext('2d');
-      if (!ctx) { if (visible) rafRef.current = requestAnimationFrame(frame); return; }
+      if (!ctx2d) { if (visible) rafRef.current = requestAnimationFrame(frame); return; }
+      const ctx = ctx2d;
+
+      // --- User-triggered ripple ---
+      drainClick(now);
+
+      // --- Cursor state (shared across update + render) ---
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const cursor = cursorRef.current;
+      // Reduced motion: disable cursor-driven effects (parallax, halos, proximity glow)
+      const cursorPx = (!prefersStill && cursor) ? { x: cursor.x * dpr, y: cursor.y * dpr } : null;
 
       // --- Spawn new nodes ---
       if (now - lastSpawn > SPAWN_INTERVAL + Math.random() * 2000) {
         lastSpawn = now;
         spawnNode(now);
         // Also randomly retire a non-validator node to keep turnover visible
-        const mortals = nodes.map((n, i) => ({ n, i })).filter(o => !o.n.isValidator && o.n.state === 'online');
-        if (mortals.length > 8 && Math.random() < 0.5) {
-          const victim = mortals[Math.floor(Math.random() * mortals.length)];
-          victim.n.state = 'fading';
+        let mortalCount = 0, mortalPick = -1;
+        for (let i = 0; i < nodes.length; i++) {
+          if (!nodes[i].isValidator && nodes[i].state === 'online') {
+            mortalCount++;
+            if (Math.random() * mortalCount < 1) mortalPick = i;
+          }
+        }
+        if (mortalCount > 8 && Math.random() < 0.5 && mortalPick >= 0) {
+          nodes[mortalPick].state = 'fading';
         }
       }
 
       // --- Primary broadcast ---
       if (now - lastRipple > RIPPLE_INTERVAL + Math.random() * 3000) {
         lastRipple = now;
-        const onlineNodes = nodes.map((n, i) => ({ n, i })).filter(o => o.n.state === 'online');
-        if (onlineNodes.length > 0) {
-          const pick = onlineNodes[Math.floor(Math.random() * onlineNodes.length)];
-          emitRipple(pick.i, 0);
+        let onlineCount = 0, onlinePick = -1;
+        for (let i = 0; i < nodes.length; i++) {
+          if (nodes[i].state === 'online') {
+            onlineCount++;
+            if (Math.random() * onlineCount < 1) onlinePick = i;
+          }
         }
+        if (onlinePick >= 0) emitRipple(onlinePick, 0);
       }
 
       // --- Update node states ---
@@ -283,6 +346,17 @@ export default function NetworkGrid() {
         }
       }
 
+      // Cursor proximity: awaken nearby idle nodes
+      if (cursorPx) {
+        for (const n of nodes) {
+          const dx = n.x - cursorPx.x, dy = n.y - cursorPx.y;
+          if (dx * dx + dy * dy < 3600 && n.state === 'idle') {  // 60²
+            n.state = 'online';
+            n.lastHeartbeat = now;
+          }
+        }
+      }
+
       // --- Update ripples ---
       hitNodes.clear();
       for (let i = ripples.length - 1; i >= 0; i--) {
@@ -304,9 +378,15 @@ export default function NetworkGrid() {
 
             hitNodes.add(j);
 
-            // Gossip forward: ~30% chance for online nodes, only from primary ripples
+            // Gossip forward: ~25% chance for online nodes, only from primary ripples
+            // Capture node ref (not index) — index shifts when dead nodes are spliced
             if (r.generation === 0 && n.state === 'online' && Math.random() < 0.25) {
-              const tid = setTimeout(() => { gossipTimers.delete(tid); emitRipple(j, 1); }, 300 + Math.random() * 500);
+              const gossipNode = n;
+              const tid = setTimeout(() => {
+                gossipTimers.delete(tid);
+                const idx = nodes.indexOf(gossipNode);
+                if (idx >= 0) emitRipple(idx, 1);
+              }, 300 + Math.random() * 500);
               gossipTimers.add(tid);
             }
           }
@@ -323,7 +403,7 @@ export default function NetworkGrid() {
       }
 
       // --- Render ---
-      const dark = isDark();
+      const dark = cachedDark;
       // Use cached CSS color values (refreshed on theme change via MutationObserver)
       const bgR = cachedBgR;
       const bgG = cachedBgG;
@@ -332,32 +412,45 @@ export default function NetworkGrid() {
       const sMid = dark ? 140 : 110;
       const sBright = dark ? 220 : 35;
 
-      const imgData = ctx.createImageData(imgW, imgH);
-      const px = imgData.data;
-      for (let i = 0; i < px.length; i += 4) {
-        px[i] = bgR; px[i + 1] = bgG; px[i + 2] = bgB; px[i + 3] = 255;
-      }
+      if (!imgBuf || !imgU32) { if (visible) rafRef.current = requestAnimationFrame(frame); return; }
+      const px = imgBuf.data;
+      // 32-bit ABGR fill (little-endian): ~4× faster than per-channel loop
+      const bgWord = (255 << 24) | (bgB << 16) | (bgG << 8) | bgR;
+      imgU32.fill(bgWord);
 
       const slowSeed = Math.floor(now / 220);
+
+      // Parallax offset (cursor-driven depth)
+      const prlxX = cursorPx ? (cursorPx.x - imgW / 2) / (imgW / 2) : 0;
+      const prlxY = cursorPx ? (cursorPx.y - imgH / 2) / (imgH / 2) : 0;
 
       // Draw nodes
       for (const n of nodes) {
         if (n.energy < 0.005) continue;
 
-        const cx = Math.round(n.x);
-        const cy = Math.round(n.y);
+        // Parallax-adjusted display position
+        const cx = Math.round(n.x + prlxX * n.depth * 6);
+        const cy = Math.round(n.y + prlxY * n.depth * 6);
+
+        // Proximity glow: cursor-near nodes appear brighter
+        let e = n.energy;
+        if (cursorPx) {
+          const dx = n.x - cursorPx.x, dy = n.y - cursorPx.y;
+          const dSq = dx * dx + dy * dy;
+          if (dSq < 6400) e = Math.min(1, e + (1 - Math.sqrt(dSq) / 80) * 0.3);  // 80²
+        }
 
         // Center dot
         const centerSize = n.isValidator
-          ? (n.energy > 0.3 ? 6 : 5)
-          : (n.energy > 0.4 ? 5 : 3);
-        const centerShade = n.energy > 0.5 ? sBright : (n.energy > 0.25 ? sMid : sDim);
+          ? (e > 0.3 ? 6 : 5)
+          : (e > 0.4 ? 5 : 3);
+        const centerShade = e > 0.5 ? sBright : (e > 0.25 ? sMid : sDim);
 
-        drawBlock(px, cx, cy, centerSize, centerShade);
+        drawBlock(px, cx, cy, centerSize, centerShade, dark);
 
         // Satellites: only show when energy is high enough
-        if (n.energy > 0.15) {
-          const visibleDist = 5 + n.energy * 14;
+        if (e > 0.15) {
+          const visibleDist = 5 + e * 14;
 
           for (let s = 0; s < n.satellites.length; s++) {
             const sat = n.satellites[s];
@@ -365,19 +458,22 @@ export default function NetworkGrid() {
 
             // Flicker: satellites shimmer in/out
             const flicker = hash(cx, s, slowSeed);
-            if (flicker > n.energy * 0.75) continue;
+            if (flicker > e * 0.75) continue;
 
             const sx = cx + sat.dx;
             const sy = cy + sat.dy;
             if (sx < 0 || sx >= imgW || sy < 0 || sy >= imgH) continue;
 
             const shade = sat.dist < 12 ? sMid : sDim;
-            drawBlock(px, sx, sy, 2, shade);
+            drawBlock(px, sx, sy, 2, shade, dark);
           }
         }
       }
 
-      // Draw ripple arcs with trailing scatter
+      // Draw ripples with wave interference
+      // Each wavefront particle sums wave contributions from ALL active ripples,
+      // producing constructive/destructive interference where rings overlap.
+      const waveLen = 18; // pixels per wave cycle
       for (const r of ripples) {
         if (r.strength < 0.015) continue;
 
@@ -388,32 +484,112 @@ export default function NetworkGrid() {
 
         for (let a = 0; a < count; a++) {
           const h1 = hash(a, Math.round(ringR), slowSeed);
-          if (h1 > r.strength) continue;
+          if (h1 > r.strength * 1.1) continue;
 
           const angle = (a / count) * Math.PI * 2;
-          const bx = Math.round(r.cx + Math.cos(angle) * ringR);
-          const by = Math.round(r.cy + Math.sin(angle) * ringR);
+          const wx = r.cx + Math.cos(angle) * ringR;
+          const wy = r.cy + Math.sin(angle) * ringR;
+          const bx = Math.round(wx);
+          const by = Math.round(wy);
           if (bx < 0 || bx >= imgW || by < 0 || by >= imgH) continue;
 
-          // Wavefront: bright particles
-          const frontSize = r.strength > 0.35 ? 3 : 2;
-          drawBlock(px, bx, by, frontSize, r.strength > 0.3 ? sBright : sMid);
+          // Sum wave contributions from all active ripples at this point
+          let totalWave = 0;
+          for (const r2 of ripples) {
+            if (r2.strength < 0.01) continue;
+            const d = Math.hypot(wx - r2.cx, wy - r2.cy);
+            const delta = d - r2.radius;
+            if (delta > 6 || delta < -6) continue; // outside Gaussian envelope
+            const envelope = Math.exp(-(delta * delta) / 18); // σ ≈ 3px
+            const phase = Math.sin((d / waveLen) * Math.PI * 2);
+            totalWave += r2.strength * envelope * phase;
+          }
 
-          // Trailing scatter: 1px dim particles behind the wavefront
-          if (r.strength > 0.2) {
+          const intensity = Math.abs(totalWave);
+          if (intensity < 0.03) continue; // destructive interference → invisible
+
+          const shade = intensity > 0.35 ? sBright : (intensity > 0.15 ? sMid : sDim);
+          const size = intensity > 0.35 ? 3 : 2;
+          drawBlock(px, bx, by, size, shade, dark);
+
+          // Trailing scatter (modulated by interference)
+          if (intensity > 0.2) {
             const trailR = ringR - 3 - hash(a, Math.round(ringR), 88) * 5;
             if (trailR > 0) {
               const tx = Math.round(r.cx + Math.cos(angle) * trailR);
               const ty = Math.round(r.cy + Math.sin(angle) * trailR);
               if (tx >= 0 && tx < imgW && ty >= 0 && ty < imgH) {
-                drawBlock(px, tx, ty, 2, sDim);
+                drawBlock(px, tx, ty, 2, sDim, dark);
               }
             }
           }
         }
       }
 
-      ctx.putImageData(imgData, 0, 0);
+      ctx.putImageData(imgBuf, 0, 0);
+
+      // --- Connection lines (ctx API overlay) ---
+      const maxConn = 40;
+      const maxConnDist = imgW * 0.22;
+      const maxConnDistSq = maxConnDist * maxConnDist;
+      let connCount = 0;
+      for (let i = 0; i < nodes.length && connCount < maxConn; i++) {
+        const a = nodes[i];
+        if (a.energy < 0.12) continue;
+        const ax = a.x + prlxX * a.depth * 6;
+        const ay = a.y + prlxY * a.depth * 6;
+
+        for (let j = i + 1; j < nodes.length && connCount < maxConn; j++) {
+          const b = nodes[j];
+          if (b.energy < 0.12) continue;
+          const bx = b.x + prlxX * b.depth * 6;
+          const by = b.y + prlxY * b.depth * 6;
+
+          const dxC = ax - bx, dyC = ay - by;
+          const dSqC = dxC * dxC + dyC * dyC;
+          if (dSqC > maxConnDistSq) continue;
+          const dist = Math.sqrt(dSqC);
+          const alpha = (1 - dist / maxConnDist) * Math.min(a.energy, b.energy) * 0.18;
+          if (alpha < 0.01) continue;
+
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.strokeStyle = dark
+            ? `rgba(255,255,255,${alpha})`
+            : `rgba(0,0,0,${alpha})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          connCount++;
+        }
+      }
+
+      // --- Node halos (proximity glow, ctx API) ---
+      if (cursorPx) {
+        for (const n of nodes) {
+          if (n.energy < 0.2) continue;
+          const dxH = n.x - cursorPx.x, dyH = n.y - cursorPx.y;
+          const dSqH = dxH * dxH + dyH * dyH;
+          if (dSqH > 3600) continue;  // 60²
+          const dist = Math.sqrt(dSqH);
+
+          const nx = n.x + prlxX * n.depth * 6;
+          const ny = n.y + prlxY * n.depth * 6;
+          const haloR = Math.min(20, 8 + n.energy * 12);
+          const proximity = 1 - dist / 60;
+          const alpha = proximity * n.energy * 0.12;
+
+          const grad = ctx.createRadialGradient(nx, ny, 0, nx, ny, haloR);
+          const rgb = dark ? '255,255,255' : '0,0,0';
+          grad.addColorStop(0, `rgba(${rgb},${alpha})`);
+          grad.addColorStop(1, `rgba(${rgb},0)`);
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(nx, ny, haloR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
       if (visible) rafRef.current = requestAnimationFrame(frame);
       else rafRef.current = 0;
     }
@@ -430,10 +606,52 @@ export default function NetworkGrid() {
 
     startLoop();
 
+    // Delight: click/touch to broadcast
+    const onClick = (e: MouseEvent) => {
+      const rect = canvas!.getBoundingClientRect();
+      pendingClick.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+    canvas.addEventListener('click', onClick);
+    const onMouseMove = (e: MouseEvent) => {
+      const rect = canvas!.getBoundingClientRect();
+      cursorRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+    const onMouseLeave = () => { cursorRef.current = null; };
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mouseleave', onMouseLeave);
+
     let rt = 0;
     const onResize = () => { clearTimeout(rt); rt = window.setTimeout(init, 300); };
     window.addEventListener('resize', onResize);
-    return () => { stopLoop(); clearTimeout(rt); gossipTimers.forEach(clearTimeout); gossipTimers.clear(); window.removeEventListener('resize', onResize); observer.disconnect(); themeObserver.disconnect(); };
+
+    // Scroll-fade fallback for browsers without scroll-driven animations
+    let scrollCleanup: (() => void) | undefined;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reducedMotion && !(typeof CSS !== 'undefined' && CSS.supports('animation-timeline', 'scroll()'))) {
+      const wrap = canvas.parentElement;
+      if (wrap) {
+        const onScroll = () => {
+          const t = Math.min(1, window.scrollY / 300);
+          wrap.style.opacity = `${1 - t * 0.88}`;
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        scrollCleanup = () => { window.removeEventListener('scroll', onScroll); wrap.style.opacity = ''; };
+      }
+    }
+
+    return () => {
+      stopLoop();
+      clearTimeout(rt);
+      gossipTimers.forEach(clearTimeout);
+      gossipTimers.clear();
+      scrollCleanup?.();
+      window.removeEventListener('resize', onResize);
+      observer.disconnect();
+      themeObserver.disconnect();
+      canvas.removeEventListener('click', onClick);
+      canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('mouseleave', onMouseLeave);
+    };
   }, []);
 
   return <canvas ref={canvasRef} class="network-grid" aria-hidden="true" />;

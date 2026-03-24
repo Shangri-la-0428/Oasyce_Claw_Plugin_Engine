@@ -3,7 +3,7 @@
 > 本文档既是产品定义，也是 QA 走查规格。每个功能点都有唯一编号 `[QA-xxx]`，
 > 对应 `scripts/qa_regression.py` 中的自动化检查。跑一次脚本 = 一次完整 QA 走查。
 
-**版本**: v2.1.1 | **最后更新**: 2026-03-23 | **状态**: 主网准备中 | **QA 检查点**: 381
+**版本**: v2.1.1 | **最后更新**: 2026-03-25 | **状态**: 主网准备中 | **QA 检查点**: 710
 
 ---
 
@@ -863,7 +863,9 @@
 | QA-1900 | Go 链 | 13 |
 | QA-2000 | CLI 命令 | 78 |
 | QA-2100 | 内网联测 | 20 |
-| **总计** | | **~401** |
+| QA-3000 | Dashboard GUI | 289 |
+| QA-3300 | Dashboard 加固 (High) | 20 |
+| **总计** | | **~710** |
 
 ---
 
@@ -884,3 +886,476 @@ python3 scripts/qa_regression.py --include-chain
 # 输出 JSON 报告
 python3 scripts/qa_regression.py --json > qa_report.json
 ```
+
+---
+
+## 二十四、Dashboard GUI [QA-3000 系列]
+
+> Dashboard 是 Oasyce 的 Web 前端，运行在 `localhost:8420`。
+> 以下检查点覆盖 5 个页面、共享组件、状态管理、路由、国际化与无障碍。
+> 测试方式: 手动走查 + Playwright E2E (`dashboard/src/__tests__/`)。
+
+---
+
+### 24.1 Home 页面 — Onboarding 向导 (home.tsx)
+
+**Step 1: 创建钱包**
+- 首次访问（无 identity）显示 Onboarding 向导 Step 1 [QA-3001]
+- 点击创建钱包触发 PoW 计算 (POST /identity/create) [QA-3002]
+- PoW 进度指示器实时更新 [QA-3003]
+- PoW 完成后 identity 写入 UI store 并持久化 [QA-3004]
+- 创建成功后焦点自动移至 gateRef (Step 2 区域) [QA-3005]
+- 网络错误时显示 toast 错误提示 [QA-3006]
+
+**Step 2: 领取启动资金**
+- 有 identity 但 balance=0 时显示 Step 2 [QA-3007]
+- 通过 PoW 自注册 claim 启动资金 [QA-3008]
+- 成功后 balance 更新，进入 Step 3 [QA-3009]
+- 重复 claim 被服务端拒绝，显示错误 toast [QA-3010]
+
+**Step 3: 注册首个资产**
+- 有 identity + balance > 0 + asset count = 0 时显示 Step 3 [QA-3011]
+- Data / Capability 模式切换 tab (ARIA tablist) [QA-3012]
+- 左右箭头键切换 tab (keyboard navigation) [QA-3013]
+- Data 模式: 显示 RegisterForm 组件 [QA-3014]
+- Capability 模式: 显示能力注册表单 [QA-3015]
+- 注册成功后显示结果摘要: asset_id, file_hash, bundled_files, pricing_model, type [QA-3016]
+- asset_id 可点击复制到剪贴板 [QA-3017]
+- 复制成功显示 toast 确认 [QA-3018]
+- "Register another" 按钮重置表单回到 Step 3 [QA-3019]
+- 焦点移至 successRef (成功面板) [QA-3020]
+
+### 24.2 Home 页面 — Veteran 视图
+
+- 当 wallet + balance > 0 + asset count > 0 时显示 Veteran 视图 [QA-3021]
+- Status KV strip 显示: wallet address (masked), balance, asset count, earnings [QA-3022]
+- wallet address 截断显示 (首6+末4 或类似掩码格式) [QA-3023]
+- Recent trades 列表从 /earnings API 加载 [QA-3024]
+- 加载中显示 skeleton 骨架屏 [QA-3025]
+- 列表为空时显示 "No trades yet" 空状态 [QA-3026]
+- 列表项显示交易时间、金额、对手方等关键信息 [QA-3027]
+- Navigation links: My Data, Market, Network [QA-3028]
+- 链接 hover 时箭头动画触发 [QA-3029]
+- "Register more" 折叠区段 (collapsible) [QA-3030]
+- 折叠/展开动画流畅且尊重 prefers-reduced-motion [QA-3031]
+
+### 24.3 Home 页面 — 模式切换与视觉
+
+- Mode switch tabs (data/capability) 使用 role="tablist" [QA-3032]
+- 当前选中 tab 有 aria-selected="true" [QA-3033]
+- 箭头键在 tabs 间循环导航 [QA-3034]
+- Tab 切换不丢失已填写的表单数据 [QA-3035]
+- NetworkGrid canvas 正常渲染协议可视化 [QA-3036]
+- 点击 NetworkGrid 触发 ripple 效果 [QA-3037]
+- NetworkGrid 设置 aria-hidden="true" (装饰性元素) [QA-3038]
+- 滚动驱动的 grid fade 效果 (CSS animation-timeline) [QA-3039]
+- 不支持 animation-timeline 的浏览器有 JS fallback [QA-3040]
+
+---
+
+### 24.4 MyData 页面 (mydata.tsx)
+
+**资产列表与筛选**
+- Data assets tab 显示已注册数据资产列表 [QA-3041]
+- Capability tab 显示已发布能力列表 [QA-3042]
+- Tab 切换保留各自的滚动位置 [QA-3043]
+- 搜索框支持按 ID/名称/描述关键词过滤 [QA-3044]
+- 搜索为实时过滤 (输入即筛选，无需回车) [QA-3045]
+- 排序: 按时间排序 (newest first / oldest first) [QA-3046]
+- 排序: 按价值排序 (highest / lowest) [QA-3047]
+- Tag 过滤: 点击 tag 筛选同标签资产 [QA-3048]
+- 多个筛选条件可组合使用 [QA-3049]
+- 列表为空时显示 EmptyState 组件 [QA-3050]
+
+**资产展开与详情**
+- 点击资产行展开详情面板 [QA-3051]
+- 详情显示: masked asset ID, owner, spot price, tags [QA-3052]
+- asset ID 使用 monospace 字体 [QA-3053]
+- spot price 使用 monospace 字体并带 OAS 单位 [QA-3054]
+
+**资产操作**
+- 删除按钮打开确认对话框 [QA-3055]
+- 确认对话框显示资产名称，需二次确认 [QA-3056]
+- 取消关闭对话框，不执行删除 [QA-3057]
+- 确认删除后资产从列表移除 [QA-3058]
+- 删除成功显示 toast 确认 [QA-3059]
+- Re-register 触发版本自增 (version bump) [QA-3060]
+- Re-register 保留原始 asset 元数据 [QA-3061]
+- Tag 编辑: 行内编辑 tag (inline editing) [QA-3062]
+- Tag 编辑: 添加新 tag [QA-3063]
+- Tag 编辑: 删除已有 tag [QA-3064]
+- Tag 编辑: 保存后立即反映到列表 [QA-3065]
+- Dispute filing: 打开争议表单 [QA-3066]
+- Dispute filing: 提交争议成功显示 toast [QA-3067]
+
+**收益汇总**
+- Owner earnings summary 显示总收益 [QA-3068]
+- 收益按资产分组展示 [QA-3069]
+
+---
+
+### 24.5 Explore 页面 — Browse (explore.tsx + explore-browse.tsx)
+
+**搜索与筛选**
+- Explore 页面默认显示 Browse 子 tab [QA-3070]
+- 搜索框支持按 asset ID 搜索 [QA-3071]
+- 搜索框支持按描述关键词搜索 [QA-3072]
+- Type filter: All / Data / Capability 三选一 [QA-3073]
+- Tag filtering: 选择 tag 缩小结果范围 [QA-3074]
+- Sort: Newest first 排序 [QA-3075]
+- Sort: Highest value 排序 [QA-3076]
+- 筛选状态通过 URL hash 保持 (刷新不丢失) [QA-3077]
+
+**资产详情面板**
+- 点击资产打开详情面板 [QA-3078]
+- 详情面板显示分级访问报价 (L0-L3) [QA-3079]
+- L0 报价最低, L3 报价最高 [QA-3080]
+- 各级访问显示所需持股比例 (>=0.1%, >=1%, >=5%, >=10%) [QA-3081]
+
+**购买流程**
+- 输入购买金额 (amount) [QA-3082]
+- 实时报价更新: 输入金额变化时自动刷新报价 [QA-3083]
+- 报价显示: equity_minted, spot_price_before/after, price_impact, fees [QA-3084]
+- 金额为 0 或为空时禁用确认按钮 [QA-3085]
+- 金额超过 balance 时显示余额不足提示 [QA-3086]
+- 确认购买弹出二次确认 [QA-3087]
+- 购买成功显示成功状态: 获得股份数、新 spot price [QA-3088]
+- 购买成功后 balance 和持仓自动刷新 [QA-3089]
+- 购买失败显示错误 toast [QA-3090]
+
+**AI 智能发现**
+- AI smart discovery 入口可见 [QA-3091]
+- 输入 intent 描述进行意图匹配 [QA-3092]
+- 匹配结果按相关性排序返回 [QA-3093]
+- 无匹配结果时显示空状态提示 [QA-3094]
+
+**数据预览**
+- Data preview modal 支持 Markdown 渲染 [QA-3095]
+- Data preview modal 支持 JSON 格式化显示 [QA-3096]
+- Data preview modal 支持 CSV 表格渲染 [QA-3097]
+- Data preview modal 支持图片预览 [QA-3098]
+- Data preview modal 对二进制文件显示 hex 摘要或提示 [QA-3099]
+- ESC 键关闭 preview modal [QA-3100]
+- Modal 外部点击关闭 preview [QA-3101]
+
+**能力调用**
+- Capability 类型资产显示 Invoke 按钮 [QA-3102]
+- 调用面板提供 JSON 输入编辑器 [QA-3103]
+- JSON 语法错误时显示校验提示 [QA-3104]
+- 调用成功显示 JSON 格式化输出 [QA-3105]
+- 调用失败显示错误详情 [QA-3106]
+
+### 24.6 Explore 页面 — Portfolio (explore-portfolio.tsx)
+
+- Portfolio tab 显示当前持仓列表 [QA-3107]
+- 每项显示: 资产名称、持有股份数、当前价值、盈亏 [QA-3108]
+- 持仓为空时显示 EmptyState [QA-3109]
+- 点击持仓项跳转到对应资产详情 [QA-3110]
+
+### 24.7 Explore 页面 — Stake (explore-stake.tsx)
+
+- Validator 列表显示活跃验证者 [QA-3111]
+- 每项显示: 验证者地址、委托总量、佣金率 [QA-3112]
+- Stake 表单: 选择验证者 + 输入质押金额 [QA-3113]
+- 金额校验: 不超过可用 balance [QA-3114]
+- 质押成功显示 toast + 更新 balance [QA-3115]
+- 质押失败显示错误 toast [QA-3116]
+
+### 24.8 Explore 页面 — Bounty (explore-bounty.tsx)
+
+- Task marketplace 显示已发布的 bounty 列表 [QA-3117]
+- 列表项显示: 描述、预算、截止时间、状态 [QA-3118]
+- Bid 操作: 输入报价和预计完成时间 [QA-3119]
+- Bid 价格超过 budget → 拒绝提交 [QA-3120]
+- Accept 操作: 任务发布方选择中标者 [QA-3121]
+- Complete 操作: 执行方标记完成 [QA-3122]
+- 任务状态流转: OPEN → ASSIGNED → COMPLETED [QA-3123]
+- 已完成 / 已取消任务不可操作 [QA-3124]
+
+---
+
+### 24.9 Automation 页面 — Queue (automation.tsx)
+
+**审批队列**
+- Queue tab 显示待处理注册请求的收件箱 [QA-3125]
+- 收件箱为空时显示 EmptyState [QA-3126]
+- 每项显示: 文件名/描述、扫描时间、置信度、建议操作 [QA-3127]
+- 单个 Approve: 批准注册请求 [QA-3128]
+- 单个 Reject: 拒绝注册请求 [QA-3129]
+- 单个 Edit: 修改注册参数后批准 [QA-3130]
+- Bulk approve: 选中多项批量批准 [QA-3131]
+- Bulk reject: 选中多项批量拒绝 [QA-3132]
+- 操作后项目从列表移除 (optimistic update) [QA-3133]
+- 操作失败时回滚 (optimistic update 回滚) [QA-3134]
+
+### 24.10 Automation 页面 — Rules
+
+**信任配置**
+- Rules tab 显示信任与自动化配置 [QA-3135]
+- Trust level 设置: 0 (全手动) / 1 (低风险自动) / 2 (全自动) [QA-3136]
+- Trust level 变更立即生效并持久化 [QA-3137]
+- Confidence threshold 滑块/输入: 设定自动审批的置信度阈值 [QA-3138]
+- Threshold 变更实时预览受影响的队列项数 [QA-3139]
+
+**Agent 调度器**
+- Agent scheduler enable/disable 切换 [QA-3140]
+- Interval 配置: 设置运行间隔 (小时) [QA-3141]
+- Scan paths 配置: 添加/移除扫描目录 [QA-3142]
+- Auto-trade 开关: 启用/禁用自动购买 [QA-3143]
+- Max spend 配置: 设置每次运行的最大花费 (OAS) [QA-3144]
+- 配置变更保存成功显示 toast [QA-3145]
+
+**运行历史**
+- Agent run history 显示历次运行记录 [QA-3146]
+- 每条记录显示: 运行时间、扫描文件数、注册数、交易数 [QA-3147]
+- 运行历史为空时显示 EmptyState [QA-3148]
+
+---
+
+### 24.11 Network 页面 (network.tsx)
+
+**Identity 面板**
+- 节点 ID 显示 (monospace) [QA-3149]
+- Public key 掩码显示 (首6+末4) [QA-3150]
+- Public key 点击复制完整值到剪贴板 [QA-3151]
+- 复制成功显示 toast [QA-3152]
+- 创建时间显示 (本地化格式) [QA-3153]
+
+**AI 配置**
+- Provider selector: 选择 AI 提供商 (OpenAI / Anthropic / Custom) [QA-3154]
+- API key 输入: 密码类型输入，掩码显示 [QA-3155]
+- Custom endpoint 输入: 自定义 API 地址 [QA-3156]
+- Status indicator: 显示 AI 连接状态 (connected / disconnected / error) [QA-3157]
+- API key 变更后可测试连通性 [QA-3158]
+
+**节点角色**
+- Validator registration: 注册为验证者 [QA-3159]
+- 注册需满足 min_stake 要求 [QA-3160]
+- Arbitrator registration: 注册为仲裁者 [QA-3161]
+- 角色注册成功后状态更新 [QA-3162]
+
+**网络状态**
+- Chain height 实时显示 [QA-3163]
+- Connected peers 数量 [QA-3164]
+- Consensus 状态 [QA-3165]
+- 数据通过 useChain hook 轮询刷新 [QA-3166]
+
+**子面板 (Collapsible Sections)**
+- Watermark 面板: 水印管理功能 [QA-3167]
+- Fingerprints 面板: 指纹查询与追踪 [QA-3168]
+- Governance 面板: 治理提案查看 [QA-3169]
+- Contribution 面板: 贡献证明 (PoPC) 查看 [QA-3170]
+- Cache 面板: 缓存统计与清理 [QA-3171]
+- Leakage 面板: 数据泄露检测状态 [QA-3172]
+- Feedback 面板: 反馈提交 [QA-3173]
+- 所有子面板折叠/展开动画流畅 [QA-3174]
+- 折叠状态跨页面导航保持 [QA-3175]
+
+---
+
+### 24.12 共享组件
+
+**Nav 导航栏 (nav.tsx)**
+- 5 个 tab: Home, MyData, Explore, Automation, Network [QA-3176]
+- 当前页面对应 tab 高亮 [QA-3177]
+- Sliding indicator 跟随当前 tab 滑动 [QA-3178]
+- 主题切换 (dark/light) 按钮可用 [QA-3179]
+- 语言切换 (zh/en) 按钮可用 [QA-3180]
+- About 面板切换按钮可用 [QA-3181]
+- 点击 tab 触发路由跳转 [QA-3182]
+
+**Toast 通知 (toast.tsx)**
+- Toast 自动 3 秒后消失 (auto-dismiss) [QA-3183]
+- Success 类型: 绿色样式 [QA-3184]
+- Error 类型: 红色样式 [QA-3185]
+- Warning 类型: 黄色样式 [QA-3186]
+- Info 类型: 蓝色样式 [QA-3187]
+- 多个 toast 堆叠排列 [QA-3188]
+- Toast 支持手动关闭 [QA-3189]
+
+**RegisterForm 注册表单 (register-form.tsx)**
+- 拖拽文件/文件夹上传 [QA-3190]
+- 拖拽区域 hover 视觉反馈 [QA-3191]
+- 点击浏览文件 (file picker) [QA-3192]
+- Rights type 选择: original / co_creation / licensed / collection [QA-3193]
+- Price model 选择: auto / fixed / floor [QA-3194]
+- Price 输入: 选择 fixed 或 floor 后可输入价格 [QA-3195]
+- Co-creators 配置: 添加协作者地址和份额 [QA-3196]
+- 份额总和校验 (不超过 100%) [QA-3197]
+- 提交前必填字段校验 [QA-3198]
+- 空文件/无文件时禁用提交 [QA-3199]
+
+**Section 折叠卡片 (section.tsx)**
+- 点击标题行折叠/展开 [QA-3200]
+- 折叠图标旋转动画 [QA-3201]
+- 默认展开/折叠状态可配置 [QA-3202]
+
+**EmptyState 空状态 (empty-state.tsx)**
+- 显示图标 + 标题 + 描述文本 [QA-3203]
+- 可选 CTA 按钮 [QA-3204]
+
+**ErrorBoundary 错误边界 (error-boundary.tsx)**
+- 子组件崩溃时捕获错误 [QA-3205]
+- 显示友好错误界面而非白屏 [QA-3206]
+- 提供"重试"按钮恢复 [QA-3207]
+- 错误信息记录到 console [QA-3208]
+
+**DataPreview 数据预览 (data-preview.tsx)**
+- 根据文件类型自动选择渲染器 [QA-3209]
+- 大文件截断显示 + 提示 [QA-3210]
+
+**DisputeForm 争议表单 (dispute-form.tsx)**
+- Reason 必填校验 [QA-3211]
+- 提交后显示 dispute_id [QA-3212]
+
+**AboutPanel 关于面板 (about-panel.tsx)**
+- 显示版本号、链接、社区信息 [QA-3213]
+- ESC 键关闭面板 [QA-3214]
+
+---
+
+### 24.13 状态管理 (Store)
+
+**UI Store (store/ui.ts)**
+- Theme: dark/light 切换 [QA-3215]
+- Theme 持久化到 localStorage [QA-3216]
+- 页面刷新后 theme 恢复 [QA-3217]
+- Language: zh/en 切换 [QA-3218]
+- Language 持久化到 localStorage [QA-3219]
+- 页面刷新后 language 恢复 [QA-3220]
+- Toasts: 添加 toast → 列表更新 [QA-3221]
+- Toasts: 移除 toast → 列表更新 [QA-3222]
+- Identity: 创建后写入 store [QA-3223]
+- Balance: API 返回后更新 store [QA-3224]
+- Notifications: 新通知添加到队列 [QA-3225]
+- PoW progress: 进度值 0-100 实时更新 [QA-3226]
+
+**Assets Store (store/assets.ts)**
+- 加载资产列表 (list) [QA-3227]
+- 添加资产 (create) → 列表追加 [QA-3228]
+- 更新资产 (update) → 列表项更新 [QA-3229]
+- 删除资产 (delete) → 列表项移除 [QA-3230]
+- 列表按注册时间倒序 [QA-3231]
+
+**Scanner Store (store/scanner.ts)**
+- Inbox items 加载 [QA-3232]
+- Approve item → optimistic 移除 + API 调用 [QA-3233]
+- Reject item → optimistic 移除 + API 调用 [QA-3234]
+- API 失败 → optimistic 回滚，item 恢复 [QA-3235]
+- Trust config 读取 [QA-3236]
+- Trust config 更新并持久化 [QA-3237]
+- Scan trigger: 触发扫描并更新 inbox [QA-3238]
+
+---
+
+### 24.14 路由 (Hooks)
+
+**useRoute (hooks/use-route.ts)**
+- Hash-based routing (#home, #mydata, #explore, #automation, #network) [QA-3239]
+- 默认路由: 无 hash 时导航到 #home [QA-3240]
+- 浏览器后退/前进按钮正常工作 [QA-3241]
+- View Transitions API 集成 (支持的浏览器) [QA-3242]
+- 不支持 View Transitions 时 graceful fallback [QA-3243]
+- Direction-aware: 前进和后退方向不同的过渡动画 [QA-3244]
+
+**useChain (hooks/useChain.ts)**
+- Cosmos REST API 轮询 [QA-3245]
+- 初始轮询间隔 15 秒 [QA-3246]
+- 连续失败时指数退避 [QA-3247]
+- 退避上限 5 分钟 [QA-3248]
+- 成功响应后重置为 15 秒 [QA-3249]
+- 组件卸载时清理定时器 [QA-3250]
+- 链不可用时 UI 显示离线状态 [QA-3251]
+
+**useEscapeKey (hooks/useEscapeKey.ts)**
+- ESC 键触发注册的回调 [QA-3252]
+- 多层 modal 时仅最顶层响应 ESC [QA-3253]
+- 组件卸载后移除事件监听 [QA-3254]
+
+---
+
+### 24.15 国际化 (i18n)
+
+- 185 个翻译键完整定义 [QA-3255]
+- zh 语言包所有键有值 [QA-3256]
+- en 语言包所有键有值 [QA-3257]
+- zh/en 键集合严格一致 (无遗漏、无多余) [QA-3258]
+- 切换语言后所有可见文本即时更新 [QA-3259]
+- 使用 computed signal 实现响应式更新 [QA-3260]
+- 动态值 (余额、数量) 使用插值而非拼接 [QA-3261]
+- 日期/时间格式随语言切换 [QA-3262]
+- 无硬编码中文或英文出现在组件中 [QA-3263]
+
+---
+
+### 24.16 无障碍 (Accessibility)
+
+- Mode switch tabs 使用 role="tablist" + role="tab" [QA-3264]
+- 左右箭头键在 tablist 中循环导航 [QA-3265]
+- 创建钱包后焦点移至下一步 (focus management) [QA-3266]
+- 资产注册成功后焦点移至结果区域 [QA-3267]
+- Skip link 存在且跳转到主内容区 [QA-3268]
+- prefers-reduced-motion: 所有动画降级为 instant 或 opacity-only [QA-3269]
+- NetworkGrid canvas 设置 aria-hidden="true" [QA-3270]
+- 装饰性箭头图标设置 aria-hidden="true" [QA-3271]
+- 所有交互元素有 :focus-visible 样式 [QA-3272]
+- 按钮和链接有可辨识的 focus ring [QA-3273]
+- 表单输入有关联的 label (显式或 aria-label) [QA-3274]
+- 错误提示与对应输入通过 aria-describedby 关联 [QA-3275]
+- Toast 使用 role="alert" 或 aria-live="polite" [QA-3276]
+- 颜色对比度符合 WCAG AA (4.5:1 文本, 3:1 大文本) [QA-3277]
+- dark/light 两种主题均满足对比度要求 [QA-3278]
+
+---
+
+### 24.17 视觉与动效
+
+- 入场编排: 页面切换时 staggered reveal (50-100ms 偏移) [QA-3279]
+- 入场动画: fade + subtle translateY [QA-3280]
+- Easing: cubic-bezier(0.25, 1, 0.5, 1) (ease-out-quart) [QA-3281]
+- 微交互时长: 0.12-0.3s [QA-3282]
+- 页面转场时长: 最大 0.5s [QA-3283]
+- 无 bounce / spring / elastic 动画 [QA-3284]
+- prefers-reduced-motion 时禁用所有非必要动画 [QA-3285]
+- 所有语义颜色仅用于状态 (green/red/yellow/blue) [QA-3286]
+- 非状态元素使用灰度色阶 [QA-3287]
+- Monospace 字体用于: ID, hash, price, address [QA-3288]
+- 排版层级清晰: 标题 700 weight / 正文 400 weight [QA-3289]
+
+---
+
+### 24.18 Dashboard 加固 — High 严重度修复 [QA-3300 系列]
+
+**Explore 页面 — 状态隔离与焦点管理**
+- Quote/Buy/Invoke 使用独立 loading 状态，互不干扰 [QA-3301]
+- Detail side panel (role="dialog") 实现焦点陷阱 [QA-3302]
+- Preview overlay 实现焦点陷阱 [QA-3303]
+- 关闭 panel/overlay 时焦点恢复到触发元素 [QA-3304]
+- Tag filter chips 最多显示 15 个，超出显示 "+N" 展开按钮 [QA-3305]
+
+**注册表单 — 文件验证**
+- 文件大小超过 100MB 时拒绝并显示 toast [QA-3306]
+- 文件夹总大小超过 100MB 时拒绝并显示 toast [QA-3307]
+- 文件选择器通过 accept 属性限制可选文件类型 [QA-3308]
+- 选中文件后在 dropzone 中显示文件大小 [QA-3309]
+
+**DataPreview — 竞态修复**
+- 快速切换 L0/L1/L2/L3 时，仅最后一次请求的结果生效 (generation counter) [QA-3310]
+- 组件卸载后不会执行 setState [QA-3311]
+
+**MyData — 并发保护**
+- onSaveTags 有 busyRef 防护，快速双击不会重复提交 [QA-3312]
+- onLoadVersions 检查 mountedRef，卸载后不执行 setState [QA-3313]
+
+**Network — 数据新鲜度与并发**
+- 共识状态每 30 秒自动轮询刷新 [QA-3314]
+- 页面卸载时轮询定时器被清理 [QA-3315]
+- saveApiKey / becomeValidator / becomeArbitrator 有 busyRef 防双击 [QA-3316]
+
+**Governance — 投票反馈**
+- 投票成功后自动刷新提案列表 [QA-3317]
+- 所有异步 setState 检查 mountedRef [QA-3318]
+
+**Automation — 输入验证与并发**
+- Agent interval 验证为 ≥1 小时 [QA-3319]
+- tradeMax 验证为 ≥0 [QA-3320]

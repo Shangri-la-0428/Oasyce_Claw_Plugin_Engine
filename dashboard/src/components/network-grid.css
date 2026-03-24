@@ -2,11 +2,19 @@
   width: 100%;
   height: 160px;
   display: block;
+  cursor: crosshair;
 }
 
 /* ── Mobile ── */
 @media (max-width: 600px) {
   .network-grid {
     height: 100px;
+  }
+}
+
+/* Reduced motion: no cursor interaction affordance */
+@media (prefers-reduced-motion: reduce) {
+  .network-grid {
+    cursor: default;
   }
 }

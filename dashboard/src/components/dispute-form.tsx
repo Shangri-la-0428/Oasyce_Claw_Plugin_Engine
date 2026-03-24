@@ -2,7 +2,7 @@
  * DisputeForm — File a dispute for a purchased asset
  * + MyDisputes — List user's disputes
  */
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { post, get } from '../api/client';
 import { fmtDate } from '../utils';
 import { i18n, walletAddress, showToast, loadNotifications } from '../store/ui';
@@ -39,15 +39,18 @@ export function DisputeForm({ assetId, onClose, onFiled }: DisputeFormProps) {
   const [evidence, setEvidence] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [reasonError, setReasonError] = useState('');
+  const submittingRef = useRef(false);
   const _ = i18n.value;
 
   const onSubmit = async () => {
+    if (submittingRef.current) return;
     if (!reason) {
       setReasonError(_['dispute-reason-select']);
       showToast(_['dispute-reason-select'], 'error');
       return;
     }
     setReasonError('');
+    submittingRef.current = true;
     setSubmitting(true);
     const res = await post<{ ok: boolean; dispute_id: string; error?: string }>('/dispute/file', {
       asset_id: assetId,
@@ -64,6 +67,7 @@ export function DisputeForm({ assetId, onClose, onFiled }: DisputeFormProps) {
       showToast(res.error || res.data?.error || _['error-generic'], 'error');
     }
     setSubmitting(false);
+    submittingRef.current = false;
   };
 
   return (

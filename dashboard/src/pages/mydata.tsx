@@ -1,7 +1,7 @@
 /**
  * MyData — 我的数据
  */
-import { useEffect, useState, useMemo } from 'preact/hooks';
+import { useEffect, useState, useMemo, useRef } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { assets, loadAssets, deleteAsset } from '../store/assets';
 import { showToast, i18n, walletAddress } from '../store/ui';
@@ -36,6 +36,7 @@ interface OwnerEarningsData {
 }
 
 export default function MyData() {
+  const busyRef = useRef(false);
   const [q, setQ] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
@@ -76,11 +77,16 @@ export default function MyData() {
 
   const _ = i18n.value;
 
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   const loadMyCaps = async () => {
     setMyCapsLoading(true);
     const res = await get<DeliveryEndpoint[]>(`/delivery/endpoints?provider=${walletAddress()}`);
+    if (!mountedRef.current) return;
     if (res.success && Array.isArray(res.data)) setMyCaps(res.data);
     const eres = await get<EarningsData>(`/delivery/earnings?provider=${walletAddress()}`);
+    if (!mountedRef.current) return;
     if (eres.success && eres.data && typeof eres.data === 'object') setEarnings(eres.data);
     setMyCapsLoading(false);
   };
@@ -89,6 +95,7 @@ export default function MyData() {
     const addr = walletAddress();
     if (addr === 'anonymous') return;
     const res = await get<OwnerEarningsData>(`/earnings?owner=${encodeURIComponent(addr)}`);
+    if (!mountedRef.current) return;
     if (res.success && res.data && typeof res.data === 'object') setOwnerEarnings(res.data);
   };
 
@@ -129,14 +136,19 @@ export default function MyData() {
   };
 
   const onDelete = async (id: string) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setDeleting(true);
     const res = await deleteAsset(id);
     if (res.success) { showToast(_['removed'], 'success'); loadAssets(); }
     else showToast(res.error || _['error-generic'], 'error');
     setConfirmDel(null); setDeleting(false);
+    busyRef.current = false;
   };
 
   const onReRegister = async (id: string) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setReregistering(id);
     const res = await post<{ ok?: boolean; version?: number; message?: string }>('/re-register', { asset_id: id });
     if (res.success && res.data?.ok) {
@@ -146,10 +158,13 @@ export default function MyData() {
       showToast(res.data?.message || res.error || _['error-generic'], 'error');
     }
     setReregistering(null);
+    busyRef.current = false;
   };
 
   const onDispute = async (assetId: string) => {
+    if (busyRef.current) return;
     if (!disputeReason.trim()) return;
+    busyRef.current = true;
     setDisputing(true);
     const res = await post<{ ok?: boolean }>('/dispute', { asset_id: assetId, reason: disputeReason.trim() });
     if (res.success && res.data?.ok) {
@@ -160,10 +175,13 @@ export default function MyData() {
       showToast(res.error || _['error-generic'], 'error');
     }
     setDisputing(false);
+    busyRef.current = false;
   };
 
   // Feature 1: Save tags
   const onSaveTags = async (assetId: string) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setSavingTags(true);
     const newTags = editTagsValue.split(',').map(t => t.trim()).filter(Boolean);
     const res = await post<{ ok?: boolean }>('/asset/update', { asset_id: assetId, tags: newTags });
@@ -175,10 +193,13 @@ export default function MyData() {
       showToast(res.error || _['error-generic'], 'error');
     }
     setSavingTags(false);
+    busyRef.current = false;
   };
 
   // Feature 3: Lifecycle actions
   const onShutdown = async (assetId: string) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setLifecycleAction(assetId);
     const res = await post<{ ok?: boolean }>('/asset/shutdown', { asset_id: assetId, owner: walletAddress() });
     if (res.success) {
@@ -189,9 +210,12 @@ export default function MyData() {
       showToast(res.error || _['error-generic'], 'error');
     }
     setLifecycleAction(null);
+    busyRef.current = false;
   };
 
   const onTerminate = async (assetId: string) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setLifecycleAction(assetId);
     const res = await post<{ ok?: boolean }>('/asset/terminate', { asset_id: assetId, sender: walletAddress() });
     if (res.success) {
@@ -201,9 +225,12 @@ export default function MyData() {
       showToast(res.error || _['error-generic'], 'error');
     }
     setLifecycleAction(null);
+    busyRef.current = false;
   };
 
   const onClaim = async (assetId: string) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setLifecycleAction(assetId);
     const res = await post<{ ok?: boolean }>('/asset/claim', { asset_id: assetId, holder: walletAddress() });
     if (res.success) {
@@ -213,6 +240,7 @@ export default function MyData() {
       showToast(res.error || _['error-generic'], 'error');
     }
     setLifecycleAction(null);
+    busyRef.current = false;
   };
 
   // Feature 4: Load version history
@@ -224,6 +252,7 @@ export default function MyData() {
     setVersionsTarget(assetId);
     setVersionsLoading(true);
     const res = await get<{ version: number; timestamp: number }[]>(`/asset/versions?asset_id=${encodeURIComponent(assetId)}`);
+    if (!mountedRef.current) return;
     if (res.success && Array.isArray(res.data)) {
       setVersions(res.data);
     } else {

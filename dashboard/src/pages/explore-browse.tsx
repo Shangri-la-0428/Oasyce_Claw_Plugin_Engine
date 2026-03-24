@@ -3,6 +3,7 @@
  */
 import { useEffect, useState, useRef, useMemo, useLayoutEffect } from 'preact/hooks';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { get, post } from '../api/client';
 import { showToast, i18n, walletAddress } from '../store/ui';
 import type { Asset } from '../store/assets';
@@ -59,12 +60,18 @@ export default function ExploreBrowse({ subpath }: Props) {
   const [buyStep, setBuyStep] = useState<BuyStep>('form');
   const [accessQuote, setAccessQuote] = useState<AccessQuoteData | null>(null);
   const [buyResult, setBuyResult] = useState<BuyResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [buyLoading, setBuyLoading] = useState(false);
+  const [invokeLoading, setInvokeLoading] = useState(false);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [invokeResult, setInvokeResult] = useState<any>(null);
   const [invokeInput, setInvokeInput] = useState('{"text": "hello"}');
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [showAllTags, setShowAllTags] = useState(false);
   const debounceRef = useRef<number>(0);
+  const busyRef = useRef(false);
+  const genRef = useRef(0);
 
   const _ = i18n.value;
 
@@ -84,6 +91,11 @@ export default function ExploreBrowse({ subpath }: Props) {
     }).finally(() => { if (!cancelled) setInitialLoading(false); });
 
     return () => { cancelled = true; clearTimeout(debounceRef.current); };
+  }, []);
+
+  /* Invalidate in-flight async ops on unmount */
+  useEffect(() => {
+    return () => { genRef.current++; };
   }, []);
 
   /* Lock body scroll when panel is open */
@@ -120,7 +132,7 @@ export default function ExploreBrowse({ subpath }: Props) {
   /** Smart discover — server-side semantic scoring for capabilities */
   const onDiscover = async () => {
     if (!q.trim()) return;
-    setLoading(true);
+    setDiscoverLoading(true);
     const res = await get<any[]>(`/discover?intents=${encodeURIComponent(q)}&limit=20`);
     if (res.success && Array.isArray(res.data)) {
       setDiscoverResults(res.data.map(d => ({
@@ -137,10 +149,11 @@ export default function ExploreBrowse({ subpath }: Props) {
     } else {
       showToast(res.error || _['error-generic'], 'error');
     }
-    setLoading(false);
+    setDiscoverLoading(false);
   };
 
   const resetActive = () => {
+    genRef.current++;           // invalidate all in-flight async ops
     setActiveId(null);
     setAccessQuote(null);
     setBuyResult(null);
@@ -155,6 +168,11 @@ export default function ExploreBrowse({ subpath }: Props) {
     () => [...new Set(allAssets.flatMap(a => a.tags ?? []))],
     [allAssets]
   );
+
+  /* H4: Limit visible tag filter chips */
+  const MAX_VISIBLE_TAGS = 15;
+  const visibleTags = showAllTags ? allTags : allTags.slice(0, MAX_VISIBLE_TAGS);
+  const hasMoreTags = allTags.length > MAX_VISIBLE_TAGS;
 
   const filtered = useMemo(
     () => allAssets.filter(a => {
@@ -198,73 +216,98 @@ export default function ExploreBrowse({ subpath }: Props) {
 
   /* 获取所有层级报价 — GET /api/access/quote */
   const onFetchQuote = async (assetId: string) => {
-    setLoading(true);
-    const buyer = walletAddress();
-    const res = await get<AccessQuoteData>(
-      `/access/quote?asset_id=${encodeURIComponent(assetId)}&buyer=${encodeURIComponent(buyer)}`
-    );
-    if (res.success && res.data) {
-      setAccessQuote(res.data);
-      setBuyStep('quoted');
-      // Auto-select highest available level
-      const available = (res.data.levels || []).filter(l => l.available);
-      if (available.length > 0) {
-        setSelectedLevel(available[available.length - 1].level);
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const gen = ++genRef.current;
+    setQuoteLoading(true);
+    try {
+      const buyer = walletAddress();
+      const res = await get<AccessQuoteData>(
+        `/access/quote?asset_id=${encodeURIComponent(assetId)}&buyer=${encodeURIComponent(buyer)}`
+      );
+      if (gen !== genRef.current) return; // stale response, discard
+      if (res.success && res.data) {
+        setAccessQuote(res.data);
+        setBuyStep('quoted');
+        // Auto-select highest available level
+        const available = (res.data.levels || []).filter(l => l.available);
+        if (available.length > 0) {
+          setSelectedLevel(available[available.length - 1].level);
+        }
+      } else {
+        showToast(res.error || _['error-generic'], 'error');
       }
-    } else {
-      showToast(res.error || _['error-generic'], 'error');
+    } finally {
+      busyRef.current = false;
+      if (gen === genRef.current) setQuoteLoading(false);
     }
-    setLoading(false);
   };
 
   /* 购买访问权 — POST /api/access/buy */
   const onBuyAccess = async (assetId: string) => {
-    setLoading(true);
-    const res = await post<any>('/access/buy', {
-      asset_id: assetId,
-      buyer: walletAddress(),
-      level: selectedLevel,
-    });
-    if (res.success && res.data && res.data.ok) {
-      const lq = accessQuote?.levels.find(l => l.level === selectedLevel);
-      setBuyResult({
-        success: true,
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const gen = ++genRef.current;
+    setBuyLoading(true);
+    try {
+      const res = await post<any>('/access/buy', {
+        asset_id: assetId,
+        buyer: walletAddress(),
         level: selectedLevel,
-        bond: lq?.bond ?? res.data.bond ?? 0,
-        liability_days: lq?.liability_days ?? res.data.liability_days ?? 0,
       });
-      setBuyStep('success');
-      showToast(_['buy-success'], 'success');
-      // Refresh assets
-      const r = await get<Asset[]>('/assets');
-      if (r.success && r.data) {
-        const dataAssets = r.data.map(a => ({ ...a, asset_type: 'data' as const }));
-        setAllAssets(prev => [...dataAssets, ...prev.filter(a => a.asset_type === 'capability')]);
+      if (gen !== genRef.current) return; // stale response, discard
+      if (res.success && res.data && res.data.ok) {
+        const lq = accessQuote?.levels.find(l => l.level === selectedLevel);
+        setBuyResult({
+          success: true,
+          level: selectedLevel,
+          bond: lq?.bond ?? res.data.bond ?? 0,
+          liability_days: lq?.liability_days ?? res.data.liability_days ?? 0,
+        });
+        setBuyStep('success');
+        showToast(_['buy-success'], 'success');
+        // Refresh assets
+        const r = await get<Asset[]>('/assets');
+        if (gen !== genRef.current) return; // stale after refresh fetch
+        if (r.success && r.data) {
+          const dataAssets = r.data.map(a => ({ ...a, asset_type: 'data' as const }));
+          setAllAssets(prev => [...dataAssets, ...prev.filter(a => a.asset_type === 'capability')]);
+        }
+      } else {
+        showToast(res.data?.error || res.error || _['error-generic'], 'error');
       }
-    } else {
-      showToast(res.data?.error || res.error || _['error-generic'], 'error');
+    } finally {
+      busyRef.current = false;
+      if (gen === genRef.current) setBuyLoading(false);
     }
-    setLoading(false);
   };
 
   /* 调用 (capability assets) — delivery protocol */
   const onInvoke = async (capId: string) => {
-    setLoading(true);
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const gen = ++genRef.current;
+    setInvokeLoading(true);
     setInvokeResult(null);
-    let parsedInput: any = {};
-    try { parsedInput = JSON.parse(invokeInput); } catch { parsedInput = { text: invokeInput }; }
-    const res = await post<any>('/delivery/invoke', {
-      capability_id: capId,
-      consumer: walletAddress(),
-      input: parsedInput,
-    });
-    if (res.success && res.data?.ok) {
-      setInvokeResult(res.data);
-      showToast(_['invoke-success'], 'success');
-    } else {
-      showToast(res.data?.error || res.error || _['error-generic'], 'error');
+    try {
+      let parsedInput: any = {};
+      try { parsedInput = JSON.parse(invokeInput); } catch { parsedInput = { text: invokeInput }; }
+      const res = await post<any>('/delivery/invoke', {
+        capability_id: capId,
+        consumer: walletAddress(),
+        input: parsedInput,
+      });
+      if (gen !== genRef.current) return; // stale response, discard
+      if (res.success && res.data?.ok) {
+        setInvokeResult(res.data);
+        showToast(_['invoke-success'], 'success');
+      } else {
+        showToast(res.data?.error || res.error || _['error-generic'], 'error');
+      }
+    } finally {
+      busyRef.current = false;
+      if (gen === genRef.current) setInvokeLoading(false);
     }
-    setLoading(false);
   };
 
   const toggleItem = (id: string) => {
@@ -282,6 +325,12 @@ export default function ExploreBrowse({ subpath }: Props) {
 
   const isCapability = (a: Asset) => (a.asset_type || 'data') === 'capability';
   const activeAsset = activeId ? allAssets.find(a => a.asset_id === activeId) || discoverResults.find(a => a.asset_id === activeId) : null;
+
+  // H2: Focus trap for detail panel
+  const panelRef = useFocusTrap(!!activeAsset);
+
+  // H3: Focus trap for preview overlay
+  const previewRef = useFocusTrap(!!previewId);
 
   return (
     <>
@@ -308,7 +357,7 @@ export default function ExploreBrowse({ subpath }: Props) {
             placeholder={typeFilter === 'capability' ? (_['discover-hint'] || 'Search by intent...') : _['explore-search']}
           />
           {typeFilter === 'capability' && q.trim() && (
-            <button class={`btn btn-sm ${isDiscover ? 'btn-active' : 'btn-ghost'}`} onClick={onDiscover} disabled={loading}>
+            <button class={`btn btn-sm ${isDiscover ? 'btn-active' : 'btn-ghost'}`} onClick={onDiscover} disabled={discoverLoading}>
               {_['discover'] || 'Discover'}
             </button>
           )}
@@ -325,9 +374,12 @@ export default function ExploreBrowse({ subpath }: Props) {
         <div class="row between mb-24 wrap gap-12">
           <div class="tag-chips">
             <button class={`tag-chip ${tagFilter === null ? 'tag-chip-active' : ''}`} onClick={() => setTagFilter(null)}>{_['all']}</button>
-            {allTags.map(tag => (
+            {visibleTags.map(tag => (
               <button key={tag} class={`tag-chip ${tagFilter === tag ? 'tag-chip-active' : ''}`} onClick={() => setTagFilter(tagFilter === tag ? null : tag)}>{tag}</button>
             ))}
+            {hasMoreTags && !showAllTags && (
+              <button class="tag-chip" onClick={() => setShowAllTags(true)}>+{allTags.length - MAX_VISIBLE_TAGS}</button>
+            )}
           </div>
           <div class="row gap-8">
             <button class={`btn btn-sm ${sortBy === 'time' ? 'btn-active' : 'btn-ghost'}`} onClick={() => setSortBy('time')}>{_['sort-time']}</button>
@@ -411,7 +463,7 @@ export default function ExploreBrowse({ subpath }: Props) {
       {/* Data Preview overlay */}
       {previewId && (
         <div class="preview-overlay" onClick={() => setPreviewId(null)}>
-          <div class="preview-overlay-inner" onClick={e => e.stopPropagation()}>
+          <div class="preview-overlay-inner" ref={previewRef} onClick={e => e.stopPropagation()}>
             <DataPreview assetId={previewId} onClose={() => setPreviewId(null)} />
           </div>
         </div>
@@ -424,7 +476,7 @@ export default function ExploreBrowse({ subpath }: Props) {
         return (
           <>
             <div class="explore-panel-backdrop" onClick={resetActive} />
-            <aside class="explore-panel" role="dialog" aria-label={a.name || a.asset_id}>
+            <aside class="explore-panel" ref={panelRef} role="dialog" aria-label={a.name || a.asset_id}>
               <div class="explore-panel-header">
                 <div class="explore-panel-title">
                   {isCap && <span class="type-badge cap-badge">⚡</span>}
@@ -467,8 +519,8 @@ export default function ExploreBrowse({ subpath }: Props) {
                           onInput={e => setInvokeInput((e.target as HTMLTextAreaElement).value)}
                           placeholder={_['cap-invoke-input-hint']} />
                       </div>
-                      <button class="btn btn-primary btn-full" onClick={() => onInvoke(a.asset_id)} disabled={loading}>
-                        {loading ? _['invoking'] : _['invoke']}
+                      <button class="btn btn-primary btn-full" onClick={() => onInvoke(a.asset_id)} disabled={invokeLoading}>
+                        {invokeLoading ? _['invoking'] : _['invoke']}
                       </button>
                     </div>
                   ) : (
@@ -506,8 +558,8 @@ export default function ExploreBrowse({ subpath }: Props) {
                       <div class="kv"><span class="kv-key">{_['type']}</span><span class="kv-val">{_['asset-type-data']}</span></div>
                       <div class="kv"><span class="kv-key">{_['spot-price']}</span><span class="kv-val">{fmtPrice(a.spot_price)} OAS</span></div>
 
-                      <button class="btn btn-primary btn-full" onClick={() => onFetchQuote(a.asset_id)} disabled={loading}>
-                        {loading ? _['quoting'] : _['quote']}
+                      <button class="btn btn-primary btn-full" onClick={() => onFetchQuote(a.asset_id)} disabled={quoteLoading}>
+                        {quoteLoading ? _['quoting'] : _['quote']}
                       </button>
                     </div>
                   ) : buyStep === 'quoted' && accessQuote ? (
@@ -549,8 +601,8 @@ export default function ExploreBrowse({ subpath }: Props) {
 
                       <div class="row gap-16 mt-16">
                         <button class="btn btn-ghost grow" onClick={() => { setAccessQuote(null); setBuyStep('form'); }}>{_['back']}</button>
-                        <button class="btn btn-primary grow" onClick={() => onBuyAccess(a.asset_id)} disabled={loading}>
-                          {loading ? _['buying'] : _['confirm-buy']}
+                        <button class="btn btn-primary grow" onClick={() => onBuyAccess(a.asset_id)} disabled={buyLoading}>
+                          {buyLoading ? _['buying'] : _['confirm-buy']}
                         </button>
                       </div>
                     </div>

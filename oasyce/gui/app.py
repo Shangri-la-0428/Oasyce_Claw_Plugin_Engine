@@ -7,9 +7,10 @@ Reads chain data from the local Ledger database.
 
 from __future__ import annotations
 
-import cgi
+import datetime
 import hashlib
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -20,7 +21,9 @@ import threading
 import time
 import zipfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from io import BytesIO
 from socketserver import ThreadingMixIn
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse, parse_qs
@@ -30,6 +33,11 @@ from urllib.error import URLError
 from oasyce.config import Config
 from oasyce.storage.ledger import Ledger
 from oasyce.fingerprint import FingerprintRegistry
+
+logger = logging.getLogger(__name__)
+
+# C3: Maximum POST body size (10 MB)
+MAX_POST_BODY = 10 * 1024 * 1024
 
 
 # ── Shared state (set by OasyceGUI before server starts) ─────────────
@@ -53,6 +61,18 @@ _consensus_engine: Any = None
 _notification_service: Any = None
 _dispute_db_conn: Any = None
 _feedback_db_conn: Any = None
+
+# M3: Locks for lazy-init globals
+_init_lock = threading.Lock()
+_facade_lock = threading.Lock()
+_cap_lock = threading.Lock()
+_delivery_lock = threading.Lock()
+_discovery_lock = threading.Lock()
+_staking_lock = threading.Lock()
+_skills_lock = threading.Lock()
+
+# C2: Thread pool for PoW computation
+_pow_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pow")
 
 
 def _get_notification_service():
@@ -144,7 +164,7 @@ def _forward_feedback_webhook(fb: dict):
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
         urllib.request.urlopen(req, timeout=5)
     except Exception:
-        pass  # best-effort
+        logger.debug("Feedback webhook forwarding failed", exc_info=True)
 
 
 def _forward_feedback_github(fb: dict):
@@ -183,6 +203,7 @@ def _forward_feedback_github(fb: dict):
         resp = urllib.request.urlopen(req, timeout=10)
         return json.loads(resp.read().decode("utf-8")).get("html_url", "")
     except Exception:
+        logger.debug("GitHub issue creation failed", exc_info=True)
         return None
 
 
@@ -193,6 +214,7 @@ def _default_identity() -> str:
 
         return Wallet.get_address() or "anonymous"
     except Exception:
+        logger.debug("Failed to get wallet address", exc_info=True)
         return "anonymous"
 
 
@@ -271,24 +293,27 @@ def _get_settlement():
 def _ensure_init():
     """Auto-initialize _config and _ledger if not set by DashboardServer.run()."""
     global _config, _ledger
-    if _config is None:
-        from oasyce.config import Config
-        _config = Config.from_env()
-    if _ledger is None:
-        _ledger = Ledger(_config.db_path)
+    with _init_lock:
+        if _config is None:
+            from oasyce.config import Config
+            _config = Config.from_env()
+        if _ledger is None:
+            _ledger = Ledger(_config.db_path)
 
 
 def _get_facade():
     global _facade
-    if _facade is None:
-        _ensure_init()
-        from oasyce.services.facade import OasyceServiceFacade
+    if _facade is not None:
+        return _facade
+    with _facade_lock:
+        if _facade is None:
+            _ensure_init()
+            from oasyce.services.facade import OasyceServiceFacade
 
-        _facade = OasyceServiceFacade(
-            config=_config,
-            ledger=_ledger,
-            # Default: local fallback on. Set OASYCE_STRICT_CHAIN=1 for chain-only.
-        )
+            _facade = OasyceServiceFacade(
+                config=_config,
+                ledger=_ledger,
+            )
     return _facade
 
 
@@ -307,10 +332,13 @@ def _get_query():
 
 def _get_staking():
     global _staking
-    if _staking is None:
-        from oasyce.services.staking import StakingEngine
+    if _staking is not None:
+        return _staking
+    with _staking_lock:
+        if _staking is None:
+            from oasyce.services.staking import StakingEngine
 
-        _staking = StakingEngine()
+            _staking = StakingEngine()
     return _staking
 
 
@@ -322,88 +350,101 @@ _delivery_escrow = None
 def _get_delivery_stack():
     """Lazy-init capability delivery protocol stack."""
     global _delivery_protocol, _delivery_registry, _delivery_escrow
-    if _delivery_protocol is None:
-        from oasyce.services.capability_delivery.registry import EndpointRegistry
-        from oasyce.services.capability_delivery.escrow import EscrowLedger
-        from oasyce.services.capability_delivery.gateway import InvocationGateway
-        from oasyce.services.capability_delivery.settlement import SettlementProtocol
+    if _delivery_protocol is not None:
+        return _delivery_protocol, _delivery_registry, _delivery_escrow
+    with _delivery_lock:
+        if _delivery_protocol is None:
+            from oasyce.services.capability_delivery.registry import EndpointRegistry
+            from oasyce.services.capability_delivery.escrow import EscrowLedger
+            from oasyce.services.capability_delivery.gateway import InvocationGateway
+            from oasyce.services.capability_delivery.settlement import SettlementProtocol
 
-        config = Config.from_env()
-        db_dir = config.data_dir
-        os.makedirs(db_dir, exist_ok=True)
+            config = Config.from_env()
+            db_dir = config.data_dir
+            os.makedirs(db_dir, exist_ok=True)
 
-        _delivery_registry = EndpointRegistry(
-            db_path=os.path.join(db_dir, "capability_endpoints.db"),
-            encryption_passphrase=config.signing_key or "oasyce-default-key",
-        )
-        _delivery_escrow = EscrowLedger(
-            db_path=os.path.join(db_dir, "escrow.db"),
-        )
-        gateway = InvocationGateway(_delivery_registry, timeout=30.0)
-        _delivery_protocol = SettlementProtocol(
-            registry=_delivery_registry,
-            escrow=_delivery_escrow,
-            gateway=gateway,
-            db_path=os.path.join(db_dir, "invocations.db"),
-        )
+            _delivery_registry = EndpointRegistry(
+                db_path=os.path.join(db_dir, "capability_endpoints.db"),
+                encryption_passphrase=config.signing_key or "oasyce-default-key",
+            )
+            _delivery_escrow = EscrowLedger(
+                db_path=os.path.join(db_dir, "escrow.db"),
+            )
+            gateway = InvocationGateway(_delivery_registry, timeout=30.0)
+            _delivery_protocol = SettlementProtocol(
+                registry=_delivery_registry,
+                escrow=_delivery_escrow,
+                gateway=gateway,
+                db_path=os.path.join(db_dir, "invocations.db"),
+            )
     return _delivery_protocol, _delivery_registry, _delivery_escrow
 
 
 def _get_cap_stack():
     """Lazy-init capability stack (registry + escrow + shares + engine)."""
     global _cap_registry, _cap_escrow, _cap_shares, _cap_engine
-    if _cap_registry is None:
-        from oasyce.capabilities.registry import CapabilityRegistry
-        from oasyce.capabilities.escrow import EscrowManager
-        from oasyce.capabilities.shares import ShareLedger
-        from oasyce.capabilities.invocation import CapabilityInvocationEngine
+    if _cap_registry is not None:
+        return _cap_registry, _cap_escrow, _cap_shares, _cap_engine
+    with _cap_lock:
+        if _cap_registry is None:
+            from oasyce.capabilities.registry import CapabilityRegistry
+            from oasyce.capabilities.escrow import EscrowManager
+            from oasyce.capabilities.shares import ShareLedger
+            from oasyce.capabilities.invocation import CapabilityInvocationEngine
 
-        _cap_registry = CapabilityRegistry()
-        _cap_escrow = EscrowManager()
-        _cap_shares = ShareLedger()
-        _cap_engine = CapabilityInvocationEngine(
-            registry=_cap_registry,
-            escrow=_cap_escrow,
-            shares=_cap_shares,
-        )
+            _cap_registry = CapabilityRegistry()
+            _cap_escrow = EscrowManager()
+            _cap_shares = ShareLedger()
+            _cap_engine = CapabilityInvocationEngine(
+                registry=_cap_registry,
+                escrow=_cap_escrow,
+                shares=_cap_shares,
+            )
     return _cap_registry, _cap_escrow, _cap_shares, _cap_engine
 
 
 def _get_skills():
     global _skills
-    if _skills is None:
-        _ensure_init()
-        from oasyce.skills.agent_skills import OasyceSkills
+    if _skills is not None:
+        return _skills
+    with _skills_lock:
+        if _skills is None:
+            _ensure_init()
+            from oasyce.skills.agent_skills import OasyceSkills
 
-        _skills = OasyceSkills(_config)
+            _skills = OasyceSkills(_config)
     return _skills
 
 
 def _get_discovery():
     global _discovery
-    if _discovery is None:
-        from oasyce.services.discovery import SkillDiscoveryEngine
+    if _discovery is not None:
+        return _discovery
+    with _discovery_lock:
+        if _discovery is None:
+            from oasyce.services.discovery import SkillDiscoveryEngine
 
-        def _list_capabilities():
-            try:
-                reg, _, _, _ = _get_cap_stack()
-                caps = reg.list_all()
-                return [
-                    {
-                        "capability_id": m.capability_id,
-                        "name": m.name,
-                        "provider": m.provider,
-                        "tags": m.tags,
-                        "intents": m.tags,  # use tags as intents for now
-                        "semantic_vector": m.semantic_vector,
-                        "base_price": m.pricing.base_price if m.pricing else 1.0,
-                    }
-                    for m in caps
-                ]
-            except Exception:
-                return []
+            def _list_capabilities():
+                try:
+                    reg, _, _, _ = _get_cap_stack()
+                    caps = reg.list_all()
+                    return [
+                        {
+                            "capability_id": m.capability_id,
+                            "name": m.name,
+                            "provider": m.provider,
+                            "tags": m.tags,
+                            "intents": m.tags,
+                            "semantic_vector": m.semantic_vector,
+                            "base_price": m.pricing.base_price if m.pricing else 1.0,
+                        }
+                        for m in caps
+                    ]
+                except Exception:
+                    logger.debug("Failed to list capabilities for discovery", exc_info=True)
+                    return []
 
-        _discovery = SkillDiscoveryEngine(get_capabilities=_list_capabilities)
+            _discovery = SkillDiscoveryEngine(get_capabilities=_list_capabilities)
     return _discovery
 
 
@@ -416,6 +457,65 @@ def _json_response(handler: BaseHTTPRequestHandler, data: Any, status: int = 200
     handler.wfile.write(body)
 
 
+# C1: Multipart parser to replace deprecated cgi.FieldStorage (removed in Python 3.13)
+
+class _MultipartFile:
+    """A single file from a multipart upload."""
+    __slots__ = ("filename", "file")
+    def __init__(self, filename: str, data: bytes):
+        self.filename = filename
+        self.file = BytesIO(data)
+
+
+class _MultipartForm:
+    """Minimal multipart/form-data parser (stdlib only, no cgi)."""
+
+    def __init__(self, handler: BaseHTTPRequestHandler, content_type: str):
+        self._fields: Dict[str, list] = defaultdict(list)
+        self._files: Dict[str, list] = defaultdict(list)
+        # Extract boundary
+        m = re.search(r'boundary=([^\s;]+)', content_type)
+        if not m:
+            return
+        boundary = m.group(1).encode("utf-8")
+        length = int(handler.headers.get("Content-Length", 0))
+        raw = handler.rfile.read(length) if length else b""
+        # Parse parts
+        delimiter = b"--" + boundary
+        parts = raw.split(delimiter)
+        for part in parts[1:]:  # skip preamble
+            if part.startswith(b"--"):
+                break  # epilogue
+            if b"\r\n\r\n" not in part:
+                continue
+            header_block, body = part.split(b"\r\n\r\n", 1)
+            if body.endswith(b"\r\n"):
+                body = body[:-2]
+            headers_str = header_block.decode("utf-8", errors="replace")
+            disp_match = re.search(r'name="([^"]*)"', headers_str)
+            if not disp_match:
+                continue
+            name = disp_match.group(1)
+            fname_match = re.search(r'filename="([^"]*)"', headers_str)
+            if fname_match:
+                fname = fname_match.group(1)
+                self._files[name].append(_MultipartFile(fname, body))
+            else:
+                self._fields[name].append(body.decode("utf-8", errors="replace"))
+
+    def getfirst(self, name: str, default: str = "") -> str:
+        vals = self._fields.get(name, [])
+        return vals[0] if vals else default
+
+    def get_file(self, name: str) -> Optional[_MultipartFile]:
+        files = self._files.get(name, [])
+        return files[0] if files else None
+
+    def get_files(self, name: str) -> list:
+        return self._files.get(name, [])
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._fields or name in self._files
 
 
 def _serve_static(handler, file_path):
@@ -431,6 +531,9 @@ def _serve_static(handler, file_path):
     mime, _ = mimetypes.guess_type(file_path)
     if mime is None:
         mime = "application/octet-stream"
+    # L4: add charset for text types
+    if mime and mime.startswith("text/") and "charset" not in mime:
+        mime += "; charset=utf-8"
     with open(file_path, "rb") as f:
         body = f.read()
     handler.send_response(200)
@@ -577,7 +680,7 @@ def _api_capabilities() -> list:
                 )
                 seen_ids.add(cid)
     except Exception:
-        pass  # delivery registry unavailable — don't break capability listing
+        logger.debug("Delivery registry unavailable during capability listing", exc_info=True)
 
     return results
 
@@ -1184,8 +1287,7 @@ class _Handler(BaseHTTPRequestHandler):
                     ts = v.get("created_at", "")
                     # Convert SQLite datetime string to unix seconds
                     try:
-                        import datetime as _dt
-                        t = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        t = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
                         unix = int(t.timestamp())
                     except (ValueError, AttributeError):
                         unix = 0
@@ -1239,7 +1341,7 @@ class _Handler(BaseHTTPRequestHandler):
                         }
                     )
             except Exception:
-                pass  # delivery stack may not be initialized
+                logger.debug("Delivery stack unavailable for earnings", exc_info=True)
 
             transactions.sort(key=lambda t: t.get("timestamp", 0), reverse=True)
             return _json_response(
@@ -1310,7 +1412,7 @@ class _Handler(BaseHTTPRequestHandler):
                 try:
                     peers_count = len(json.loads(peers_path.read_text()))
                 except Exception:
-                    pass
+                    logger.debug("Failed to read peers.json", exc_info=True)
 
             return _json_response(
                 self,
@@ -1517,7 +1619,7 @@ class _Handler(BaseHTTPRequestHandler):
                 faucet = Faucet(data_dir)
                 balance_oas = faucet.balance(address)
             except Exception:
-                pass
+                logger.debug("Balance query failed for %s", address, exc_info=True)
             return _json_response(self, {"address": address, "balance_oas": balance_oas})
 
         # ── Data Preview API (GET) ────────────────────────────────
@@ -1537,7 +1639,7 @@ class _Handler(BaseHTTPRequestHandler):
                 try:
                     cap_detail = _api_capability_detail(asset_id)
                 except Exception:
-                    pass
+                    logger.debug("Capability detail lookup failed for %s", asset_id, exc_info=True)
             if not row and not cap_detail:
                 return _json_response(self, {"error": "asset not found"}, 404)
 
@@ -1607,7 +1709,7 @@ class _Handler(BaseHTTPRequestHandler):
                                 403,
                             )
                 except Exception:
-                    pass  # Allow preview if facade unavailable (dev mode)
+                    logger.debug("Equity check unavailable for preview (dev mode)", exc_info=True)
 
             # L1+ : attempt content preview
             file_path = meta.get("file_path")
@@ -1630,6 +1732,7 @@ class _Handler(BaseHTTPRequestHandler):
                         preview["content_type"] = "csv"
                         preview["content"] = lines
                     except Exception:
+                        logger.debug("CSV preview read failed for %s", file_path, exc_info=True)
                         preview["content_type"] = "error"
                         preview["content"] = "Could not read file"
                 elif ext in (
@@ -1656,6 +1759,7 @@ class _Handler(BaseHTTPRequestHandler):
                         preview["content"] = content
                         preview["truncated"] = file_size > max_chars
                     except Exception:
+                        logger.debug("Text preview read failed for %s", file_path, exc_info=True)
                         preview["content_type"] = "error"
                         preview["content"] = "Could not read file"
                 elif ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
@@ -1927,32 +2031,41 @@ class _Handler(BaseHTTPRequestHandler):
                 POW_DIFFICULTY = 16  # leading zero bits
                 AIRDROP_AMOUNT = 20.0  # OAS
 
-                # Count leading zero bits in a hash
-                def _leading_zeros(h: bytes) -> int:
-                    total = 0
-                    for b in h:
-                        if b == 0:
-                            total += 8
-                        else:
-                            total += 8 - b.bit_length()
-                            break
-                    return total
+                # C2: run PoW in thread pool to avoid blocking request thread
+                def _mine_pow(addr: str, difficulty: int):
+                    addr_bytes = addr.encode("utf-8")
+                    nonce = 0
+                    attempts = 0
+                    while True:
+                        data = addr_bytes + struct.pack("<Q", nonce)
+                        h = hashlib.sha256(data).digest()
+                        attempts += 1
+                        # Count leading zero bits
+                        zeros = 0
+                        for b in h:
+                            if b == 0:
+                                zeros += 8
+                            else:
+                                zeros += 8 - b.bit_length()
+                                break
+                        if zeros >= difficulty:
+                            return nonce, attempts
+                        nonce += 1
 
-                # Brute-force valid nonce
-                addr_bytes = address.encode("utf-8")
-                nonce = 0
-                attempts = 0
-                while True:
-                    data = addr_bytes + struct.pack("<Q", nonce)
-                    h = hashlib.sha256(data).digest()
-                    attempts += 1
-                    if _leading_zeros(h) >= POW_DIFFICULTY:
-                        break
-                    nonce += 1
+                future = _pow_executor.submit(_mine_pow, address, POW_DIFFICULTY)
+                try:
+                    nonce, attempts = future.result(timeout=30)
+                except Exception:
+                    return _json_response(
+                        self, {"ok": False, "error": "PoW computation timed out"}, 504,
+                    )
 
-                # Credit the airdrop via faucet balance system
-                faucet._balances[address] = faucet._balances.get(address, 0.0) + AIRDROP_AMOUNT
-                faucet._save()
+                # H7: credit via public method if available, else fallback
+                if hasattr(faucet, "credit"):
+                    faucet.credit(address, AIRDROP_AMOUNT)
+                else:
+                    faucet._balances[address] = faucet._balances.get(address, 0.0) + AIRDROP_AMOUNT
+                    faucet._save()
 
                 # Record registration
                 registered_addrs.add(address)
@@ -2016,15 +2129,8 @@ class _Handler(BaseHTTPRequestHandler):
 
                 # ── multipart upload ──
                 if "multipart/form-data" in content_type:
-                    form = cgi.FieldStorage(
-                        fp=self.rfile,
-                        headers=self.headers,
-                        environ={
-                            "REQUEST_METHOD": "POST",
-                            "CONTENT_TYPE": content_type,
-                        },
-                    )
-                    file_item = form["file"] if "file" in form else None
+                    form = _MultipartForm(self, content_type)
+                    file_item = form.get_file("file")
                     if file_item is None or not getattr(file_item, "filename", None):
                         return _json_response(self, {"error": "file required"}, 400)
 
@@ -2197,18 +2303,9 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 if "multipart/form-data" not in content_type:
                     return _json_response(self, {"error": "multipart/form-data required"}, 400)
-                form = cgi.FieldStorage(
-                    fp=self.rfile,
-                    headers=self.headers,
-                    environ={
-                        "REQUEST_METHOD": "POST",
-                        "CONTENT_TYPE": content_type,
-                    },
-                )
+                form = _MultipartForm(self, content_type)
                 # Collect all files from multipart
-                file_items = form["files"] if "files" in form else []
-                if not isinstance(file_items, list):
-                    file_items = [file_items]
+                file_items = form.get_files("files")
                 file_items = [f for f in file_items if getattr(f, "filename", None)]
                 if not file_items:
                     return _json_response(self, {"error": "no files provided"}, 400)
@@ -2324,13 +2421,12 @@ class _Handler(BaseHTTPRequestHandler):
                         }
                     )
                 new_version = (versions[-1]["version"] + 1) if versions else 2
-                from datetime import datetime, timezone
 
                 versions.append(
                     {
                         "version": new_version,
                         "file_hash": new_hash,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     }
                 )
                 meta["versions"] = versions
@@ -2444,19 +2540,40 @@ class _Handler(BaseHTTPRequestHandler):
                                 },
                                 409,
                             )
-                        hb = hashlib.sha256()
-                        with open(a_file_path, "rb") as fb:
-                            for chunk in iter(lambda: fb.read(8192), b""):
-                                hb.update(chunk)
-                        if hb.hexdigest() != a_file_hash:
-                            return _json_response(
-                                self,
-                                {
-                                    "error": "UNAVAILABLE",
-                                    "message": "Asset file is missing or modified",
-                                },
-                                409,
-                            )
+                        # M4: skip expensive hash if file size/mtime unchanged
+                        need_hash = True
+                        try:
+                            st = os.stat(a_file_path)
+                            cached_size = asset_meta.get("_cached_size")
+                            cached_mtime = asset_meta.get("_cached_mtime")
+                            if cached_size == st.st_size and cached_mtime == st.st_mtime:
+                                need_hash = False
+                        except OSError:
+                            pass
+
+                        if need_hash:
+                            hb = hashlib.sha256()
+                            with open(a_file_path, "rb") as fb:
+                                for chunk in iter(lambda: fb.read(8192), b""):
+                                    hb.update(chunk)
+                            if hb.hexdigest() != a_file_hash:
+                                return _json_response(
+                                    self,
+                                    {
+                                        "error": "UNAVAILABLE",
+                                        "message": "Asset file is missing or modified",
+                                    },
+                                    409,
+                                )
+                            # Cache mtime/size for next check
+                            try:
+                                st = os.stat(a_file_path)
+                                _ledger.update_asset_metadata(aid, {
+                                    "_cached_size": st.st_size,
+                                    "_cached_mtime": st.st_mtime,
+                                })
+                            except Exception:
+                                pass
                 facade = _get_facade()
                 result = facade.buy(aid, buyer, amount)
                 if not result.success:
@@ -2489,7 +2606,7 @@ class _Handler(BaseHTTPRequestHandler):
                                     {"asset_id": aid, "buyer": buyer},
                                 )
                     except Exception:
-                        pass  # notifications are best-effort
+                        logger.debug("Purchase notification failed", exc_info=True)
 
                 quote_data = d.get("quote") or {}
                 resp = {
@@ -2563,7 +2680,7 @@ class _Handler(BaseHTTPRequestHandler):
                                     "error": f"Insufficient balance: {bal:.2f} OAS < {bond_oas:.2f} OAS required"
                                 }, 400)
                 except Exception:
-                    pass  # quote failure shouldn't block — let access_buy handle it
+                    logger.debug("Pre-quote for access buy failed", exc_info=True)
 
                 result = facade.access_buy(aid, buyer, level_str, pre_quoted_bond=bond_oas)
 
@@ -2584,7 +2701,7 @@ class _Handler(BaseHTTPRequestHandler):
                         },
                     )
                 except Exception:
-                    pass
+                    logger.debug("Access notification failed", exc_info=True)
 
                 return _json_response(
                     self,
@@ -2715,7 +2832,7 @@ class _Handler(BaseHTTPRequestHandler):
                         {"dispute_id": dispute_id, "asset_id": asset_id},
                     )
                 except Exception:
-                    pass
+                    logger.debug("Dispute notification failed", exc_info=True)
                 return _json_response(
                     self,
                     {
@@ -3010,9 +3127,14 @@ class _Handler(BaseHTTPRequestHandler):
                 file_path = body.get("file_path", "")
                 # Accept file_path as alternative to content
                 if file_path and not content:
-                    if not os.path.isfile(file_path):
+                    # H2: restrict file reads to home directory
+                    resolved_fp = os.path.realpath(file_path)
+                    home_dir = os.path.expanduser("~")
+                    if not resolved_fp.startswith(home_dir):
+                        return _json_response(self, {"error": "file path not allowed"}, 403)
+                    if not os.path.isfile(resolved_fp):
                         return _json_response(self, {"error": "file not found"}, 404)
-                    with open(file_path, "r", errors="replace") as fp:
+                    with open(resolved_fp, "r", errors="replace") as fp:
                         content = fp.read()
                     if not aid:
                         aid = os.path.basename(file_path)
@@ -3045,13 +3167,20 @@ class _Handler(BaseHTTPRequestHandler):
                 fingerprint = None
 
                 if file_path:
-                    import os as _fp_os
-
-                    if not _fp_os.path.isfile(file_path):
+                    # H2: restrict file reads to home directory
+                    resolved_fp = os.path.realpath(file_path)
+                    home_dir = os.path.expanduser("~")
+                    if not resolved_fp.startswith(home_dir):
+                        return _json_response(
+                            self, {"ok": False, "error": "file path not allowed"}, 403
+                        )
+                    if not os.path.isfile(resolved_fp):
                         return _json_response(
                             self, {"ok": False, "error": "file not found"}, 404
                         )
-                    raw = open(file_path, "rb").read()
+                    # H3: use context manager to avoid file handle leak
+                    with open(resolved_fp, "rb") as f:
+                        raw = f.read()
                     try:
                         text = raw.decode("utf-8")
                         fingerprint = FingerprintEngine.extract_text(text)
@@ -3366,11 +3495,18 @@ class _Handler(BaseHTTPRequestHandler):
         if not _check_rate_limit(client_ip):
             return _json_response(self, {"error": "rate limit exceeded"}, 429)
 
+        # C3: enforce maximum POST body size
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
+            return _json_response(self, {"error": "invalid Content-Length"}, 400)
+        if length > MAX_POST_BODY:
+            return _json_response(self, {"error": "request body too large"}, 413)
+
         # Pre-parse JSON body for non-multipart routes
         body: dict = {}
         if "application/json" in content_type:
             try:
-                length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length)) if length else {}
             except (json.JSONDecodeError, ValueError):
                 return _json_response(self, {"error": "invalid JSON body"}, 400)
@@ -3400,6 +3536,20 @@ class _Handler(BaseHTTPRequestHandler):
 
         return _json_response(self, {"error": "not found"}, 404)
 
+
+    def do_OPTIONS(self):
+        """M8: Handle CORS preflight for localhost origins."""
+        origin = self.headers.get("Origin", "")
+        localhost_patterns = ("http://localhost:", "http://127.0.0.1:", "http://[::1]:")
+        allowed = any(origin.startswith(p) for p in localhost_patterns)
+        self.send_response(204)
+        if allowed:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header("Access-Control-Max-Age", "86400")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_DELETE(self):
         # ── Auth check ──

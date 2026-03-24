@@ -1,8 +1,9 @@
 /**
  * Scanner + Inbox Store
  *
- * Mutations update the local signal optimistically and fire-and-forget
- * the HTTP call.  Only loadInbox() does a full round-trip refresh.
+ * Mutations apply optimistic updates and roll back on HTTP failure.
+ * Bulk operations (approveAll/rejectAll) use allSettled and do a full
+ * refresh via loadInbox() when any individual call fails.
  */
 import { signal } from '@preact/signals';
 import { get, post } from '../api/client';
@@ -54,35 +55,54 @@ export async function scanDirectory(path: string) {
   return res;
 }
 
-/** Approve one item — optimistic update, no refetch */
+/** Approve one item — optimistic update with rollback on failure */
 export async function approveItem(id: string) {
-  inboxItems.value = inboxItems.value.map(i => i.item_id === id ? { ...i, status: 'approved' as const } : i);
-  return post(`/inbox/${id}/approve`);
+  const prev = inboxItems.value;
+  inboxItems.value = prev.map(i => i.item_id === id ? { ...i, status: 'approved' as const } : i);
+  const res = await post(`/inbox/${id}/approve`);
+  if (!res.success) inboxItems.value = prev;
+  return res;
 }
 
-/** Reject one item — optimistic update, no refetch */
+/** Reject one item — optimistic update with rollback on failure */
 export async function rejectItem(id: string) {
-  inboxItems.value = inboxItems.value.map(i => i.item_id === id ? { ...i, status: 'rejected' as const } : i);
-  return post(`/inbox/${id}/reject`);
+  const prev = inboxItems.value;
+  inboxItems.value = prev.map(i => i.item_id === id ? { ...i, status: 'rejected' as const } : i);
+  const res = await post(`/inbox/${id}/reject`);
+  if (!res.success) inboxItems.value = prev;
+  return res;
 }
 
-/** Approve all pending — single signal write + parallel HTTP */
+/** Approve all pending — optimistic update, allSettled + full refresh on partial failure */
 export async function approveAll() {
-  const pending = inboxItems.value.filter(i => i.status === 'pending');
-  inboxItems.value = inboxItems.value.map(i => i.status === 'pending' ? { ...i, status: 'approved' as const } : i);
-  await Promise.all(pending.map(i => post(`/inbox/${i.item_id}/approve`)));
+  const prev = inboxItems.value;
+  const pending = prev.filter(i => i.status === 'pending');
+  inboxItems.value = prev.map(i => i.status === 'pending' ? { ...i, status: 'approved' as const } : i);
+  const results = await Promise.allSettled(pending.map(i => post(`/inbox/${i.item_id}/approve`)));
+  const anyFailed = results.some(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success));
+  if (anyFailed) {
+    await loadInbox();
+  }
 }
 
-/** Reject all pending — single signal write + parallel HTTP */
+/** Reject all pending — optimistic update, allSettled + full refresh on partial failure */
 export async function rejectAll() {
-  const pending = inboxItems.value.filter(i => i.status === 'pending');
-  inboxItems.value = inboxItems.value.map(i => i.status === 'pending' ? { ...i, status: 'rejected' as const } : i);
-  await Promise.all(pending.map(i => post(`/inbox/${i.item_id}/reject`)));
+  const prev = inboxItems.value;
+  const pending = prev.filter(i => i.status === 'pending');
+  inboxItems.value = prev.map(i => i.status === 'pending' ? { ...i, status: 'rejected' as const } : i);
+  const results = await Promise.allSettled(pending.map(i => post(`/inbox/${i.item_id}/reject`)));
+  const anyFailed = results.some(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success));
+  if (anyFailed) {
+    await loadInbox();
+  }
 }
 
 export async function editItem(id: string, changes: Partial<Pick<InboxItem, 'suggested_name' | 'suggested_tags' | 'suggested_description'>>) {
-  inboxItems.value = inboxItems.value.map(i => i.item_id === id ? { ...i, ...changes } : i);
-  return post(`/inbox/${id}/edit`, changes);
+  const prev = inboxItems.value;
+  inboxItems.value = prev.map(i => i.item_id === id ? { ...i, ...changes } : i);
+  const res = await post(`/inbox/${id}/edit`, changes);
+  if (!res.success) inboxItems.value = prev;
+  return res;
 }
 
 export async function setTrust(level?: number, threshold?: number) {

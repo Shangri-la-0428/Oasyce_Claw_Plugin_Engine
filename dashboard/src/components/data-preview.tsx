@@ -1,7 +1,7 @@
 /**
  * DataPreview — shows asset preview based on access level (L0-L3)
  */
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { get } from '../api/client';
 import { i18n, showToast } from '../store/ui';
@@ -37,15 +37,17 @@ export default function DataPreview({ assetId, onClose }: Props) {
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [loading, setLoading] = useState(false);
   const [level, setLevel] = useState('L0');
+  const genRef = useRef(0);
   const _ = i18n.value;
 
   useEscapeKey(onClose);
 
-  const loadPreview = async (lvl: string, cancelled?: () => boolean) => {
+  const loadPreview = async (lvl: string) => {
+    const gen = ++genRef.current;
     setLoading(true);
     setLevel(lvl);
     const res = await get<PreviewData>(`/asset/${assetId}/preview?level=${lvl}`);
-    if (cancelled && cancelled()) return;
+    if (gen !== genRef.current) return; // stale response
     if (res.success && res.data) {
       setPreview(res.data);
     } else if (!res.success) {
@@ -56,9 +58,8 @@ export default function DataPreview({ assetId, onClose }: Props) {
 
   // Auto-load L0 on mount
   useEffect(() => {
-    let cancelled = false;
-    loadPreview('L0', () => cancelled);
-    return () => { cancelled = true; };
+    loadPreview('L0');
+    return () => { genRef.current++; };
   }, [assetId]);
 
   const formatSize = (bytes?: number) => {

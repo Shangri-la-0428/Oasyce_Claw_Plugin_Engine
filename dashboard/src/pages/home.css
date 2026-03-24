@@ -4,12 +4,44 @@
   flex-direction: column;
 }
 
-/* ── NetworkGrid wrapper ── */
+/* ── NetworkGrid wrapper — sticky ambient backdrop ── */
 .home-grid-wrap {
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 0;
   overflow: hidden;
   background: var(--bg-1);
   margin-bottom: var(--space-xl);
+}
+
+/* Content paints over the sticky grid as it scrolls */
+.home-grid-wrap ~ * {
+  position: relative;
+  z-index: 1;
+  background: var(--bg-0);
+}
+
+/* Scroll-driven fade: grid becomes ghostly as content takes over */
+@supports (animation-timeline: scroll()) {
+  .home-grid-wrap {
+    animation: grid-fade linear both;
+    animation-timeline: scroll();
+    animation-range: 0px 300px;
+  }
+}
+@keyframes grid-fade {
+  from { opacity: 1; }
+  to { opacity: 0.12; }
+}
+/* Atmospheric bottom fade — grid bleeds into page */
+.home-grid-wrap::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 48px;
+  background: linear-gradient(to bottom, transparent, var(--bg-0));
+  pointer-events: none;
+  z-index: 1;
 }
 
 /* ── Hero ── */
@@ -17,6 +49,30 @@
   max-width: var(--max-w);
 }
 .home-title-light { color: var(--fg-0); font-weight: 300; }
+
+/* ── Section rhythm — structured spacing replaces spacer divs ── */
+.home-page > * + * {
+  margin-top: var(--space-3xl);
+}
+.home-grid-wrap + .home-hero {
+  margin-top: 0;
+}
+.home-navigate,
+.home-page > .card {
+  margin-top: var(--space-4xl);
+}
+.home-overview {
+  display: flex;
+  flex-direction: column;
+}
+.home-trades {
+  margin-top: var(--space-xl);
+}
+.home-gate,
+.home-onboard {
+  display: flex;
+  flex-direction: column;
+}
 
 /* ── Status KV strip ── */
 .home-status {
@@ -45,7 +101,14 @@
   letter-spacing: 0.16em;
   padding-top: 1px;
 }
-.home-step.is-done .home-step-idx { color: var(--green); }
+.home-step.is-done .home-step-idx {
+  color: var(--green);
+  animation: step-done 0.3s var(--ease) both;
+}
+@keyframes step-done {
+  0%   { opacity: 0.4; transform: scale(0.7); }
+  100% { opacity: 1; transform: scale(1); }
+}
 .home-step.is-active .home-step-idx { color: var(--fg-0); }
 .home-step-copy {
   display: flex;
@@ -91,6 +154,7 @@
   transition: color 0.12s var(--ease);
 }
 .home-mode-tab:hover { color: var(--fg-1); }
+.home-mode-tab:focus-visible { outline: 2px solid var(--fg-1); outline-offset: 2px; }
 .home-mode-tab::after {
   content: '';
   position: absolute;
@@ -113,6 +177,12 @@
 .home-success-check {
   font-size: var(--text-2xl);
   font-weight: 700;
+  animation: check-arrive 0.4s var(--ease) both;
+}
+@keyframes check-arrive {
+  0%   { opacity: 0; transform: scale(0.5); }
+  60%  { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 /* ── Nav rows ── */
@@ -131,11 +201,20 @@
 }
 .nav-row:last-child { border-bottom: none; }
 .nav-row:hover { transform: translateX(6px); color: var(--fg-0); border-bottom-color: var(--border-active); }
+.nav-row:focus-visible { outline: 2px solid var(--fg-1); outline-offset: 2px; }
 .nav-row-title {
   font-size: var(--text-base);
   font-weight: 600;
   color: var(--fg-0);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Delight: arrow beckons independently on hover */
+.nav-arrow {
+  display: inline-block;
+  transition: transform 0.2s var(--ease);
+}
+.nav-row:hover .nav-arrow {
+  transform: translateX(4px);
 }
 .nav-row-desc {
   font-size: var(--text-sm);
@@ -151,9 +230,29 @@
   .home-step { gap: var(--space-m); }
   .home-mode-switch { gap: var(--space-s); }
   .nav-row { padding: var(--space-s) 0; }
+  .home-page > * + * { margin-top: var(--space-2xl); }
+  .home-navigate, .home-page > .card { margin-top: var(--space-3xl); }
+  .home-trades,
+  .home-navigate,
+  .home-onboard,
+  .home-gate { padding-left: var(--space-m); padding-right: var(--space-m); }
 }
 
 @media (max-width: 600px) {
   .home-section-title { font-size: var(--text-2xl); }
   .home-grid-wrap { margin: 0 calc(-1 * var(--space-l)); }
+  .home-page > * + * { margin-top: var(--space-xl); }
+  .home-navigate, .home-page > .card { margin-top: var(--space-2xl); }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .home-success-check,
+  .home-step.is-done .home-step-idx { animation: none; }
+  .home-grid-wrap { animation: none !important; }
+  .nav-arrow { transition: none; }
+  .nav-row { transition: none; }
+  .nav-row:hover { transform: none; }
+  .home-mode-tab { transition: none; }
+  .home-mode-tab::after { transition: none; }
 }

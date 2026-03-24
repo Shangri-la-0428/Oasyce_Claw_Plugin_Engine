@@ -650,6 +650,8 @@ const dict: Record<string, Record<string, string>> = {
     'feedback-success': '反馈已提交', 'feedback-list': '反馈记录',
     'feedback-no-items': '暂无反馈', 'feedback-no-items-hint': '还没有收到 AI 代理的反馈',
     'feedback-status': '状态',
+    'file-too-large': '文件过大（最大 100 MB）',
+    'partial-failure': '部分操作失败',
   },
   en: {
     home: 'Home', mydata: 'My Data', explore: 'Market', auto: 'Automation', network: 'Network', loading: 'Loading...',
@@ -1101,6 +1103,8 @@ const dict: Record<string, Record<string, string>> = {
     'feedback-success': 'Feedback submitted', 'feedback-list': 'Feedback log',
     'feedback-no-items': 'No feedback yet', 'feedback-no-items-hint': 'No reports from AI agents yet',
     'feedback-status': 'Status',
+    'file-too-large': 'File too large (max 100 MB)',
+    'partial-failure': 'Some items failed',
   },
 };
 
