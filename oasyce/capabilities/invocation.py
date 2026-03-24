@@ -23,7 +23,7 @@ from oasyce.capabilities.shares import ShareLedger, MintResult
 
 
 # ── Protocol fee constants ────────────────────────────────────────────
-_PROTOCOL_FEE_PCT = 0.05
+_PROTOCOL_FEE_PCT = 0.03
 _BURN_SHARE = 0.50
 _VERIFIER_SHARE = 0.50
 

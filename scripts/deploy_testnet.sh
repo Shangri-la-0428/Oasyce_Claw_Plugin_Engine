@@ -61,18 +61,18 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-if ! python3 -c "import oasyce_plugin" 2>/dev/null; then
-    echo "Error: oasyce_plugin not installed. Run: pip install -e ."
+if ! python3 -c "import oasyce" 2>/dev/null; then
+    echo "Error: oasyce not installed. Run: pip install -e ."
     exit 1
 fi
 
 echo "  ✓ Python3 found"
-echo "  ✓ oasyce_plugin installed"
+echo "  ✓ oasyce installed"
 
 # 2. Initialize testnet
 echo ""
 echo "[2/4] Initializing testnet..."
-python3 -m oasyce_plugin.cli testnet init \
+python3 -m oasyce.cli testnet init \
     --validators "$VALIDATORS" \
     --output "$OUTPUT_DIR" \
     --json 2>/dev/null || {
@@ -80,10 +80,10 @@ python3 -m oasyce_plugin.cli testnet init \
     python3 -c "
 import json, sys
 sys.path.insert(0, '.')
-from oasyce_plugin.consensus.testnet_config import TestnetConfig, ValidatorInfo
-from oasyce_plugin.consensus.genesis import create_genesis, export_genesis
-from oasyce_plugin.crypto import generate_keypair
-from oasyce_plugin.consensus.core.types import OAS_DECIMALS
+from oasyce.consensus.testnet_config import TestnetConfig, ValidatorInfo
+from oasyce.consensus.genesis import create_genesis, export_genesis
+from oasyce.crypto import generate_keypair
+from oasyce.consensus.core.types import OAS_DECIMALS
 from pathlib import Path
 
 validators = []

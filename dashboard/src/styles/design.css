@@ -382,7 +382,8 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   font-family: var(--mono); font-size: var(--text-sm); font-weight: 500;
   letter-spacing: var(--tracking-wide);
   border-radius: var(--r-m); border: 1px solid var(--border);
-  cursor: pointer; transition: all 0.12s var(--ease); user-select: none;
+  cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease), border-color 0.12s var(--ease), box-shadow 0.12s var(--ease), transform 0.12s var(--ease), opacity 0.12s var(--ease); user-select: none;
+  white-space: nowrap; flex-shrink: 0;
 }
 .btn:hover:not(:disabled) { box-shadow: var(--shadow-m); transform: translateY(-1px); }
 .btn:active:not(:disabled) { box-shadow: 0 0 0 var(--fg-0); transform: translateY(3px); transition-duration: 0.04s; }
@@ -411,7 +412,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   font-family: var(--sans); font-size: var(--text-xs); font-weight: 500;
   color: var(--fg-2); background: transparent;
   border: 1px solid var(--border); border-radius: var(--r-s);
-  cursor: pointer; transition: all 0.12s var(--ease);
+  cursor: pointer; transition: border-color 0.12s var(--ease), color 0.12s var(--ease);
 }
 .btn-copy:hover { border-color: var(--border-active); color: var(--fg-0); }
 
@@ -473,7 +474,10 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   overflow: hidden; text-overflow: ellipsis;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
 }
-@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .toast-success { border-color: var(--green); }
 .toast-error { border-color: var(--red); }
 
@@ -504,7 +508,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   font-size: var(--text-xl); line-height: 1;
   color: var(--fg-2); background: none;
   border: 1px solid var(--border); border-radius: 50%;
-  cursor: pointer; transition: all 0.12s var(--ease);
+  cursor: pointer; transition: border-color 0.12s var(--ease), color 0.12s var(--ease);
   flex-shrink: 0; margin-left: auto;
 }
 .dropzone-clear:hover { border-color: var(--border-active); color: var(--fg-0); }
@@ -515,10 +519,30 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 }
 
 /* ── Page ── */
-.page { animation: page-in 0.15s var(--ease); contain: layout style; }
-@keyframes page-in { from { opacity: 0; transform: translateY(6px); } }
+.page { animation: page-in 0.2s var(--ease) both; contain: layout style; }
+@keyframes page-in { from { opacity: 0; transform: translateY(8px); } }
+
+/* Stagger children on page enter — architectural unfolding */
+.page > *:nth-child(1) { animation: page-child-in 0.25s var(--ease) 0.02s both; }
+.page > *:nth-child(2) { animation: page-child-in 0.25s var(--ease) 0.06s both; }
+.page > *:nth-child(3) { animation: page-child-in 0.25s var(--ease) 0.10s both; }
+.page > *:nth-child(4) { animation: page-child-in 0.25s var(--ease) 0.14s both; }
+.page > *:nth-child(5) { animation: page-child-in 0.25s var(--ease) 0.18s both; }
+.page > *:nth-child(n+6) { animation: page-child-in 0.25s var(--ease) 0.22s both; }
+@keyframes page-child-in { from { opacity: 0; transform: translateY(6px); } }
+
 /* When View Transitions handle the page switch, suppress the CSS fallback */
-@supports (view-transition-name: none) { .page { animation: none; } }
+@supports (view-transition-name: none) {
+  .page,
+  .page > *:nth-child(1),
+  .page > *:nth-child(2),
+  .page > *:nth-child(3),
+  .page > *:nth-child(4),
+  .page > *:nth-child(5),
+  .page > *:nth-child(n+6) {
+    animation: none;
+  }
+}
 
 /* ── Tag Chips ── */
 .tag-chips { display: flex; flex-wrap: wrap; gap: var(--space-s); }
@@ -528,7 +552,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   font-family: var(--mono); font-size: var(--text-xs); font-weight: 500;
   color: var(--fg-2); background: transparent;
   border: 1px solid var(--border); border-radius: var(--r-m);
-  cursor: pointer; transition: all 0.12s var(--ease);
+  cursor: pointer; transition: border-color 0.12s var(--ease), color 0.12s var(--ease);
 }
 .tag-chip:hover { border-color: var(--border-active); color: var(--fg-0); }
 .tag-chip-active { border-color: var(--fg-2); color: var(--fg-0); }
@@ -544,6 +568,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 .mb-12 { margin-bottom: var(--space-m); }
 .mb-16 { margin-bottom: var(--space-l); }
 .mb-24 { margin-bottom: var(--space-xl); }
+.mb-32 { margin-bottom: var(--space-2xl); }
 .mt-4 { margin-top: var(--space-xs); }
 .mt-6 { margin-top: var(--space-s); }
 .mt-8 { margin-top: var(--space-s); }
@@ -841,6 +866,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   min-height: 44px;
 }
 .section-toggle:hover .section-chevron { color: var(--fg-0); }
+.section-toggle-locked { cursor: default; pointer-events: none; }
 .section-header { flex: 1; min-width: 0; }
 .section-peek {
   display: block; margin-top: 2px;
@@ -848,23 +874,65 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 }
 .section-chevron {
   font-size: var(--text-2xl); font-weight: 300; color: var(--fg-2);
-  transition: transform 0.2s var(--ease), color 0.15s var(--ease);
+  transition: transform 0.3s var(--ease), color 0.15s var(--ease);
   flex-shrink: 0; width: 20px; text-align: center;
 }
 .section-chevron-open { transform: rotate(90deg); }
 .section-body {
-  padding-top: var(--space-m);
-  animation: field-in 0.2s var(--ease);
+  padding-top: var(--space-xl);
+  animation: section-expand 0.25s var(--ease) both;
+  overflow: hidden;
+}
+@keyframes section-expand {
+  from { opacity: 0; max-height: 0; padding-top: 0; }
+  to { opacity: 1; max-height: 2000px; padding-top: var(--space-xl); }
 }
 
-/* ── View Transitions ── */
+/* ══════════════════════════════════════════════
+   ⚡ OVERDRIVE — Cinematic Transitions
+   ══════════════════════════════════════════════ */
+
+/* ── View Transitions — direction-aware page morphing ── */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 0.15s;
+  animation-duration: 0.2s;
   animation-timing-function: var(--ease);
 }
 
-/* ── Scroll Progress ── */
+/* Forward navigation: old page slides left + fades, new slides in from right */
+[data-nav-direction="forward"]::view-transition-old(root) {
+  animation: vt-slide-out-left 0.2s var(--ease) both;
+}
+[data-nav-direction="forward"]::view-transition-new(root) {
+  animation: vt-slide-in-right 0.2s var(--ease) both;
+}
+
+/* Backward navigation: old slides right, new slides in from left */
+[data-nav-direction="backward"]::view-transition-old(root) {
+  animation: vt-slide-out-right 0.2s var(--ease) both;
+}
+[data-nav-direction="backward"]::view-transition-new(root) {
+  animation: vt-slide-in-left 0.2s var(--ease) both;
+}
+
+@keyframes vt-slide-out-left {
+  to { opacity: 0; transform: translateX(-24px); }
+}
+@keyframes vt-slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+}
+@keyframes vt-slide-out-right {
+  to { opacity: 0; transform: translateX(24px); }
+}
+@keyframes vt-slide-in-left {
+  from { opacity: 0; transform: translateX(-24px); }
+}
+
+/* ══════════════════════════════════════════════
+   ⚡ OVERDRIVE — Scroll-Driven Reveals
+   ══════════════════════════════════════════════ */
+
+/* Scroll progress bar */
 @supports (animation-timeline: scroll()) {
   .app-shell::after {
     content: '';
@@ -880,6 +948,42 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
     pointer-events: none;
   }
   @keyframes scroll-fill { to { scale: 1 1; } }
+}
+
+/* Sections reveal on scroll — pure CSS, zero JS */
+@supports (animation-timeline: view()) {
+  .card,
+  .item-list,
+  .home-steps,
+  .home-status,
+  .empty-state,
+  .tag-chips {
+    animation: scroll-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 30%;
+  }
+
+  @keyframes scroll-reveal {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+/* ══════════════════════════════════════════════
+   ⚡ OVERDRIVE — Precision Instrument
+   ══════════════════════════════════════════════ */
+
+/* Refined button active state — deeper press with shadow collapse */
+.btn:active:not(:disabled) {
+  box-shadow: none;
+  transform: translateY(2px);
+  transition: transform 0.06s var(--ease), box-shadow 0.06s var(--ease);
+}
+
+/* Input focus — subtle glow pulse */
+.input:focus, .search-box:focus {
+  border-color: var(--fg-1);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg-2) 25%, transparent);
 }
 
 /* ── Print ── */

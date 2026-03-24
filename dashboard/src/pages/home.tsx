@@ -19,6 +19,7 @@ import {
   walletAddress as getWalletAddress,
 } from '../store/ui';
 import RegisterForm from '../components/register-form';
+import { Section } from '../components/section';
 import NetworkGrid from '../components/network-grid';
 import { mask, fmtPrice, maskIdShort } from '../utils';
 import type { Page } from '../hooks/use-route';
@@ -332,14 +333,16 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
 
         <div class="spacer-48" />
 
-        {/* Register form */}
-        {modeSwitch(copy.vetRegisterMore)}
-        <RegisterForm mode={mode} onSuccess={handleSuccess} />
+        {/* Navigate */}
+        {navLinks}
 
         <div class="spacer-48" />
 
-        {/* Navigate */}
-        {navLinks}
+        {/* Register more — collapsed by default for veterans */}
+        <Section id="home-register" title={copy.vetRegisterMore} desc={zh ? '登记数据资产或发布 AI 能力' : 'Register data assets or publish AI capabilities'}>
+          {modeSwitch(copy.vetRegisterMore)}
+          <RegisterForm mode={mode} onSuccess={handleSuccess} />
+        </Section>
       </div>
     );
   }

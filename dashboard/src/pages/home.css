@@ -75,7 +75,7 @@
   align-items: center;
   gap: var(--space-m);
   padding-bottom: var(--space-m);
-  margin-bottom: var(--space-xs);
+  margin-bottom: var(--space-l);
   border-bottom: 1px solid var(--border-subtle);
 }
 .home-mode-tab {

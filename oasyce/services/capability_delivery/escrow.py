@@ -71,8 +71,8 @@ class EscrowLedger:
     addition to maintaining the accounting ledger.
     """
 
-    # Protocol fee: 5% of settled amount (in basis points)
-    PROTOCOL_FEE_BPS: int = 500
+    # Protocol fee: 3% of settled amount (in basis points)
+    PROTOCOL_FEE_BPS: int = 300
 
     # OAS uses 8 decimal places (1 OAS = 10^8 units).  Amounts stored in
     # the escrow table are already in integer units, so no extra conversion

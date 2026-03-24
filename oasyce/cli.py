@@ -730,67 +730,91 @@ def cmd_demo(args):
     import tempfile
     import time
 
-    try:
-        from oasyce.bridge.core_bridge import (
-            bridge_buy,
-            bridge_get_shares,
-            bridge_quote,
-            bridge_register,
-        )
-
-        _has_core = True
-    except ImportError:
+    _use_bridge = getattr(args, "full", False)
+    if _use_bridge:
+        try:
+            from oasyce.bridge.core_bridge import (
+                bridge_buy,
+                bridge_get_shares,
+                bridge_quote,
+                bridge_register,
+            )
+            _has_core = True
+        except ImportError:
+            _has_core = False
+            if not args.json:
+                print("Bridge not available. Running local demo.\n")
+    else:
         _has_core = False
 
     if not _has_core:
         # ── Local-only demo (no oasyce-core) ─────────────────────────
         if not args.json:
-            print("Running local demo (install oasyce-core for full protocol demo)\n")
+            print("Oasyce Protocol Demo — Full Pipeline")
+            print("=" * 50)
+            print()
 
         from oasyce.engines.core_engines import UploadEngine, TradeEngine
         from oasyce.services.pricing import DatasetPricingCurve
 
         steps: dict = {}
+        TOTAL = 7
 
         def _banner_local(n, total, text):
             if not args.json:
-                print(f"\nStep {n}/{total} — {text}")
+                print(f"\n[{n}/{total}] {text}")
+                print("-" * 40)
 
-        # Step 1: create temp file
-        _banner_local(1, 4, "Creating temporary asset file...")
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write("Oasyce local demo data payload\n")
+        # Step 1: create sample dataset
+        _banner_local(1, TOTAL, "Creating sample NLP sentiment dataset")
+        csv_content = (
+            "text,label,confidence\n"
+            '"The product exceeded my expectations",positive,0.95\n'
+            '"Terrible service, waited 3 hours",negative,0.91\n'
+            '"It works fine, nothing special",neutral,0.73\n'
+            '"Best purchase this year, highly recommend",positive,0.97\n'
+            '"Software crashes constantly, unusable",negative,0.89\n'
+            '"Average quality for the price",neutral,0.68\n'
+            '"Absolutely love the new design update",positive,0.93\n'
+            '"Misleading ad, looks nothing like photos",negative,0.94\n'
+            '"Decent value but shipping took too long",neutral,0.71\n'
+            '"Five stars! Will buy again",positive,0.96\n'
+        )
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(csv_content)
             temp_path = f.name
 
         try:
             file_hash = hashlib.sha256(open(temp_path, "rb").read()).hexdigest()
             asset_id = f"OAS_DEMO_{file_hash[:8].upper()}"
-            steps["file"] = {"path": temp_path, "hash": file_hash}
+            steps["file"] = {"path": temp_path, "hash": file_hash, "rows": 10, "type": "csv"}
             if not args.json:
-                print(f"   File:  {temp_path}")
-                print(f"   Hash:  {file_hash[:16]}...")
+                print(f"   File:    {os.path.basename(temp_path)}")
+                print(f"   Rows:    10 (sentiment-labeled text)")
+                print(f"   Hash:    {file_hash[:16]}...")
 
-            # Step 2: register using local engine
-            _banner_local(2, 4, "Registering asset locally...")
+            # Step 2: register data asset
+            _banner_local(2, TOTAL, "Registering data asset")
             vault_dir = tempfile.mkdtemp(prefix="oasyce_demo_vault_")
             metadata = {
                 "asset_id": asset_id,
-                "filename": os.path.basename(temp_path),
-                "owner": "demo_user",
-                "tags": ["Demo", "Genesis"],
+                "filename": "nlp_sentiment_dataset.csv",
+                "owner": "alice",
+                "tags": ["NLP", "Sentiment", "Training"],
                 "timestamp": int(time.time()),
                 "file_hash": file_hash,
                 "popc_signature": file_hash[:16],
             }
             reg_result = UploadEngine.register_asset(metadata, vault_dir)
-            reg_data = reg_result.value if hasattr(reg_result, "value") else reg_result
-            steps["register"] = {"asset_id": asset_id, "status": "success"}
+            steps["register"] = {"asset_id": asset_id, "owner": "alice", "tags": metadata["tags"], "status": "success"}
             if not args.json:
-                print(f"   Registered: {asset_id}")
-                print(f"   Vault:      {vault_dir}")
+                print(f"   Asset ID: {asset_id}")
+                print(f"   Owner:    alice")
+                print(f"   Tags:     NLP, Sentiment, Training")
+                print(f"   Rights:   original")
 
-            # Step 3: calculate price quote using local pricing
-            _banner_local(3, 4, "Calculating price quote (local pricing)...")
+            # Step 3: bonding curve pricing
+            _banner_local(3, TOTAL, "Bonding curve price quote")
             curve = DatasetPricingCurve()
             price_result = curve.calculate_price(
                 asset_id=asset_id,
@@ -804,27 +828,109 @@ def cmd_demo(args):
             steps["quote"] = price_result
             if not args.json:
                 fp = price_result.get("final_price", 0)
-                print(f"   Price: {fp:.6f} OAS")
-                for k in ("demand_factor", "scarcity_factor", "quality_factor", "freshness_factor"):
-                    if k in price_result:
-                        print(f"   {k}: {price_result[k]:.4f}")
+                print(f"   Spot price:  {fp:.4f} OAS/share")
+                print(f"   Demand:      {price_result.get('demand_factor', 0):.2f}x")
+                print(f"   Scarcity:    {price_result.get('scarcity_factor', 0):.2f}x")
+                print(f"   Quality:     {price_result.get('quality_factor', 0):.2f}x")
 
-            # Step 4: simulate purchase using local settlement
-            _banner_local(4, 4, "Simulating purchase (local settlement)...")
+            # Step 4: buy shares
+            _banner_local(4, TOTAL, "Buying shares (bob spends 10 OAS)")
             spend = 10.0
-            simulated_shares = spend / max(price_result.get("final_price", 1.0), 0.001)
+            price_per_share = max(price_result.get("final_price", 1.0), 0.001)
+            shares_bought = spend / price_per_share
             steps["buy"] = {
+                "buyer": "bob",
                 "spent_oas": spend,
-                "shares_received": round(simulated_shares, 6),
-                "price_per_share": price_result.get("final_price", 1.0),
+                "shares_received": round(shares_bought, 4),
+                "price_per_share": round(price_per_share, 4),
             }
             if not args.json:
-                print(f"   Spent:          {spend} OAS")
-                print(f"   Shares recv'd:  {simulated_shares:.6f}")
-                print(f"   Price/share:    {price_result.get('final_price', 1.0):.6f} OAS")
+                print(f"   Buyer:    bob")
+                print(f"   Spent:    {spend:.2f} OAS")
+                print(f"   Received: {shares_bought:.4f} shares")
+                print(f"   Price:    {price_per_share:.4f} OAS/share")
+
+            # Step 5: register AI capability
+            _banner_local(5, TOTAL, "Registering AI capability")
+            cap_id = f"CAP_DEMO_{file_hash[:6].upper()}"
+            cap_data = {
+                "capability_id": cap_id,
+                "name": "Sentiment Analysis API",
+                "provider": "alice",
+                "endpoint": "https://api.example.com/sentiment",
+                "price_per_call": 0.5,
+                "tags": ["NLP", "Sentiment"],
+            }
+            steps["capability"] = cap_data
+            if not args.json:
+                print(f"   Cap ID:   {cap_id}")
+                print(f"   Name:     Sentiment Analysis API")
+                print(f"   Provider: alice")
+                print(f"   Price:    0.50 OAS/call")
+
+            # Step 6: invoke capability (simulated)
+            _banner_local(6, TOTAL, "Invoking capability (bob calls alice's API)")
+            call_price = 0.5
+            provider_cut = call_price * 0.93
+            protocol_fee = call_price * 0.03
+            burn = call_price * 0.02
+            treasury = call_price * 0.02
+            steps["invoke"] = {
+                "consumer": "bob",
+                "provider": "alice",
+                "input": {"text": "Best purchase this year!"},
+                "output": {"label": "positive", "confidence": 0.97},
+                "paid_oas": call_price,
+                "provider_earned": round(provider_cut, 4),
+                "protocol_fee": round(protocol_fee, 4),
+                "burned": round(burn, 4),
+                "treasury": round(treasury, 4),
+            }
+            if not args.json:
+                print(f"   Input:    'Best purchase this year!'")
+                print(f"   Output:   positive (0.97)")
+                print(f"   Paid:     {call_price:.2f} OAS")
+                print(f"   Provider: {provider_cut:.4f} OAS (93%)")
+                print(f"   Fee:      {protocol_fee:.4f} OAS (3%)")
+                print(f"   Burned:   {burn:.4f} OAS (2%)")
+                print(f"   Treasury: {treasury:.4f} OAS (2%)")
+
+            # Step 7: sell shares back
+            _banner_local(7, TOTAL, "Selling shares (bob sells 50%)")
+            tokens_sold = shares_bought / 2
+            sell_payout_gross = tokens_sold * price_per_share * 0.95  # 95% solvency cap
+            sell_fee = sell_payout_gross * 0.07
+            sell_payout = sell_payout_gross - sell_fee
+            steps["sell"] = {
+                "seller": "bob",
+                "tokens_sold": round(tokens_sold, 4),
+                "gross_payout": round(sell_payout_gross, 4),
+                "protocol_fee": round(sell_fee, 4),
+                "net_payout": round(sell_payout, 4),
+            }
+            if not args.json:
+                print(f"   Seller:   bob")
+                print(f"   Sold:     {tokens_sold:.4f} shares (50%)")
+                print(f"   Gross:    {sell_payout_gross:.4f} OAS")
+                print(f"   Fee:      {sell_fee:.4f} OAS (7%)")
+                print(f"   Net:      {sell_payout:.4f} OAS")
+
+                # Summary
                 print()
-                print("=" * 40)
-                print("Demo complete! Pipeline: register -> quote -> buy (local)")
+                print("=" * 50)
+                print("  Demo Complete — Full Protocol Pipeline")
+                print("=" * 50)
+                print()
+                print("  register -> quote -> buy -> capability -> invoke -> sell")
+                print()
+                net_cost = spend - sell_payout
+                print(f"  Bob's net cost:      {net_cost:.4f} OAS")
+                print(f"  Bob's remaining:     {tokens_sold:.4f} shares")
+                print(f"  Alice earned:        {provider_cut:.4f} OAS (capability)")
+                print(f"  Protocol burned:     {burn:.4f} OAS (deflationary)")
+                print()
+                print("  Run 'oas start' to open the Dashboard")
+                print("  Run 'oas register <file>' to register your own data")
 
             if args.json:
                 print(json.dumps(steps, indent=2))
@@ -1037,9 +1143,12 @@ def cmd_node_reset_identity(args):
 
     config = Config.from_env()
     _priv, new_id = reset_node_identity(config.data_dir)
-    print(f"Node identity reset.")
-    print(f"  New Node ID: {new_id[:16]}")
-    print(f"  Full ID:     {new_id}")
+    if getattr(args, "json", False):
+        print(json.dumps({"node_id": new_id[:16], "node_id_full": new_id}))
+    else:
+        print(f"Node identity reset.")
+        print(f"  New Node ID: {new_id[:16]}")
+        print(f"  Full ID:     {new_id}")
 
 
 def cmd_node_peers(args):
@@ -1918,17 +2027,27 @@ def cmd_testnet_reset(args):
     data_dir = get_data_dir(NetworkMode.TESTNET)
     data_path = Path(data_dir)
 
+    use_json = getattr(args, "json", False)
     if not data_path.exists():
-        print("Testnet data directory does not exist — nothing to reset.")
+        if use_json:
+            print(json.dumps({"ok": True, "message": "Nothing to reset"}))
+        else:
+            print("Testnet data directory does not exist \u2014 nothing to reset.")
         return
 
     if not args.force:
-        print(f"This will delete all testnet data in {data_dir}")
-        print("Use --force to confirm.")
+        if use_json:
+            print(json.dumps({"ok": False, "error": "Use --force to confirm"}))
+        else:
+            print(f"This will delete all testnet data in {data_dir}")
+            print("Use --force to confirm.")
         return
 
     shutil.rmtree(data_dir)
-    print(f"Testnet data reset. Removed {data_dir}")
+    if use_json:
+        print(json.dumps({"ok": True, "removed": str(data_dir)}))
+    else:
+        print(f"Testnet data reset. Removed {data_dir}")
 
 
 def cmd_testnet_faucet_serve(args):
@@ -2175,13 +2294,21 @@ def cmd_verify(args):
                 sys.exit(1)
 
         result = CertificateEngine.verify_popc_certificate(metadata, config.public_key)
+        if getattr(args, "json", False):
+            print(json.dumps({"valid": result.ok, "asset_id": metadata.get("asset_id"), "error": result.error if not result.ok else None}))
+            if not result.ok:
+                sys.exit(1)
+            return
         if result.ok:
             print(f"✅ Certificate valid: {metadata.get('asset_id', 'UNKNOWN')}")
         else:
             print(f"❌ Certificate invalid: {result.error}")
             sys.exit(1)
     except Exception as e:
-        print(f"❌ Error: {e}", file=sys.stderr)
+        if getattr(args, "json", False):
+            print(json.dumps({"valid": False, "error": str(e)}))
+        else:
+            print(f"❌ Error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -2254,9 +2381,15 @@ def cmd_inbox_approve(args):
     inbox = ConfirmationInbox(data_dir=Config.from_env().data_dir)
     item = inbox.approve(args.item_id)
     if item is None:
-        print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "error": f"Item not found: {args.item_id}"}))
+        else:
+            print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
         sys.exit(1)
-    print(f"✅ Approved: {args.item_id}")
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "item_id": args.item_id, "action": "approved"}))
+    else:
+        print(f"✅ Approved: {args.item_id}")
 
 
 def cmd_inbox_reject(args):
@@ -2267,9 +2400,15 @@ def cmd_inbox_reject(args):
     inbox = ConfirmationInbox(data_dir=Config.from_env().data_dir)
     item = inbox.reject(args.item_id)
     if item is None:
-        print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "error": f"Item not found: {args.item_id}"}))
+        else:
+            print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
         sys.exit(1)
-    print(f"🚫 Rejected: {args.item_id}")
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "item_id": args.item_id, "action": "rejected"}))
+    else:
+        print(f"🚫 Rejected: {args.item_id}")
 
 
 def cmd_inbox_edit(args):
@@ -2288,9 +2427,15 @@ def cmd_inbox_edit(args):
 
     item = inbox.edit(args.item_id, changes)
     if item is None:
-        print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "error": f"Item not found: {args.item_id}"}))
+        else:
+            print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
         sys.exit(1)
-    print(f"✅ Edited and approved: {args.item_id}")
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "item_id": args.item_id, "action": "edited_and_approved", "changes": changes}))
+    else:
+        print(f"✅ Edited and approved: {args.item_id}")
 
 
 def cmd_trust(args):
@@ -2299,18 +2444,28 @@ def cmd_trust(args):
     from oasyce.config import Config
 
     inbox = ConfirmationInbox(data_dir=Config.from_env().data_dir)
+    use_json = getattr(args, "json", False)
     if args.level is not None:
         try:
             inbox.set_trust_level(args.level)
         except ValueError as e:
-            print(f"❌ {e}", file=sys.stderr)
+            if use_json:
+                print(json.dumps({"ok": False, "error": str(e)}))
+            else:
+                print(f"❌ {e}", file=sys.stderr)
             sys.exit(1)
-        print(f"✅ Trust level set to {args.level}")
+        if use_json:
+            print(json.dumps({"ok": True, "trust_level": args.level}))
+        else:
+            print(f"✅ Trust level set to {args.level}")
     else:
         level = inbox.get_trust_level()
         labels = {0: "manual", 1: "low-value auto", 2: "full auto"}
-        print(f"Trust level: {level} ({labels.get(level, 'unknown')})")
-        print(f"Auto-approve threshold: {inbox.get_auto_threshold()} OAS")
+        if use_json:
+            print(json.dumps({"trust_level": level, "label": labels.get(level, "unknown"), "auto_approve_threshold": inbox.get_auto_threshold()}))
+        else:
+            print(f"Trust level: {level} ({labels.get(level, 'unknown')})")
+            print(f"Auto-approve threshold: {inbox.get_auto_threshold()} OAS")
 
 
 def _get_agent_scheduler():
@@ -2454,30 +2609,42 @@ def cmd_doctor(args):
     oasyce_dir = home / ".oasyce"
     keys_dir = oasyce_dir / "keys"
 
+    use_json = getattr(args, "json", False)
+    checks = []
     errors = 0
     warnings = 0
 
-    print("\n\U0001f50d Oasyce Security Doctor")
-    print("\u2550" * 39)
+    def _check(name, status, detail):
+        nonlocal errors, warnings
+        if status == "error":
+            errors += 1
+        elif status == "warning":
+            warnings += 1
+        checks.append({"name": name, "status": status, "detail": detail})
+        if not use_json:
+            icon = {"ok": "\u2705", "warning": "\u26a0\ufe0f ", "error": "\u274c"}[status]
+            print(f"{icon} {name:<22s} {detail}")
+
+    if not use_json:
+        print("\n\U0001f50d Oasyce Security Doctor")
+        print("\u2550" * 39)
 
     # 1. Ed25519 Keys
     priv = keys_dir / "private.key"
     pub = keys_dir / "public.key"
     if priv.exists() and pub.exists():
-        print("\u2705 Ed25519 keys          Found in ~/.oasyce/keys/")
+        _check("Ed25519 keys", "ok", "Found in ~/.oasyce/keys/")
     else:
-        warnings += 1
-        print("\u26a0\ufe0f  Ed25519 keys          Missing (will auto-generate on first run)")
+        _check("Ed25519 keys", "warning", "Missing (will auto-generate on first run)")
 
     # 2. Protocol Port 9527
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind(("127.0.0.1", 9527))
         s.close()
-        print("\u2705 Protocol port 9527    Available")
+        _check("Protocol port 9527", "ok", "Available")
     except OSError:
-        errors += 1
-        print("\u274c Protocol port 9527    Already in use")
+        _check("Protocol port 9527", "error", "Already in use")
 
     # 3. Chain client connectivity
     try:
@@ -2485,23 +2652,20 @@ def cmd_doctor(args):
 
         client = OasyceClient()
         if client.is_connected():
-            print("\u2705 Go chain              Connected (via chain_client)")
+            _check("Go chain", "ok", "Connected (via chain_client)")
         else:
-            warnings += 1
-            print("\u26a0\ufe0f  Go chain              Not reachable (local features still work)")
+            _check("Go chain", "warning", "Not reachable (local features still work)")
     except Exception:
-        warnings += 1
-        print("\u26a0\ufe0f  Go chain              Not reachable (local features still work)")
+        _check("Go chain", "warning", "Not reachable (local features still work)")
 
     # 4. Dashboard port
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind(("127.0.0.1", 8420))
         s.close()
-        print("\u2705 Dashboard port 8420   Available")
+        _check("Dashboard port 8420", "ok", "Available")
     except OSError:
-        warnings += 1
-        print("\u26a0\ufe0f  Dashboard port 8420   In use (will auto-select alternative)")
+        _check("Dashboard port 8420", "warning", "In use (will auto-select alternative)")
 
     # 5. Required dependencies
     dep_ok = True
@@ -2511,21 +2675,17 @@ def cmd_doctor(args):
             __import__(mod)
         except ImportError:
             dep_ok = False
-            errors += 1
-            print(f"\u274c {dep_name:<22s} Not installed")
+            _check(dep_name, "error", "Not installed")
     if dep_ok:
-        print("\u2705 Dependencies          All required packages installed")
+        _check("Dependencies", "ok", "All required packages installed")
 
     # 6. Seed Node Connectivity
     try:
         s = socket.create_connection(("seed1.oasyce.com", 9527), timeout=3)
         s.close()
-        print("\u2705 Seed node             seed1.oasyce.com reachable")
+        _check("Seed node", "ok", "seed1.oasyce.com reachable")
     except (OSError, socket.timeout):
-        warnings += 1
-        print(
-            "\u26a0\ufe0f  Seed node             Unreachable (local mode — this is normal for now)"
-        )
+        _check("Seed node", "warning", "Unreachable (local mode — this is normal for now)")
 
     # 5. Local Firewall
     system = platform.system()
@@ -2561,10 +2721,9 @@ def cmd_doctor(args):
                 continue
 
     if firewall_detected:
-        print("\u2705 Firewall              Detected")
+        _check("Firewall", "ok", "Detected")
     else:
-        warnings += 1
-        print("\u26a0\ufe0f  Firewall              Not detected \u2014 consider enabling")
+        _check("Firewall", "warning", "Not detected \u2014 consider enabling")
 
     # 6. SSH Exposure
     try:
@@ -2572,36 +2731,40 @@ def cmd_doctor(args):
         s.settimeout(1)
         s.connect(("127.0.0.1", 22))
         s.close()
-        warnings += 1
-        print(
-            "\u26a0\ufe0f  SSH port 22           Listening (consider restricting to specific IPs)"
-        )
+        _check("SSH port 22", "warning", "Listening (consider restricting to specific IPs)")
     except (OSError, socket.timeout):
-        print("\u2705 SSH port 22           Not exposed")
+        _check("SSH port 22", "ok", "Not exposed")
 
     # 7. Data Directory
     if oasyce_dir.exists():
         if os.access(str(oasyce_dir), os.W_OK):
-            print("\u2705 Data directory         ~/.oasyce/ writable")
+            _check("Data directory", "ok", "~/.oasyce/ writable")
         else:
-            errors += 1
-            print("\u274c Data directory         ~/.oasyce/ not writable")
+            _check("Data directory", "error", "~/.oasyce/ not writable")
     else:
         try:
             oasyce_dir.mkdir(parents=True, exist_ok=True)
-            print("\u2705 Data directory         ~/.oasyce/ created")
+            _check("Data directory", "ok", "~/.oasyce/ created")
         except OSError:
-            errors += 1
-            print("\u274c Data directory         Could not create ~/.oasyce/")
+            _check("Data directory", "error", "Could not create ~/.oasyce/")
 
     # 8. Python Version
     ver = sys.version_info
     ver_str = f"{ver.major}.{ver.minor}.{ver.micro}"
     if ver >= (3, 9):
-        print(f"\u2705 Python {ver_str:<14s} OK")
+        _check(f"Python {ver_str}", "ok", "OK")
     else:
-        errors += 1
-        print(f"\u274c Python {ver_str:<14s} Too old (need >= 3.9)")
+        _check(f"Python {ver_str}", "error", "Too old (need >= 3.9)")
+
+    if use_json:
+        overall = "error" if errors > 0 else ("warning" if warnings > 0 else "ok")
+        print(json.dumps({
+            "status": overall,
+            "errors": errors,
+            "warnings": warnings,
+            "checks": checks,
+        }, indent=2))
+        return
 
     print("\u2550" * 39)
 
@@ -3453,8 +3616,9 @@ def main():
 
     # Demo command
     demo_parser = subparsers.add_parser(
-        "demo", help="Run full end-to-end protocol demo (register→quote→buy→shares)"
+        "demo", help="Run full protocol demo (register→quote→buy→capability→invoke→sell)"
     )
+    demo_parser.add_argument("--full", action="store_true", help="Use chain bridge (requires oasyce-core)")
     demo_parser.set_defaults(func=cmd_demo)
 
     # Verify command

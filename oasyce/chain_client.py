@@ -287,6 +287,12 @@ class ChainClient:
         from_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a new escrow."""
+        if amount_uoas <= 0:
+            raise ChainClientError(f"Amount must be positive, got {amount_uoas}")
+        if not creator or not provider:
+            raise ChainClientError("Creator and provider addresses are required")
+        if creator == provider:
+            raise ChainClientError("Creator and provider must be different addresses")
         if self.has_cli:
             args = ["tx", "settlement", "create-escrow", f"{amount_uoas}uoas"]
             if asset_id:
@@ -492,6 +498,32 @@ class ChainClient:
             "amount": {"denom": "uoas", "amount": str(amount_uoas)},
         }
         return self._broadcast_tx("/oasyce.datarights.v1.MsgBuyShares", msg)
+
+    def sell_shares(
+        self,
+        seller: str,
+        asset_id: str,
+        shares: int,
+        min_payout_uoas: Optional[int] = None,
+        from_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Sell shares of a data asset back to the bonding curve."""
+        if self.has_cli:
+            args = ["tx", "datarights", "sell-shares", asset_id, str(shares)]
+            if min_payout_uoas is not None:
+                args.extend(["--min-payout", str(min_payout_uoas)])
+            return self._run_cli(
+                args,
+                from_key=self._resolve_from_key(seller, from_key),
+            )
+        msg: Dict[str, Any] = {
+            "creator": seller,
+            "asset_id": asset_id,
+            "shares": str(shares),
+        }
+        if min_payout_uoas is not None:
+            msg["min_payout_out"] = str(min_payout_uoas)
+        return self._broadcast_tx("/oasyce.datarights.v1.MsgSellShares", msg)
 
     def get_data_asset(self, asset_id: str) -> Dict[str, Any]:
         """Query a single data asset by ID."""
@@ -883,6 +915,10 @@ class OasyceClient:
     def buy_shares(self, **kwargs: Any) -> Dict[str, Any]:
         """Buy shares of a data asset on chain."""
         return self._chain.buy_shares(**kwargs)
+
+    def sell_shares(self, **kwargs: Any) -> Dict[str, Any]:
+        """Sell shares of a data asset on chain."""
+        return self._chain.sell_shares(**kwargs)
 
     def file_dispute(self, **kwargs: Any) -> Dict[str, Any]:
         """File a dispute on chain."""

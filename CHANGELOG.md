@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased] — Agent Economy Infrastructure
+
+### Added
+- **`--json` 100% CLI coverage** — All 86 `cmd_` functions support `--json` output for agent consumption. `cmd_doctor` restructured with `_check()` helper for structured health check results. New JSON support for `verify`, `inbox approve/reject/edit`, `trust`, `node reset-identity`, `testnet reset`
+- **ProtocolParams system** — Single source of truth for all economic parameters with 3-layer loading (chain > env > defaults), bounds validation, and governance attack prevention
+- **Network mode security** — `OASYCE_NETWORK_MODE=mainnet` auto-enforces signature verification, identity checks, and disables local fallback
+- **AHRP persistence** — SQLite-backed storage (`AHRPStore`) for agents, capabilities, transactions, escrows, auctions — state survives node restarts
+- **API key auth middleware** — Write endpoints require `X-API-Key` header when `OASYCE_API_KEY` is set
+- **Rate limiting middleware** — IP-based: 100 reads/min, 20 writes/min with token bucket algorithm
+- **`/metrics` endpoint** — Prometheus-compatible metrics (uptime, agents, capabilities, transactions, escrows, chain status)
+- **Mainnet deploy scripts** — `deploy_mainnet.sh` (genesis + 4+ validators) and `setup_mainnet_validator.sh` (disk/RAM checks, min 10k OAS stake)
+- **Docker mainnet config** — `docker-compose.mainnet.yml` with resource limits, non-root user, Prometheus sidecar
+- **Seed nodes** — 3 geographically distributed mainnet seeds, `get_bootstrap_nodes()` selects by network mode
+- **Sell via chain RPC** — `chain_client.sell_shares()` routes MsgSellShares to Go chain, with slippage protection
+
+### Changed
+- **Sell unlocked** — `facade.sell()` no longer blocked in chain mode; routes through on-chain MsgSellShares with min_payout slippage guard
+- **Sell quote unlocked** — `facade.sell_quote()` works in all modes (was blocked in chain mode)
+- **Fee split: 93/3/2/2** — Creator 93%, validator 3%, burn 2%, treasury 2% (round-trip cost ~12%, was 64% with old 60/20/15/5). Aligned with Go chain parameters
+- **Reserve ratio: CW=0.50** — sqrt bonding curve for better liquidity
+- **`calculate_fees()` returns 4-tuple** — `(protocol_fee, burn, treasury, net_amount)` replaces old 3-tuple
+- **Settlement engine** — tracks treasury collected alongside protocol fees and burn
+- **AHRP executor** — enforces min agent stake on ANNOUNCE (100 OAS mainnet, 1 OAS testnet), write-through persistence, escrow release error logging
+- **Chain client** — input validation on create_escrow (positive amount, non-empty addresses, self-escrow prevention)
+- **Health endpoint** — now returns network_mode, agent count, peer count
+- **Status endpoint** — includes security settings summary
+
+### Security
+- **Escrow release failures** — logged with tx_id for manual recovery (was silently ignored)
+- **Chain client validation** — amount > 0, addresses required, creator ≠ provider
+- **SQL injection** — all queries parameterized (verified via audit)
+- **Ed25519 signatures** — uses `cryptography` library, PBKDF2 with 480k iterations
+- **Key file permissions** — 0o600 on all private key files
+
+### Fixed
+- **Old module references** — `oasyce_plugin` → `oasyce` in testnet deploy scripts
+
 ## [2.3.0] - 2026-03-23
 
 ### Added

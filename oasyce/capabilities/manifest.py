@@ -26,7 +26,7 @@ class PricingConfig:
 
     base_price: float = 1.0  # initial price per call (OAS)
     reserve_ratio: float = 0.35  # Bancor CW
-    protocol_fee_pct: float = 0.05  # 5%
+    protocol_fee_pct: float = 0.03  # 3%
 
     def validate(self) -> List[str]:
         errors: List[str] = []

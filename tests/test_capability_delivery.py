@@ -259,8 +259,8 @@ class TestEscrowLedger:
         release = escrow.release(eid, auth_token=token)
         assert release["ok"] is True
         assert release["amount"] == to_units(10)
-        # 5% protocol fee
-        assert release["protocol_fee"] == to_units(10) * 500 // 10000
+        # 3% protocol fee
+        assert release["protocol_fee"] == to_units(10) * 300 // 10000
         assert release["provider_amount"] == to_units(10) - release["protocol_fee"]
         escrow.close()
 
@@ -355,7 +355,7 @@ class TestEscrowLedger:
         result = escrow.lock("c", "p", "cap", amount=amount)
         release = escrow.release(result["escrow_id"], auth_token=result["auth_token"])
 
-        expected_fee = amount * 500 // 10000  # 5%
+        expected_fee = amount * 300 // 10000  # 3%
         assert release["protocol_fee"] == expected_fee
         assert release["provider_amount"] == amount - expected_fee
         assert release["provider_amount"] + release["protocol_fee"] == amount

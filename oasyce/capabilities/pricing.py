@@ -2,8 +2,8 @@
 
 Price flow:
     gross_price = curve.calculate_price(...)
-    protocol_fee = gross × 5% (2.5% burn + 2.5% verifier)
-    net_to_curve = gross × 95%
+    protocol_fee = gross × 3% (1.5% burn + 1.5% verifier)
+    net_to_curve = gross × 97%
 
 The quote() method returns the total price a consumer will pay, the estimated
 shares they will receive (after diminishing returns), and the current tier.
@@ -16,7 +16,7 @@ from typing import Dict, Tuple
 
 from oasyce.capabilities._pricing_shim import BancorCurve
 
-_PROTOCOL_FEE_PCT = 0.05  # 5% protocol fee
+_PROTOCOL_FEE_PCT = 0.03  # 3% protocol fee
 
 # Diminishing returns — same tiers as shares.py
 _DIMINISHING = [1.0, 0.8, 0.6]
@@ -30,8 +30,8 @@ class QuoteResult:
     capability_id: str
     consumer_id: str
     spot_price: float  # current spot price per unit
-    protocol_fee: float  # 5% protocol fee
-    net_to_curve: float  # 95% entering curve pool
+    protocol_fee: float  # 3% protocol fee
+    net_to_curve: float  # 97% entering curve pool
     shares_estimate: float  # estimated shares after diminishing returns
     diminishing_tier: int  # 0-based call index (capped at 3)
     diminishing_multiplier: float

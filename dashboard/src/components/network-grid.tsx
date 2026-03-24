@@ -73,6 +73,7 @@ export default function NetworkGrid() {
     const ripples: Ripple[] = [];
     let lastSpawn = 0;
     let lastRipple = 0;
+    const gossipTimers = new Set<ReturnType<typeof setTimeout>>();
 
     // Cache computed CSS colors — only recalculate on theme change
     let cachedBgR = 0, cachedBgG = 0, cachedBgB = 0;
@@ -305,7 +306,8 @@ export default function NetworkGrid() {
 
             // Gossip forward: ~30% chance for online nodes, only from primary ripples
             if (r.generation === 0 && n.state === 'online' && Math.random() < 0.25) {
-              setTimeout(() => emitRipple(j, 1), 300 + Math.random() * 500);
+              const tid = setTimeout(() => { gossipTimers.delete(tid); emitRipple(j, 1); }, 300 + Math.random() * 500);
+              gossipTimers.add(tid);
             }
           }
         }
@@ -431,7 +433,7 @@ export default function NetworkGrid() {
     let rt = 0;
     const onResize = () => { clearTimeout(rt); rt = window.setTimeout(init, 300); };
     window.addEventListener('resize', onResize);
-    return () => { stopLoop(); clearTimeout(rt); window.removeEventListener('resize', onResize); observer.disconnect(); themeObserver.disconnect(); };
+    return () => { stopLoop(); clearTimeout(rt); gossipTimers.forEach(clearTimeout); gossipTimers.clear(); window.removeEventListener('resize', onResize); observer.disconnect(); themeObserver.disconnect(); };
   }, []);
 
   return <canvas ref={canvasRef} class="network-grid" aria-hidden="true" />;

@@ -43,8 +43,10 @@ class PriceModel(str, Enum):
 
 from oasyce.core.formulas import (
     RESERVE_RATIO,
+    CREATOR_RATE,
     PROTOCOL_FEE_RATE,
     BURN_RATE,
+    TREASURY_RATE,
     INITIAL_PRICE,
     MIN_INITIAL_RESERVE,
     RESERVE_SOLVENCY_CAP,
@@ -72,6 +74,7 @@ class QuoteResult:
     price_impact_pct: float
     protocol_fee: float
     burn_amount: float
+    treasury_amount: float = 0.0
 
 
 @dataclass
@@ -86,6 +89,7 @@ class SellQuoteResult:
     price_impact_pct: float
     protocol_fee: float
     burn_amount: float
+    treasury_amount: float = 0.0
 
 
 @dataclass
@@ -155,6 +159,7 @@ class SettlementEngine:
         self.receipts: List[SettlementReceipt] = []
         self._protocol_fees_collected: float = 0.0
         self._total_burned: float = 0.0
+        self._treasury_collected: float = 0.0
         self._lock = threading.Lock()
 
     @property
@@ -208,7 +213,7 @@ class SettlementEngine:
             pool = AssetPool(asset_id=asset_id, owner="protocol")
 
         price_before = pool.spot_price
-        fee, burn, net_payment = calculate_fees(amount_oas)
+        fee, burn, treasury, net_payment = calculate_fees(amount_oas)
         tokens = bonding_curve_buy(pool.supply, pool.reserve_balance, net_payment)
 
         new_reserve = pool.reserve_balance + net_payment
@@ -230,6 +235,7 @@ class SettlementEngine:
             price_impact_pct=impact,
             protocol_fee=fee,
             burn_amount=burn,
+            treasury_amount=treasury,
         )
 
     def buy(
@@ -257,7 +263,7 @@ class SettlementEngine:
             pool = self._pools[asset_id]
 
             # Update pool state (atomic — roll back on any failure)
-            net = amount_oas - q.protocol_fee - q.burn_amount
+            net = amount_oas - q.protocol_fee - q.burn_amount - q.treasury_amount
             old_reserve = pool.reserve_balance
             old_supply = pool.supply
             old_equity = pool.equity.get(buyer, 0)
@@ -274,6 +280,7 @@ class SettlementEngine:
             # Track fee accounting
             self._protocol_fees_collected += q.protocol_fee
             self._total_burned += q.burn_amount
+            self._treasury_collected += q.treasury_amount
 
             receipt = SettlementReceipt(
                 receipt_id=uuid.uuid4().hex[:12],
@@ -304,6 +311,7 @@ class SettlementEngine:
                     # Roll back fee accounting
                     self._protocol_fees_collected -= q.protocol_fee
                     self._total_burned -= q.burn_amount
+                    self._treasury_collected -= q.treasury_amount
                     receipt.status = TradeStatus.FAILED
                     receipt.error = f"Chain escrow failed: {e}"
 
@@ -345,7 +353,8 @@ class SettlementEngine:
         gross_payout = bonding_curve_sell(pool.supply, pool.reserve_balance, tokens_to_sell)
         fee = gross_payout * PROTOCOL_FEE_RATE
         burn_amt = gross_payout * BURN_RATE
-        net_payout = gross_payout - fee - burn_amt
+        treasury_amt = gross_payout * TREASURY_RATE
+        net_payout = gross_payout - fee - burn_amt - treasury_amt
 
         new_reserve = pool.reserve_balance - gross_payout
         new_supply = pool.supply - tokens_to_sell
@@ -366,6 +375,7 @@ class SettlementEngine:
             price_impact_pct=impact,
             protocol_fee=fee,
             burn_amount=burn_amt,
+            treasury_amount=treasury_amt,
         )
 
     def sell(
@@ -391,7 +401,7 @@ class SettlementEngine:
             pool = self._pools[asset_id]
 
             # Validate reserve sufficiency
-            total_debit = sq.payout_oas + sq.protocol_fee + sq.burn_amount
+            total_debit = sq.payout_oas + sq.protocol_fee + sq.burn_amount + sq.treasury_amount
             if total_debit > pool.reserve_balance:
                 raise ValueError("Insufficient reserve for sell operation")
 
@@ -416,6 +426,7 @@ class SettlementEngine:
             # Track fee accounting
             self._protocol_fees_collected += sq.protocol_fee
             self._total_burned += sq.burn_amount
+            self._treasury_collected += sq.treasury_amount
 
             receipt = SettlementReceipt(
                 receipt_id=uuid.uuid4().hex[:12],
@@ -442,6 +453,7 @@ class SettlementEngine:
                     # Roll back fee accounting
                     self._protocol_fees_collected -= sq.protocol_fee
                     self._total_burned -= sq.burn_amount
+                    self._treasury_collected -= sq.treasury_amount
                     receipt.status = TradeStatus.FAILED
                     receipt.error = f"Chain escrow failed: {e}"
 
@@ -559,6 +571,7 @@ class SettlementEngine:
         return {
             "protocol_fees_collected": round(self._protocol_fees_collected, 6),
             "total_burned": round(self._total_burned, 6),
+            "treasury_collected": round(self._treasury_collected, 6),
             "pools": len(self._pools),
             "chain_connected": self._chain.is_chain_mode,
         }

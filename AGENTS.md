@@ -209,9 +209,9 @@ oas info --section economics # token economics
 ## Key Concepts
 
 - **OAS**: Protocol token (uoas = 10^-6 OAS). All transactions settle in OAS.
-- **Bonding Curve**: `tokens = supply * (sqrt(1 + payment/reserve) - 1)`. More buyers = higher price.
-- **Sell**: Inverse curve: `payout = reserve * (1 - (1 - tokens/supply)^2)`, 95% reserve cap.
-- **2% Burn**: Every settlement burns 2% (93% provider, 5% protocol, 2% burn). Deflationary. (Whitepaper v4 target: 60/20/15/5 — pending chain upgrade)
+- **Bonding Curve**: `tokens = supply * ((1 + payment/reserve)^0.50 - 1)`. CW=0.50 (sqrt curve), more buyers = higher price.
+- **Sell**: Inverse curve: `payout = reserve * (1 - (1 - tokens/supply)^(1/0.50))`, 95% reserve cap.
+- **Fee Split**: 93% creator/reserve, 3% validator, 2% burn, 2% treasury. Round-trip cost ~12%.
 - **Access Levels**: Hold equity to unlock: >=0.1% L0, >=1% L1, >=5% L2, >=10% L3.
 - **Jury Voting**: 5 jurors, `sha256(disputeID+nodeID) * log(1+reputation)`, 2/3 majority.
 - **Escrow**: Lock funds before execution, release after verification. Auto-expiry refund.

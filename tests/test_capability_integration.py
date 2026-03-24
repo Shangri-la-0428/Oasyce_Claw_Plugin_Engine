@@ -179,8 +179,8 @@ class TestHappyPath:
         handle = s["engine"].invoke("consumer_bob", s["cap_id"], GOOD_INPUT, max_price=50.0)
         result = s["engine"].submit_result(handle.invocation_id, GOOD_OUTPUT)
 
-        # protocol_fee = 5% of price
-        assert result.protocol_fee == pytest.approx(handle.price * 0.05, rel=1e-6)
+        # protocol_fee = 3% of price
+        assert result.protocol_fee == pytest.approx(handle.price * 0.03, rel=1e-6)
         # burn + verifier = protocol_fee
         assert result.burn_amount + result.verifier_amount == pytest.approx(
             result.protocol_fee, rel=1e-6

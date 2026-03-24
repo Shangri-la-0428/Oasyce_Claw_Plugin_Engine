@@ -101,7 +101,7 @@
   padding: var(--space-m);
   border: 1px solid var(--border);
   border-radius: var(--r-m);
-  transition: all 0.12s var(--ease);
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
 }
 .about-links a:hover {
   background: var(--bg-hover);

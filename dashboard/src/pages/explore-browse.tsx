@@ -1,7 +1,7 @@
 /**
  * Browse tab — search, type/tag filtering, asset list, tiered access quote/buy, capability invoke
  */
-import { useEffect, useState, useRef, useMemo } from 'preact/hooks';
+import { useEffect, useState, useRef, useMemo, useLayoutEffect } from 'preact/hooks';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { get, post } from '../api/client';
 import { showToast, i18n, walletAddress } from '../store/ui';
@@ -86,8 +86,16 @@ export default function ExploreBrowse({ subpath }: Props) {
     return () => { cancelled = true; clearTimeout(debounceRef.current); };
   }, []);
 
-  /* Close preview overlay on Escape */
+  /* Lock body scroll when panel is open */
+  useLayoutEffect(() => {
+    if (!activeId) return;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, [activeId]);
+
+  /* Close preview overlay on Escape, or close detail panel */
   useEscapeKey(() => setPreviewId(null), !!previewId);
+  useEscapeKey(() => resetActive(), !!activeId && !previewId);
 
   /* Auto-select asset from deep link subpath (e.g. #explore/CAP_ABC123) */
   useEffect(() => {
@@ -273,6 +281,7 @@ export default function ExploreBrowse({ subpath }: Props) {
   };
 
   const isCapability = (a: Asset) => (a.asset_type || 'data') === 'capability';
+  const activeAsset = activeId ? allAssets.find(a => a.asset_id === activeId) || discoverResults.find(a => a.asset_id === activeId) : null;
 
   return (
     <>
@@ -335,7 +344,26 @@ export default function ExploreBrowse({ subpath }: Props) {
           <div class="skeleton skeleton-sm mb-8" />
         </div>
       ) : list.length === 0 && allAssets.length === 0 ? (
-        <EmptyState icon="⌕" title={_['explore-empty']} hint={_['explore-browse']} />
+        <EmptyState icon="⌕" title={_['explore-empty']} hint={_['explore-browse']}>
+          <div class="quickstart">
+            <div class="quickstart-title">{_['explore-quickstart']}</div>
+            <div class="quickstart-hint">{_['explore-quickstart-hint']}</div>
+            <div class="quickstart-cmds">
+              <div class="quickstart-cmd">
+                <span class="quickstart-cmd-text">oas demo</span>
+                <span class="quickstart-cmd-desc">{_['explore-qs-demo']}</span>
+              </div>
+              <div class="quickstart-cmd">
+                <span class="quickstart-cmd-text">oas register &lt;file&gt;</span>
+                <span class="quickstart-cmd-desc">{_['explore-qs-register']}</span>
+              </div>
+              <div class="quickstart-cmd">
+                <span class="quickstart-cmd-text">oas capability register</span>
+                <span class="quickstart-cmd-desc">{_['explore-qs-capability']}</span>
+              </div>
+            </div>
+          </div>
+        </EmptyState>
       ) : list.length === 0 ? (
         <EmptyState icon={q ? '∅' : '⌕'} title={q ? _['inbox-no-match'] : _['explore-empty']} />
       ) : (
@@ -344,7 +372,7 @@ export default function ExploreBrowse({ subpath }: Props) {
             const isActive = activeId === a.asset_id;
             const isCap = isCapability(a);
             return (
-              <div key={a.asset_id} class={`explore-item ${isCap ? 'explore-item-cap' : ''}`}>
+              <div key={a.asset_id} class={`explore-item ${isCap ? 'explore-item-cap' : ''} ${isActive ? 'explore-item-selected' : ''}`}>
                 <button type="button" class="item-row" aria-expanded={isActive} onClick={() => toggleItem(a.asset_id)}>
                   <div class="grow">
                     <div class="item-name">
@@ -364,146 +392,6 @@ export default function ExploreBrowse({ subpath }: Props) {
                   <button class="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); setPreviewId(a.asset_id); }}>{_['preview']}</button>
                   <span class="btn btn-sm btn-ghost">{isCap ? _['invoke'] : _['get-access']}</span>
                 </button>
-
-                {/* 内联操作区 */}
-                {isActive && (
-                  <div class="explore-inline">
-                    {isCap ? (
-                      /* ── Capability invoke flow (delivery protocol) ── */
-                      !invokeResult ? (
-                        <div class="col gap-16">
-                          <div class="kv">
-                            <span class="kv-key">{_['id']}</span>
-                            <span class="kv-val">
-                              <span class="masked">
-                                <span>{maskIdLong(a.asset_id)}</span>
-                                <button class="btn-copy" onClick={() => copyText(a.asset_id)}>{_['copy']}</button>
-                              </span>
-                            </span>
-                          </div>
-                          {a.description && (
-                            <div class="kv">
-                              <span class="kv-key">{_['describe']}</span>
-                              <span class="kv-val">{a.description}</span>
-                            </div>
-                          )}
-                          {a.total_calls != null && (
-                            <div class="row gap-16 wrap">
-                              <div class="kv"><span class="kv-key">{_['cap-total-calls']}</span><span class="kv-val">{a.total_calls}</span></div>
-                              {a.success_rate != null && <div class="kv"><span class="kv-key">{_['cap-success-rate']}</span><span class="kv-val">{safePct(a.success_rate)}</span></div>}
-                              {a.avg_latency_ms != null && <div class="kv"><span class="kv-key">{_['cap-avg-latency']}</span><span class="kv-val">{safeNum(a.avg_latency_ms, 0)} ms</span></div>}
-                            </div>
-                          )}
-                          <div>
-                            <label class="label">{_['cap-invoke-input']}</label>
-                            <textarea class="input input-textarea-mono" value={invokeInput}
-                              onInput={e => setInvokeInput((e.target as HTMLTextAreaElement).value)}
-                              placeholder={_['cap-invoke-input-hint']} />
-                          </div>
-                          <button class="btn btn-primary btn-full" onClick={() => onInvoke(a.asset_id)} disabled={loading}>
-                            {loading ? _['invoking'] : _['invoke']}
-                          </button>
-                        </div>
-                      ) : (
-                        <div class="col gap-8">
-                          {invokeResult.price != null && <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val">{invokeResult.price} OAS</span></div>}
-                          {invokeResult.shares_minted != null && <div class="kv"><span class="kv-key">{_['shares-minted']}</span><span class="kv-val">{invokeResult.shares_minted}</span></div>}
-                          {invokeResult.result != null && (
-                            <div class="kv">
-                              <span class="kv-key">{_['invoke-result'] || 'Result'}</span>
-                              <span class="kv-val mono invoke-result-val">{typeof invokeResult.result === 'string' ? invokeResult.result : JSON.stringify(invokeResult.result)}</span>
-                            </div>
-                          )}
-                          <button class="btn btn-ghost btn-full" onClick={() => { setInvokeResult(null); resetActive(); }}>{_['back']}</button>
-                        </div>
-                      )
-                    ) : (
-                      /* ── Data asset: tiered access flow ── */
-                      buyStep === 'form' ? (
-                        <div class="col gap-16">
-                          {/* Asset info */}
-                          <div class="kv">
-                            <span class="kv-key">{_['id']}</span>
-                            <span class="kv-val">
-                              <span class="masked">
-                                <span>{maskIdLong(a.asset_id)}</span>
-                                <button class="btn-copy" onClick={() => copyText(a.asset_id)}>{_['copy']}</button>
-                              </span>
-                            </span>
-                          </div>
-                          {a.owner && (
-                            <div class="kv"><span class="kv-key">{_['owner']}</span><span class="kv-val">{maskOwner(a.owner)}</span></div>
-                          )}
-                          {a.tags && a.tags.length > 0 && (
-                            <div class="kv"><span class="kv-key">{_['tags']}</span><span class="kv-val">{a.tags.join(', ')}</span></div>
-                          )}
-                          <div class="kv"><span class="kv-key">{_['type']}</span><span class="kv-val">{_['asset-type-data']}</span></div>
-                          <div class="kv"><span class="kv-key">{_['spot-price']}</span><span class="kv-val">{fmtPrice(a.spot_price)} OAS</span></div>
-
-                          <button class="btn btn-primary btn-full" onClick={() => onFetchQuote(a.asset_id)} disabled={loading}>
-                            {loading ? _['quoting'] : _['quote']}
-                          </button>
-                        </div>
-                      ) : buyStep === 'quoted' && accessQuote ? (
-                        <div class="col gap-12">
-                          {/* Reputation & risk context */}
-                          <div class="row gap-16 wrap">
-                            <div class="kv"><span class="kv-key">{_['al-reputation']}</span><span class="kv-val">{accessQuote.reputation ?? '--'}</span></div>
-                            {accessQuote.risk_level && <div class="kv"><span class="kv-key">{_['al-risk']}</span><span class="kv-val badge">{accessQuote.risk_level}</span></div>}
-                            {accessQuote.max_access_level && <div class="kv"><span class="kv-key">{_['al-max']}</span><span class="kv-val">{accessQuote.max_access_level}</span></div>}
-                          </div>
-
-                          {/* Access level cards */}
-                          <div class="access-levels-grid">
-                            {accessQuote.levels.map(lq => (
-                              <button
-                                key={lq.level}
-                                type="button"
-                                class={`access-level-card ${selectedLevel === lq.level ? 'access-level-selected' : ''} ${!lq.available ? 'access-level-locked' : ''}`}
-                                onClick={() => lq.available && setSelectedLevel(lq.level)}
-                                disabled={!lq.available}
-                              >
-                                <div class="access-level-header">
-                                  <span class="access-level-name">{lq.level}</span>
-                                  <span class="access-level-label">{_[`al-${lq.level}-name`]}</span>
-                                </div>
-                                <div class="access-level-desc">{_[`al-${lq.level}-desc`]}</div>
-                                {lq.available ? (
-                                  <div class="access-level-price">
-                                    <span class="access-level-bond">{fmtPrice(lq.bond)}</span>
-                                    <span class="oas-unit">OAS</span>
-                                  </div>
-                                ) : (
-                                  <div class="access-level-lock-reason">{_[lq.locked_reason || 'al-locked'] || _['al-locked']}</div>
-                                )}
-                                {lq.available && lq.liability_days > 0 && (
-                                  <div class="access-level-liability">{_['al-liability']} {lq.liability_days} {_['al-days']}</div>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-
-                          <div class="row gap-16 mt-16">
-                            <button class="btn btn-ghost grow" onClick={() => { setAccessQuote(null); setBuyStep('form'); }}>{_['back']}</button>
-                            <button class="btn btn-primary grow" onClick={() => onBuyAccess(a.asset_id)} disabled={loading}>
-                              {loading ? _['buying'] : _['confirm-buy']}
-                            </button>
-                          </div>
-                        </div>
-                      ) : buyStep === 'success' && buyResult ? (
-                        <div class="col gap-8">
-                          <div class="buy-success-banner">{_['buy-success']}</div>
-                          <div class="kv"><span class="kv-key">{_['al-granted']}</span><span class="kv-val">{buyResult.level}</span></div>
-                          <div class="kv"><span class="kv-key">{_['al-bond-paid']}</span><span class="kv-val">{fmtPrice(buyResult.bond)} OAS</span></div>
-                          {buyResult.liability_days > 0 && (
-                            <div class="kv"><span class="kv-key">{_['al-liability']}</span><span class="kv-val">{buyResult.liability_days} {_['al-days']}</span></div>
-                          )}
-                          <button class="btn btn-ghost btn-full mt-16" onClick={() => resetActive()}>{_['back']}</button>
-                        </div>
-                      ) : null
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
@@ -528,6 +416,161 @@ export default function ExploreBrowse({ subpath }: Props) {
           </div>
         </div>
       )}
+
+      {/* ── Detail side panel ── */}
+      {activeAsset && (() => {
+        const a = activeAsset;
+        const isCap = isCapability(a);
+        return (
+          <>
+            <div class="explore-panel-backdrop" onClick={resetActive} />
+            <aside class="explore-panel" role="dialog" aria-label={a.name || a.asset_id}>
+              <div class="explore-panel-header">
+                <div class="explore-panel-title">
+                  {isCap && <span class="type-badge cap-badge">⚡</span>}
+                  {isCap ? (a.name || maskIdShort(a.asset_id)) : (a.tags?.length ? a.tags.join(' · ') : maskIdShort(a.asset_id))}
+                </div>
+                <button class="btn btn-sm btn-ghost" onClick={resetActive} aria-label="Close">✕</button>
+              </div>
+
+              <div class="explore-panel-body">
+                {isCap ? (
+                  /* ── Capability invoke flow ── */
+                  !invokeResult ? (
+                    <div class="col gap-16">
+                      <div class="kv">
+                        <span class="kv-key">{_['id']}</span>
+                        <span class="kv-val">
+                          <span class="masked">
+                            <span>{maskIdLong(a.asset_id)}</span>
+                            <button class="btn-copy" onClick={() => copyText(a.asset_id)}>{_['copy']}</button>
+                          </span>
+                        </span>
+                      </div>
+                      {a.description && (
+                        <div class="kv">
+                          <span class="kv-key">{_['describe']}</span>
+                          <span class="kv-val">{a.description}</span>
+                        </div>
+                      )}
+                      {a.total_calls != null && (
+                        <div class="row gap-16 wrap">
+                          <div class="kv"><span class="kv-key">{_['cap-total-calls']}</span><span class="kv-val">{a.total_calls}</span></div>
+                          {a.success_rate != null && <div class="kv"><span class="kv-key">{_['cap-success-rate']}</span><span class="kv-val">{safePct(a.success_rate)}</span></div>}
+                          {a.avg_latency_ms != null && <div class="kv"><span class="kv-key">{_['cap-avg-latency']}</span><span class="kv-val">{safeNum(a.avg_latency_ms, 0)} ms</span></div>}
+                        </div>
+                      )}
+                      <div class="kv"><span class="kv-key">{_['spot-price']}</span><span class="kv-val mono">{fmtPrice(a.spot_price)} OAS</span></div>
+                      <div>
+                        <label class="label">{_['cap-invoke-input']}</label>
+                        <textarea class="input input-textarea-mono" value={invokeInput}
+                          onInput={e => setInvokeInput((e.target as HTMLTextAreaElement).value)}
+                          placeholder={_['cap-invoke-input-hint']} />
+                      </div>
+                      <button class="btn btn-primary btn-full" onClick={() => onInvoke(a.asset_id)} disabled={loading}>
+                        {loading ? _['invoking'] : _['invoke']}
+                      </button>
+                    </div>
+                  ) : (
+                    <div class="col gap-8">
+                      {invokeResult.price != null && <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val">{invokeResult.price} OAS</span></div>}
+                      {invokeResult.shares_minted != null && <div class="kv"><span class="kv-key">{_['shares-minted']}</span><span class="kv-val">{invokeResult.shares_minted}</span></div>}
+                      {invokeResult.result != null && (
+                        <div class="kv">
+                          <span class="kv-key">{_['invoke-result'] || 'Result'}</span>
+                          <span class="kv-val mono invoke-result-val">{typeof invokeResult.result === 'string' ? invokeResult.result : JSON.stringify(invokeResult.result)}</span>
+                        </div>
+                      )}
+                      <button class="btn btn-ghost btn-full" onClick={() => { setInvokeResult(null); resetActive(); }}>{_['back']}</button>
+                    </div>
+                  )
+                ) : (
+                  /* ── Data asset: tiered access flow ── */
+                  buyStep === 'form' ? (
+                    <div class="col gap-16">
+                      <div class="kv">
+                        <span class="kv-key">{_['id']}</span>
+                        <span class="kv-val">
+                          <span class="masked">
+                            <span>{maskIdLong(a.asset_id)}</span>
+                            <button class="btn-copy" onClick={() => copyText(a.asset_id)}>{_['copy']}</button>
+                          </span>
+                        </span>
+                      </div>
+                      {a.owner && (
+                        <div class="kv"><span class="kv-key">{_['owner']}</span><span class="kv-val">{maskOwner(a.owner)}</span></div>
+                      )}
+                      {a.tags && a.tags.length > 0 && (
+                        <div class="kv"><span class="kv-key">{_['tags']}</span><span class="kv-val">{a.tags.join(', ')}</span></div>
+                      )}
+                      <div class="kv"><span class="kv-key">{_['type']}</span><span class="kv-val">{_['asset-type-data']}</span></div>
+                      <div class="kv"><span class="kv-key">{_['spot-price']}</span><span class="kv-val">{fmtPrice(a.spot_price)} OAS</span></div>
+
+                      <button class="btn btn-primary btn-full" onClick={() => onFetchQuote(a.asset_id)} disabled={loading}>
+                        {loading ? _['quoting'] : _['quote']}
+                      </button>
+                    </div>
+                  ) : buyStep === 'quoted' && accessQuote ? (
+                    <div class="col gap-12">
+                      <div class="row gap-16 wrap">
+                        <div class="kv"><span class="kv-key">{_['al-reputation']}</span><span class="kv-val">{accessQuote.reputation ?? '--'}</span></div>
+                        {accessQuote.risk_level && <div class="kv"><span class="kv-key">{_['al-risk']}</span><span class="kv-val badge">{accessQuote.risk_level}</span></div>}
+                        {accessQuote.max_access_level && <div class="kv"><span class="kv-key">{_['al-max']}</span><span class="kv-val">{accessQuote.max_access_level}</span></div>}
+                      </div>
+
+                      <div class="access-levels-grid">
+                        {accessQuote.levels.map(lq => (
+                          <button
+                            key={lq.level}
+                            type="button"
+                            class={`access-level-card ${selectedLevel === lq.level ? 'access-level-selected' : ''} ${!lq.available ? 'access-level-locked' : ''}`}
+                            onClick={() => lq.available && setSelectedLevel(lq.level)}
+                            disabled={!lq.available}
+                          >
+                            <div class="access-level-header">
+                              <span class="access-level-name">{lq.level}</span>
+                              <span class="access-level-label">{_[`al-${lq.level}-name`]}</span>
+                            </div>
+                            <div class="access-level-desc">{_[`al-${lq.level}-desc`]}</div>
+                            {lq.available ? (
+                              <div class="access-level-price">
+                                <span class="access-level-bond">{fmtPrice(lq.bond)}</span>
+                                <span class="oas-unit">OAS</span>
+                              </div>
+                            ) : (
+                              <div class="access-level-lock-reason">{_[lq.locked_reason || 'al-locked'] || _['al-locked']}</div>
+                            )}
+                            {lq.available && lq.liability_days > 0 && (
+                              <div class="access-level-liability">{_['al-liability']} {lq.liability_days} {_['al-days']}</div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div class="row gap-16 mt-16">
+                        <button class="btn btn-ghost grow" onClick={() => { setAccessQuote(null); setBuyStep('form'); }}>{_['back']}</button>
+                        <button class="btn btn-primary grow" onClick={() => onBuyAccess(a.asset_id)} disabled={loading}>
+                          {loading ? _['buying'] : _['confirm-buy']}
+                        </button>
+                      </div>
+                    </div>
+                  ) : buyStep === 'success' && buyResult ? (
+                    <div class="col gap-8">
+                      <div class="buy-success-banner">{_['buy-success']}</div>
+                      <div class="kv"><span class="kv-key">{_['al-granted']}</span><span class="kv-val">{buyResult.level}</span></div>
+                      <div class="kv"><span class="kv-key">{_['al-bond-paid']}</span><span class="kv-val">{fmtPrice(buyResult.bond)} OAS</span></div>
+                      {buyResult.liability_days > 0 && (
+                        <div class="kv"><span class="kv-key">{_['al-liability']}</span><span class="kv-val">{buyResult.liability_days} {_['al-days']}</span></div>
+                      )}
+                      <button class="btn btn-ghost btn-full mt-16" onClick={resetActive}>{_['back']}</button>
+                    </div>
+                  ) : null
+                )}
+              </div>
+            </aside>
+          </>
+        );
+      })()}
     </>
   );
 }

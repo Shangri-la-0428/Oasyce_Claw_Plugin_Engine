@@ -4,8 +4,11 @@ import pytest
 
 from oasyce.core.formulas import (
     INITIAL_PRICE,
+    CREATOR_RATE,
     PROTOCOL_FEE_RATE,
     BURN_RATE,
+    TREASURY_RATE,
+    RESERVE_RATIO,
     RESERVE_SOLVENCY_CAP,
     RIGHTS_MULTIPLIERS,
     REPUTATION_CAP,
@@ -27,27 +30,35 @@ from oasyce.core.formulas import (
 
 class TestCalculateFees:
     def test_normal(self):
-        fee, burn, net = calculate_fees(100.0)
-        assert fee == pytest.approx(5.0)
-        assert burn == pytest.approx(2.0)
-        assert net == pytest.approx(93.0)
+        """93/3/2/2 split: 3% validator, 2% burn, 2% treasury, 93% creator."""
+        fee, burn, treasury, net = calculate_fees(100.0)
+        assert fee == pytest.approx(3.0)        # 3% validator
+        assert burn == pytest.approx(2.0)       # 2% burn
+        assert treasury == pytest.approx(2.0)   # 2% treasury
+        assert net == pytest.approx(93.0)       # 93% creator/reserve
 
     def test_zero(self):
-        fee, burn, net = calculate_fees(0.0)
+        fee, burn, treasury, net = calculate_fees(0.0)
         assert fee == 0.0
         assert burn == 0.0
+        assert treasury == 0.0
         assert net == 0.0
 
     def test_sum_identity(self):
-        """fee + burn + net == original amount."""
+        """fee + burn + treasury + net == original amount."""
         for amount in [1.0, 10.0, 100.0, 1e6]:
-            fee, burn, net = calculate_fees(amount)
-            assert fee + burn + net == pytest.approx(amount)
+            fee, burn, treasury, net = calculate_fees(amount)
+            assert fee + burn + treasury + net == pytest.approx(amount)
+
+    def test_rates_sum_to_one(self):
+        """All rate constants must sum to 1.0."""
+        assert PROTOCOL_FEE_RATE + BURN_RATE + TREASURY_RATE + CREATOR_RATE == pytest.approx(1.0)
 
 
 class TestSpotPrice:
     def test_normal(self):
-        assert spot_price(100, 50) == pytest.approx(1.0)
+        # spot_price = reserve / (supply * CW) = 50 / (100 * 0.35)
+        assert spot_price(100, 50) == pytest.approx(50 / (100 * RESERVE_RATIO))
 
     def test_zero_supply(self):
         assert spot_price(0, 100) == 0.0
@@ -63,9 +74,9 @@ class TestBondingCurveBuy:
         assert tokens == pytest.approx(10.0 / INITIAL_PRICE)
 
     def test_normal(self):
-        """With existing reserve, follows Bancor formula."""
+        """With existing reserve, follows Bancor formula with CW=0.35."""
         tokens = bonding_curve_buy(100.0, 50.0, 10.0)
-        expected = 100.0 * ((1 + 10.0 / 50.0) ** 0.5 - 1)
+        expected = 100.0 * ((1 + 10.0 / 50.0) ** RESERVE_RATIO - 1)
         assert tokens == pytest.approx(expected)
 
     def test_small_payment(self):
@@ -81,7 +92,7 @@ class TestBondingCurveBuy:
 class TestBondingCurveSell:
     def test_normal(self):
         payout = bonding_curve_sell(100.0, 50.0, 10.0)
-        expected = 50.0 * (1 - (1 - 10.0/100.0) ** 2)
+        expected = 50.0 * (1 - (1 - 10.0/100.0) ** (1 / RESERVE_RATIO))
         assert payout == pytest.approx(expected)
 
     def test_solvency_cap(self):

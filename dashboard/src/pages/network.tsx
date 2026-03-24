@@ -856,8 +856,6 @@ export default function Network({ subpath }: NetworkProps) {
         </div>
       </Section>
 
-      <GovernanceSection forceOpen={subpath === 'governance'} />
-
       {/* ═══ Tools ═══ */}
       <div class="label net-cat-label">{_['net-cat-tools']}</div>
 
@@ -866,6 +864,11 @@ export default function Network({ subpath }: NetworkProps) {
       <ContributionSection forceOpen={subpath === 'contribution'} />
       <LeakageSection forceOpen={subpath === 'leakage'} />
       <CacheSection forceOpen={subpath === 'cache'} />
+
+      {/* ═══ Community ═══ */}
+      <div class="label net-cat-label">{_['net-cat-community']}</div>
+
+      <GovernanceSection forceOpen={subpath === 'governance'} />
       <FeedbackSection forceOpen={subpath === 'feedback'} />
     </div>
   );

@@ -1,4 +1,4 @@
-import { ComponentChildren } from 'preact';
+import type { ComponentChildren } from 'preact';
 import { useState, useEffect, useCallback } from 'preact/hooks';
 
 /**
@@ -31,13 +31,13 @@ export function Section({ id, title, desc, defaultOpen = false, forceOpen = fals
   }, [storageKey]);
 
   return (
-    <div class="card mb-24">
-      <button class="section-toggle" onClick={toggle} aria-expanded={open} aria-controls={`section-${id}`}>
+    <div class="card mb-32">
+      <button class={`section-toggle ${forceOpen ? 'section-toggle-locked' : ''}`} onClick={forceOpen ? undefined : toggle} aria-expanded={open} aria-controls={`section-${id}`}>
         <div class="section-header">
           <div class="label label-flush">{title}</div>
           {desc && !open && <span class="caption section-peek">{desc}</span>}
         </div>
-        <span class={`section-chevron ${open ? 'section-chevron-open' : ''}`}>›</span>
+        {!forceOpen && <span class={`section-chevron ${open ? 'section-chevron-open' : ''}`}>›</span>}
       </button>
       {open && (
         <div id={`section-${id}`} class="section-body">

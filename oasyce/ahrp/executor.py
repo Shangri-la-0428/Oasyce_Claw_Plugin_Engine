@@ -13,6 +13,7 @@ Settlement is delegated to the Cosmos chain via OasyceClient.
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -34,6 +35,7 @@ from oasyce.ahrp import (
     match_score,
 )
 from oasyce.chain_client import ChainClientError, OasyceClient
+from oasyce.config import get_economics, NetworkMode
 
 
 @dataclass
@@ -64,11 +66,16 @@ class AHRPExecutor:
         self,
         chain_client: Optional[OasyceClient] = None,
         require_signature: bool = True,
+        network_mode: NetworkMode = NetworkMode.MAINNET,
+        db_path: Optional[str] = None,
         # Legacy parameter name for backward compatibility
         settlement: Any = None,
     ):
         self._chain = chain_client or OasyceClient()
         self.require_signature = require_signature
+        self._network_mode = network_mode
+        economics = get_economics(network_mode)
+        self._min_agent_stake: int = economics["agent_stake"]
         self.agents: Dict[str, AgentIdentity] = {}
         self.capabilities: Dict[str, List[Capability]] = {}  # agent_id -> caps
         self.endpoints: Dict[str, List[str]] = {}  # agent_id -> endpoints
@@ -76,6 +83,60 @@ class AHRPExecutor:
         self.escrows: Dict[str, EscrowRecord] = {}
         self._offer_counter = 0
         self._tx_counter = 0
+
+        # Persistence (optional — None = pure in-memory)
+        self._store = None
+        if db_path is not None:
+            from oasyce.ahrp.persistence import AHRPStore
+            self._store = AHRPStore(db_path)
+            self._load_from_store()
+
+    def _load_from_store(self) -> None:
+        """Restore state from persistent storage on startup."""
+        if not self._store:
+            return
+        # Agents + endpoints
+        for agent_id, (identity, endpoints, count) in self._store.load_agents().items():
+            self.agents[agent_id] = identity
+            self.endpoints[agent_id] = endpoints
+        # Capabilities
+        for agent_id, caps in self._store.load_capabilities().items():
+            self.capabilities[agent_id] = caps
+        # Escrows
+        for esc in self._store.load_escrows():
+            self.escrows[esc["tx_id"]] = EscrowRecord(
+                tx_id=esc["tx_id"], buyer=esc["buyer"], seller=esc["seller"],
+                amount_oas=esc["amount_oas"], locked_at=esc["locked_at"],
+                released=esc["released"], chain_escrow_id=esc["chain_escrow_id"],
+            )
+        # Counters
+        if self.escrows:
+            max_num = max(
+                (int(k.split("-")[1]) for k in self.escrows if k.startswith("tx-")),
+                default=0,
+            )
+            self._tx_counter = max_num
+
+    def _persist_agent(self, agent_id: str) -> None:
+        """Write-through: persist agent + capabilities after mutation."""
+        if not self._store:
+            return
+        agent = self.agents.get(agent_id)
+        if agent:
+            self._store.save_agent(agent, self.endpoints.get(agent_id, []))
+            caps = self.capabilities.get(agent_id, [])
+            self._store.save_capabilities(agent_id, caps)
+
+    def _persist_escrow(self, tx_id: str) -> None:
+        """Write-through: persist escrow after mutation."""
+        if not self._store:
+            return
+        esc = self.escrows.get(tx_id)
+        if esc:
+            self._store.save_escrow(
+                esc.tx_id, esc.buyer, esc.seller, esc.amount_oas,
+                esc.locked_at, esc.released, esc.chain_escrow_id,
+            )
 
     @property
     def chain(self) -> OasyceClient:
@@ -106,9 +167,20 @@ class AHRPExecutor:
                 raise ValueError("Invalid signature on ANNOUNCE message")
 
         agent = payload.identity
+
+        # Min-stake anti-sybil: agent must meet minimum stake for this network
+        agent_stake_uoas = int(agent.stake * 1e8)
+        if agent_stake_uoas < self._min_agent_stake:
+            min_oas = self._min_agent_stake / 1e8
+            raise ValueError(
+                f"Insufficient stake: {agent.stake} OAS < minimum {min_oas} OAS "
+                f"for {self._network_mode.value}"
+            )
+
         self.agents[agent.agent_id] = agent
         self.capabilities[agent.agent_id] = list(payload.capabilities)
         self.endpoints[agent.agent_id] = list(payload.endpoints)
+        self._persist_agent(agent.agent_id)
         return agent.agent_id
 
     # -- REQUEST -> match --
@@ -190,6 +262,7 @@ class AHRPExecutor:
             chain_escrow_id=chain_escrow_id,
         )
         self.escrows[tx_id] = escrow
+        self._persist_escrow(tx_id)
 
         # Create transaction
         tx = Transaction(
@@ -252,16 +325,26 @@ class AHRPExecutor:
             raise ValueError(f"No escrow for {tx_id}")
 
         # Release escrow on chain
+        _log = logging.getLogger("oasyce.ahrp.executor")
+        chain_released = False
         if escrow.chain_escrow_id and not escrow.chain_escrow_id.startswith("local-"):
             try:
                 self._chain.chain.release_escrow(
                     escrow_id=escrow.chain_escrow_id,
                     releaser=tx.buyer,
                 )
-            except ChainClientError:
-                pass  # Best-effort release
+                chain_released = True
+            except ChainClientError as exc:
+                _log.error(
+                    "ESCROW RELEASE FAILED tx=%s escrow=%s error=%s — "
+                    "requires manual recovery",
+                    tx_id, escrow.chain_escrow_id, exc,
+                )
+        else:
+            chain_released = True  # local escrow, no chain action needed
 
         escrow.released = True
+        self._persist_escrow(tx_id)
         confirm.settlement_tx_id = escrow.chain_escrow_id
 
         # Update reputation (both parties get credit for successful tx)

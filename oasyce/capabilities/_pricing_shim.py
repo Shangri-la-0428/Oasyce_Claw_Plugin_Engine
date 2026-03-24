@@ -82,10 +82,10 @@ class FeeSplitter:
 
     def __init__(
         self,
-        creator_pct: float = 0.60,
-        validator_pct: float = 0.20,
-        burn_pct: float = 0.15,
-        treasury_pct: float = 0.05,
+        creator_pct: float = 0.93,
+        validator_pct: float = 0.03,
+        burn_pct: float = 0.02,
+        treasury_pct: float = 0.02,
         tiers: Optional[List[DiminishingTier]] = None,
     ) -> None:
         self.creator_pct = creator_pct

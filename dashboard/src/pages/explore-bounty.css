@@ -51,7 +51,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-m);
-  padding: var(--space-xs) 0;
+  padding: var(--space-s) 0;
   border-bottom: 1px solid var(--bg-2);
   flex-wrap: wrap;
   font-size: var(--text-md);

@@ -10,6 +10,11 @@ with Go chain constants in x/settlement/types/types.go.
 These functions have NO side effects, NO state, NO I/O.
 They are the irreducible mathematical primitives of the protocol.
 Every formula is independently testable with zero mocking.
+
+Protocol constants are loaded from ProtocolParams (configurable via
+env vars / chain governance). Module-level constants below are kept
+for backward compatibility — they reflect the current ProtocolParams
+defaults.
 """
 
 from __future__ import annotations
@@ -18,13 +23,22 @@ import hashlib
 import math
 from typing import Optional, Tuple
 
+from oasyce.core.protocol_params import get_protocol_params as _get_params
+
 # ── Protocol Constants ──────────────────────────────────────────────
-RESERVE_RATIO = 0.5          # Bancor connector weight (CW)
-PROTOCOL_FEE_RATE = 0.05     # 5% protocol fee
-BURN_RATE = 0.02             # 2% burn
-INITIAL_PRICE = 1.0          # OAS per token — fair bootstrap price
-MIN_INITIAL_RESERVE = 100.0  # Minimum funded pool reserve
-RESERVE_SOLVENCY_CAP = 0.95  # Max fraction of reserve payable on sell
+# Loaded from ProtocolParams defaults. These module-level names are
+# kept for backward compatibility (dozens of importers rely on them).
+# At import time they equal the ProtocolParams defaults; at runtime
+# functions below read live params via _get_params().
+_defaults = _get_params()
+RESERVE_RATIO = _defaults.reserve_ratio
+CREATOR_RATE = _defaults.creator_rate
+PROTOCOL_FEE_RATE = _defaults.validator_rate
+BURN_RATE = _defaults.burn_rate
+TREASURY_RATE = _defaults.treasury_rate
+INITIAL_PRICE = _defaults.initial_price
+MIN_INITIAL_RESERVE = _defaults.min_initial_reserve
+RESERVE_SOLVENCY_CAP = _defaults.reserve_solvency_cap
 
 # ── Rights Type Multipliers ────────────────────────────────────────
 RIGHTS_MULTIPLIERS = {
@@ -107,18 +121,27 @@ LEVEL_INDEX = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
 
 # ── Bonding Curve ───────────────────────────────────────────────────
 
-def calculate_fees(amount: float) -> Tuple[float, float, float]:
-    """Return (fee, burn, net_amount) for a given gross payment."""
-    fee = amount * PROTOCOL_FEE_RATE
-    burn = amount * BURN_RATE
-    return fee, burn, amount - fee - burn
+def calculate_fees(amount: float) -> Tuple[float, float, float, float]:
+    """Return (protocol_fee, burn, treasury, net_amount) for a given gross payment.
+
+    Split: 93% creator/reserve, 3% validator, 2% burn, 2% treasury.
+    net_amount (creator_rate) goes to the bonding curve reserve.
+    Reads live params — governance changes take effect immediately.
+    """
+    p = _get_params()
+    fee = amount * p.validator_rate
+    burn = amount * p.burn_rate
+    treasury = amount * p.treasury_rate
+    net = amount - fee - burn - treasury
+    return fee, burn, treasury, net
 
 
 def spot_price(supply: float, reserve: float) -> float:
     """Spot price = reserve / (supply × CW). Returns 0 if supply <= 0."""
     if supply <= 0:
         return 0.0
-    return reserve / (supply * RESERVE_RATIO)
+    p = _get_params()
+    return reserve / (supply * p.reserve_ratio)
 
 
 def bonding_curve_buy(supply: float, reserve: float, net_payment: float) -> float:
@@ -129,24 +152,26 @@ def bonding_curve_buy(supply: float, reserve: float, net_payment: float) -> floa
     """
     if net_payment <= 0:
         return 0.0
+    p = _get_params()
     if reserve > 0 and supply > 0:
-        return supply * ((1 + net_payment / reserve) ** RESERVE_RATIO - 1)
-    return net_payment / INITIAL_PRICE
+        return supply * ((1 + net_payment / reserve) ** p.reserve_ratio - 1)
+    return net_payment / p.initial_price
 
 
 def bonding_curve_sell(supply: float, reserve: float, tokens: float) -> float:
     """Inverse Bancor: gross payout for selling tokens back.
 
     Formula: payout = reserve × (1 − (1 − tokens/supply)^(1/CW))
-    Capped at RESERVE_SOLVENCY_CAP × reserve to keep pool solvent.
+    Capped at reserve_solvency_cap × reserve to keep pool solvent.
     """
     if tokens <= 0 or supply <= 0 or reserve <= 0:
         return 0.0
+    p = _get_params()
     if tokens >= supply:
-        return reserve * RESERVE_SOLVENCY_CAP  # Can't sell entire supply; cap at max
+        return reserve * p.reserve_solvency_cap
     ratio = 1 - tokens / supply
-    gross = reserve * (1 - ratio ** (1 / RESERVE_RATIO))
-    return min(gross, reserve * RESERVE_SOLVENCY_CAP)
+    gross = reserve * (1 - ratio ** (1 / p.reserve_ratio))
+    return min(gross, reserve * p.reserve_solvency_cap)
 
 
 def price_impact(price_before: float, price_after: float) -> float:

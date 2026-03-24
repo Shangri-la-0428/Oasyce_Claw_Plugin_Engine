@@ -95,7 +95,7 @@ if identity_path.exists():
     data = json.loads(identity_path.read_text())
     print(f'  Node ID: {data[\"node_id\"][:16]}... (existing)')
 else:
-    from oasyce_plugin.config import load_or_create_node_identity
+    from oasyce.config import load_or_create_node_identity
     priv, pub = load_or_create_node_identity(data_dir)
     print(f'  Node ID: {pub[:16]}... (new)')
 "
@@ -103,7 +103,7 @@ else:
 # 4. Validate genesis
 echo "[4/5] Validating genesis..."
 python3 -c "
-from oasyce_plugin.consensus.genesis import import_genesis, validate_genesis
+from oasyce.consensus.genesis import import_genesis, validate_genesis
 state = import_genesis('${DATA_DIR}/genesis.json')
 errors = validate_genesis(state)
 if errors:

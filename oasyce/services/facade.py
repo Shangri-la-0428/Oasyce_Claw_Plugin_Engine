@@ -91,17 +91,23 @@ class OasyceServiceFacade:
         verify_identity: bool = False,
         allow_local_fallback: Optional[bool] = None,
     ):
+        from oasyce.config import get_network_mode, get_security
+
         self._config = config
         self._ledger = ledger
-        self._verify_identity = verify_identity
-        # Default: local fallback ON (safe for dev / standalone GUI).
-        # Set OASYCE_STRICT_CHAIN=1 to force all operations through chain RPC.
+        self._network_mode = get_network_mode()
+        _security = get_security(self._network_mode)
+
+        # verify_identity: explicit True overrides; otherwise derive from mode
+        self._verify_identity = verify_identity or _security["verify_identity"]
+
+        # allow_local_fallback: explicit param > OASYCE_STRICT_CHAIN env > mode default
         if allow_local_fallback is not None:
             self._allow_local_fallback = allow_local_fallback
         elif _env_flag("OASYCE_STRICT_CHAIN"):
             self._allow_local_fallback = False
         else:
-            self._allow_local_fallback = True
+            self._allow_local_fallback = _security["allow_local_fallback"]
         self._init_lock = threading.Lock()
 
         # Lazy-initialised service instances
@@ -176,7 +182,7 @@ class OasyceServiceFacade:
     ) -> QuoteResult:
         state = self._get_chain_market_state(asset_id)
         price_before = state["spot_price"]
-        fee, burn, net_payment = calculate_fees(amount_oas)
+        fee, burn, treasury, net_payment = calculate_fees(amount_oas)
         tokens = bonding_curve_buy(state["supply"], state["reserve"], net_payment)
         new_reserve = state["reserve"] + net_payment
         new_supply = state["supply"] + tokens
@@ -195,6 +201,7 @@ class OasyceServiceFacade:
             price_impact_pct=impact,
             protocol_fee=fee,
             burn_amount=burn,
+            treasury_amount=treasury,
         )
 
     def _get_onchain_holdings(self, asset_id: str, agent_id: str) -> tuple[float, float]:
@@ -510,15 +517,33 @@ class OasyceServiceFacade:
         """Sell tokens back to the bonding curve for OAS payout."""
         if not self._verify_agent(seller, signature):
             return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
-        if self._strict_chain_mode():
-            return ServiceResult(
-                success=False,
-                error="Sell is unavailable in formal chain mode until on-chain redemption is implemented.",
-            )
         # Default slippage protection: 10% max
         if max_slippage is None:
             max_slippage = 0.10
         try:
+            if self._strict_chain_mode():
+                # Route through on-chain MsgSellShares
+                chain = self._get_chain_client()
+                shares_int = int(tokens_to_sell * 1e8)
+                min_payout = int(shares_int * (1.0 - max_slippage)) if max_slippage < 1.0 else None
+                result = chain.sell_shares(
+                    seller=seller,
+                    asset_id=asset_id,
+                    shares=shares_int,
+                    min_payout_uoas=min_payout,
+                )
+                payout_uoas = int(result.get("payout", result.get("tx_response", {}).get("payout", 0)))
+                return ServiceResult(
+                    success=True,
+                    data={
+                        "receipt_id": result.get("tx_response", {}).get("txhash", ""),
+                        "asset_id": asset_id,
+                        "seller": seller,
+                        "payout_oas": payout_uoas / 1e8,
+                        "settled": True,
+                        "chain_tx": True,
+                    },
+                )
             se = self._get_settlement()
             receipt = se.sell(asset_id, seller, tokens_to_sell, max_slippage)
             if receipt.status.value == "failed":
@@ -973,11 +998,6 @@ class OasyceServiceFacade:
     def sell_quote(self, asset_id: str, seller: str, tokens: float) -> ServiceResult:
         """Get a quote for selling tokens back to the bonding curve."""
         try:
-            if self._strict_chain_mode():
-                return ServiceResult(
-                    success=False,
-                    error="Sell quote is unavailable in formal chain mode until on-chain redemption is implemented.",
-                )
             se = self._get_settlement()
             sq = se.sell_quote(asset_id, tokens, seller)
             return ServiceResult(
@@ -1386,7 +1406,7 @@ class OasyceServiceFacade:
                     "total_burned": round(ps.get("total_burned", 0), 6),
                     "protocol_fees_collected": round(ps.get("protocol_fees_collected", 0), 6),
                     "burn_rate_pct": 2.0,
-                    "protocol_fee_pct": 5.0,
+                    "protocol_fee_pct": 3.0,
                 }
             except Exception:
                 pass

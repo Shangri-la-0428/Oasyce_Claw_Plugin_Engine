@@ -265,9 +265,9 @@ export default function Automation() {
                     </div>
                     {editingId !== item.item_id && (
                       <div class="auto-item-actions">
-                        <button class="auto-action-btn auto-action-approve" onClick={() => onApprove(item.item_id)} title={_['approve']} aria-label={_['approve']}>✓</button>
-                        <button class="auto-action-btn auto-action-edit" onClick={() => startEdit(item)} title={_['edit']} aria-label={_['edit']}>✎</button>
-                        <button class="auto-action-btn auto-action-reject" onClick={() => onReject(item.item_id)} title={_['reject']} aria-label={_['reject']}>✕</button>
+                        <button class="btn btn-ghost btn-sm auto-action-approve" onClick={() => onApprove(item.item_id)} title={_['approve']} aria-label={_['approve']}>✓</button>
+                        <button class="btn btn-ghost btn-sm" onClick={() => startEdit(item)} title={_['edit']} aria-label={_['edit']}>✎</button>
+                        <button class="btn btn-ghost btn-sm auto-action-reject" onClick={() => onReject(item.item_id)} title={_['reject']} aria-label={_['reject']}>✕</button>
                       </div>
                     )}
                   </div>
@@ -316,9 +316,7 @@ export default function Automation() {
       {tab === 'rules' && (
         <div>
           {/* Trust Level */}
-          <div class="card mb-16">
-            <div class="label">{_['trust-level']}</div>
-            <div class="caption mb-16">{_['trust-level-desc']}</div>
+          <Section id="trust-level" title={_['trust-level']} desc={_['trust-level-desc']} forceOpen>
             <div class="auto-trust-levels">
               {TRUST_LEVELS.map(lv => (
                 <button key={lv} class={`auto-trust-card ${trustConfig.value.trust_level === lv ? 'active' : ''}`} onClick={() => setTrust(lv)}>
@@ -328,12 +326,10 @@ export default function Automation() {
                 </button>
               ))}
             </div>
-          </div>
+          </Section>
 
           {/* Threshold */}
-          <div class="card mb-16">
-            <div class="label">{_['auto-threshold']}</div>
-            <div class="caption mb-16">{_['auto-threshold-desc']}</div>
+          <Section id="auto-threshold" title={_['auto-threshold']} desc={_['auto-threshold-desc']} forceOpen>
             <div class="auto-trust-levels">
               {THRESHOLD_TIERS.map(tier => (
                 <button key={tier.key} class={`auto-trust-card ${Math.abs(trustConfig.value.auto_threshold - tier.value) < 0.05 ? 'active' : ''}`} onClick={() => setTrust(undefined, tier.value)}>
@@ -344,19 +340,17 @@ export default function Automation() {
                 </button>
               ))}
             </div>
-          </div>
+          </Section>
 
           {/* Scan */}
-          <div class="card">
-            <div class="label">{_['scan-directory']}</div>
-            <div class="caption mb-12">{_['scan-directory-desc']}</div>
+          <Section id="scan-directory" title={_['scan-directory']} desc={_['scan-directory-desc']} forceOpen>
             <div class="auto-scan-bar">
               <input class="input" value={scanPath} onInput={e => setScanPath((e.target as HTMLInputElement).value)} placeholder={_['scan-path-hint']} />
-              <button class="btn btn-primary" onClick={onScan} disabled={scanning.value}>
+              <button class="btn btn-ghost btn-sm" onClick={onScan} disabled={scanning.value}>
                 {scanning.value ? _['scanning'] : _['scan-btn']}
               </button>
             </div>
-          </div>
+          </Section>
         </div>
       )}
 
@@ -364,7 +358,7 @@ export default function Automation() {
       <Section id="agent-status" title={_['agent-schedule']} desc={_['agent-schedule-desc']}>
         <div class="row between mb-16">
           <div class="row gap-8 align-center">
-            <span class={`auto-status-dot ${agentStatus?.running ? 'auto-dot-running' : 'auto-dot-disabled'}`} />
+            <span class={`auto-status-dot ${agentStatus?.running ? 'auto-dot-running' : 'auto-dot-disabled'}`} aria-hidden="true" />
             <span class="caption">{agentStatus?.running ? _['agent-running'] : _['agent-disabled']}</span>
           </div>
           <div class="row gap-8">

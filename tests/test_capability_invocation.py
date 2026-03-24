@@ -412,8 +412,8 @@ class TestCapabilityPricing:
         q = cp.quote("cap1", "user1")
         assert isinstance(q, QuoteResult)
         assert q.spot_price > 0
-        assert q.protocol_fee == pytest.approx(q.spot_price * 0.05)
-        assert q.net_to_curve == pytest.approx(q.spot_price * 0.95)
+        assert q.protocol_fee == pytest.approx(q.spot_price * 0.03)
+        assert q.net_to_curve == pytest.approx(q.spot_price * 0.97)
 
     def test_quote_shares_estimate(self):
         cp = CapabilityPricing(initial_reserve=100.0, initial_supply=100.0, reserve_ratio=0.35)
@@ -429,10 +429,10 @@ class TestCapabilityPricing:
         assert q.diminishing_tier == 1
         assert q.diminishing_multiplier == 0.8
 
-    def test_protocol_fee_5pct(self):
-        cp = CapabilityPricing(protocol_fee_pct=0.05)
+    def test_protocol_fee_3pct(self):
+        cp = CapabilityPricing(protocol_fee_pct=0.03)
         q = cp.quote("cap1", "user1")
-        assert q.protocol_fee == pytest.approx(q.spot_price * 0.05)
+        assert q.protocol_fee == pytest.approx(q.spot_price * 0.03)
 
     def test_sync_pool(self):
         cp = CapabilityPricing(initial_reserve=100.0, initial_supply=100.0)
@@ -544,11 +544,11 @@ class TestFullLifecycle:
         assert isinstance(result, SettlementResult)
         assert result.escrow_released is True
 
-        # 3. Protocol fee = 5%
-        assert result.protocol_fee == pytest.approx(handle.price * 0.05)
-        assert result.burn_amount == pytest.approx(handle.price * 0.025)
-        assert result.verifier_amount == pytest.approx(handle.price * 0.025)
-        assert result.net_to_curve == pytest.approx(handle.price * 0.95)
+        # 3. Protocol fee = 3%
+        assert result.protocol_fee == pytest.approx(handle.price * 0.03)
+        assert result.burn_amount == pytest.approx(handle.price * 0.015)
+        assert result.verifier_amount == pytest.approx(handle.price * 0.015)
+        assert result.net_to_curve == pytest.approx(handle.price * 0.97)
 
         # 4. Shares minted
         assert result.mint_result is not None
@@ -854,7 +854,7 @@ class TestBondingCurveIntegration:
 
 
 class TestFeeSplitIntegration:
-    def test_settlement_uses_60_20_15_5(self):
+    def test_settlement_uses_fee_split(self):
         engine, _, _, _, manifest = _make_engine()
         handle = engine.invoke(
             "consumer-1",
@@ -866,11 +866,11 @@ class TestFeeSplitIntegration:
         fs = result.fee_split
         net = result.net_to_curve
 
-        # Default FeeSplitter: 60/20/15/5
-        assert fs.creator == pytest.approx(net * 0.60, rel=1e-6)
-        assert fs.validator == pytest.approx(net * 0.20, rel=1e-6)
-        assert fs.burn == pytest.approx(net * 0.15, rel=1e-6)
-        assert fs.treasury == pytest.approx(net * 0.05, rel=1e-6)
+        # Default FeeSplitter: 93/3/2/2
+        assert fs.creator == pytest.approx(net * 0.93, rel=1e-6)
+        assert fs.validator == pytest.approx(net * 0.03, rel=1e-6)
+        assert fs.burn == pytest.approx(net * 0.02, rel=1e-6)
+        assert fs.treasury == pytest.approx(net * 0.02, rel=1e-6)
 
     def test_protocol_fee_burn_verifier_split(self):
         engine, _, _, _, manifest = _make_engine()

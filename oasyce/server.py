@@ -18,7 +18,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -28,11 +28,13 @@ from oasyce.ahrp.executor import AHRPExecutor
 from oasyce.ahrp.router import Router
 from oasyce.ahrp.market import TaskMarket
 from oasyce.chain_client import ChainClientError, OasyceClient
+from oasyce.config import NetworkMode, get_network_mode, get_security
 
 
 def create_app(
     node_id: str = "oasyce-node-0",
     testnet: bool = True,
+    network_mode: Optional[NetworkMode] = None,
 ) -> FastAPI:
     """Create and wire the complete Oasyce node."""
 
@@ -42,11 +44,25 @@ def create_app(
         version="0.3.0",
     )
 
+    # -- Network mode & security --
+    if network_mode is None:
+        network_mode = get_network_mode()
+    security = get_security(network_mode)
+
+    # -- Middleware: API key auth + rate limiting --
+    from oasyce.middleware import APIKeyMiddleware, RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware, read_rate=100, write_rate=20)
+    app.add_middleware(APIKeyMiddleware)
+
     # -- Chain client (replaces local SettlementEngine / StakingEngine) --
     chain = OasyceClient()
 
     # -- AHRP executor (uses chain client for settlement) --
-    executor = AHRPExecutor(chain_client=chain, require_signature=False)
+    executor = AHRPExecutor(
+        chain_client=chain,
+        require_signature=security["require_signatures"],
+        network_mode=network_mode,
+    )
     router = Router()
     market = TaskMarket(router=router, executor=executor)
 
@@ -80,21 +96,30 @@ def create_app(
     # -- Health & Status --
     @app.get("/health")
     def health():
+        import os
+        uptime = int(time.time()) - app.state.start_time
         return {
             "status": "ok",
             "node_id": node_id,
-            "testnet": testnet,
+            "network_mode": network_mode.value,
             "chain_connected": chain.is_chain_mode,
-            "uptime_seconds": int(time.time()) - app.state.start_time,
+            "uptime_seconds": uptime,
+            "agents": len(executor.agents),
+            "peers": len(router.stats().get("live_agents", [])) if hasattr(router, "stats") else 0,
         }
 
     @app.get("/status")
     def status():
         return {
             "node_id": node_id,
-            "testnet": testnet,
+            "network_mode": network_mode.value,
             "uptime_seconds": int(time.time()) - app.state.start_time,
             "chain_connected": chain.is_chain_mode,
+            "security": {
+                "require_signatures": security["require_signatures"],
+                "verify_identity": security["verify_identity"],
+                "allow_local_fallback": security["allow_local_fallback"],
+            },
             "ahrp": {
                 "agents": len(executor.agents),
                 "capabilities": sum(len(c) for c in executor.capabilities.values()),
@@ -103,6 +128,47 @@ def create_app(
             "router": router.stats(),
             "market": market.stats(),
         }
+
+    @app.get("/metrics")
+    def metrics():
+        """Prometheus-compatible metrics endpoint."""
+        from fastapi.responses import PlainTextResponse
+
+        uptime = int(time.time()) - app.state.start_time
+        agents = len(executor.agents)
+        caps = sum(len(c) for c in executor.capabilities.values())
+        txs = len(executor.transactions)
+        escrows = len(executor.escrows)
+        r_stats = router.stats()
+        m_stats = market.stats()
+
+        lines = [
+            "# HELP oasyce_uptime_seconds Node uptime in seconds",
+            "# TYPE oasyce_uptime_seconds gauge",
+            f"oasyce_uptime_seconds {uptime}",
+            "# HELP oasyce_agents_total Registered AHRP agents",
+            "# TYPE oasyce_agents_total gauge",
+            f"oasyce_agents_total {agents}",
+            "# HELP oasyce_capabilities_total Registered capabilities",
+            "# TYPE oasyce_capabilities_total gauge",
+            f"oasyce_capabilities_total {caps}",
+            "# HELP oasyce_transactions_total AHRP transactions",
+            "# TYPE oasyce_transactions_total gauge",
+            f"oasyce_transactions_total {txs}",
+            "# HELP oasyce_escrows_total Active escrows",
+            "# TYPE oasyce_escrows_total gauge",
+            f"oasyce_escrows_total {escrows}",
+            "# HELP oasyce_live_agents Live agents (within TTL)",
+            "# TYPE oasyce_live_agents gauge",
+            f'oasyce_live_agents {r_stats.get("live_agents", 0)}',
+            "# HELP oasyce_auctions_total Task market auctions",
+            "# TYPE oasyce_auctions_total gauge",
+            f'oasyce_auctions_total {m_stats.get("total_auctions", 0)}',
+            "# HELP oasyce_chain_connected Chain connection status",
+            "# TYPE oasyce_chain_connected gauge",
+            f"oasyce_chain_connected {1 if chain.is_chain_mode else 0}",
+        ]
+        return PlainTextResponse("\n".join(lines) + "\n")
 
     # -- Settlement API (delegated to chain) --
     from fastapi import Body

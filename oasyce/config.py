@@ -24,15 +24,29 @@ class NetworkMode(str, Enum):
 
 
 # ── Bootstrap nodes ──────────────────────────────────────────────────
-BOOTSTRAP_NODES: List[Dict[str, object]] = [
-    # 格式：{"host": "x.x.x.x", "port": 9527, "node_id": "..."}
-    # 公共 bootstrap 节点
-    {"host": "bootstrap.oasyce.com", "port": 9527, "node_id": "bootstrap-0"},
+MAINNET_BOOTSTRAP_NODES: List[Dict[str, object]] = [
+    {"host": "seed-1.oasyce.com", "port": 9527, "node_id": "mainnet-seed-1", "region": "us-east"},
+    {"host": "seed-2.oasyce.com", "port": 9527, "node_id": "mainnet-seed-2", "region": "eu-west"},
+    {"host": "seed-3.oasyce.com", "port": 9527, "node_id": "mainnet-seed-3", "region": "ap-east"},
 ]
 
 TESTNET_BOOTSTRAP_NODES: List[Dict[str, object]] = [
     {"host": "testnet.oasyce.com", "port": 9528, "node_id": "testnet-bootstrap-0"},
 ]
+
+# Backward compat alias
+BOOTSTRAP_NODES = MAINNET_BOOTSTRAP_NODES
+
+
+def get_bootstrap_nodes(mode: Optional[NetworkMode] = None) -> List[Dict[str, object]]:
+    """Return bootstrap nodes for the given network mode."""
+    if mode is None:
+        mode = get_network_mode()
+    if mode == NetworkMode.MAINNET:
+        return list(MAINNET_BOOTSTRAP_NODES)
+    if mode == NetworkMode.TESTNET:
+        return list(TESTNET_BOOTSTRAP_NODES)
+    return []  # LOCAL mode: no bootstrap
 
 
 # ── Network configuration ───────────────────────────────────────────
@@ -180,6 +194,51 @@ def get_economics(mode: NetworkMode = NetworkMode.MAINNET) -> dict:
     if mode == NetworkMode.TESTNET:
         return dict(TESTNET_ECONOMICS)
     return dict(MAINNET_ECONOMICS)
+
+
+# ── Security configuration ──────────────────────────────────────────
+MAINNET_SECURITY = {
+    "require_signatures": True,
+    "verify_identity": True,
+    "allow_local_fallback": False,
+}
+
+TESTNET_SECURITY = {
+    "require_signatures": False,
+    "verify_identity": False,
+    "allow_local_fallback": True,
+}
+
+LOCAL_SECURITY = {
+    "require_signatures": False,
+    "verify_identity": False,
+    "allow_local_fallback": True,
+}
+
+
+def get_network_mode() -> NetworkMode:
+    """Detect network mode from environment.
+
+    OASYCE_NETWORK_MODE=mainnet|testnet|local (case-insensitive).
+    Falls back to LOCAL if unset.
+    """
+    raw = os.environ.get("OASYCE_NETWORK_MODE", "").strip().lower()
+    if raw == "mainnet":
+        return NetworkMode.MAINNET
+    if raw == "testnet":
+        return NetworkMode.TESTNET
+    return NetworkMode.LOCAL
+
+
+def get_security(mode: Optional[NetworkMode] = None) -> dict:
+    """Return security settings for the given network mode."""
+    if mode is None:
+        mode = get_network_mode()
+    if mode == NetworkMode.MAINNET:
+        return dict(MAINNET_SECURITY)
+    if mode == NetworkMode.TESTNET:
+        return dict(TESTNET_SECURITY)
+    return dict(LOCAL_SECURITY)
 
 
 def _parse_tags(raw: Optional[str]) -> List[str]:

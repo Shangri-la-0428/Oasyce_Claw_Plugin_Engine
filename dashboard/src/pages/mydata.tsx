@@ -100,23 +100,23 @@ export default function MyData() {
 
   const allTags = useMemo(() => [...new Set(assets.value.flatMap(a => a.tags ?? []))], [assets.value]);
 
-  const filtered = assets.value.filter(a => {
+  const filtered = useMemo(() => assets.value.filter(a => {
     if (tagFilter && !(a.tags ?? []).includes(tagFilter)) return false;
     if (!q) return true;
     const s = q.toLowerCase();
     return a.asset_id.toLowerCase().includes(s)
       || a.owner?.toLowerCase().includes(s)
       || a.tags?.some(tag => tag.toLowerCase().includes(s));
-  });
+  }), [assets.value, tagFilter, q]);
 
-  const sorted = [...filtered].sort((a, b) => {
+  const sorted = useMemo(() => [...filtered].sort((a, b) => {
     if (sortBy === 'value') return (b.spot_price ?? 0) - (a.spot_price ?? 0);
     const ta = typeof a.created_at === 'string' ? new Date(a.created_at).getTime() : (a.created_at ?? 0);
     const tb = typeof b.created_at === 'string' ? new Date(b.created_at).getTime() : (b.created_at ?? 0);
     return tb - ta;
-  });
+  }), [filtered, sortBy]);
 
-  const list = sorted.slice(0, pageSize);
+  const list = useMemo(() => sorted.slice(0, pageSize), [sorted, pageSize]);
   const hasMore = sorted.length > pageSize;
 
   const copyText = async (text: string) => {

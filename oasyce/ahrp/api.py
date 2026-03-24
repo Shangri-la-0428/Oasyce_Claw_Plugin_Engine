@@ -221,7 +221,13 @@ def get_router() -> Router:
 def get_executor() -> AHRPExecutor:
     global _executor_instance
     if _executor_instance is None:
-        _executor_instance = AHRPExecutor(require_signature=False)
+        from oasyce.config import get_network_mode, get_security
+        mode = get_network_mode()
+        security = get_security(mode)
+        _executor_instance = AHRPExecutor(
+            require_signature=security["require_signatures"],
+            network_mode=mode,
+        )
     return _executor_instance
 
 

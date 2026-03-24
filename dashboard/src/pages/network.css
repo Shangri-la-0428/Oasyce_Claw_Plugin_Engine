@@ -92,7 +92,7 @@
 /* Category labels — generous top margin for section break, tight bottom */
 .net-cat-label {
   margin-top: var(--space-3xl);
-  margin-bottom: var(--space-s);
+  margin-bottom: var(--space-m);
   padding-bottom: var(--space-s);
   border-bottom: 1px solid var(--border);
 }

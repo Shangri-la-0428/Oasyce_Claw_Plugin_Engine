@@ -7,15 +7,16 @@ import pytest
 def test_bootstrap_pricing_uses_initial_price():
     """Unfunded pool should price at INITIAL_PRICE (1.0 OAS/token), not 10x."""
     from oasyce.services.settlement.engine import SettlementEngine, INITIAL_PRICE
+    from oasyce.core.formulas import CREATOR_RATE
 
     se = SettlementEngine()
     se.register_asset("BOOT", "creator", initial_reserve=0.0)
 
     # Buy 1 OAS into unfunded pool
     q = se.quote("BOOT", 1.0)
-    # After fees (5% + 2% = 7%), net = 0.93 OAS
-    # tokens = net_payment / INITIAL_PRICE = 0.93 / 1.0 = 0.93
-    assert q.equity_minted == pytest.approx(0.93, abs=0.01)
+    # After fees (20% + 15% + 5% = 40%), net = 0.60 OAS (CREATOR_RATE)
+    # tokens = net_payment / INITIAL_PRICE = 0.60 / 1.0 = 0.60
+    assert q.equity_minted == pytest.approx(CREATOR_RATE, abs=0.01)
     assert q.equity_minted < 2.0  # Must NOT be 10x (old bug gave 9.3)
 
 
