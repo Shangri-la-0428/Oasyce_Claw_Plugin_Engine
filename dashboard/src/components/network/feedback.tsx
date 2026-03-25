@@ -33,7 +33,7 @@ export function FeedbackSection({ forceOpen }: { forceOpen: boolean }) {
   return (
     <Section id="feedback" title={_['feedback']} desc={_['feedback-desc']} forceOpen={forceOpen}>
       {submitted ? (
-        <div class="caption fg-muted" style={{ padding: 'var(--space-xl) 0', textAlign: 'center' }}>
+        <div class="caption fg-muted p-0-24 center">
           {_['feedback-success']}
         </div>
       ) : (

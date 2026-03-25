@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo, useRef } from 'preact/hooks';
 import { get, post } from '../api/client';
 import { assets, loadAssets, deleteAsset } from '../store/assets';
 import { showToast, i18n, walletAddress } from '../store/ui';
-import { maskIdShort, maskIdLong, maskOwner, fmtPrice, safePct, fmtDate } from '../utils';
+import { maskIdShort, maskIdLong, maskOwner, fmtPrice, safePct, fmtDate, copyText } from '../utils';
 import { EmptyState } from '../components/empty-state';
 import RegisterForm from '../components/register-form';
 import './mydata.css';
@@ -125,15 +125,6 @@ export default function MyData() {
 
   const list = useMemo(() => sorted.slice(0, pageSize), [sorted, pageSize]);
   const hasMore = sorted.length > pageSize;
-
-  const copyText = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast(_['copied'], 'success');
-    } catch {
-      showToast(_['error-generic'], 'error');
-    }
-  };
 
   const onDelete = async (id: string) => {
     if (busyRef.current) return;
@@ -412,7 +403,7 @@ export default function MyData() {
                       {/* Edit tags */}
                       {editTagsTarget === a.asset_id ? (
                         <div class="detail-inline-form">
-                          <input class="input mb-6" value={editTagsValue}
+                          <input class="input mb-8" value={editTagsValue}
                             onInput={e => setEditTagsValue((e.target as HTMLInputElement).value)}
                             placeholder={_['edit-tags']} />
                           <div class="row gap-8">
@@ -498,10 +489,10 @@ export default function MyData() {
                     )}
                     {disputeTarget === a.asset_id && (
                       <div class="detail-inline-form">
-                        <input class="input mb-6" value={disputeReason}
+                        <input class="input mb-8" value={disputeReason}
                           onInput={e => setDisputeReason((e.target as HTMLInputElement).value)}
                           placeholder={_['dispute-reason-hint']} />
-                        <div class="caption mb-6 fg-muted">{_['arbitrator-auto']}</div>
+                        <div class="caption mb-8 fg-muted">{_['arbitrator-auto']}</div>
                         <div class="row gap-8">
                           <button class="btn btn-ghost btn-sm" onClick={() => { setDisputeTarget(null); setDisputeReason(''); }}>{_['cancel']}</button>
                           <button class="btn btn-danger btn-sm" onClick={() => onDispute(a.asset_id)} disabled={disputing || !disputeReason.trim()}>
@@ -586,7 +577,7 @@ export default function MyData() {
               <span class="kv-val mono">{fmtPrice(ownerEarnings.total_earned)} OAS</span>
             </div>
           </div>
-          <h3 class="caption fw-600 mb-8">{_['recent-transactions']}</h3>
+          <h3 class="label-inline mb-8">{_['recent-transactions']}</h3>
           {ownerEarnings.transactions.length === 0 ? (
             <EmptyState icon="⇄" title={_['no-transactions']} hint={_['no-transactions-hint']} />
           ) : (

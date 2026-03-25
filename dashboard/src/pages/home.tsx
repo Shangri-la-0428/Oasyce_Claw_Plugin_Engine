@@ -156,8 +156,8 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
             <div class="item-list" role="status" aria-busy="true" aria-label={_['loading']}>
               {[0, 1, 2].map(i => (
                 <div key={i} class="item-row cursor-default">
-                  <div class="grow"><div class="skeleton" style="width:60%;max-width:120px;height:14px" /></div>
-                  <div class="skeleton" style="width:30%;max-width:80px;height:14px" />
+                  <div class="grow"><div class="skeleton home-skel-name" /></div>
+                  <div class="skeleton home-skel-price" />
                 </div>
               ))}
             </div>

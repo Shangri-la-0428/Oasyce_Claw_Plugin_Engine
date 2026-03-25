@@ -65,3 +65,15 @@ export async function readEntryFiles(entry: any, maxDepth = 5): Promise<File[]> 
   }
   return [];
 }
+
+/** Copy text to clipboard with toast feedback */
+export async function copyText(text: string) {
+  const { showToast, i18n } = await import('./store/ui');
+  const _ = i18n.value;
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(_['copied'], 'success');
+  } catch {
+    showToast(_['error-generic'], 'error');
+  }
+}

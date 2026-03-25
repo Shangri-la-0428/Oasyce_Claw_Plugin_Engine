@@ -142,7 +142,7 @@ export default function NetworkGrid() {
     init();
 
     function frame(now: number) {
-      if (!visible) { rafRef.current = 0; return; }
+      if (!visible || !ctx) { rafRef.current = 0; return; }
 
       // User click → ring
       const click = pendingClick.current;

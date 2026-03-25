@@ -331,7 +331,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
             <div class="dropzone-text">
               <strong>{_['drop-browse']}</strong>
             </div>
-            <div class="caption mt-6">
+            <div class="caption mt-8">
               {_['drop-folder-hint']}
             </div>
           </>
@@ -386,7 +386,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
                   <label class="label" htmlFor="co-creators">{_['co-creators']}</label>
                   <div class="caption mb-8">{_['co-creators-hint']}</div>
                   {coCreators.map((c, i) => (
-                    <div key={i} class="row gap-8 mb-6">
+                    <div key={i} class="row gap-8 mb-8">
                       <input class="input input-flex-2" placeholder={_['co-creator-address']} value={c.address}
                         onInput={e => { const v = [...coCreators]; v[i] = {...v[i], address: (e.target as HTMLInputElement).value}; setCoCreators(v); }} />
                       <input class="input input-share" type="number" placeholder="%" value={c.share}

@@ -119,7 +119,11 @@ export interface Invocation {
   invocation_id: string;
   capability_id: string;
   consumer: string;
-  status: string;
+  status: 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'FAILED' | 'DISPUTED' | string;
+  completed_height?: number;
+  escrow_id?: string;
+  output_hash?: string;
+  usage_report?: string;
 }
 
 export interface ReputationScore {
@@ -255,6 +259,34 @@ export function listDataAssets(opts?: { tag?: string; owner?: string }): Promise
 
 export function getShareholders(assetId: string): Promise<{ shareholders: { address: string; shares: string }[] }> {
   return chainGet(`/oasyce/datarights/v1/asset/${assetId}/shareholders`);
+}
+
+// ── Invocation lifecycle ─────────────────────────────────────
+// TODO: These are state-changing operations (Msg, not Query). Cosmos SDK gRPC-gateway
+// only exposes GET endpoints for Query service RPCs. These need to submit TXs via
+// /cosmos/tx/v1beta1/txs (broadcast_tx) with signed MsgCompleteInvocation etc.
+// Left as placeholders — not currently called by the UI.
+
+export function completeInvocation(invocationId: string, outputHash: string): Promise<any> {
+  return chainGet(`/oasyce/capability/v1/invocation/${invocationId}/complete`, { output_hash: outputHash });
+}
+
+export function failInvocation(invocationId: string): Promise<any> {
+  return chainGet(`/oasyce/capability/v1/invocation/${invocationId}/fail`);
+}
+
+export function claimInvocation(invocationId: string): Promise<any> {
+  return chainGet(`/oasyce/capability/v1/invocation/${invocationId}/claim`);
+}
+
+export function disputeInvocation(invocationId: string, reason: string): Promise<any> {
+  return chainGet(`/oasyce/capability/v1/invocation/${invocationId}/dispute`, { reason });
+}
+
+// ── Access level query ──────────────────────────────────────
+
+export function getAccessLevel(assetId: string, address: string): Promise<any> {
+  return chainGet(`/oasyce/datarights/v1/asset/${assetId}/access/${address}`);
 }
 
 // ── Connectivity check ──────────────────────────────────────

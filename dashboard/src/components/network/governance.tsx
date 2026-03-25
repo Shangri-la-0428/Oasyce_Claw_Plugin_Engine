@@ -53,7 +53,7 @@ export function GovernanceSection({ forceOpen }: { forceOpen: boolean }) {
         <div class="mb-16">
           <div class="label-inline mb-8">{_['gov-proposals']}</div>
           {proposals.map((p: any) => (
-            <div key={p.proposal_id} class="card mb-8" style="padding: 12px;">
+            <div key={p.proposal_id} class="card card-sm mb-8">
               <div class="kv">
                 <span class="kv-key">#{p.proposal_id}</span>
                 <span class="kv-val">{p.title}</span>

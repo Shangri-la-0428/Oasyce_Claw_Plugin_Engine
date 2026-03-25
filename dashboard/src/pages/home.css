@@ -153,7 +153,7 @@
 }
 .home-stat-value {
   font-size: var(--text-4xl);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--fg-0);
   line-height: var(--leading-none);
   font-variant-numeric: tabular-nums;
@@ -165,6 +165,10 @@
   font-size: var(--text-lg);
   font-weight: 400;
 }
+
+/* ── Trade skeleton placeholders ── */
+.home-skel-name { width: 60%; max-width: 120px; height: 14px; }
+.home-skel-price { width: 30%; max-width: 80px; height: 14px; }
 
 /* ── Veteran inline actions ── */
 .home-vet-actions {

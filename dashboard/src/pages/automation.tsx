@@ -265,8 +265,8 @@ export default function Automation() {
           {scanning.value && (
             <div class="col gap-8 mb-16" role="status" aria-busy="true" aria-label={_['scanning']}>
               <div class="skeleton skeleton-sm" />
-              <div class="skeleton skeleton-sm" style={{ width: '75%' }} />
-              <div class="skeleton skeleton-sm" style={{ width: '50%' }} />
+              <div class="skeleton skeleton-sm skeleton-w-75" />
+              <div class="skeleton skeleton-sm skeleton-w-50" />
             </div>
           )}
 
