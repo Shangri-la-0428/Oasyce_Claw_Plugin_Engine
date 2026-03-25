@@ -9,9 +9,10 @@ import ExplorePortfolio from './explore-portfolio';
 import ExploreStake from './explore-stake';
 import ExploreBounty from './explore-bounty';
 import ExploreEarnings from './explore-earnings';
+import ExploreDisputes from './explore-disputes';
 import './explore.css';
 
-type ExploreTab = 'browse' | 'portfolio' | 'stake' | 'bounty' | 'earnings';
+type ExploreTab = 'browse' | 'portfolio' | 'stake' | 'bounty' | 'earnings' | 'disputes';
 
 interface ExploreProps { subpath?: string; }
 
@@ -41,6 +42,9 @@ export default function Explore({ subpath }: ExploreProps) {
         <button role="tab" aria-selected={exploreTab === 'earnings'} class={`tab ${exploreTab === 'earnings' ? 'active' : ''}`} onClick={() => setExploreTab('earnings')}>
           {_['earnings-tab']}
         </button>
+        <button role="tab" aria-selected={exploreTab === 'disputes'} class={`tab ${exploreTab === 'disputes' ? 'active' : ''}`} onClick={() => setExploreTab('disputes')}>
+          {_['disputes-tab']}
+        </button>
       </div>
 
       {exploreTab === 'browse' && <ExploreBrowse subpath={subpath} />}
@@ -48,6 +52,7 @@ export default function Explore({ subpath }: ExploreProps) {
       {exploreTab === 'stake' && <ExploreStake />}
       {exploreTab === 'bounty' && <ExploreBounty />}
       {exploreTab === 'earnings' && <ExploreEarnings onRegister={() => setExploreTab('browse')} />}
+      {exploreTab === 'disputes' && <ExploreDisputes />}
     </div>
   );
 }

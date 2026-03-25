@@ -70,11 +70,15 @@ oas register <file> --owner <name> --tags <tag1,tag2>
   --free                                           # attribution only
 
 oas search <keyword>
-oas quote <asset_id>
-oas buy <asset_id> --buyer <name> --amount <OAS>
-oas sell <asset_id> --tokens <n> --seller <name>
+oas quote <asset_id> [--amount 10.0]
+oas buy <asset_id> [--buyer <name>] --amount <OAS>
+oas sell <asset_id> --tokens <n> [--seller <name>] [--max-slippage 0.05]
 oas shares <owner_id>
 oas asset-info <asset_id>
+oas asset-validate <asset_id>                      # validate against OAS-DAS standard
+oas stake <validator_id> <amount>                   # stake OAS for a validator
+oas verify <asset_id_or_json_path> [--signing-key KEY]  # verify PoPC certificate
+oas scan [<path>]                                  # scan directory for candidate assets (default: .)
 ```
 
 ## AI Capability Marketplace
@@ -82,28 +86,34 @@ oas asset-info <asset_id>
 ```bash
 oas capability register --name "Translation API" \
   --endpoint https://api.example.com/translate \
-  --api-key sk-xxx --price 0.5 --tags nlp,translation
+  --api-key sk-xxx --price 0.5 --tags nlp,translation \
+  [--provider self] [--description "..."] [--rate-limit 60]
 
-oas capability list [--tag nlp] [--provider addr]
-oas capability invoke CAP_ID --input '{"text":"hello"}'
-oas capability earnings --provider addr
-oas discover --intents "translate" --tags nlp
+oas capability list [--tag nlp] [--provider addr] [--limit 50]
+oas capability invoke CAP_ID [--input '{"text":"hello"}'] [--consumer self]
+oas capability earnings [--provider addr] [--consumer addr]
+oas discover --intents "translate" --tags nlp [--limit 10]
 ```
 
 ## Dispute & Resolution
 
 ```bash
-oas dispute <asset_id> --reason "..."
-oas resolve <asset_id> --remedy delist|transfer|rights_correction|share_adjustment
+oas dispute <asset_id> --reason "..." [--invocation-id ID] [--consumer ID]
+oas jury-vote <dispute_id> --verdict uphold|reject --juror <name>
+oas resolve <asset_id> --remedy delist|transfer|rights_correction|share_adjustment [--dispute-id ID] [--details '{"new_owner":"0x..."}']
+oas delist <asset_id> --owner <name>                # owner voluntary delist
 ```
 
 ## Task Bounties (AHRP)
 
 ```bash
-oas task post "description" --budget 50 --deadline 3600
-oas task list
-oas task bid TASK_ID --price 30 --seconds 1800
-oas task select TASK_ID --agent AGENT_ID
+oas task post --requester ID --description "..." --budget 50 --deadline 3600 \
+  [--capabilities cap1,cap2] [--strategy weighted_score|lowest_price|best_reputation|requester_choice] \
+  [--min-reputation 0.5]
+oas task list [--capability cap1,cap2]
+oas task info TASK_ID
+oas task bid TASK_ID --agent ID --price 30 [--seconds 1800] [--reputation 0.8]
+oas task select TASK_ID [--agent AGENT_ID]
 oas task complete TASK_ID
 oas task cancel TASK_ID
 ```
@@ -134,9 +144,16 @@ oas agent config --trade-max-spend 20.0  # max OAS per cycle
 ## Reputation & Access
 
 ```bash
-oas reputation check <address>
-oas reputation update <target> --score 5
-oas access buy <asset_id> --level L0|L1|L2|L3 --agent <name>
+oas reputation check <agent_id>
+oas reputation update <agent_id> --success|--leak|--damage
+
+oas access quote <asset_id> --agent <name>         # bond quotes for all levels
+oas access buy <asset_id> --level L0|L1|L2|L3 [--agent <name>]
+oas access query <asset_id> --agent <name> [--query "..."]    # L0: aggregated stats
+oas access sample <asset_id> --agent <name> [--size 10]       # L1: redacted fragments
+oas access compute <asset_id> --agent <name> --code "..."     # L2: TEE execution
+oas access deliver <asset_id> --agent <name>                  # L3: full data
+oas access bond <asset_id> --agent <name> --level L0|L1|L2|L3 # calculate bond requirement
 ```
 
 ## Local Data Scanning (DataVault)
@@ -180,28 +197,109 @@ See [oasyce-chain CLAUDE.md](https://github.com/Shangri-la-0428/oasyce-chain) fo
 ## Node & Network
 
 ```bash
-oas start                    # Dashboard at http://localhost:8420
-oas node info                # Ed25519 identity
-oas node peers               # connected peers
-oas testnet onboard          # PoW self-registration (sha256 puzzle)
-oas testnet faucet           # testnet-only supplemental OAS (requires registration)
+oas start [--port 8420] [--no-browser]              # Dashboard at http://localhost:8420
+oas serve [--port 8000] [--host 0.0.0.0]            # Start API server
+oas status                                           # network connectivity status
+oas explorer [--port 8421]                           # launch block explorer
+
+oas node start [--port 9527]                         # start P2P node
+oas node info                                        # Ed25519 identity
+oas node peers                                       # connected peers
+oas node ping <host:port>                            # ping another node
+oas node role                                        # show current node role
+oas node reset-identity                              # force-reset node identity
+oas node become-validator [--amount OAS] [--api-key KEY] \
+  [--api-provider claude|openai|ollama|local|custom] [--api-endpoint URL]
+oas node become-arbitrator [--tags expertise1,expertise2] \
+  [--description "..."] [--api-key KEY] [--api-provider claude|openai|ollama|local|custom]
+oas node api-key <KEY> [--provider claude] [--endpoint URL]
+
+oas testnet start [--port 9528]                      # start testnet node
+oas testnet onboard                                  # one-click: faucet + register + stake
+oas testnet faucet                                   # testnet-only supplemental OAS
+oas testnet status                                   # show testnet status
+oas testnet reset [--force]                          # reset all testnet data
+oas testnet faucet-serve [--port 8421] [--data-dir DIR]  # start faucet HTTP server
 ```
 
 ## Fingerprint & Watermark
 
 ```bash
-oas fingerprint embed <file> --caller <id>
+oas fingerprint embed <file> --caller <id> [--output path]
 oas fingerprint extract <file>
 oas fingerprint trace <fingerprint_hex>
+oas fingerprint list <asset_id>                     # list distributions for an asset
+```
+
+## Pricing
+
+```bash
+oas price <asset_id> [--base-price 1.0] [--queries 0] [--similar 0] \
+  [--contribution-score 1.0] [--days 0]             # calculate price with demand/scarcity factors
+oas price-factors <asset_id> [--base-price 1.0] [--queries 0] [--similar 0] \
+  [--contribution-score 1.0] [--days 0]             # show pricing factor breakdown
+```
+
+## Keys
+
+```bash
+oas keys generate [--force] [--passphrase "..."]    # generate Ed25519 keypair
+oas keys show                                       # show current signing key
+```
+
+## Work
+
+```bash
+oas work list [--status STATUS] [--type TYPE] [--limit 20]
+oas work stats                                      # show work system stats
+oas work history [--limit 20]                       # show your work history
+```
+
+## Contribution
+
+```bash
+oas contribution prove <file> --creator <pubkey> \
+  [--source-type tee_capture|api_log|sensor_sig|git_commit|manual] \
+  [--source-evidence "hash/sig/URL"]                # generate contribution proof
+oas contribution verify <certificate_json> <file>   # verify contribution certificate
+oas contribution score <file> --creator <pubkey> [--source-type manual]  # calculate contribution score
+```
+
+## Leakage
+
+```bash
+oas leakage check <agent_id> <asset_id>            # check leakage budget
+oas leakage reset <agent_id> <asset_id>            # reset leakage budget
+```
+
+## Cache
+
+```bash
+oas cache list [--all]                              # list cached providers (--all includes expired)
+oas cache clear                                     # clear all cached providers
+oas cache stats                                     # show cache statistics
+oas cache purge                                     # remove expired cache entries
+```
+
+## Inbox & Trust
+
+```bash
+oas inbox list [--type register|purchase|all]       # list pending confirmation items
+oas inbox approve <item_id>
+oas inbox reject <item_id>
+oas inbox edit <item_id> [--name "..."] [--tags "..."] [--description "..."]
+
+oas trust [<level>]                                 # view or set trust level (0=manual, 1=low-auto, 2=full-auto)
 ```
 
 ## Diagnostics
 
 ```bash
 oas doctor                   # health check
-oas demo                     # full pipeline demo
+oas demo [--full]            # full pipeline demo (--full uses chain bridge)
 oas info                     # project info and links
 oas info --section economics # token economics
+oas update [--check]         # check for updates and upgrade (--check = dry run)
 ```
 
 ## All commands support `--json` for structured output.

@@ -300,6 +300,10 @@ const dict: Record<string, Record<string, string>> = {
     'sell-impact': '价格影响', 'sell-impact-warning': '价格影响较大，请确认', 'sell-confirm': '确认卖出', 'sell-quoting': '计算中...',
     'inv-complete': '确认完成', 'inv-claim': '领取收益', 'inv-completing': '处理中...', 'inv-claiming': '领取中...',
     'inv-complete-success': '已确认完成', 'inv-claim-success': '收益已领取',
+    // Global disputes
+    'disputes-tab': '争议', 'all-disputes': '全部争议', 'dispute-buyer': '购买者',
+    'dispute-no-global': '暂无争议', 'dispute-no-global-hint': '网络运行正常，无争议记录',
+    'filter-all': '全部',
     'portfolio': '持仓', 'no-holdings': '暂无持仓', 'no-holdings-hint': '在市场中购买资产后，持仓将显示在这里', 'avg-price': '均价', 'shares': '份额',
     'stake': '质押', 'staking': '质押中...', 'stake-success': '质押成功',
     'validator': '验证者', 'staked': '已质押', 'reputation': '信誉',
@@ -782,6 +786,10 @@ const dict: Record<string, Record<string, string>> = {
     'sell-impact': 'Price impact', 'sell-impact-warning': 'High price impact, please confirm', 'sell-confirm': 'Confirm sell', 'sell-quoting': 'Calculating...',
     'inv-complete': 'Mark complete', 'inv-claim': 'Claim earnings', 'inv-completing': 'Processing...', 'inv-claiming': 'Claiming...',
     'inv-complete-success': 'Marked as complete', 'inv-claim-success': 'Earnings claimed',
+    // Global disputes
+    'disputes-tab': 'Disputes', 'all-disputes': 'All disputes', 'dispute-buyer': 'Buyer',
+    'dispute-no-global': 'No disputes', 'dispute-no-global-hint': 'Network running smoothly, no disputes filed',
+    'filter-all': 'All',
     'portfolio': 'Portfolio', 'no-holdings': 'No holdings yet', 'no-holdings-hint': 'Buy assets on the Market tab to see your holdings here', 'avg-price': 'Avg price', 'shares': 'Shares',
     'stake': 'Stake', 'staking': 'Staking...', 'stake-success': 'Stake confirmed',
     'validator': 'Validator', 'staked': 'Staked', 'reputation': 'Reputation',

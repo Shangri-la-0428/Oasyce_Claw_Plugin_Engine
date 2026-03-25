@@ -3646,6 +3646,7 @@ def main():
     node_ping_parser.set_defaults(func=cmd_node_ping)
 
     node_reset_parser = node_sub.add_parser("reset-identity", help="Force-reset node identity")
+    node_reset_parser.add_argument("--json", action="store_true", help="Output as JSON")
     node_reset_parser.set_defaults(func=cmd_node_reset_identity)
 
     node_peers_parser = node_sub.add_parser("peers", help="Show known peer list")
@@ -3700,14 +3701,17 @@ def main():
     fp_embed_parser.add_argument("file", help="Path to file to watermark")
     fp_embed_parser.add_argument("--caller", required=True, help="Caller / recipient ID")
     fp_embed_parser.add_argument("--output", default=None, help="Output path (default: overwrite)")
+    fp_embed_parser.add_argument("--json", action="store_true", help="Output as JSON")
     fp_embed_parser.set_defaults(func=cmd_fingerprint_embed)
 
     fp_extract_parser = fp_sub.add_parser("extract", help="Extract watermark from file")
     fp_extract_parser.add_argument("file", help="Path to watermarked file")
+    fp_extract_parser.add_argument("--json", action="store_true", help="Output as JSON")
     fp_extract_parser.set_defaults(func=cmd_fingerprint_extract)
 
     fp_trace_parser = fp_sub.add_parser("trace", help="Trace a fingerprint")
     fp_trace_parser.add_argument("fingerprint", help="Fingerprint hex string")
+    fp_trace_parser.add_argument("--json", action="store_true", help="Output as JSON")
     fp_trace_parser.set_defaults(func=cmd_fingerprint_trace)
 
     fp_list_parser = fp_sub.add_parser("list", help="List distributions for an asset")
@@ -3781,6 +3785,7 @@ def main():
 
     rep_check_parser = rep_sub.add_parser("check", help="Check agent reputation")
     rep_check_parser.add_argument("agent_id", help="Agent ID")
+    rep_check_parser.add_argument("--json", action="store_true", help="Output as JSON")
     rep_check_parser.set_defaults(func=cmd_reputation_check)
 
     rep_update_parser = rep_sub.add_parser("update", help="Update agent reputation")
@@ -3790,6 +3795,7 @@ def main():
     )
     rep_update_parser.add_argument("--leak", action="store_true", help="Record data leak")
     rep_update_parser.add_argument("--damage", action="store_true", help="Record damage event")
+    rep_update_parser.add_argument("--json", action="store_true", help="Output as JSON")
     rep_update_parser.set_defaults(func=cmd_reputation_update)
 
     # Contribution command group
@@ -3809,6 +3815,7 @@ def main():
     contrib_prove_parser.add_argument(
         "--source-evidence", default="", help="Source evidence (hash/sig/URL)"
     )
+    contrib_prove_parser.add_argument("--json", action="store_true", help="Output as JSON")
     contrib_prove_parser.set_defaults(func=cmd_contribution_prove)
 
     contrib_verify_parser = contrib_sub.add_parser("verify", help="Verify contribution certificate")
@@ -3829,11 +3836,13 @@ def main():
     leak_check_parser = leak_sub.add_parser("check", help="Check leakage budget")
     leak_check_parser.add_argument("agent_id", help="Agent ID")
     leak_check_parser.add_argument("asset_id", help="Asset ID")
+    leak_check_parser.add_argument("--json", action="store_true", help="Output as JSON")
     leak_check_parser.set_defaults(func=cmd_leakage_check)
 
     leak_reset_parser = leak_sub.add_parser("reset", help="Reset leakage budget")
     leak_reset_parser.add_argument("agent_id", help="Agent ID")
     leak_reset_parser.add_argument("asset_id", help="Asset ID")
+    leak_reset_parser.add_argument("--json", action="store_true", help="Output as JSON")
     leak_reset_parser.set_defaults(func=cmd_leakage_reset)
 
     # gui → alias for start (backward compat)
