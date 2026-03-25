@@ -67,7 +67,7 @@ class ChainClient:
         chain_id: str = "oasyce-local-1",
         keyring_backend: str = "test",
         default_from: Optional[str] = None,
-        fees: str = "500uoas",
+        fees: str = "10000uoas",
     ):
         self.rest_url = rest_url.rstrip("/")
         self.grpc_url = grpc_url
@@ -437,6 +437,64 @@ class ChainClient:
         """Query total earnings for a provider."""
         return self._get(f"/oasyce/capability/v1/earnings/{provider}")
 
+    def complete_invocation(
+        self,
+        invocation_id: str,
+        output_hash: str,
+        from_key: Optional[str] = None,
+        usage_report: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Provider submits output hash, starts 100-block challenge window."""
+        if self.has_cli:
+            args = ["tx", "oasyce_capability", "complete-invocation", invocation_id, output_hash]
+            if usage_report:
+                args += ["--usage-report", usage_report]
+            return self._run_cli(
+                args,
+                from_key=from_key or self.default_from,
+            )
+        raise ChainClientError("CLI binary required for complete_invocation")
+
+    def fail_invocation(
+        self,
+        invocation_id: str,
+        from_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Provider reports failure, escrow refunded."""
+        if self.has_cli:
+            return self._run_cli(
+                ["tx", "oasyce_capability", "fail-invocation", invocation_id],
+                from_key=from_key or self.default_from,
+            )
+        raise ChainClientError("CLI binary required for fail_invocation")
+
+    def claim_invocation(
+        self,
+        invocation_id: str,
+        from_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Provider claims payment after challenge window passes."""
+        if self.has_cli:
+            return self._run_cli(
+                ["tx", "oasyce_capability", "claim-invocation", invocation_id],
+                from_key=from_key or self.default_from,
+            )
+        raise ChainClientError("CLI binary required for claim_invocation")
+
+    def dispute_invocation(
+        self,
+        invocation_id: str,
+        reason: str,
+        from_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Consumer disputes within challenge window."""
+        if self.has_cli:
+            return self._run_cli(
+                ["tx", "oasyce_capability", "dispute-invocation", invocation_id, reason],
+                from_key=from_key or self.default_from,
+            )
+        raise ChainClientError("CLI binary required for dispute_invocation")
+
     # ==================================================================
     # DataRights module — /oasyce/datarights/v1
     # ==================================================================
@@ -545,6 +603,13 @@ class ChainClient:
     def get_shareholders(self, asset_id: str) -> Dict[str, Any]:
         """Query shareholders for an asset."""
         return self._get(f"/oasyce/datarights/v1/shares/{asset_id}")
+
+    def get_access_level(self, asset_id: str, address: str) -> Dict[str, Any]:
+        """Query access level for an address on a data asset.
+
+        Returns: {"access_level": "L0-L3", "equity_bps": int, "shares": str, "total_shares": str}
+        """
+        return self._get(f"/oasyce/datarights/v1/access_level/{asset_id}/{address}")
 
     def file_dispute(
         self,

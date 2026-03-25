@@ -41,6 +41,10 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
   const [sellSlippage, setSellSlippage] = useState('0.05');
   const [selling, setSelling] = useState(false);
 
+  /* Sell quote state */
+  const [quoting, setQuoting] = useState(false);
+  const [quote, setQuote] = useState<{ payout_oas: number; protocol_fee: number; burn_amount: number; price_impact_pct: number } | null>(null);
+
   /* Transaction history state */
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [txLoading, setTxLoading] = useState(false);
@@ -86,7 +90,24 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
     setTxLoading(false);
   };
 
-  /* Sell shares */
+  /* Fetch sell quote */
+  const onQuote = async (assetId: string) => {
+    const tokens = Number(sellAmount);
+    if (!tokens || tokens <= 0) return;
+    setQuoting(true);
+    setQuote(null);
+    const res = await get<{ payout_oas: number; protocol_fee: number; burn_amount: number; price_impact_pct: number }>(
+      `/sell/quote?asset_id=${assetId}&seller=${walletAddress()}&tokens=${tokens}`
+    );
+    if (res.success && res.data) {
+      setQuote(res.data);
+    } else {
+      showToast(res.error || _['error-generic'], 'error');
+    }
+    setQuoting(false);
+  };
+
+  /* Execute sell (after quote confirmation) */
   const onSell = async (assetId: string) => {
     const tokens = Number(sellAmount);
     const slippage = Number(sellSlippage);
@@ -103,11 +124,20 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
       setSellTarget(null);
       setSellAmount('');
       setSellSlippage('0.05');
+      setQuote(null);
       loadPortfolio();
     } else {
       showToast(res.error || _['error-generic'], 'error');
     }
     setSelling(false);
+  };
+
+  /* Reset quote when amount or target changes */
+  const resetSell = (assetId: string) => {
+    setSellTarget(sellTarget === assetId ? null : assetId);
+    setSellAmount('');
+    setSellSlippage('0.05');
+    setQuote(null);
   };
 
   /* Access operations */
@@ -163,7 +193,7 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
                 </button>
                 <button
                   class="btn btn-sm btn-ghost"
-                  onClick={() => { setSellTarget(sellTarget === h.asset_id ? null : h.asset_id); setSellAmount(''); setSellSlippage('0.05'); }}
+                  onClick={() => resetSell(h.asset_id)}
                 >
                   {_['sell']}
                 </button>
@@ -172,30 +202,68 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
                 <button class="btn btn-sm btn-ghost" onClick={() => onAccess(h.asset_id, 'L2')}>{_['access-compute']}</button>
                 <button class="btn btn-sm btn-ghost" onClick={() => onAccess(h.asset_id, 'L3')}>{_['access-deliver']}</button>
               </div>
-              {/* Inline sell form */}
+              {/* Inline sell form with quote preview */}
               {sellTarget === h.asset_id && (
-                <div class="row gap-8 mt-8">
-                  <input
-                    class="input grow"
-                    type="number"
-                    placeholder={_['sell-amount-hint']}
-                    value={sellAmount}
-                    onInput={e => setSellAmount((e.target as HTMLInputElement).value)}
-                    min="0"
-                  />
-                  <input
-                    class="input"
-                    type="number"
-                    placeholder={_['sell-slippage']}
-                    value={sellSlippage}
-                    onInput={e => setSellSlippage((e.target as HTMLInputElement).value)}
-                    min="0"
-                    step="0.01"
-                    style={{ maxWidth: '100px' }}
-                  />
-                  <button class="btn btn-sm btn-ghost" onClick={() => onSell(h.asset_id)} disabled={selling}>
-                    {selling ? _['selling'] : _['sell']}
-                  </button>
+                <div class="sell-flow mt-8">
+                  <div class="row gap-8">
+                    <input
+                      class="input grow"
+                      type="number"
+                      placeholder={_['sell-amount-hint']}
+                      value={sellAmount}
+                      onInput={e => { setSellAmount((e.target as HTMLInputElement).value); setQuote(null); }}
+                      min="0"
+                    />
+                    <input
+                      class="input input-narrow"
+                      type="number"
+                      placeholder={_['sell-slippage']}
+                      value={sellSlippage}
+                      onInput={e => setSellSlippage((e.target as HTMLInputElement).value)}
+                      min="0"
+                      step="0.01"
+                    />
+                    {!quote && (
+                      <button class="btn btn-sm btn-ghost" onClick={() => onQuote(h.asset_id)} disabled={quoting || !sellAmount}>
+                        {quoting ? _['sell-quoting'] : _['sell-quote']}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Quote breakdown */}
+                  {quote && (
+                    <div class="sell-quote-card mt-8">
+                      <div class="kv">
+                        <span class="kv-key">{_['sell-payout']}</span>
+                        <span class="kv-val mono">{fmtPrice(quote.payout_oas)} OAS</span>
+                      </div>
+                      <div class="kv">
+                        <span class="kv-key">{_['sell-fee']}</span>
+                        <span class="kv-val mono">{fmtPrice(quote.protocol_fee)} OAS</span>
+                      </div>
+                      <div class="kv">
+                        <span class="kv-key">{_['sell-burn']}</span>
+                        <span class="kv-val mono">{fmtPrice(quote.burn_amount)} OAS</span>
+                      </div>
+                      <div class="kv">
+                        <span class="kv-key">{_['sell-impact']}</span>
+                        <span class={`kv-val mono ${quote.price_impact_pct > 5 ? 'color-yellow' : ''}`}>
+                          {quote.price_impact_pct.toFixed(1)}%
+                        </span>
+                      </div>
+                      {quote.price_impact_pct > 5 && (
+                        <div class="sell-impact-warning">{_['sell-impact-warning']}</div>
+                      )}
+                      <div class="row gap-8 mt-8">
+                        <button class="btn btn-sm btn-ghost grow" onClick={() => setQuote(null)}>
+                          {_['back']}
+                        </button>
+                        <button class="btn btn-sm btn-ghost grow" onClick={() => onSell(h.asset_id)} disabled={selling}>
+                          {selling ? _['selling'] : _['sell-confirm']}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {/* Access result */}
@@ -205,7 +273,7 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
                   {accessLoading ? (
                     <div class="caption fg-muted">{_['access-op-running']}</div>
                   ) : (
-                    <pre class="mono" style={{ whiteSpace: 'pre-wrap', fontSize: '0.85em' }}>{JSON.stringify(accessResult, null, 2)}</pre>
+                    <pre class="mono code-block">{JSON.stringify(accessResult, null, 2)}</pre>
                   )}
                 </div>
               )}

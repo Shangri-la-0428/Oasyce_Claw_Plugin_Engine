@@ -51,6 +51,7 @@
   display: inline-flex; align-items: center; justify-content: center;
   font-size: var(--text-xs); margin-right: var(--space-xs);
 }
+.cap-badge { font-size: var(--text-sm); margin-right: var(--space-xs); }
 .version-tag {
   font-family: var(--mono);
   font-size: var(--text-xs);
@@ -131,6 +132,9 @@
   color: var(--fg-3);
   margin-top: 2px;
 }
+
+/* ── Stake card ── */
+.stake-card { padding: var(--space-l); }
 
 /* ── Buy success banner ── */
 .buy-success-banner {
@@ -286,6 +290,99 @@
 .dispute-item-evidence { font-size: var(--text-sm); color: var(--fg-2); margin-top: var(--space-xs); }
 .dispute-item-time { font-size: var(--text-xs); color: var(--fg-3); margin-top: var(--space-xs); }
 .mt-32 { margin-top: var(--space-2xl); }
+.mt-16 { margin-top: var(--space-l); }
+
+/* ── Earnings ── */
+.earnings-stats { margin-bottom: var(--space-xl); }
+.earnings-stat-row {
+  display: flex;
+  gap: var(--space-3xl);
+  padding: var(--space-l) 0;
+  border-bottom: 1px solid var(--bg-2);
+}
+.earnings-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.earnings-stat-label {
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+.earnings-stat-val {
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  color: var(--fg-0);
+}
+.earnings-unit {
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--fg-2);
+}
+
+/* ── Invocation list ── */
+.inv-list { border-top: 1px solid var(--bg-2); }
+.inv-item {
+  padding: var(--space-m) 0;
+  border-bottom: 1px solid var(--bg-2);
+  cursor: pointer;
+  transition: background 0.12s var(--ease);
+}
+.inv-item:hover { background: var(--bg-hover); }
+.inv-item-expanded { background: var(--bg-1); }
+.inv-item-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-l);
+}
+.inv-cap-id { font-size: var(--text-md); color: var(--fg-1); }
+.inv-price {
+  font-size: var(--text-md);
+  color: var(--fg-0);
+  margin-left: auto;
+}
+.inv-time { white-space: nowrap; }
+.inv-status {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  padding: 2px var(--space-s);
+  border-radius: var(--r-s);
+}
+.inv-status-completed { background: var(--green-bg); color: var(--green); }
+.inv-status-disputed { background: var(--yellow-bg); color: var(--yellow); }
+.inv-status-pending { background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--blue); }
+.inv-detail {
+  margin-top: var(--space-s);
+  padding-top: var(--space-s);
+  border-top: 1px solid var(--bg-2);
+}
+.btn-link {
+  background: none; border: none; cursor: pointer;
+  color: var(--fg-1); text-decoration: none;
+  padding: 0; font-size: inherit;
+}
+.btn-link:hover { color: var(--fg-0); }
+
+/* ── Sell quote card ── */
+.sell-flow { width: 100%; }
+.sell-quote-card {
+  padding: var(--space-m);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  background: var(--bg-1);
+}
+.sell-impact-warning {
+  font-size: var(--text-xs);
+  color: var(--yellow);
+  margin-top: var(--space-xs);
+  padding: var(--space-xs) var(--space-s);
+  background: var(--yellow-bg);
+  border-radius: var(--r-s);
+}
+.color-yellow { color: var(--yellow); }
 
 @media (max-width: 768px) {
   .access-levels-grid { grid-template-columns: 1fr 1fr; gap: var(--space-xs); }
@@ -293,6 +390,10 @@
 }
 
 @media (max-width: 600px) {
+  .earnings-stat-row { gap: var(--space-xl); }
+  .earnings-stat-val { font-size: var(--text-2xl); }
+  .inv-item-main { flex-wrap: wrap; gap: var(--space-s); }
+  .inv-price { margin-left: 0; }
   .portfolio-stats { gap: var(--space-m); }
   .portfolio-row { flex-wrap: wrap; }
   .explore-panel .masked { word-break: break-all; }

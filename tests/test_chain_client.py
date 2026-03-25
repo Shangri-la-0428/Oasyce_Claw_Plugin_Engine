@@ -288,3 +288,290 @@ class TestOasyceClientFallback:
         """The .chain property should expose the underlying ChainClient."""
         client = OasyceClient()
         assert isinstance(client.chain, ChainClient)
+
+
+# ======================================================================
+# ChainClient — invocation lifecycle transactions (CLI-based)
+# ======================================================================
+
+
+class TestInvocationTransactions:
+    """Tests for complete/fail/claim/dispute invocation methods."""
+
+    @pytest.fixture()
+    def client(self):
+        c = ChainClient(default_from="provider1", fees="10000uoas")
+        # Inject a fake oasyced binary path so has_cli is True.
+        c._oasyced = "/usr/local/bin/oasyced"
+        return c
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_complete_invocation_builds_correct_command(self, mock_run, client):
+        """complete_invocation should call oasyced with correct args."""
+        mock_run.return_value = MagicMock(
+            stdout='{"txhash": "ABC123"}',
+            stderr="",
+            returncode=0,
+        )
+        client.complete_invocation("inv-42", "sha256:deadbeef")
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "/usr/local/bin/oasyced"
+        assert "tx" in cmd
+        assert "oasyce_capability" in cmd
+        assert "complete-invocation" in cmd
+        assert "inv-42" in cmd
+        assert "sha256:deadbeef" in cmd
+        assert "--from" in cmd
+        assert "provider1" in cmd
+        assert "--fees" in cmd
+        assert "10000uoas" in cmd
+        assert "--yes" in cmd
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_fail_invocation_builds_correct_command(self, mock_run, client):
+        """fail_invocation should call oasyced with correct args."""
+        mock_run.return_value = MagicMock(
+            stdout='{"txhash": "FAIL1"}',
+            stderr="",
+            returncode=0,
+        )
+        client.fail_invocation("inv-99")
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "/usr/local/bin/oasyced"
+        assert "tx" in cmd
+        assert "oasyce_capability" in cmd
+        assert "fail-invocation" in cmd
+        assert "inv-99" in cmd
+        assert "--from" in cmd
+        assert "provider1" in cmd
+        assert "--fees" in cmd
+        assert "10000uoas" in cmd
+        assert "--yes" in cmd
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_claim_invocation_builds_correct_command(self, mock_run, client):
+        """claim_invocation should call oasyced with correct args."""
+        mock_run.return_value = MagicMock(
+            stdout='{"txhash": "CLAIM1"}',
+            stderr="",
+            returncode=0,
+        )
+        client.claim_invocation("inv-55")
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "/usr/local/bin/oasyced"
+        assert "tx" in cmd
+        assert "oasyce_capability" in cmd
+        assert "claim-invocation" in cmd
+        assert "inv-55" in cmd
+        assert "--from" in cmd
+        assert "provider1" in cmd
+        assert "--fees" in cmd
+        assert "10000uoas" in cmd
+        assert "--yes" in cmd
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_dispute_invocation_builds_correct_command(self, mock_run, client):
+        """dispute_invocation should call oasyced with correct args including reason."""
+        mock_run.return_value = MagicMock(
+            stdout='{"txhash": "DISP1"}',
+            stderr="",
+            returncode=0,
+        )
+        client.dispute_invocation("inv-77", "output is garbage")
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "/usr/local/bin/oasyced"
+        assert "tx" in cmd
+        assert "oasyce_capability" in cmd
+        assert "dispute-invocation" in cmd
+        assert "inv-77" in cmd
+        assert "output is garbage" in cmd
+        assert "--from" in cmd
+        assert "provider1" in cmd
+        assert "--fees" in cmd
+        assert "10000uoas" in cmd
+        assert "--yes" in cmd
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_dispute_invocation_requires_reason(self, mock_run, client):
+        """dispute_invocation with an empty reason should still pass the empty
+        string to the CLI (the chain validates it). We verify the arg is present."""
+        mock_run.return_value = MagicMock(
+            stdout='{"txhash": "DISP2"}',
+            stderr="",
+            returncode=0,
+        )
+        client.dispute_invocation("inv-78", "")
+
+        cmd = mock_run.call_args[0][0]
+        # The reason arg (empty string) should be in the command list right after
+        # the invocation ID.
+        inv_idx = cmd.index("inv-78")
+        assert cmd[inv_idx + 1] == ""
+
+
+# ======================================================================
+# ChainClient — get_access_level (REST query)
+# ======================================================================
+
+
+class TestGetAccessLevel:
+    @patch("oasyce.chain_client.requests.get")
+    def test_get_access_level_returns_data(self, mock_get):
+        """get_access_level should return parsed JSON from the chain REST API."""
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "access_level": "L2",
+                "equity_bps": 520,
+                "shares": "5200",
+                "total_shares": "100000",
+            },
+        )
+        mock_get.return_value.raise_for_status = MagicMock()
+        client = ChainClient()
+        result = client.get_access_level("asset-abc", "oasyce1holder")
+
+        assert result["access_level"] == "L2"
+        assert result["equity_bps"] == 520
+        # Verify the URL was constructed correctly.
+        url = mock_get.call_args[0][0]
+        assert "/oasyce/datarights/v1/access_level/asset-abc/oasyce1holder" in url
+
+    def test_get_access_level_chain_down(self):
+        """get_access_level should raise ChainClientError when the chain is down."""
+        client = ChainClient(rest_url="http://127.0.0.1:19999", timeout=1)
+        with pytest.raises(ChainClientError):
+            client.get_access_level("asset-abc", "oasyce1holder")
+
+
+# ======================================================================
+# ChainClient — default fee value
+# ======================================================================
+
+
+class TestDefaultFee:
+    def test_default_fee_is_10000uoas(self):
+        """The default fee attribute should be '10000uoas'."""
+        client = ChainClient()
+        assert client.fees == "10000uoas"
+
+
+# ======================================================================
+# ChainClient — no-CLI path (has_cli=False → ChainClientError)
+# ======================================================================
+
+
+class TestInvocationNoCli:
+    """When oasyced binary is not found, invocation methods raise ChainClientError."""
+
+    def test_complete_invocation_no_cli(self):
+        client = ChainClient()
+        client._oasyced = None
+        with pytest.raises(ChainClientError, match="CLI binary required"):
+            client.complete_invocation("inv-1", "hash123")
+
+    def test_fail_invocation_no_cli(self):
+        client = ChainClient()
+        client._oasyced = None
+        with pytest.raises(ChainClientError, match="CLI binary required"):
+            client.fail_invocation("inv-1")
+
+    def test_claim_invocation_no_cli(self):
+        client = ChainClient()
+        client._oasyced = None
+        with pytest.raises(ChainClientError, match="CLI binary required"):
+            client.claim_invocation("inv-1")
+
+    def test_dispute_invocation_no_cli(self):
+        client = ChainClient()
+        client._oasyced = None
+        with pytest.raises(ChainClientError, match="CLI binary required"):
+            client.dispute_invocation("inv-1", "bad output")
+
+
+# ======================================================================
+# ChainClient — subprocess returns empty output (error propagation)
+# ======================================================================
+
+
+class TestInvocationSubprocessError:
+    """When oasyced returns no output, _run_cli raises ChainClientError."""
+
+    @pytest.fixture
+    def client(self):
+        c = ChainClient()
+        c._from_address = "provider1"
+        c._oasyced = "/usr/local/bin/oasyced"
+        return c
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_complete_invocation_empty_output(self, mock_run, client):
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=1)
+        with pytest.raises(ChainClientError, match="no output"):
+            client.complete_invocation("inv-1", "hash" * 8)
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_claim_invocation_empty_output(self, mock_run, client):
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=1)
+        with pytest.raises(ChainClientError, match="no output"):
+            client.claim_invocation("inv-1")
+
+
+# ======================================================================
+# ChainClient — complete_invocation usage_report parameter
+# ======================================================================
+
+
+class TestCompleteInvocationUsageReport:
+    """Tests that the --usage-report flag is correctly included/excluded."""
+
+    @pytest.fixture()
+    def client(self):
+        c = ChainClient(default_from="provider1", fees="10000uoas")
+        c._oasyced = "/usr/local/bin/oasyced"
+        return c
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_usage_report_included_when_provided(self, mock_run, client):
+        """--usage-report should appear in the CLI args when usage_report is given."""
+        mock_run.return_value = MagicMock(
+            stdout='{"txhash": "UR1"}',
+            stderr="",
+            returncode=0,
+        )
+        client.complete_invocation("inv-100", "sha256:aabbccdd", usage_report="tokens:42,latency_ms:120")
+
+        cmd = mock_run.call_args[0][0]
+        assert "--usage-report" in cmd
+        ur_idx = cmd.index("--usage-report")
+        assert cmd[ur_idx + 1] == "tokens:42,latency_ms:120"
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_usage_report_excluded_when_none(self, mock_run, client):
+        """--usage-report should NOT appear when usage_report is None (default)."""
+        mock_run.return_value = MagicMock(
+            stdout='{"txhash": "UR2"}',
+            stderr="",
+            returncode=0,
+        )
+        client.complete_invocation("inv-101", "sha256:11223344")
+
+        cmd = mock_run.call_args[0][0]
+        assert "--usage-report" not in cmd
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_usage_report_excluded_when_empty_string(self, mock_run, client):
+        """--usage-report should NOT appear when usage_report is an empty string."""
+        mock_run.return_value = MagicMock(
+            stdout='{"txhash": "UR3"}',
+            stderr="",
+            returncode=0,
+        )
+        client.complete_invocation("inv-102", "sha256:deadbeef", usage_report="")
+
+        cmd = mock_run.call_args[0][0]
+        assert "--usage-report" not in cmd

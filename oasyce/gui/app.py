@@ -61,6 +61,7 @@ _consensus_engine: Any = None
 _notification_service: Any = None
 _dispute_db_conn: Any = None
 _feedback_db_conn: Any = None
+_chain_client: Any = None
 
 # M3: Locks for lazy-init globals
 _init_lock = threading.Lock()
@@ -70,6 +71,7 @@ _delivery_lock = threading.Lock()
 _discovery_lock = threading.Lock()
 _staking_lock = threading.Lock()
 _skills_lock = threading.Lock()
+_chain_client_lock = threading.Lock()
 
 # C2: Thread pool for PoW computation
 _pow_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pow")
@@ -315,6 +317,19 @@ def _get_facade():
                 ledger=_ledger,
             )
     return _facade
+
+
+def _get_chain_client():
+    """Lazy-init OasyceClient for chain transactions."""
+    global _chain_client
+    if _chain_client is not None:
+        return _chain_client
+    with _chain_client_lock:
+        if _chain_client is None:
+            from oasyce.chain_client import OasyceClient
+
+            _chain_client = OasyceClient()
+    return _chain_client
 
 
 _query_view = None
@@ -904,6 +919,84 @@ def _api_delivery_invocations(consumer_id=None, provider_id=None, limit=20):
         limit=limit,
     )
     return [r.to_dict() for r in records]
+
+
+def _api_delivery_invocation_complete(invocation_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    """Provider submits output hash, starts 100-block challenge window."""
+    from oasyce.chain_client import ChainClientError
+
+    output_hash = body.get("output_hash", "")
+    if not output_hash:
+        return {"ok": False, "error": "output_hash required"}
+    client = _get_chain_client()
+    if not client:
+        return {"ok": False, "error": "chain client not available"}
+    try:
+        client.complete_invocation(invocation_id, output_hash)
+        return {
+            "ok": True,
+            "invocation_id": invocation_id,
+            "message": "Invocation completed, challenge window started (100 blocks)",
+        }
+    except ChainClientError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _api_delivery_invocation_fail(invocation_id: str) -> Dict[str, Any]:
+    """Provider reports failure, escrow refunded."""
+    from oasyce.chain_client import ChainClientError
+
+    client = _get_chain_client()
+    if not client:
+        return {"ok": False, "error": "chain client not available"}
+    try:
+        client.fail_invocation(invocation_id)
+        return {
+            "ok": True,
+            "invocation_id": invocation_id,
+            "message": "Invocation failed, escrow refunded",
+        }
+    except ChainClientError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _api_delivery_invocation_claim(invocation_id: str) -> Dict[str, Any]:
+    """Provider claims payment after challenge window passes."""
+    from oasyce.chain_client import ChainClientError
+
+    client = _get_chain_client()
+    if not client:
+        return {"ok": False, "error": "chain client not available"}
+    try:
+        client.claim_invocation(invocation_id)
+        return {
+            "ok": True,
+            "invocation_id": invocation_id,
+            "message": "Payment claimed, escrow released",
+        }
+    except ChainClientError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _api_delivery_invocation_dispute(invocation_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    """Consumer disputes within challenge window."""
+    from oasyce.chain_client import ChainClientError
+
+    reason = body.get("reason", "")
+    if not reason:
+        return {"ok": False, "error": "reason required"}
+    client = _get_chain_client()
+    if not client:
+        return {"ok": False, "error": "chain client not available"}
+    try:
+        client.dispute_invocation(invocation_id, reason)
+        return {
+            "ok": True,
+            "invocation_id": invocation_id,
+            "message": "Invocation disputed, escrow refunded",
+        }
+    except ChainClientError as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 _AHRP_CORE_BASE = os.getenv("OASYCE_CORE_BASE", "http://localhost:8000")
@@ -3099,6 +3192,34 @@ class _Handler(BaseHTTPRequestHandler):
             result = _api_delivery_invoke(body)
             status = 200 if result.get("ok") else 400
             return _json_response(self, result, status)
+
+        # ── Invocation lifecycle routes (chain transactions) ─────
+        _inv_prefix = "/api/delivery/invocation/"
+        if path.startswith(_inv_prefix):
+            rest = path[len(_inv_prefix):]
+            parts = rest.split("/", 1)
+            if len(parts) == 2:
+                invocation_id, action = parts[0], parts[1]
+
+                if action == "complete":
+                    result = _api_delivery_invocation_complete(invocation_id, body)
+                    status = 200 if result.get("ok") else (503 if "not available" in result.get("error", "") else 400)
+                    return _json_response(self, result, status)
+
+                if action == "fail":
+                    result = _api_delivery_invocation_fail(invocation_id)
+                    status = 200 if result.get("ok") else (503 if "not available" in result.get("error", "") else 400)
+                    return _json_response(self, result, status)
+
+                if action == "claim":
+                    result = _api_delivery_invocation_claim(invocation_id)
+                    status = 200 if result.get("ok") else (503 if "not available" in result.get("error", "") else 400)
+                    return _json_response(self, result, status)
+
+                if action == "dispute":
+                    result = _api_delivery_invocation_dispute(invocation_id, body)
+                    status = 200 if result.get("ok") else (503 if "not available" in result.get("error", "") else 400)
+                    return _json_response(self, result, status)
 
         return None
 

@@ -7,11 +7,19 @@
 
 > 中文版: [README.md](README.md)
 
-**Your data has sovereignty. Your capabilities have a price.**
+**Property, contracts, and arbitration for the agent economy.**
 
-Oasyce is a decentralized **rights settlement network** — every data access and capability invocation between AI agents is priced, escrowed, and settled automatically.
+When AI agents start collaborating, the question is no longer "how to call an API" — it's: Who owns the data? How is it priced? What if they cheat? How are earnings split?
 
-Think of it this way: you take a photo, and an AI wants to use it for training. Today, your data gets used for free. With Oasyce, the AI must pay for access, and you receive earnings automatically. Just as Stripe gave the internet a payment layer, Oasyce gives the AI world a **rights settlement layer**.
+Stripe / x402 solve "how to pay." Oasyce solves "**why the payment is justified.**"
+
+| | Payment Rails (Stripe, x402) | Oasyce |
+|--|------------------------------|--------|
+| Core problem | How to transfer money | Why the transfer is justified |
+| Data | File transfer | Financial asset (bonding curve pricing + equity + versioning) |
+| Service calls | API call + pay | On-chain contract (escrow + settlement + arbitration) |
+| Trust | None / platform reputation | On-chain credit score (time-decay + verifiable feedback) |
+| Disputes | Customer support | On-chain jury voting |
 
 ```bash
 pip install oasyce
@@ -27,7 +35,7 @@ Browser opens automatically. You're in.
 
 ### I have data (photos, documents, sensor data...)
 
-Register your data as an on-chain asset. Any AI that accesses it must pay. The more people use it, the higher the price goes (automatic pricing via bonding curves). Register early, earn more.
+Your data becomes an **on-chain financial asset**, not a file. Price rises automatically with demand (Bancor bonding curve). Hold ≥1% equity to unlock L1 access. Register early, cost less.
 
 ```bash
 oas register myfile.csv --owner alice --tags medical,imaging
@@ -35,11 +43,11 @@ oas register myfile.csv --owner alice --tags medical,imaging
 
 ### I'm an AI developer
 
-Your agent can publish capabilities to the network — things like "medical image analysis", "translation", or "code review". Every time another agent calls your service, you earn. Quality is backed by staked collateral, so there's real accountability.
+Your agent registers capabilities as **on-chain service contracts** — "medical image analysis", "translation", "code review". Each invocation: funds lock in escrow → you deliver → 100-block challenge window → automatic settlement (90% to you). Dishonest? Consumer disputes within the window, funds refund automatically.
 
 ### I want to build on the protocol
 
-Oasyce is a protocol, not a platform. You can build anything on top — data exchanges, agent labor markets, AI capability stores. The protocol handles pricing, settlement, reputation, and disputes for you.
+Oasyce is an **economic protocol**, not a platform. It handles: property rights (data securitization), contracts (capability escrow + settlement), credit (on-chain reputation), and arbitration (jury voting). You build the product.
 
 ---
 

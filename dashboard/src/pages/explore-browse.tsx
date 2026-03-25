@@ -7,9 +7,10 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 import { get, post } from '../api/client';
 import { showToast, i18n, walletAddress } from '../store/ui';
 import type { Asset } from '../store/assets';
-import { maskIdShort, maskIdLong, maskOwner, fmtPrice, safePct, safeNum } from '../utils';
+import { maskIdShort, maskIdLong, maskOwner, fmtPrice, safePct, safeNum, copyText } from '../utils';
 import { EmptyState } from '../components/empty-state';
 import DataPreview from '../components/data-preview';
+import RegisterForm from '../components/register-form';
 import './explore.css';
 
 type AssetFilter = 'all' | 'data' | 'capability';
@@ -40,6 +41,7 @@ interface BuyResult {
   level: AccessLevel;
   bond: number;
   liability_days: number;
+  shares_minted: number;
 }
 
 interface Props {
@@ -67,7 +69,11 @@ export default function ExploreBrowse({ subpath }: Props) {
   const [initialLoading, setInitialLoading] = useState(true);
   const [invokeResult, setInvokeResult] = useState<any>(null);
   const [invokeInput, setInvokeInput] = useState('{"text": "hello"}');
+  const [disputeOpen, setDisputeOpen] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeLoading, setDisputeLoading] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [showCapRegister, setShowCapRegister] = useState(false);
   const [showAllTags, setShowAllTags] = useState(false);
   const debounceRef = useRef<number>(0);
   const busyRef = useRef(false);
@@ -161,6 +167,8 @@ export default function ExploreBrowse({ subpath }: Props) {
     setSelectedLevel('L1');
     setInvokeResult(null);
     setInvokeInput('{"text": "hello"}');
+    setDisputeOpen(false);
+    setDisputeReason('');
   };
 
   /* 过滤 + 排序 (memoized) */
@@ -203,16 +211,6 @@ export default function ExploreBrowse({ subpath }: Props) {
   const baseList = isDiscover ? discoverResults : sorted;
   const list = useMemo(() => baseList.slice(0, pageSize), [baseList, pageSize]);
   const hasMore = baseList.length > pageSize;
-
-  const copyText = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast(_['copied'], 'success');
-    } catch {
-      showToast(_['error-generic'], 'error');
-      return;
-    }
-  };
 
   /* 获取所有层级报价 — GET /api/access/quote */
   const onFetchQuote = async (assetId: string) => {
@@ -263,6 +261,7 @@ export default function ExploreBrowse({ subpath }: Props) {
           level: selectedLevel,
           bond: lq?.bond ?? res.data.bond ?? 0,
           liability_days: lq?.liability_days ?? res.data.liability_days ?? 0,
+          shares_minted: res.data.shares_minted ?? 0,
         });
         setBuyStep('success');
         showToast(_['buy-success'], 'success');
@@ -310,6 +309,27 @@ export default function ExploreBrowse({ subpath }: Props) {
     }
   };
 
+  /* 争议 (invocation dispute via delivery API) */
+  const onDispute = async (invocationId: string) => {
+    if (!disputeReason.trim()) return;
+    setDisputeLoading(true);
+    try {
+      const res = await post<any>(`/delivery/invocation/${invocationId}/dispute`, {
+        reason: disputeReason.trim(),
+      });
+      if (res.success && res.data?.ok) {
+        showToast(_['dispute-success'] || _['invocation_disputed'], 'success');
+        setDisputeOpen(false);
+        setDisputeReason('');
+        if (invokeResult) setInvokeResult({ ...invokeResult, _disputed: true });
+      } else {
+        showToast(res.data?.error || res.error || _['error-generic'], 'error');
+      }
+    } finally {
+      setDisputeLoading(false);
+    }
+  };
+
   const toggleItem = (id: string) => {
     if (activeId === id) {
       resetActive();
@@ -320,6 +340,8 @@ export default function ExploreBrowse({ subpath }: Props) {
       setBuyStep('form');
       setSelectedLevel('L1');
       setInvokeResult(null);
+      setDisputeOpen(false);
+      setDisputeReason('');
     }
   };
 
@@ -334,18 +356,51 @@ export default function ExploreBrowse({ subpath }: Props) {
 
   return (
     <>
-      {/* Asset type filter */}
-      <div class="row gap-8 mb-16">
-        {(['all', 'data', 'capability'] as AssetFilter[]).map(t => (
+      {/* Asset type filter + capability register entry */}
+      <div class="row gap-8 mb-16 between">
+        <div class="row gap-8">
+          {(['all', 'data', 'capability'] as AssetFilter[]).map(t => (
+            <button
+              key={t}
+              class={`btn btn-sm ${typeFilter === t ? 'btn-active' : 'btn-ghost'}`}
+              onClick={() => { setTypeFilter(t); setTagFilter(null); setIsDiscover(false); resetActive(); setShowCapRegister(false); }}
+            >
+              {_[`type-${t}`]}
+            </button>
+          ))}
+        </div>
+        {typeFilter === 'capability' && (
           <button
-            key={t}
-            class={`btn btn-sm ${typeFilter === t ? 'btn-active' : 'btn-ghost'}`}
-            onClick={() => { setTypeFilter(t); setTagFilter(null); setIsDiscover(false); resetActive(); }}
+            class={`btn btn-sm ${showCapRegister ? 'btn-active' : 'btn-ghost'}`}
+            onClick={() => setShowCapRegister(!showCapRegister)}
           >
-            {_[`type-${t}`]}
+            + {_['earnings-empty-cta']}
           </button>
-        ))}
+        )}
       </div>
+
+      {/* Capability registration form (collapsible) */}
+      {showCapRegister && (
+        <div class="mb-24">
+          <RegisterForm
+            mode="capability"
+            compact
+            onSuccess={() => {
+              setShowCapRegister(false);
+              // Refresh asset list
+              get<Asset[]>('/capabilities').then(res => {
+                if (res.success && Array.isArray(res.data)) {
+                  setAllAssets(prev => {
+                    const ids = new Set(prev.map(a => a.asset_id));
+                    const newOnes = res.data!.filter(a => !ids.has(a.asset_id));
+                    return [...newOnes, ...prev];
+                  });
+                }
+              });
+            }}
+          />
+        </div>
+      )}
 
       {/* 搜索框 */}
       <div class="search-box-wrap mb-24">
@@ -525,7 +580,26 @@ export default function ExploreBrowse({ subpath }: Props) {
                     </div>
                   ) : (
                     <div class="col gap-8">
-                      {invokeResult.price != null && <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val">{invokeResult.price} OAS</span></div>}
+                      {/* Invocation ID */}
+                      {invokeResult.invocation_id && (
+                        <div class="kv">
+                          <span class="kv-key">{_['id']}</span>
+                          <span class="kv-val">
+                            <span class="masked">
+                              <span class="mono">{maskIdLong(invokeResult.invocation_id)}</span>
+                              <button class="btn-copy" onClick={() => copyText(invokeResult.invocation_id)}>{_['copy']}</button>
+                            </span>
+                          </span>
+                        </div>
+                      )}
+                      {/* Status */}
+                      <div class="kv">
+                        <span class="kv-key">{_['status'] || 'Status'}</span>
+                        <span class={`kv-val badge ${invokeResult._disputed ? 'badge-red' : 'badge-green'}`}>
+                          {invokeResult._disputed ? (_['invocation_disputed']) : (_['invoke-success'])}
+                        </span>
+                      </div>
+                      {invokeResult.price != null && <div class="kv"><span class="kv-key">{_['pay']}</span><span class="kv-val mono">{invokeResult.price} OAS</span></div>}
                       {invokeResult.shares_minted != null && <div class="kv"><span class="kv-key">{_['shares-minted']}</span><span class="kv-val">{invokeResult.shares_minted}</span></div>}
                       {invokeResult.result != null && (
                         <div class="kv">
@@ -533,6 +607,36 @@ export default function ExploreBrowse({ subpath }: Props) {
                           <span class="kv-val mono invoke-result-val">{typeof invokeResult.result === 'string' ? invokeResult.result : JSON.stringify(invokeResult.result)}</span>
                         </div>
                       )}
+                      {invokeResult.usage && (
+                        <div class="kv">
+                          <span class="kv-key">Usage</span>
+                          <span class="kv-val mono">{typeof invokeResult.usage === 'string' ? invokeResult.usage : JSON.stringify(invokeResult.usage)}</span>
+                        </div>
+                      )}
+
+                      {/* Challenge window: dispute option */}
+                      {invokeResult.invocation_id && !invokeResult._disputed && (
+                        !disputeOpen ? (
+                          <button class="btn btn-ghost btn-full color-red" onClick={() => setDisputeOpen(true)}>
+                            {_['dispute']}
+                          </button>
+                        ) : (
+                          <div class="col gap-8 divider-top">
+                            <label class="label color-red">{_['challenge_window']}</label>
+                            <textarea class="input input-textarea-mono" rows={3} value={disputeReason}
+                              onInput={e => setDisputeReason((e.target as HTMLTextAreaElement).value)}
+                              placeholder={_['dispute-reason-hint']} />
+                            <div class="row gap-8">
+                              <button class="btn btn-ghost grow" onClick={() => { setDisputeOpen(false); setDisputeReason(''); }}>{_['back']}</button>
+                              <button class="btn btn-primary grow bg-red" disabled={disputeLoading || !disputeReason.trim()}
+                                onClick={() => onDispute(invokeResult.invocation_id)}>
+                                {disputeLoading ? (_['dispute-submitting']) : (_['dispute-confirm'])}
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      )}
+
                       <button class="btn btn-ghost btn-full" onClick={() => { setInvokeResult(null); resetActive(); }}>{_['back']}</button>
                     </div>
                   )
@@ -609,8 +713,11 @@ export default function ExploreBrowse({ subpath }: Props) {
                   ) : buyStep === 'success' && buyResult ? (
                     <div class="col gap-8">
                       <div class="buy-success-banner">{_['buy-success']}</div>
+                      {buyResult.shares_minted > 0 && (
+                        <div class="kv"><span class="kv-key">{_['shares-minted']}</span><span class="kv-val mono">{buyResult.shares_minted}</span></div>
+                      )}
                       <div class="kv"><span class="kv-key">{_['al-granted']}</span><span class="kv-val">{buyResult.level}</span></div>
-                      <div class="kv"><span class="kv-key">{_['al-bond-paid']}</span><span class="kv-val">{fmtPrice(buyResult.bond)} OAS</span></div>
+                      <div class="kv"><span class="kv-key">{_['al-bond-paid']}</span><span class="kv-val mono">{fmtPrice(buyResult.bond)} OAS</span></div>
                       {buyResult.liability_days > 0 && (
                         <div class="kv"><span class="kv-key">{_['al-liability']}</span><span class="kv-val">{buyResult.liability_days} {_['al-days']}</span></div>
                       )}

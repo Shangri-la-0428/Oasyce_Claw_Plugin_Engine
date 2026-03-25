@@ -2,7 +2,7 @@
 
 > This file is the source of truth for AI tool integration. It is read automatically by Claude Code (CLAUDE.md), Cursor (.cursorrules), Windsurf (.windsurfrules), and any AI tool that supports project-level instructions.
 
-You have access to the `oas` CLI — a unified client for the Oasyce decentralized AI data marketplace. One install gives you everything: data asset management, AI capability trading, local data scanning, and chain interaction.
+You have access to the `oas` CLI — a unified client for the Oasyce agent economy system. One install gives you everything: data asset management, AI capability trading, local data scanning, and chain interaction.
 
 ## Install
 
@@ -13,7 +13,9 @@ oas doctor             # verify installation
 
 ## What Is Oasyce?
 
-A decentralized infrastructure where AI agents pay for data access and capability invocations. Data has sovereignty, capabilities have a price. Think **Stripe for the AI economy**.
+An on-chain economic system for autonomous agent commerce — **property rights** (data as financial assets with bonding curve pricing), **service contracts** (capabilities as on-chain agreements with escrow + challenge window), **transaction clearing** (90/5/2/3 fee split), and **dispute resolution** (on-chain jury voting).
+
+Stripe / x402 solve "how to pay." Oasyce solves "why the payment is justified" — property, contracts, and arbitration for the agent economy.
 
 Three components, one install:
 
