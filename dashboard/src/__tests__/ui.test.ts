@@ -35,10 +35,15 @@ describe('UI Store', () => {
   // 1. theme — toggleTheme
   // ────────────────────────────────────────────────────────────
   describe('toggleTheme', () => {
-    it('switches dark to light and back', async () => {
+    it('cycles system → dark → light → system', async () => {
       const ui = await freshUI();
-      // Default is 'dark'
+      // Default is 'system'
+      expect(ui.theme.value).toBe('system');
+
+      ui.toggleTheme();
       expect(ui.theme.value).toBe('dark');
+      expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+      expect(localStorage.getItem('oasyce-theme')).toBe('dark');
 
       ui.toggleTheme();
       expect(ui.theme.value).toBe('light');
@@ -46,9 +51,9 @@ describe('UI Store', () => {
       expect(localStorage.getItem('oasyce-theme')).toBe('light');
 
       ui.toggleTheme();
-      expect(ui.theme.value).toBe('dark');
-      expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-      expect(localStorage.getItem('oasyce-theme')).toBe('dark');
+      expect(ui.theme.value).toBe('system');
+      expect(document.documentElement.getAttribute('data-theme')).toBeNull();
+      expect(localStorage.getItem('oasyce-theme')).toBe('system');
     });
   });
 
@@ -56,17 +61,21 @@ describe('UI Store', () => {
   // 2. lang — toggleLang
   // ────────────────────────────────────────────────────────────
   describe('toggleLang', () => {
-    it('switches zh to en and back, persists to localStorage', async () => {
+    it('cycles system → zh → en → system, persists to localStorage', async () => {
       const ui = await freshUI();
+      expect(ui.lang.value).toBe('system');
+
+      ui.toggleLang();
       expect(ui.lang.value).toBe('zh');
+      expect(localStorage.getItem('oasyce-lang')).toBe('zh');
 
       ui.toggleLang();
       expect(ui.lang.value).toBe('en');
       expect(localStorage.getItem('oasyce-lang')).toBe('en');
 
       ui.toggleLang();
-      expect(ui.lang.value).toBe('zh');
-      expect(localStorage.getItem('oasyce-lang')).toBe('zh');
+      expect(ui.lang.value).toBe('system');
+      expect(localStorage.getItem('oasyce-lang')).toBe('system');
     });
   });
 
@@ -89,7 +98,7 @@ describe('UI Store', () => {
       expect(document.documentElement.getAttribute('data-theme')).toBe('light');
     });
 
-    it('falls back to system preference when nothing saved', async () => {
+    it('defaults to system when nothing saved', async () => {
       // matchMedia returns dark
       Object.defineProperty(window, 'matchMedia', {
         writable: true,
@@ -108,18 +117,23 @@ describe('UI Store', () => {
       const ui = await freshUI();
       ui.initUI();
 
-      expect(ui.theme.value).toBe('dark');
-      expect(ui.lang.value).toBe('en');
+      // theme/lang stay as 'system', resolved values follow OS
+      expect(ui.theme.value).toBe('system');
+      expect(ui.lang.value).toBe('system');
+      // No data-theme attr when system — CSS @media takes over
+      expect(document.documentElement.getAttribute('data-theme')).toBeNull();
     });
 
-    it('falls back to zh when navigator.language starts with zh', async () => {
+    it('resolvedLang returns zh when system language is zh-CN', async () => {
       Object.defineProperty(navigator, 'language', { writable: true, value: 'zh-CN', configurable: true });
       mockFetch.mockResolvedValue(failRes());
 
       const ui = await freshUI();
       ui.initUI();
 
-      expect(ui.lang.value).toBe('zh');
+      // Raw signal is 'system', resolved follows navigator.language
+      expect(ui.lang.value).toBe('system');
+      expect(ui.resolvedLang.value).toBe('zh');
     });
   });
 
@@ -141,11 +155,11 @@ describe('UI Store', () => {
 
     it('resolves known i18n error key to localized string', async () => {
       const ui = await freshUI();
-      // lang defaults to 'zh', so error-generic should resolve
+      ui.lang.value = 'zh';
       ui.showToast('error-generic', 'error');
       expect(ui.toasts.value[0].message).not.toBe('error-generic');
       // It should be the zh translation
-      expect(ui.toasts.value[0].message).toContain('操作失败');
+      expect(ui.toasts.value[0].message).toContain('未能完成');
     });
 
     it('defaults type to info', async () => {
@@ -431,16 +445,15 @@ describe('UI Store', () => {
   // 11. i18n — computed signal
   // ────────────────────────────────────────────────────────────
   describe('i18n', () => {
-    it('returns zh dictionary by default', async () => {
+    it('returns zh dictionary when lang set to zh', async () => {
       const ui = await freshUI();
-      expect(ui.lang.value).toBe('zh');
+      ui.lang.value = 'zh';
       expect(ui.i18n.value['home']).toBe('首页');
     });
 
-    it('returns en dictionary after toggling lang', async () => {
+    it('returns en dictionary when lang set to en', async () => {
       const ui = await freshUI();
-      ui.toggleLang();
-      expect(ui.lang.value).toBe('en');
+      ui.lang.value = 'en';
       expect(ui.i18n.value['home']).toBe('Home');
     });
 

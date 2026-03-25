@@ -63,7 +63,7 @@ export default function AboutPanel({ onClose }: Props) {
     <div>
       <div class="about-overlay" onClick={onClose} role="presentation" />
       <div class="about-panel" role="dialog" aria-modal="true" aria-label="About Oasyce" ref={panelRef} tabIndex={-1} onKeyDown={handleKeyDown}>
-        <button class="about-close" onClick={onClose} aria-label={_['close'] || 'Close'}>&times;</button>
+        <button class="about-close" onClick={onClose} aria-label={_['close']}>&times;</button>
 
         <div class="about-header">
           <h3>Oasyce</h3>

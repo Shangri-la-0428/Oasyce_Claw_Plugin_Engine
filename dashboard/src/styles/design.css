@@ -6,6 +6,15 @@
  * 动效：ease-out-quart (0.25, 1, 0.5, 1)，0.12–0.3s 微交互
  */
 
+/* ── Font: Geist Mono variable (69 KB, all weights) ── */
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ── 暗黑模式（默认）── */
 :root {
   color-scheme: dark;
@@ -17,8 +26,8 @@
 
   --fg-0: #ededed;
   --fg-1: #878787;
-  --fg-2: #717171;
-  --fg-3: #3a3a3a;
+  --fg-2: #808080;
+  --fg-3: #777777;
 
   --border: #2e2e2e;
   --border-hover: #3a3a3a;
@@ -121,8 +130,8 @@
 
   --fg-0: #0a0a0a;
   --fg-1: #525252;
-  --fg-2: #6b6b6b;
-  --fg-3: #a0a0a0;
+  --fg-2: #636363;
+  --fg-3: #737373;
 
   --border: #d4d4d4;
   --border-hover: #a3a3a3;
@@ -161,8 +170,8 @@
 
     --fg-0: #0a0a0a;
     --fg-1: #525252;
-    --fg-2: #6b6b6b;
-    --fg-3: #a0a0a0;
+    --fg-2: #636363;
+    --fg-3: #737373;
 
     --border: #d4d4d4;
     --border-hover: #a3a3a3;
@@ -294,8 +303,8 @@ body {
 .caption {
   font-size: var(--text-sm);
   font-weight: 400;
-  letter-spacing: 0.02em;
-  line-height: 1.5;
+  letter-spacing: var(--tracking-normal);
+  line-height: var(--leading-snug);
   color: var(--fg-2);
 }
 .style-warn { color: var(--yellow); }
@@ -398,7 +407,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--border); padding: var(--space-xs) var(--space-s); font-size: var(--text-sm); }
 .btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--red) 10%, transparent); }
 .btn-full { width: 100%; }
-.btn-sm { height: 44px; padding: 0 var(--space-m); font-size: var(--text-sm); }
+.btn-sm { height: 36px; padding: 0 var(--space-m); font-size: var(--text-sm); }
 .btn-active {
   background: var(--fg-0); color: var(--bg-0);
   border: 1px solid var(--fg-0);
@@ -505,7 +514,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 .dropzone-clear {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 44px; min-height: 44px;
-  font-size: var(--text-xl); line-height: 1;
+  font-size: var(--text-xl); line-height: var(--leading-none);
   color: var(--fg-2); background: none;
   border: 1px solid var(--border); border-radius: 50%;
   cursor: pointer; transition: border-color 0.12s var(--ease), color 0.12s var(--ease);
@@ -660,7 +669,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   font-weight: 300;
   color: var(--fg-3);
   margin-bottom: var(--space-m);
-  line-height: 1;
+  line-height: var(--leading-none);
   user-select: none;
 }
 .empty-state-title {
@@ -954,7 +963,8 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 @supports (animation-timeline: view()) {
   .card,
   .item-list,
-  .home-steps,
+  .home-accordion,
+  .home-stats,
   .home-status,
   .empty-state,
   .tag-chips {

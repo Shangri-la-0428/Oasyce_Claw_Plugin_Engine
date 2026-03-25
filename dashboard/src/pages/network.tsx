@@ -266,7 +266,7 @@ export default function Network({ subpath }: NetworkProps) {
     return (
       <div class="page">
         <h1 class="label">{_['network']}</h1>
-        <div class="skeleton skeleton-lg" />
+        <div class="skeleton skeleton-lg" role="status" aria-busy="true" aria-label={_['loading']} />
       </div>
     );
   }

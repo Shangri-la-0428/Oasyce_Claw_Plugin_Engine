@@ -44,6 +44,12 @@ describe('i18n Dictionary Parity', () => {
       'cache', 'cache-stats', 'cache-purge',
       'about-version', 'about-desc',
       'partial-failure', 'file-too-large',
+      // Onboarding accordion keys
+      'onboard-step1-hint', 'onboard-step2-hint', 'onboard-step3-hint',
+      'gate-create-body', 'gate-funds-body',
+      'success-outcome', 'success-outcome-body',
+      'success-cta-market', 'success-cta-more',
+      'advanced-options-hint', 'vet-register-cta',
     ];
 
     // Switch back and forth to verify all known keys resolve to non-key values

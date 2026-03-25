@@ -4,8 +4,22 @@
  */
 import { signal, computed } from '@preact/signals';
 
-export const theme = signal<'dark' | 'light'>('dark');
-export const lang = signal<'zh' | 'en'>('zh');
+export const theme = signal<'dark' | 'light' | 'system'>('system');
+export const lang = signal<'zh' | 'en' | 'system'>('system');
+
+/** Resolved values — what's actually applied, never 'system' */
+function systemTheme(): 'dark' | 'light' {
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function systemLang(): 'zh' | 'en' {
+  return navigator.language?.startsWith('zh') ? 'zh' : 'en';
+}
+export const resolvedTheme = computed<'dark' | 'light'>(() =>
+  theme.value === 'system' ? systemTheme() : theme.value
+);
+export const resolvedLang = computed<'zh' | 'en'>(() =>
+  lang.value === 'system' ? systemLang() : lang.value
+);
 export const toasts = signal<{ id: string; message: string; type: string }[]>([]);
 
 /** Wallet identity state */
@@ -163,14 +177,35 @@ function safeSetItem(key: string, value: string): void {
   try { localStorage.setItem(key, value); } catch { /* quota/private mode */ }
 }
 
+/** Apply theme to DOM — 'system' removes data-theme so CSS @media takes over */
+function applyTheme() {
+  if (theme.value === 'system') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', theme.value);
+  }
+}
+
+/** Apply lang to DOM */
+function applyLang() {
+  document.documentElement.lang = resolvedLang.value === 'zh' ? 'zh-CN' : 'en';
+}
+
 export function initUI() {
-  const savedTheme = safeGetItem('oasyce-theme') as 'dark' | 'light' | null;
-  const savedLang = safeGetItem('oasyce-lang') as 'zh' | 'en' | null;
+  const savedTheme = safeGetItem('oasyce-theme') as 'dark' | 'light' | 'system' | null;
+  const savedLang = safeGetItem('oasyce-lang') as 'zh' | 'en' | 'system' | null;
 
-  theme.value = savedTheme || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  lang.value = savedLang || (navigator.language?.startsWith('zh') ? 'zh' : 'en');
+  theme.value = savedTheme ?? 'system';
+  lang.value = savedLang ?? 'system';
 
-  document.documentElement.setAttribute('data-theme', theme.value);
+  applyTheme();
+  applyLang();
+
+  // Listen for OS theme changes — re-trigger reactivity when system preference changes
+  window.matchMedia?.('(prefers-color-scheme: dark)')
+    .addEventListener?.('change', () => {
+      if (theme.value === 'system') applyTheme();
+    });
 
   // Load wallet identity then balance + notifications in background
   loadIdentity().then(() => {
@@ -179,14 +214,21 @@ export function initUI() {
   }).catch(() => {});
 }
 
+/** Cycle: system → dark → light → system */
 export function toggleTheme() {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', theme.value);
+  const order: Array<'system' | 'dark' | 'light'> = ['system', 'dark', 'light'];
+  const idx = order.indexOf(theme.value);
+  theme.value = order[(idx + 1) % order.length];
+  applyTheme();
   safeSetItem('oasyce-theme', theme.value);
 }
 
+/** Cycle: system → zh → en → system */
 export function toggleLang() {
-  lang.value = lang.value === 'zh' ? 'en' : 'zh';
+  const order: Array<'system' | 'zh' | 'en'> = ['system', 'zh', 'en'];
+  const idx = order.indexOf(lang.value);
+  lang.value = order[(idx + 1) % order.length];
+  applyLang();
   safeSetItem('oasyce-lang', lang.value);
 }
 
@@ -202,14 +244,14 @@ export function showToast(message: string, type = 'info') {
 const dict: Record<string, Record<string, string>> = {
   zh: {
     home: '首页', mydata: '资产', explore: '市场', auto: '自动化', network: '网络', loading: '加载中...',
-    'hero-title-light': '智能的价值',
-    'hero-title-bold': '自由交易',
-    'hero-sub': '注册数据资产，上架 AI 能力，在去中心化市场中定价、交易、结算。',
+    'hero-title-light': '你的数据和 AI 能力，',
+    'hero-title-bold': '值得被定价',
+    'hero-sub': '上传文件、发布技能，网络自动定价和结算。',
     protect: '注册数据', protecting: '注册中...', protected: '已注册',
     'drop-browse': '选择文件',
     'describe': '描述', 'describe-hint': '例如：医疗影像、研究数据、创意作品',
     'value': '当前价值', 'owner': '所有者', 'id': '编号',
-    'search': '搜索你的数据...', 'no-data': '还没有数据', 'first-data': '注册你的第一份资产，开始参与市场',
+    'search': '搜索你的数据...', 'no-data': '还没有数据', 'first-data': '上传你的第一份文件，开始赚取收益',
     'delete': '删除记录', 'delete-confirm': '从本地删除这份数据记录？链上状态不受影响。此操作不可恢复。',
     'get-access': '获取访问权', 'quote': '查看报价', 'quoting': '计算中...',
     'pay': '需要支付',
@@ -230,7 +272,7 @@ const dict: Record<string, Record<string, string>> = {
     'nav-mydata': '资产', 'nav-mydata-desc': '查看已注册的数据资产',
     'nav-explore': '市场', 'nav-explore-desc': '浏览和交易数据与 AI 能力',
     'nav-network': '网络', 'nav-network-desc': '节点状态与网络信息',
-    'cancel': '取消', 'confirm-remove': '确认移除',
+    'cancel': '取消', 'close': '关闭', 'confirm-remove': '确认移除',
     'explore-title': '能力市场',
     'explore-desc': '浏览数据资产与 AI 能力，获取访问权或调用服务',
     'explore-search': '搜索数据编号或描述...',
@@ -359,7 +401,7 @@ const dict: Record<string, Record<string, string>> = {
     'pending-tasks': '待确认', 'completed-tasks': '已完成',
     'approve-all': '全部通过', 'all-approved': '已全部通过',
     'reject-all': '全部否决', 'all-rejected': '已全部否决',
-    'queue-empty': '没有待处理任务', 'queue-empty-hint': '扫描目录或等待 Agent 提交新任务',
+    'queue-empty': '没有待处理任务', 'queue-empty-hint': '扫描一个目录，或等待 Agent 提交任务',
     'trust-level-desc': '控制 Agent 的自主注册和交易权限',
     'trust-0-desc': '所有操作需手动确认',
     'trust-1-desc': '高置信度自动执行，其余需确认',
@@ -399,8 +441,8 @@ const dict: Record<string, Record<string, string>> = {
     'dispute-status': '争议状态', 'dispute-pending': '待仲裁',
     'drop-folder-hint': '支持拖入文件夹',
     'price-model': '定价方式',
-    'price-model-auto': '自动定价', 'price-model-fixed': '固定价格', 'price-model-floor': '保底价格',
-    'price-model-auto-desc': '由市场供需自动确定价格',
+    'price-model-auto': '市场定价', 'price-model-fixed': '固定价格', 'price-model-floor': '保底价格',
+    'price-model-auto-desc': '买家越多价格越高，供需自动调节',
     'price-model-fixed-desc': '你设定价格，买家按此价购买',
     'price-model-floor-desc': '市场定价，但不低于你设定的底价',
     'price-input-hint': '输入你期望的价格', 'price-floor-hint': '输入最低价格',
@@ -439,19 +481,19 @@ const dict: Record<string, Record<string, string>> = {
     'hash-changed': '已变更',
     're-register': '重新注册',
     'file-missing': '文件丢失',
-    'error-generic': '操作失败，请重试',
-    'error-unauthorized': '未授权，请检查节点是否正常运行',
-    'error-rate-limit': '请求过于频繁，请稍后再试',
-    'error-not-found': '未找到该资源，可能已被移除',
-    'error-server': '服务器错误，请稍后再试',
-    'error-timeout': '请求超时，请检查网络连接',
-    'error-network': '无法连接服务器，请确认 oasyce start 已运行',
+    'error-generic': '未能完成，请再试一次',
+    'error-unauthorized': '身份验证失败 — 请确认节点正在运行',
+    'error-rate-limit': '请求过于频繁，请等几秒再试',
+    'error-not-found': '该内容不存在或已被移除',
+    'error-server': '服务器遇到问题，请稍后再试',
+    'error-timeout': '请求超时 — 请检查网络连接后重试',
+    'error-network': '无法连接到节点 — 请确认已运行 oasyce start',
     'invoke-result': '返回结果',
     'net-cat-config': '配置', 'net-cat-chain': '网络与共识', 'net-cat-tools': '工具', 'net-cat-community': '社区',
     'net-consensus-loading': '加载共识数据...',
     // About panel
     'about-version': 'v1.11.0',
-    'about-desc': '去中心化 AI 能力自由市场。代理自主注册数据、上架能力、定价交易、结算清分。',
+    'about-desc': '去中心化 AI 数据市场。注册数据、上架能力，网络自动定价和结算。',
     'about-tab-overview': '概览',
     'about-tab-start': '快速开始',
     'about-tab-arch': '技术架构',
@@ -490,19 +532,34 @@ const dict: Record<string, Record<string, string>> = {
     'agent-run-now': '立即执行', 'agent-history': '执行历史',
     'agent-save-config': '保存配置', 'agent-no-history': '暂无执行记录', 'agent-no-history-hint': '启用定时任务并执行一次后，记录将显示在这里',
     'balance-label': '余额',
-    'wallet-needed': '创建钱包以注册和交易',
-    'wallet': '钱包',
-    'create-wallet': '创建钱包',
+    'earnings': '收益',
+    'theme-system': '跟随系统主题',
+    'lang-system': '跟随系统语言',
+    'recent-trades': '最近交易',
+    'wallet-needed': '创建账户以注册和交易',
+    'wallet': '账户',
+    'create-wallet': '创建账户',
     'skip-to-content': '跳至内容',
-    'wallet-created': '钱包已创建',
-    'onboard-step1': '创建钱包',
-    'onboard-step2': '领取启动资金',
-    'onboard-step2-btn': '开始验证',
+    'wallet-created': '账户已创建',
+    'onboard-step1': '创建账户',
+    'onboard-step1-hint': '一键生成，不需要密码或邮箱',
+    'onboard-step2': '领取新手奖励',
+    'onboard-step2-hint': '完成一个小任务，获得免费积分',
+    'onboard-step2-btn': '领取积分',
     'onboard-step2-mining': '正在计算...',
     'register-success': '获得 {amount} OAS',
-    'onboard-step3': '注册你的第一个资产',
-    'onboard-welcome': '三步开始赚取收益',
-    'onboard-welcome-hint': '创建身份、获取资金、注册资产 — 完成后即可参与市场交易。',
+    'onboard-step3': '上传你的第一个文件',
+    'onboard-step3-hint': '拖入文件即可，高级选项以后再说',
+    'onboard-welcome': '三步开始',
+    'onboard-welcome-hint': '不到一分钟，你的数据就能开始产生收益。',
+    'gate-create-body': '生成一个唯一 ID 作为你在网络中的身份。',
+    'gate-funds-body': '完成一个小计算任务，获取你的第一笔积分。',
+    'success-outcome': '已上线',
+    'success-outcome-body': '你的文件现在可以被发现和购买了。收益会自动到账。',
+    'success-cta-market': '去市场看看',
+    'success-cta-more': '再上传一个',
+    'advanced-options-hint': '高级选项可以在"我的数据"页面修改',
+    'vet-register-cta': '上传更多',
     'total-earned': '总收入',
     'recent-transactions': '最近交易',
     'no-transactions': '暂无交易记录', 'no-transactions-hint': '买入或卖出资产后，交易记录将显示在这里',
@@ -638,7 +695,7 @@ const dict: Record<string, Record<string, string>> = {
     'cache-total': '总计', 'cache-active': '有效', 'cache-expired': '过期',
     'cache-purge': '清理过期', 'cache-purging': '清理中...',
     'cache-purge-success': '已清理过期缓存', 'cache-db-path': '数据库路径',
-    'error-boundary-title': '出了点问题', 'error-boundary-retry': '重试',
+    'error-boundary-title': '页面加载出错', 'error-boundary-retry': '重试',
     'preview-size': '大小',
     // Feedback
     'feedback': '反馈', 'feedback-desc': 'AI 代理可在此提交 Bug 报告或改进建议',
@@ -655,14 +712,14 @@ const dict: Record<string, Record<string, string>> = {
   },
   en: {
     home: 'Home', mydata: 'My Data', explore: 'Market', auto: 'Automation', network: 'Network', loading: 'Loading...',
-    'hero-title-light': 'Intelligence has',
-    'hero-title-bold': 'a price.',
-    'hero-sub': 'Register data assets. List AI capabilities. Price, trade, and settle in a decentralized market.',
+    'hero-title-light': 'Your data and AI skills',
+    'hero-title-bold': 'deserve a price',
+    'hero-sub': 'Upload files, publish capabilities. The network prices and settles automatically.',
     protect: 'Register', protecting: 'Registering...', protected: 'Registered',
     'drop-browse': 'choose file',
     'describe': 'Description', 'describe-hint': 'e.g. medical imaging, research data, creative work',
     'value': 'Value', 'owner': 'Owner', 'id': 'ID',
-    'search': 'Search your data...', 'no-data': 'No data yet', 'first-data': 'Register your first asset to join the market',
+    'search': 'Search your data...', 'no-data': 'No data yet', 'first-data': 'Upload your first file to start earning',
     'delete': 'Delete record', 'delete-confirm': 'Delete this local record? On-chain state is not affected. This cannot be undone.',
     'get-access': 'Get access', 'quote': 'Get quote', 'quoting': 'Calculating...',
     'pay': 'You pay',
@@ -683,7 +740,7 @@ const dict: Record<string, Record<string, string>> = {
     'nav-mydata': 'My data', 'nav-mydata-desc': 'View your registered data assets',
     'nav-explore': 'Market', 'nav-explore-desc': 'Browse and trade data & AI capabilities',
     'nav-network': 'Network', 'nav-network-desc': 'Node status and network info',
-    'cancel': 'Cancel', 'confirm-remove': 'Yes, remove',
+    'cancel': 'Cancel', 'close': 'Close', 'confirm-remove': 'Yes, remove',
     'explore-title': 'Capability Market',
     'explore-desc': 'Browse and trade data assets and AI capabilities',
     'explore-search': 'Search by ID or description...',
@@ -694,7 +751,7 @@ const dict: Record<string, Record<string, string>> = {
     'browse-all': 'Browse all',
     'all': 'All',
     'sort-time': 'Latest', 'sort-value': 'Value',
-    'load-more': 'Load more', 'no-more': "That's all",
+    'load-more': 'Load more', 'no-more': 'No more results',
     'view-mydata': 'View my data',
     'type-all': 'All', 'type-data': 'Data', 'type-capability': 'Services',
     'invoke': 'Invoke', 'invoking': 'Invoking...',
@@ -709,12 +766,12 @@ const dict: Record<string, Record<string, string>> = {
     'no-validators': 'No validators yet', 'no-validators-hint': 'Validators will appear here once the L1 chain is running',
     'net-hero-light': 'Connected to the', 'net-hero-bold': 'intelligence market.',
     'net-hero-sub': 'Run a node, contribute compute, earn from the market.',
-    'net-identity': 'IDENTITY', 'net-node-id': 'Node ID', 'net-pubkey': 'Public Key', 'net-created': 'Created',
+    'net-identity': 'Identity', 'net-node-id': 'Node ID', 'net-pubkey': 'Public Key', 'net-created': 'Created',
     'net-show': 'Show', 'net-hide': 'Hide',
     'net-chain-height': 'Chain height', 'net-peers': 'Connected peers',
     'net-no-identity': 'No identity yet', 'net-init-hint': 'Run oasyce start to initialize your node',
     // AI compute config
-    'net-ai': 'AI COMPUTE', 'net-ai-desc': 'Configure your AI capability to provide intelligence to the network and earn OAS',
+    'net-ai': 'AI Compute', 'net-ai-desc': 'Configure your AI capability to provide intelligence to the network and earn OAS',
     'net-ai-what': 'Why do I need an API Key?',
     'net-ai-what-body': 'Your node uses an AI model to perform tasks for the network. Just provide an API Key (or local model address) and Oasyce handles the rest:',
     'net-ai-use-1': 'Validators: AI auto-verifies data quality, detects duplicates, audits metadata compliance',
@@ -733,7 +790,7 @@ const dict: Record<string, Record<string, string>> = {
     'net-key-required': 'Please configure your API Key in the AI Compute card above first',
     'net-endpoint-placeholder': 'e.g. http://localhost:8080/v1',
     // Node role
-    'net-role': 'NODE ROLE', 'net-role-desc': 'Once AI is configured, choose your role to start earning',
+    'net-role': 'Node Role', 'net-role-desc': 'Once AI is configured, choose your role to start earning',
     'net-role-validator': 'Validator', 'net-role-arbitrator': 'Arbitrator',
     'net-role-none': 'Standard peer node. Configure AI compute above, then apply as validator or arbitrator to earn OAS.',
     'net-become-validator': 'Become Validator', 'net-become-validator-desc': 'Stake OAS + provide AI compute → produce blocks, earn tokens',
@@ -760,14 +817,14 @@ const dict: Record<string, Record<string, string>> = {
     'net-arb-need-1': 'An AI API Key (for evidence analysis and reasoning)',
     'net-arb-need-2': 'No staking required, but keep your node online to receive cases',
     'net-arb-tags-hint': 'Expertise areas (comma-separated), e.g. copyright,medical,finance',
-    'net-work': 'WORK EARNINGS', 'net-work-desc': 'Protocol-assigned tasks and your earnings summary',
+    'net-work': 'Work Earnings', 'net-work-desc': 'Protocol-assigned tasks and your earnings summary',
     'net-work-total': 'Total tasks', 'net-work-settled': 'Settled',
     'net-work-earned': 'Total earned', 'net-work-quality': 'Avg quality',
     'net-work-failed': 'Failed', 'net-work-no-tasks': 'No task history yet', 'net-work-no-tasks-hint': 'Configure AI compute and the protocol will assign tasks automatically',
     'net-work-recent': 'Recent tasks',
     'net-work-type-validation': 'Validation', 'net-work-type-arbitration': 'Arbitration',
     'net-work-type-verification': 'Verification', 'net-work-type-moderation': 'Moderation',
-    'net-consensus': 'CONSENSUS STATUS', 'net-consensus-desc': 'Current consensus status — epoch progress and active validators',
+    'net-consensus': 'Consensus', 'net-consensus-desc': 'Epoch progress and active validators',
     'net-consensus-epoch': 'Current Epoch', 'net-consensus-slot': 'Current Slot',
     'net-consensus-validators': 'Active Validators', 'net-consensus-staked': 'Total Staked',
     'net-consensus-next-epoch': 'Next Epoch', 'net-consensus-delegate': 'Delegate',
@@ -786,7 +843,7 @@ const dict: Record<string, Record<string, string>> = {
     'net-cosmos-validators': 'Cosmos Validators', 'net-cosmos-val-loading': 'Loading validators...',
     'net-cosmos-no-validators': 'No bonded validators found.',
     'net-cosmos-jailed': 'jailed',
-    'net-watermark': 'WATERMARK TOOLS', 'net-watermark-desc': 'Track data distribution across the network',
+    'net-watermark': 'Watermark Tools', 'net-watermark-desc': 'Track data distribution across the network',
     'net-embed': 'Embed watermark', 'net-embed-desc': 'Sign your identity into a file',
     'net-extract': 'Extract watermark', 'net-extract-desc': 'Read signature info from a file',
     'net-trace': 'Trace distribution', 'net-trace-desc': 'View file distribution history',
@@ -812,7 +869,7 @@ const dict: Record<string, Record<string, string>> = {
     'pending-tasks': 'Pending', 'completed-tasks': 'Completed',
     'approve-all': 'Approve all', 'all-approved': 'All approved',
     'reject-all': 'Reject all', 'all-rejected': 'All rejected',
-    'queue-empty': 'No pending tasks', 'queue-empty-hint': 'Scan a directory or wait for agents to submit tasks',
+    'queue-empty': 'No pending tasks', 'queue-empty-hint': 'Scan a directory, or wait for agents to submit tasks',
     'trust-level-desc': 'Control how much autonomy agents have for registration and trading',
     'trust-0-desc': 'All actions require manual approval',
     'trust-1-desc': 'High-confidence actions auto-execute, rest need approval',
@@ -852,8 +909,8 @@ const dict: Record<string, Record<string, string>> = {
     'dispute-status': 'Dispute status', 'dispute-pending': 'Pending arbitration',
     'drop-folder-hint': 'Supports folder drag-and-drop',
     'price-model': 'Pricing Model',
-    'price-model-auto': 'Auto (Bonding Curve)', 'price-model-fixed': 'Fixed Price', 'price-model-floor': 'Floor Price',
-    'price-model-auto-desc': 'Price determined by market supply and demand',
+    'price-model-auto': 'Market Pricing', 'price-model-fixed': 'Fixed Price', 'price-model-floor': 'Floor Price',
+    'price-model-auto-desc': 'More buyers means higher price — supply and demand',
     'price-model-fixed-desc': 'You set the price, buyers pay this amount',
     'price-model-floor-desc': 'Market pricing, but never below your floor',
     'price-input-hint': 'Enter your desired price', 'price-floor-hint': 'Enter minimum price',
@@ -892,19 +949,19 @@ const dict: Record<string, Record<string, string>> = {
     'hash-changed': 'Changed',
     're-register': 'Re-register',
     'file-missing': 'File missing',
-    'error-generic': 'Operation failed — please try again',
-    'error-unauthorized': 'Unauthorized. Check that your node is running.',
-    'error-rate-limit': 'Too many requests. Please wait a moment.',
-    'error-not-found': 'Resource not found — it may have been removed',
-    'error-server': 'Server error. Please try again later.',
-    'error-timeout': 'Request timed out. Check your connection.',
-    'error-network': 'Cannot reach server. Make sure oasyce start is running.',
+    'error-generic': 'That didn\'t work — please try again',
+    'error-unauthorized': 'Authentication failed — is your node running?',
+    'error-rate-limit': 'Too many requests — wait a few seconds and retry',
+    'error-not-found': 'This content no longer exists or was removed',
+    'error-server': 'Server error — please try again in a moment',
+    'error-timeout': 'Request timed out — check your connection and retry',
+    'error-network': 'Can\'t reach the node — make sure oasyce start is running',
     'invoke-result': 'Result',
-    'net-cat-config': 'CONFIGURATION', 'net-cat-chain': 'NETWORK & CONSENSUS', 'net-cat-tools': 'TOOLS', 'net-cat-community': 'COMMUNITY',
+    'net-cat-config': 'Configuration', 'net-cat-chain': 'Network & Consensus', 'net-cat-tools': 'Tools', 'net-cat-community': 'Community',
     'net-consensus-loading': 'Loading consensus data...',
     // About panel
     'about-version': 'v1.11.0',
-    'about-desc': 'Decentralized AI capability marketplace. Agents register data, list capabilities, price, trade, and settle autonomously.',
+    'about-desc': 'Decentralized AI data marketplace. Register data, list capabilities — the network prices and settles automatically.',
     'about-tab-overview': 'Overview',
     'about-tab-start': 'Quick Start',
     'about-tab-arch': 'Architecture',
@@ -943,19 +1000,34 @@ const dict: Record<string, Record<string, string>> = {
     'agent-run-now': 'Run Now', 'agent-history': 'Run History',
     'agent-save-config': 'Save Config', 'agent-no-history': 'No runs yet', 'agent-no-history-hint': 'Enable the scheduler and run once to see history here',
     'balance-label': 'Balance',
-    'wallet-needed': 'Create a wallet to register and trade',
-    'wallet': 'Wallet',
-    'create-wallet': 'Create Wallet',
+    'earnings': 'Earnings',
+    'theme-system': 'Follow system theme',
+    'lang-system': 'Follow system language',
+    'recent-trades': 'Recent trades',
+    'wallet-needed': 'Create an account to register and trade',
+    'wallet': 'Account',
+    'create-wallet': 'Create account',
     'skip-to-content': 'Skip to content',
-    'wallet-created': 'Wallet created',
-    'onboard-step1': 'Create Wallet',
-    'onboard-step2': 'Claim Starter OAS',
-    'onboard-step2-btn': 'Start Verification',
+    'wallet-created': 'Account created',
+    'onboard-step1': 'Create account',
+    'onboard-step1-hint': 'One click, no password or email needed',
+    'onboard-step2': 'Claim starter bonus',
+    'onboard-step2-hint': 'Complete a quick task to get free credits',
+    'onboard-step2-btn': 'Claim credits',
     'onboard-step2-mining': 'Computing...',
     'register-success': 'Received {amount} OAS',
-    'onboard-step3': 'Register Your First Asset',
-    'onboard-welcome': 'Start earning in 3 steps',
-    'onboard-welcome-hint': 'Create an identity, claim funds, register an asset — then you\'re in the market.',
+    'onboard-step3': 'Upload your first file',
+    'onboard-step3-hint': 'Just drop a file — advanced options come later',
+    'onboard-welcome': 'Get started',
+    'onboard-welcome-hint': 'Under a minute — then your data starts earning.',
+    'gate-create-body': 'Generates a unique ID as your identity on the network.',
+    'gate-funds-body': 'Solve a quick computation task to earn your first credits.',
+    'success-outcome': 'Live',
+    'success-outcome-body': 'Your file is now discoverable and purchasable. Earnings arrive in your account automatically.',
+    'success-cta-market': 'Visit market',
+    'success-cta-more': 'Upload another',
+    'advanced-options-hint': 'Advanced options can be changed on the "My Data" page',
+    'vet-register-cta': 'Upload more',
     'total-earned': 'Total Earned',
     'recent-transactions': 'Recent Transactions',
     'no-transactions': 'No transactions yet', 'no-transactions-hint': 'Buy or sell assets to see transaction history here',
@@ -1091,7 +1163,7 @@ const dict: Record<string, Record<string, string>> = {
     'cache-total': 'Total', 'cache-active': 'Active', 'cache-expired': 'Expired',
     'cache-purge': 'Purge Expired', 'cache-purging': 'Purging...',
     'cache-purge-success': 'Expired entries purged', 'cache-db-path': 'DB Path',
-    'error-boundary-title': 'Something went wrong', 'error-boundary-retry': 'Try again',
+    'error-boundary-title': 'This section failed to load', 'error-boundary-retry': 'Try again',
     'preview-size': 'Size',
     // Feedback
     'feedback': 'Feedback', 'feedback-desc': 'AI agents can submit bug reports and suggestions here',
@@ -1115,7 +1187,7 @@ const dict: Record<string, Record<string, string>> = {
  * 这样即使翻译缺失也不会渲染 undefined
  */
 export const i18n = computed(() => {
-  const current = dict[lang.value] || dict['en'];
+  const current = dict[resolvedLang.value] || dict['en'];
   const fallback = dict['en'];
   return new Proxy(current, {
     get(target, prop: string) {

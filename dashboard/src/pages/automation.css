@@ -15,7 +15,7 @@
 
 /* Queue items */
 .auto-item {
-  border: 1px solid var(--border); border-radius: var(--r-xl);
+  border: 1px solid var(--border); border-radius: var(--r-m);
   padding: var(--space-l); margin-bottom: var(--space-l);
   transition: border-color 0.12s var(--ease);
   contain: content;
@@ -43,17 +43,17 @@
 /* Empty state — uses shared .empty-state from design.css */
 
 /* Trust level cards */
-.auto-trust-levels { display: flex; gap: var(--space-s); }
+.auto-trust-levels { display: flex; gap: var(--space-m); }
 .auto-trust-card {
   flex: 1; padding: var(--space-l); text-align: center;
-  border: 1px solid var(--border); border-radius: var(--r-xl);
+  border: 1px solid var(--border); border-radius: var(--r-m);
   background: transparent; cursor: pointer;
   transition: border-color 0.12s var(--ease), background 0.12s var(--ease);
   font-family: var(--sans);
 }
 .auto-trust-card:hover { border-color: var(--border-active); }
 .auto-trust-card.active { border-color: var(--fg-0); background: var(--bg-1); }
-.auto-trust-icon { font-family: var(--mono); font-size: var(--text-xl); font-weight: 700; color: var(--fg-1); margin-bottom: var(--space-s); letter-spacing: 0.02em; }
+.auto-trust-icon { font-family: var(--mono); font-size: var(--text-xl); font-weight: 700; color: var(--fg-1); margin-bottom: var(--space-s); letter-spacing: var(--tracking-normal); }
 .auto-trust-name { font-size: var(--text-lg); font-weight: 600; color: var(--fg-0); margin-bottom: var(--space-xs); }
 .auto-trust-card .caption { font-size: var(--text-xs); }
 .auto-threshold-val { margin-top: var(--space-s); font-size: var(--text-xs); color: var(--fg-2); }

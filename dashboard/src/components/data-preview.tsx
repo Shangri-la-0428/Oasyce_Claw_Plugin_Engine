@@ -108,7 +108,7 @@ export default function DataPreview({ assetId, onClose }: Props) {
     <div class="preview-panel">
       <div class="preview-header">
         <span class="preview-title">{_['preview']}</span>
-        <button class="btn btn-sm btn-ghost" onClick={onClose} aria-label={_['close'] || 'Close'}>&times;</button>
+        <button class="btn btn-sm btn-ghost" onClick={onClose} aria-label={_['close']}>&times;</button>
       </div>
 
       {loading ? (

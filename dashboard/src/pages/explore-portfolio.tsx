@@ -133,7 +133,7 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
     <>
       <h2 class="label-inline mb-16">{_['portfolio']}</h2>
       {holdingsLoading ? (
-        <div class="skeleton skeleton-md mb-8" />
+        <div class="skeleton skeleton-md mb-8" role="status" aria-busy="true" aria-label={_['loading']} />
       ) : holdings.length === 0 ? (
         <EmptyState icon="◇" title={_['no-holdings']} hint={_['portfolio-hint']}>
           {onBrowse && <button class="btn btn-ghost" onClick={onBrowse}>{_['portfolio-browse-cta']}</button>}
@@ -218,7 +218,7 @@ export default function ExplorePortfolio({ onBrowse }: Props) {
       <div class="mt-32">
         <h2 class="label-inline mb-16">{_['tx-history']}</h2>
         {txLoading ? (
-          <div class="skeleton skeleton-md mb-8" />
+          <div class="skeleton skeleton-md mb-8" role="status" aria-busy="true" aria-label={_['loading']} />
         ) : transactions.length === 0 ? (
           <EmptyState icon="⇄" title={_['tx-no-history']} hint={_['tx-no-history-hint']} />
         ) : (

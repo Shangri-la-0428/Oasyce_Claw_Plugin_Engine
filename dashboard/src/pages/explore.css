@@ -70,7 +70,7 @@
   gap: var(--space-xs);
   padding: var(--space-m);
   border: 1px solid var(--border);
-  border-radius: var(--r-s);
+  border-radius: var(--r-m);
   background: var(--bg-0);
   cursor: pointer;
   text-align: left;
@@ -106,7 +106,7 @@
 .access-level-desc {
   font-size: var(--text-xs);
   color: var(--fg-2);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   overflow-wrap: break-word; word-break: break-word;
 }
 .access-level-price {
@@ -168,7 +168,7 @@
 }
 .portfolio-stat-label {
   font-size: var(--text-xs);
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   color: var(--fg-2);
 }
@@ -210,7 +210,7 @@
 .preview-body { padding: var(--space-l) var(--space-xl); }
 .preview-section { margin-bottom: var(--space-l); }
 .preview-section-title {
-  font-size: var(--text-sm); font-weight: 600; letter-spacing: 0.06em;
+  font-size: var(--text-sm); font-weight: 600; letter-spacing: var(--tracking-wide);
   text-transform: uppercase; color: var(--fg-2); margin-bottom: var(--space-s);
 }
 .preview-levels {
@@ -228,7 +228,7 @@
 .preview-code-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: var(--space-s); }
 .preview-code {
   font-family: var(--mono);
-  font-size: var(--text-sm); line-height: 1.5;
+  font-size: var(--text-sm); line-height: var(--leading-normal);
   padding: var(--space-m); border-radius: var(--r-s);
   background: var(--bg-1); color: var(--fg-1);
   white-space: pre-wrap; word-break: break-word;
@@ -325,7 +325,7 @@
 .quickstart-title {
   font-size: var(--text-sm);
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   color: var(--fg-2);
   margin-bottom: var(--space-xs);
@@ -347,7 +347,7 @@
   padding: var(--space-m) var(--space-l);
   background: var(--bg-1);
   border: 1px solid var(--border);
-  border-radius: var(--r-s);
+  border-radius: var(--r-m);
 }
 .quickstart-cmd-text {
   font-family: var(--mono);

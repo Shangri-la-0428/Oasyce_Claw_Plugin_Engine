@@ -168,7 +168,7 @@ export default function MyData() {
     setDisputing(true);
     const res = await post<{ ok?: boolean }>('/dispute', { asset_id: assetId, reason: disputeReason.trim() });
     if (res.success && res.data?.ok) {
-      showToast(_['dispute-success'] || 'Dispute submitted', 'success');
+      showToast(_['dispute-success'], 'success');
       loadAssets();
       setDisputeTarget(null); setDisputeReason('');
     } else {
@@ -418,7 +418,7 @@ export default function MyData() {
                           <div class="row gap-8">
                             <button class="btn btn-ghost btn-sm" onClick={() => setEditTagsTarget(null)}>{_['cancel']}</button>
                             <button class="btn btn-sm" onClick={() => onSaveTags(a.asset_id)} disabled={savingTags}>
-                              {savingTags ? '…' : _['save'] || 'Save'}
+                              {savingTags ? '…' : _['save']}
                             </button>
                           </div>
                         </div>
@@ -447,7 +447,7 @@ export default function MyData() {
                     {versionsTarget === a.asset_id && (
                       <div class="mt-8">
                         {versionsLoading ? (
-                          <div class="skeleton skeleton-sm mb-8" />
+                          <div class="skeleton skeleton-sm mb-8" role="status" aria-busy="true" aria-label={_['loading']} />
                         ) : versions.length === 0 ? (
                           <div class="caption fg-muted">{_['no-versions']}</div>
                         ) : (
@@ -613,7 +613,7 @@ export default function MyData() {
       {/* ── My Capabilities Tab ── */}
       {activeTab === 'caps' && <>
         {myCapsLoading ? (
-          <div>
+          <div role="status" aria-busy="true" aria-label={_['loading']}>
             <div class="skeleton skeleton-sm mb-8" />
             <div class="skeleton skeleton-sm mb-8" />
           </div>

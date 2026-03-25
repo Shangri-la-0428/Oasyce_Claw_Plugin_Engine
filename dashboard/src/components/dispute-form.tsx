@@ -150,7 +150,7 @@ export function MyDisputes() {
   const statusLabel = (s: string) => {
     if (s === 'open') return _['dispute-open'];
     if (s === 'resolved') return _['dispute-resolved'];
-    if (s === 'dismissed') return _['dispute-dismissed'] || 'Dismissed';
+    if (s === 'dismissed') return _['dispute-dismissed'];
     return s;
   };
 
@@ -218,7 +218,7 @@ export function MyDisputes() {
     <div class="my-disputes">
       <h3 class="label-inline mb-12">{_['my-disputes']}</h3>
       {loading ? (
-        <div class="skeleton skeleton-md mb-8" />
+        <div class="skeleton skeleton-md mb-8" role="status" aria-busy="true" aria-label={_['loading']} />
       ) : disputes.length === 0 ? (
         <div class="caption fg-muted">
           <div class="mb-4">{_['dispute-no-disputes']}</div>

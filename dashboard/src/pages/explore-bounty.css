@@ -60,7 +60,7 @@
 .bounty-bid-form {
   padding: var(--space-s);
   background: var(--bg-1);
-  border-radius: var(--r-l);
+  border-radius: var(--r-m);
 }
 
 @media (max-width: 768px) {

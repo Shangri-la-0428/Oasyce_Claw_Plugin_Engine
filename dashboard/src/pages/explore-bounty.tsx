@@ -149,10 +149,10 @@ export default function ExploreBounty() {
   };
 
   const isOwner = (t: Task) => t.requester_id === me;
-  const statusColor = (s: TaskStatus) => {
-    if (s === 'completed') return 'var(--green)';
-    if (s === 'cancelled') return 'var(--red)';
-    return 'var(--fg-2)';
+  const statusClass = (s: TaskStatus) => {
+    if (s === 'completed') return 'color-green';
+    if (s === 'cancelled') return 'color-red';
+    return 'fg-muted';
   };
 
   return (
@@ -253,7 +253,7 @@ export default function ExploreBounty() {
                 <span class="mono bounty-task-id">{maskIdShort(t.task_id)}</span>
                 <span class="bounty-task-desc">{t.description}</span>
                 <span class="mono">{fmtPrice(t.budget)} OAS</span>
-                <span class="bounty-status-badge" style={{ color: statusColor(t.status) }}>{t.status}</span>
+                <span class={`bounty-status-badge ${statusClass(t.status)}`}>{t.status}</span>
                 <span class="caption">{_['bounty-bids-count']}: {t.bids?.length ?? 0}</span>
               </button>
 

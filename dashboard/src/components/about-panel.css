@@ -36,7 +36,7 @@
 }
 .about-header h3 {
   font-size: var(--text-lg); font-weight: 600; margin: 0;
-  font-family: var(--mono); letter-spacing: 0.02em;
+  font-family: var(--mono); letter-spacing: var(--tracking-normal);
 }
 .about-badge {
   font-size: var(--text-xs); color: var(--fg-2);
@@ -46,7 +46,7 @@
 }
 
 .about-desc {
-  font-size: var(--text-md); color: var(--fg-1); line-height: 1.6;
+  font-size: var(--text-md); color: var(--fg-1); line-height: var(--leading-normal);
   margin: 0 0 var(--space-l);
 }
 
@@ -77,11 +77,11 @@
 }
 .about-section.active { display: block; }
 .about-section p {
-  font-size: var(--text-md); color: var(--fg-1); line-height: 1.7; margin: 0;
+  font-size: var(--text-md); color: var(--fg-1); line-height: var(--leading-relaxed); margin: 0;
   max-width: 58ch;
 }
 .about-section pre {
-  font-size: var(--text-sm); line-height: 1.7;
+  font-size: var(--text-sm); line-height: var(--leading-relaxed);
   color: var(--fg-1);
   white-space: pre-wrap; word-break: break-word;
   margin: 0; font-family: var(--mono);

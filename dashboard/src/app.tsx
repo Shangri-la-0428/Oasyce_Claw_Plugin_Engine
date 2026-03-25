@@ -4,7 +4,7 @@
  */
 import { useEffect } from 'preact/hooks';
 import { lazy, Suspense } from 'preact/compat';
-import { initUI, i18n, lang } from './store/ui';
+import { initUI, i18n, resolvedLang } from './store/ui';
 import Nav from './components/nav';
 import ToastContainer from './components/toast';
 import ErrorBoundary from './components/error-boundary';
@@ -29,10 +29,10 @@ export default function App() {
     initUI();
   }, []);
 
-  // H4: Sync HTML lang attribute with language signal
+  // H4: Sync HTML lang attribute with resolved language
   useEffect(() => {
-    document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en';
-  }, [lang.value]);
+    document.documentElement.lang = resolvedLang.value === 'zh' ? 'zh-CN' : 'en';
+  }, [resolvedLang.value]);
 
   return (
     <div class="app app-shell">

@@ -61,9 +61,9 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
   const coCreationError = rightsType !== 'co_creation'
     ? ''
     : filledCoCreators.length < 2
-      ? (_['co-creators-hint'] || 'Co-creation requires at least 2 people, shares must total 100%')
+      ? _['co-creators-hint']
       : Math.abs(totalCoCreatorShare - 100) > 0.01
-        ? `${_['co-creators-sum'] || 'Total shares'}: ${totalCoCreatorShare}%`
+        ? `${_['co-creators-sum']}: ${totalCoCreatorShare}%`
         : '';
 
   const clearSelection = () => {
@@ -116,7 +116,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
     if (submittingRef.current) return;
     if (!file) return;
     if (owner === 'anonymous') {
-      showToast(_['wallet-needed'] || 'Create your wallet to get started', 'error');
+      showToast(_['wallet-needed'], 'error');
       return;
     }
     if (rightsType === 'co_creation' && coCreationError) {
@@ -158,7 +158,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
     if (submittingRef.current) return;
     if (folderFiles.length === 0) return;
     if (owner === 'anonymous') {
-      showToast(_['wallet-needed'] || 'Create your wallet to get started', 'error');
+      showToast(_['wallet-needed'], 'error');
       return;
     }
     submittingRef.current = true;
@@ -184,7 +184,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
     if (submittingRef.current) return;
     if (!capName.trim() || !capEndpoint.trim()) return;
     if (owner === 'anonymous') {
-      showToast(_['wallet-needed'] || 'Create your wallet to get started', 'error');
+      showToast(_['wallet-needed'], 'error');
       return;
     }
     submittingRef.current = true;
@@ -201,7 +201,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
       rate_limit: parseInt(capRateLimit) || 60,
     });
     if (res.success && res.data?.ok) {
-      showToast(_['cap-published'] || '\u5df2\u53d1\u5e03', 'success');
+      showToast(_['cap-published'], 'success');
       loadAssets();
       const result = { asset_id: res.data.capability_id, capability: true };
       setCapName(''); setCapDesc(''); setCapEndpoint(''); setCapApiKey('');
@@ -226,13 +226,13 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
     return (
       <div class={fieldsClass}>
         <div class="caption mb-4">
-          {_['cap-guide'] || '\u5c06\u4f60\u7684 AI \u80fd\u529b\u53d1\u5e03\u5230\u7f51\u7edc\uff0c\u5176\u4ed6\u4eba\u53ef\u4ee5\u53d1\u73b0\u548c\u8c03\u7528\u3002'}
+          {_['cap-guide']}
         </div>
         <div>
-          <label class="label" htmlFor="cap-name">{_['cap-name'] || '\u540d\u79f0'}</label>
+          <label class="label" htmlFor="cap-name">{_['cap-name']}</label>
           <input id="cap-name" class="input" value={capName}
             onInput={e => setCapName((e.target as HTMLInputElement).value)}
-            placeholder={_['cap-name-hint'] || '\u4f8b\u5982\uff1a\u56fe\u50cf\u98ce\u683c\u8fc1\u79fb'}
+            placeholder={_['cap-name-hint']}
             required aria-required="true" />
         </div>
         <div>
@@ -259,9 +259,9 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
               <label class="label" htmlFor="cap-desc">{_['describe']}</label>
               <input id="cap-desc" class="input" value={capDesc}
                 onInput={e => setCapDesc((e.target as HTMLInputElement).value)}
-                placeholder={_['cap-desc-hint'] || '\u8f93\u5165\u56fe\u7247\uff0c\u8f93\u51fa\u6307\u5b9a\u98ce\u683c\u7684\u65b0\u56fe\u7247'} />
+                placeholder={_['cap-desc-hint']} />
               <div class="caption mt-4">
-                {_['cap-desc-guide'] || '\u63cf\u8ff0\u8f93\u5165\u8f93\u51fa\uff0c\u5e2e\u52a9\u522b\u4eba\u7406\u89e3\u5982\u4f55\u4f7f\u7528'}
+                {_['cap-desc-guide']}
               </div>
             </div>
             <div>
@@ -289,7 +289,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
           onClick={submitCap}
           disabled={loading || owner === 'anonymous' || !capName.trim() || !capEndpoint.trim()}
         >
-          {loading ? _['protecting'] : (_['publish-cap'] || '\u53d1\u5e03\u80fd\u529b')}
+          {loading ? _['protecting'] : _['publish-cap']}
         </button>
       </div>
     );
@@ -303,7 +303,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
         class={`dropzone ${dragging ? 'dropzone-active' : ''} ${hasSelection ? 'dropzone-done' : ''} ${compact ? 'mb-24' : ''}`}
         role="button"
         tabIndex={0}
-        aria-label={hasSelection ? (folderName || file?.name || '') : (_['drop-browse'] || 'Select file')}
+        aria-label={hasSelection ? (folderName || file?.name || '') : _['drop-browse']}
         onDrop={onDrop}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
@@ -317,7 +317,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
             </span>
             {file && <span class="caption mono">{formatFileSize(file.size)}</span>}
             {folderName && (
-              <span class="caption">{folderFiles.length} {_['files'] || '\u4e2a\u6587\u4ef6'}</span>
+              <span class="caption">{folderFiles.length} {_['files']}</span>
             )}
             <button
               class="dropzone-clear"
@@ -329,10 +329,10 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
           <>
             <div class="dropzone-icon" aria-hidden="true">&uarr;</div>
             <div class="dropzone-text">
-              <strong>{_['drop-browse'] || '\u9009\u62e9\u6587\u4ef6'}</strong>
+              <strong>{_['drop-browse']}</strong>
             </div>
             <div class="caption mt-6">
-              {_['drop-folder-hint'] || '\u652f\u6301\u62d6\u5165\u6587\u4ef6\u5939'}
+              {_['drop-folder-hint']}
             </div>
           </>
         )}
@@ -437,6 +437,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
               </div>
             </>
           )}
+          {compact && <p class="caption fg-muted mt-8">{_['advanced-options-hint']}</p>}
           <button
             class="btn btn-primary btn-full"
             onClick={submitFile}

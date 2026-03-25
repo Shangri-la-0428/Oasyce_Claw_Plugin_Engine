@@ -354,11 +354,11 @@ export default function ExploreBrowse({ subpath }: Props) {
             class="search-box grow"
             value={q}
             onInput={e => onSearch((e.target as HTMLInputElement).value)}
-            placeholder={typeFilter === 'capability' ? (_['discover-hint'] || 'Search by intent...') : _['explore-search']}
+            placeholder={typeFilter === 'capability' ? _['discover-hint'] : _['explore-search']}
           />
           {typeFilter === 'capability' && q.trim() && (
             <button class={`btn btn-sm ${isDiscover ? 'btn-active' : 'btn-ghost'}`} onClick={onDiscover} disabled={discoverLoading}>
-              {_['discover'] || 'Discover'}
+              {_['discover']}
             </button>
           )}
         </div>
@@ -390,7 +390,7 @@ export default function ExploreBrowse({ subpath }: Props) {
 
       {/* 结果列表 / 空状态 */}
       {initialLoading ? (
-        <div>
+        <div role="status" aria-busy="true" aria-label={_['loading']}>
           <div class="skeleton skeleton-sm mb-8" />
           <div class="skeleton skeleton-sm mb-8" />
           <div class="skeleton skeleton-sm mb-8" />
@@ -529,7 +529,7 @@ export default function ExploreBrowse({ subpath }: Props) {
                       {invokeResult.shares_minted != null && <div class="kv"><span class="kv-key">{_['shares-minted']}</span><span class="kv-val">{invokeResult.shares_minted}</span></div>}
                       {invokeResult.result != null && (
                         <div class="kv">
-                          <span class="kv-key">{_['invoke-result'] || 'Result'}</span>
+                          <span class="kv-key">{_['invoke-result']}</span>
                           <span class="kv-val mono invoke-result-val">{typeof invokeResult.result === 'string' ? invokeResult.result : JSON.stringify(invokeResult.result)}</span>
                         </div>
                       )}

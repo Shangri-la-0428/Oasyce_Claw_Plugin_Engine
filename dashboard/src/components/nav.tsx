@@ -3,7 +3,7 @@
  * Features: sliding active indicator that morphs between tabs
  */
 import { useState, useRef, useEffect, useCallback } from 'preact/hooks';
-import { theme, lang, toggleTheme, toggleLang, i18n } from '../store/ui';
+import { theme, lang, toggleTheme, toggleLang, i18n, resolvedTheme } from '../store/ui';
 import type { Page } from '../hooks/use-route';
 import AboutPanel from './about-panel';
 import './nav.css';
@@ -65,8 +65,14 @@ export default function Nav({ current, go }: Props) {
         </div>
         <div class="nav-end">
           <button class="nav-tool" onClick={() => setShowAbout(!showAbout)} aria-label="About" title="About">?</button>
-          <button class="nav-tool" onClick={toggleLang} aria-label={lang.value === 'zh' ? 'Switch to English' : '切换到中文'}>{lang.value === 'zh' ? 'En' : '中'}</button>
-          <button class="nav-tool" onClick={toggleTheme} aria-label={theme.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>{theme.value === 'dark' ? '☀' : '☾'}</button>
+          <button class="nav-tool" onClick={toggleLang}
+            aria-label={lang.value === 'system' ? _['lang-system'] : lang.value === 'zh' ? 'Switch to English' : '切换到中文'}
+            title={lang.value === 'system' ? _['lang-system'] : undefined}
+          >{lang.value === 'system' ? 'A' : lang.value === 'zh' ? 'En' : '中'}</button>
+          <button class="nav-tool" onClick={toggleTheme}
+            aria-label={theme.value === 'system' ? _['theme-system'] : resolvedTheme.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={theme.value === 'system' ? _['theme-system'] : undefined}
+          >{theme.value === 'system' ? '◐' : resolvedTheme.value === 'dark' ? '☀' : '☾'}</button>
         </div>
       </nav>
       {showAbout && <AboutPanel onClose={() => setShowAbout(false)} />}
