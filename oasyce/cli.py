@@ -3702,18 +3702,22 @@ def main():
     fp_embed_parser.add_argument("file", help="Path to file to watermark")
     fp_embed_parser.add_argument("--caller", required=True, help="Caller / recipient ID")
     fp_embed_parser.add_argument("--output", default=None, help="Output path (default: overwrite)")
+    fp_embed_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     fp_embed_parser.set_defaults(func=cmd_fingerprint_embed)
 
     fp_extract_parser = fp_sub.add_parser("extract", help="Extract watermark from file")
     fp_extract_parser.add_argument("file", help="Path to watermarked file")
+    fp_extract_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     fp_extract_parser.set_defaults(func=cmd_fingerprint_extract)
 
     fp_trace_parser = fp_sub.add_parser("trace", help="Trace a fingerprint")
     fp_trace_parser.add_argument("fingerprint", help="Fingerprint hex string")
+    fp_trace_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     fp_trace_parser.set_defaults(func=cmd_fingerprint_trace)
 
     fp_list_parser = fp_sub.add_parser("list", help="List distributions for an asset")
     fp_list_parser.add_argument("asset_id", help="Asset ID")
+    fp_list_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     fp_list_parser.set_defaults(func=cmd_fingerprint_list)
 
     # Access command group
