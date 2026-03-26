@@ -2106,6 +2106,7 @@ def cmd_capability_register(args):
             tags=tags,
             description=args.description or "",
             rate_limit=args.rate_limit,
+            skip_liveness=getattr(args, "skip_liveness_check", False),
         )
 
         if result["ok"]:
@@ -4021,6 +4022,10 @@ def main():
         "--rate-limit", type=int, default=60, help="Max calls/minute (default: 60)"
     )
     cap_reg_parser.add_argument("--json", action="store_true")
+    cap_reg_parser.add_argument(
+        "--skip-liveness-check", action="store_true",
+        help="Skip endpoint liveness verification before registering"
+    )
     cap_reg_parser.set_defaults(func=cmd_capability_register)
 
     cap_list_parser = cap_sub.add_parser("list", help="List active capabilities")

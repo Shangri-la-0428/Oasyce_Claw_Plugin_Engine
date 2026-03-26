@@ -879,6 +879,7 @@ def _api_delivery_register(body: Dict[str, Any]) -> Dict[str, Any]:
         rate_limit=int(body.get("rate_limit", 60)),
         tags=tags,
         description=body.get("description", ""),
+        skip_liveness=bool(body.get("skip_liveness", False)),
     )
     return result
 

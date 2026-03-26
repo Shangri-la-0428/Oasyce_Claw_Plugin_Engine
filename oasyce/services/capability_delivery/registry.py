@@ -32,6 +32,28 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+# ── Endpoint liveness check ──────────────────────────────────────
+
+
+def _check_endpoint_liveness(url: str, timeout: float = 10.0) -> Optional[str]:
+    """Ping an endpoint URL. Returns None if alive, error string if unreachable."""
+    import urllib.request
+    import urllib.error
+
+    for method in ("HEAD", "GET"):
+        try:
+            req = urllib.request.Request(url, method=method)
+            with urllib.request.urlopen(req, timeout=timeout):
+                return None  # alive
+        except urllib.error.HTTPError:
+            return None  # server responded (even 4xx/5xx means alive)
+        except Exception:
+            if method == "GET":
+                pass  # fall through to error
+            continue
+    return f"{url} did not respond within {timeout}s"
+
+
 # ── Encryption helpers (AES-GCM via cryptography lib) ────────────
 
 
@@ -239,6 +261,7 @@ class EndpointRegistry:
         tags: Optional[List[str]] = None,
         description: str = "",
         capability_id: Optional[str] = None,
+        skip_liveness: bool = False,
     ) -> Dict[str, Any]:
         """Register a new capability endpoint.
 
@@ -260,6 +283,13 @@ class EndpointRegistry:
                     "ok": False,
                     "error": "endpoint URL blocked: private/internal address not allowed",
                 }
+
+        # Endpoint liveness check: verify the URL is reachable before registering.
+        # Skipped when allow_private is set (test/dev mode) or explicitly requested.
+        if not skip_liveness and not self._allow_private:
+            liveness_err = _check_endpoint_liveness(endpoint_url)
+            if liveness_err:
+                return {"ok": False, "error": f"endpoint unreachable: {liveness_err}"}
 
         if not provider_id:
             return {"ok": False, "error": "provider_id required"}

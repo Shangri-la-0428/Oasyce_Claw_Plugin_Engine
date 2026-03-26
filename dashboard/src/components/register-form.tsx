@@ -190,6 +190,7 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
     submittingRef.current = true;
     setLoading(true);
     const tags = capTags.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
+    // Backend performs endpoint liveness check — if it fails, registration is rejected.
     const res = await post<{ ok?: boolean; capability_id?: string; error?: string }>('/delivery/register', {
       name: capName.trim(),
       provider: owner,
@@ -208,7 +209,10 @@ export default function RegisterForm({ mode, onSuccess, compact }: Props) {
       setCapPrice('0'); setCapTags(''); setCapRateLimit('60'); setCapAdvanced(false);
       onSuccess?.(result);
     } else {
-      showToast(res.error || res.data?.error || _['error-generic'], 'error');
+      const err = res.error || res.data?.error || _['error-generic'];
+      // Surface liveness failure clearly to the user.
+      const isLiveness = err.includes('unreachable');
+      showToast(isLiveness ? `Endpoint unreachable — verify the URL is correct and the server is running. ${err}` : err, 'error');
     }
     setLoading(false);
     submittingRef.current = false;
