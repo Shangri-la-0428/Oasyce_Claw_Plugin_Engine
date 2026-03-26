@@ -112,7 +112,7 @@ export default function AboutPanel({ onClose }: Props) {
               <div class="about-link-label">{_['about-link-github-project']}</div>
               <div class="about-link-desc">{_['about-link-github-project-d']}</div>
             </a></li>
-            <li><a href="https://github.com/Shangri-la-0428/Oasyce_Claw_Plugin_Engine" target="_blank" rel="noopener noreferrer">
+            <li><a href="https://github.com/Shangri-la-0428/oasyce-net" target="_blank" rel="noopener noreferrer">
               <div class="about-link-label">{_['about-link-github-engine']}</div>
               <div class="about-link-desc">{_['about-link-github-engine-d']}</div>
             </a></li>
