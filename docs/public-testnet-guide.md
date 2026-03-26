@@ -172,7 +172,7 @@ oas start    # 浏览器打开 http://localhost:8420
 ## 经济模型速览
 
 - **Bonding Curve**: 买的人越多，价格越高。公式: `tokens = supply × (√(1 + payment/reserve) − 1)`
-- **费率**: 85% 归创作者，7% 验证者，5% 销毁，3% 国库
+- **费率**: 90% 归创作者/储备金，5% 协议（→验证者），2% 销毁，3% 国库
 - **往返成本**: 买入再立即卖出约损失 28%（防套利）
 - **卖出**: 反向曲线计算回报，最多取出 95% 储备金
 - **信誉**: 从 0 开始，成功交易 +2，泄露数据 -50，上限 95
@@ -236,3 +236,5 @@ oas feedback "描述问题" --type bug   # 提交反馈
 
 - Discord: https://discord.gg/tfrCn54yZW
 - GitHub Issues: https://github.com/Shangri-la-0428/oasyce-net/issues
+- Python SDK: https://github.com/Shangri-la-0428/oasyce-sdk
+- L1 链: https://github.com/Shangri-la-0428/oasyce-chain
