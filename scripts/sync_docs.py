@@ -127,6 +127,7 @@ def check_symlinks() -> list[str]:
         "CODEX.md",
         ".cursorrules",
         ".windsurfrules",
+        ".clinerules",
         ".github/copilot-instructions.md",
     ]:
         path = ROOT / name
