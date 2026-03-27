@@ -26,7 +26,7 @@ AGENTS_MD = ROOT / "AGENTS.md"
 DEFAULT_SKILL_PATH = ROOT / "SKILL.md"
 CLAWHUB_SKILL_PATH = ROOT.parent / "OpenClaw" / "workspace" / "skills" / "oasyce" / "SKILL.md"
 
-SKILL_FRONTMATTER = '''---
+SKILL_FRONTMATTER = """---
 name: oasyce
 version: {version}
 description: >
@@ -50,7 +50,7 @@ read_when:
   - User wants to scan, inventory, or classify local data assets
 metadata: {{"emoji":"⚡","requires":{{"bins":["python3","oasyce"]}}}}
 ---
-'''
+"""
 
 
 def read_version() -> str:
@@ -122,7 +122,13 @@ def generate_skill(version: str) -> str:
 def check_symlinks() -> list[str]:
     """Verify CLAUDE.md and other tool files are symlinks to AGENTS.md."""
     errors = []
-    for name in ["CLAUDE.md", "CODEX.md", ".cursorrules", ".windsurfrules", ".github/copilot-instructions.md"]:
+    for name in [
+        "CLAUDE.md",
+        "CODEX.md",
+        ".cursorrules",
+        ".windsurfrules",
+        ".github/copilot-instructions.md",
+    ]:
         path = ROOT / name
         if not path.exists():
             errors.append(f"MISSING: {name} does not exist")
@@ -140,19 +146,24 @@ def check_version_consistency() -> list[str]:
 
     # Check AGENTS.md doesn't have a stale version (if it mentions one)
     agents_text = AGENTS_MD.read_text()
-    version_refs = re.findall(r'v(\d+\.\d+\.\d+)', agents_text)
+    version_refs = re.findall(r"v(\d+\.\d+\.\d+)", agents_text)
     for ref in version_refs:
         if ref != version and ref not in ("0.50.10", "8.8.0", "0.2.0"):  # skip SDK/IBC/odv versions
-            errors.append(f"VERSION MISMATCH: AGENTS.md references v{ref}, pyproject.toml is v{version}")
+            errors.append(
+                f"VERSION MISMATCH: AGENTS.md references v{ref}, pyproject.toml is v{version}"
+            )
 
     return errors
 
 
 def main():
     parser = argparse.ArgumentParser(description="Sync Oasyce documentation")
-    parser.add_argument("--write", action="store_true", help="Write generated files (default: check only)")
-    parser.add_argument("--skill-path", type=Path, default=DEFAULT_SKILL_PATH,
-                        help="Path to SKILL.md output")
+    parser.add_argument(
+        "--write", action="store_true", help="Write generated files (default: check only)"
+    )
+    parser.add_argument(
+        "--skill-path", type=Path, default=DEFAULT_SKILL_PATH, help="Path to SKILL.md output"
+    )
     args = parser.parse_args()
 
     version = read_version()
@@ -180,7 +191,9 @@ def main():
                     target.write_text(generated_skill)
                     print(f"UPDATED: {target}")
                 else:
-                    errors.append(f"STALE: {target} differs from generated content. Run with --write to update.")
+                    errors.append(
+                        f"STALE: {target} differs from generated content. Run with --write to update."
+                    )
         else:
             if args.write:
                 target.parent.mkdir(parents=True, exist_ok=True)

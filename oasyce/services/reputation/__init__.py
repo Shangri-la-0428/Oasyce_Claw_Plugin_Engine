@@ -180,7 +180,6 @@ class ReputationEngine:
             agent.score = max(agent.score, self.config.rep_floor)
             agent.last_decay_check += periods * period_seconds
 
-
     def decay_all(self) -> int:
         """Apply time-based decay to ALL tracked agents.
 

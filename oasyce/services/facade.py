@@ -419,11 +419,14 @@ class OasyceServiceFacade:
     # -----------------------------------------------------------------------
     # Buy
     # -----------------------------------------------------------------------
-    def buy(self, asset_id: str, buyer: str, amount_oas: float = 10.0,
-            signature: Optional[str] = None) -> ServiceResult:
+    def buy(
+        self, asset_id: str, buyer: str, amount_oas: float = 10.0, signature: Optional[str] = None
+    ) -> ServiceResult:
         """Execute a share purchase through the settlement engine."""
         if not self._verify_agent(buyer, signature):
-            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
+            return ServiceResult(
+                success=False, error="Identity verification failed: invalid or missing signature"
+            )
         try:
             if self._strict_chain_mode():
                 from oasyce.bridge.core_bridge import bridge_buy
@@ -516,7 +519,9 @@ class OasyceServiceFacade:
     ) -> ServiceResult:
         """Sell tokens back to the bonding curve for OAS payout."""
         if not self._verify_agent(seller, signature):
-            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
+            return ServiceResult(
+                success=False, error="Identity verification failed: invalid or missing signature"
+            )
         # Default slippage protection: 10% max
         if max_slippage is None:
             max_slippage = 0.10
@@ -532,7 +537,9 @@ class OasyceServiceFacade:
                     shares=shares_int,
                     min_payout_uoas=min_payout,
                 )
-                payout_uoas = int(result.get("payout", result.get("tx_response", {}).get("payout", 0)))
+                payout_uoas = int(
+                    result.get("payout", result.get("tx_response", {}).get("payout", 0))
+                )
                 return ServiceResult(
                     success=True,
                     data={
@@ -780,7 +787,9 @@ class OasyceServiceFacade:
         the asset in the ledger (backward-compatible path).
         """
         if not self._verify_agent(consumer_id, signature):
-            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
+            return ServiceResult(
+                success=False, error="Identity verification failed: invalid or missing signature"
+            )
         try:
             # ── Full jury-based dispute (invocation_id provided) ──────
             if invocation_id is not None:
@@ -1049,13 +1058,15 @@ class OasyceServiceFacade:
             se = self._get_settlement()
             pools = []
             for aid, pool in se.pools.items():
-                pools.append({
-                    "asset_id": pool.asset_id,
-                    "owner": pool.owner,
-                    "supply": pool.supply,
-                    "reserve_balance": pool.reserve_balance,
-                    "spot_price": pool.spot_price,
-                })
+                pools.append(
+                    {
+                        "asset_id": pool.asset_id,
+                        "owner": pool.owner,
+                        "supply": pool.supply,
+                        "reserve_balance": pool.reserve_balance,
+                        "spot_price": pool.spot_price,
+                    }
+                )
             return ServiceResult(success=True, data={"pools": pools})
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
@@ -1072,13 +1083,15 @@ class OasyceServiceFacade:
                 equity = pool.equity.get(agent_id, 0)
                 if equity > 0:
                     pct = equity / pool.supply if pool.supply > 0 else 0
-                    holdings.append({
-                        "asset_id": aid,
-                        "tokens": equity,
-                        "pct": round(pct * 100, 4),
-                        "value_oas": round(equity * pool.spot_price, 6),
-                        "access_level": None,  # filled below
-                    })
+                    holdings.append(
+                        {
+                            "asset_id": aid,
+                            "tokens": equity,
+                            "pct": round(pct * 100, 4),
+                            "value_oas": round(equity * pool.spot_price, 6),
+                            "access_level": None,  # filled below
+                        }
+                    )
             # Fill access levels
             for h in holdings:
                 h["access_level"] = self.get_equity_access_level(h["asset_id"], agent_id)
@@ -1090,7 +1103,9 @@ class OasyceServiceFacade:
     # Asset Mutation — update / delete / get
     # -----------------------------------------------------------------------
     def update_asset_metadata(
-        self, asset_id: str, updates: Dict[str, Any],
+        self,
+        asset_id: str,
+        updates: Dict[str, Any],
         owner: str = "",
         signature: Optional[str] = None,
     ) -> ServiceResult:
@@ -1101,7 +1116,9 @@ class OasyceServiceFacade:
         asset's actual owner.
         """
         if not self._verify_agent(owner or asset_id, signature):
-            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
+            return ServiceResult(
+                success=False, error="Identity verification failed: invalid or missing signature"
+            )
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
         try:
@@ -1111,14 +1128,20 @@ class OasyceServiceFacade:
                 if meta is None:
                     return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
                 if meta.get("owner") != owner:
-                    return ServiceResult(success=False, error="Only the asset owner can update metadata")
+                    return ServiceResult(
+                        success=False, error="Only the asset owner can update metadata"
+                    )
             if not self._ledger.update_asset_metadata(asset_id, updates):
                 return ServiceResult(success=False, error=f"Asset not found: {asset_id}")
-            return ServiceResult(success=True, data={"asset_id": asset_id, "updated_keys": list(updates.keys())})
+            return ServiceResult(
+                success=True, data={"asset_id": asset_id, "updated_keys": list(updates.keys())}
+            )
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
-    def delist_asset(self, asset_id: str, owner: str, signature: Optional[str] = None) -> ServiceResult:
+    def delist_asset(
+        self, asset_id: str, owner: str, signature: Optional[str] = None
+    ) -> ServiceResult:
         """Owner voluntarily delists their asset (sets delisted=True, keeps records)."""
         if not self._verify_agent(owner, signature):
             return ServiceResult(success=False, error="Identity verification failed")
@@ -1132,13 +1155,18 @@ class OasyceServiceFacade:
         if meta.get("delisted"):
             return ServiceResult(success=False, error="Asset is already delisted")
         self._ledger.update_asset_metadata(asset_id, {"delisted": True})
-        return ServiceResult(success=True, data={"asset_id": asset_id, "delisted": True, "owner": owner})
+        return ServiceResult(
+            success=True, data={"asset_id": asset_id, "delisted": True, "owner": owner}
+        )
 
     # -----------------------------------------------------------------------
     # Asset Versioning
     # -----------------------------------------------------------------------
     def add_asset_version(
-        self, asset_id: str, file_hash: str, owner: str,
+        self,
+        asset_id: str,
+        file_hash: str,
+        owner: str,
         metadata: Optional[Dict[str, Any]] = None,
         signature: Optional[str] = None,
     ) -> ServiceResult:
@@ -1154,19 +1182,29 @@ class OasyceServiceFacade:
             return ServiceResult(success=False, error="Only the asset owner can add versions")
         prev_hash = asset_meta.get("file_hash", "")
         version = self._ledger.add_version(asset_id, file_hash, prev_hash, metadata or {})
-        return ServiceResult(success=True, data={
-            "asset_id": asset_id, "version": version,
-            "file_hash": file_hash, "prev_hash": prev_hash,
-        })
+        return ServiceResult(
+            success=True,
+            data={
+                "asset_id": asset_id,
+                "version": version,
+                "file_hash": file_hash,
+                "prev_hash": prev_hash,
+            },
+        )
 
     def get_asset_versions(self, asset_id: str) -> ServiceResult:
         """Get full version history for an asset."""
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
         versions = self._ledger.get_versions(asset_id)
-        return ServiceResult(success=True, data={
-            "asset_id": asset_id, "versions": versions, "count": len(versions),
-        })
+        return ServiceResult(
+            success=True,
+            data={
+                "asset_id": asset_id,
+                "versions": versions,
+                "count": len(versions),
+            },
+        )
 
     # -----------------------------------------------------------------------
     # Asset Lifecycle — Graceful Exit
@@ -1262,14 +1300,18 @@ class OasyceServiceFacade:
             return ServiceResult(success=False, error=f"Asset {asset_id} not found in settlement")
         return ServiceResult(success=True, data=info)
 
-    def delete_asset(self, asset_id: str, owner: str = "", signature: Optional[str] = None) -> ServiceResult:
+    def delete_asset(
+        self, asset_id: str, owner: str = "", signature: Optional[str] = None
+    ) -> ServiceResult:
         """Delete an asset and its associated records.
 
         Only allowed after TERMINATED state and all holders have claimed.
         Use initiate_shutdown → finalize_termination → claim for graceful exit.
         """
         if not self._verify_agent(owner, signature):
-            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
+            return ServiceResult(
+                success=False, error="Identity verification failed: invalid or missing signature"
+            )
         if self._ledger is None:
             return ServiceResult(success=False, error="Ledger not available")
 
@@ -1317,7 +1359,9 @@ class OasyceServiceFacade:
         *verdict* must be ``'consumer'`` or ``'provider'``.
         """
         if not self._verify_agent(juror_id, signature):
-            return ServiceResult(success=False, error="Identity verification failed: invalid or missing signature")
+            return ServiceResult(
+                success=False, error="Identity verification failed: invalid or missing signature"
+            )
         try:
             dm = self._get_dispute_manager()
             vote = dm.submit_vote(dispute_id, juror_id, verdict, reason)
@@ -1410,12 +1454,15 @@ class OasyceServiceFacade:
                 }
             except Exception:
                 pass
-            return ServiceResult(success=True, data={
-                "chain_height": height,
-                "total_assets": total_assets,
-                "total_distributions": total_distributions,
-                **burn_stats,
-            })
+            return ServiceResult(
+                success=True,
+                data={
+                    "chain_height": height,
+                    "total_assets": total_assets,
+                    "total_distributions": total_distributions,
+                    **burn_stats,
+                },
+            )
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
@@ -1425,11 +1472,13 @@ class OasyceServiceFacade:
             return ServiceResult(success=True, data=[])
         try:
             import hashlib as _hl
+
             rows = self._ledger.list_assets()
             se = self._get_settlement()
             results = []
             for r in rows:
                 import json as _j
+
                 meta = _j.loads(r["metadata"]) if r.get("metadata") else {}
                 entry: dict = {
                     "asset_id": r["asset_id"],
@@ -1483,13 +1532,16 @@ class OasyceServiceFacade:
             return ServiceResult(success=True, data=[])
         try:
             rows = self._ledger.list_blocks(limit=limit)
-            blocks = [{
-                "block_number": r["block_number"],
-                "block_hash": r["block_hash"],
-                "prev_hash": r["prev_hash"],
-                "merkle_root": r["merkle_root"],
-                "timestamp": r["timestamp"],
-            } for r in rows]
+            blocks = [
+                {
+                    "block_number": r["block_number"],
+                    "block_hash": r["block_hash"],
+                    "prev_hash": r["prev_hash"],
+                    "merkle_root": r["merkle_root"],
+                    "timestamp": r["timestamp"],
+                }
+                for r in rows
+            ]
             return ServiceResult(success=True, data=blocks)
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
@@ -1512,10 +1564,10 @@ class OasyceServiceFacade:
             return ServiceResult(success=True, data=[])
         try:
             rows = self._ledger.get_stakes_summary()
-            return ServiceResult(success=True, data=[
-                {"validator_id": r["validator_id"], "total": r["total"]}
-                for r in rows
-            ])
+            return ServiceResult(
+                success=True,
+                data=[{"validator_id": r["validator_id"], "total": r["total"]} for r in rows],
+            )
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
@@ -1526,15 +1578,17 @@ class OasyceServiceFacade:
             txs = []
             if hasattr(se, "receipts"):
                 for r in se.receipts[-limit:]:
-                    txs.append({
-                        "receipt_id": r.receipt_id,
-                        "asset_id": r.asset_id,
-                        "buyer": r.buyer,
-                        "amount": r.quote.payment_oas if r.quote else r.amount_oas,
-                        "tokens": round(r.quote.equity_minted, 4) if r.quote else 0,
-                        "status": r.status.value,
-                        "timestamp": getattr(r, "timestamp", 0),
-                    })
+                    txs.append(
+                        {
+                            "receipt_id": r.receipt_id,
+                            "asset_id": r.asset_id,
+                            "buyer": r.buyer,
+                            "amount": r.quote.payment_oas if r.quote else r.amount_oas,
+                            "tokens": round(r.quote.equity_minted, 4) if r.quote else 0,
+                            "status": r.status.value,
+                            "timestamp": getattr(r, "timestamp", 0),
+                        }
+                    )
             return ServiceResult(success=True, data=txs)
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
@@ -1545,6 +1599,7 @@ class OasyceServiceFacade:
             return ServiceResult(success=True, data=[])
         try:
             from oasyce.fingerprint.registry import FingerprintRegistry
+
             registry = FingerprintRegistry(self._ledger)
             return ServiceResult(success=True, data=registry.get_distributions(asset_id))
         except Exception as e:
@@ -1556,6 +1611,7 @@ class OasyceServiceFacade:
             return ServiceResult(success=False, error="Ledger not available")
         try:
             from oasyce.fingerprint.registry import FingerprintRegistry
+
             registry = FingerprintRegistry(self._ledger)
             result = registry.trace_fingerprint(fingerprint)
             if result is None:
@@ -1572,6 +1628,7 @@ class OasyceServiceFacade:
         """Lazy-init dispute SQLite database (mirrors oasyce.gui.app logic)."""
         if OasyceServiceFacade._dispute_db_conn is None:
             import sqlite3
+
             data_dir = (
                 self._config.data_dir
                 if self._config and hasattr(self._config, "data_dir")
@@ -1616,17 +1673,20 @@ class OasyceServiceFacade:
                 ).fetchone()
                 if not r:
                     return ServiceResult(success=False, error="Dispute not found")
-                return ServiceResult(success=True, data={
-                    "dispute_id": r["dispute_id"],
-                    "asset_id": r["asset_id"],
-                    "buyer": r["buyer"],
-                    "reason": r["reason"],
-                    "evidence_text": r["evidence_text"],
-                    "status": r["status"],
-                    "created_at": r["created_at"],
-                    "resolved_at": r["resolved_at"],
-                    "resolution": r["resolution"],
-                })
+                return ServiceResult(
+                    success=True,
+                    data={
+                        "dispute_id": r["dispute_id"],
+                        "asset_id": r["asset_id"],
+                        "buyer": r["buyer"],
+                        "reason": r["reason"],
+                        "evidence_text": r["evidence_text"],
+                        "status": r["status"],
+                        "created_at": r["created_at"],
+                        "resolved_at": r["resolved_at"],
+                        "resolution": r["resolution"],
+                    },
+                )
             if buyer:
                 rows = db.execute(
                     "SELECT * FROM disputes WHERE buyer = ? ORDER BY created_at DESC",
@@ -1636,17 +1696,20 @@ class OasyceServiceFacade:
                 rows = db.execute(
                     "SELECT * FROM disputes ORDER BY created_at DESC",
                 ).fetchall()
-            disputes = [{
-                "dispute_id": r["dispute_id"],
-                "asset_id": r["asset_id"],
-                "buyer": r["buyer"],
-                "reason": r["reason"],
-                "evidence_text": r["evidence_text"],
-                "status": r["status"],
-                "created_at": r["created_at"],
-                "resolved_at": r["resolved_at"],
-                "resolution": r["resolution"],
-            } for r in rows]
+            disputes = [
+                {
+                    "dispute_id": r["dispute_id"],
+                    "asset_id": r["asset_id"],
+                    "buyer": r["buyer"],
+                    "reason": r["reason"],
+                    "evidence_text": r["evidence_text"],
+                    "status": r["status"],
+                    "created_at": r["created_at"],
+                    "resolved_at": r["resolved_at"],
+                    "resolution": r["resolution"],
+                }
+                for r in rows
+            ]
             return ServiceResult(success=True, data=disputes)
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
@@ -1658,16 +1721,24 @@ class OasyceServiceFacade:
     def _get_task_market(self):
         if not hasattr(self, "_task_market"):
             from oasyce.ahrp.task_market import TaskMarket
+
             self._task_market = TaskMarket()
         return self._task_market
 
-    def post_task(self, requester_id: str, description: str, budget: float,
-                  deadline_seconds: int = 3600, required_capabilities: list = None,
-                  selection_strategy: str = "weighted_score",
-                  min_reputation: float = 0.0) -> ServiceResult:
+    def post_task(
+        self,
+        requester_id: str,
+        description: str,
+        budget: float,
+        deadline_seconds: int = 3600,
+        required_capabilities: list = None,
+        selection_strategy: str = "weighted_score",
+        min_reputation: float = 0.0,
+    ) -> ServiceResult:
         """Post a new bounty task."""
         try:
             from oasyce.ahrp.task_market import SelectionStrategy
+
             strategy_map = {s.value: s for s in SelectionStrategy}
             strategy = strategy_map.get(selection_strategy, SelectionStrategy.WEIGHTED_SCORE)
             tm = self._get_task_market()
@@ -1684,9 +1755,15 @@ class OasyceServiceFacade:
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
-    def submit_task_bid(self, task_id: str, agent_id: str, price: float,
-                        estimated_seconds: int = 0, capability_proof: dict = None,
-                        reputation_score: float = 0.0) -> ServiceResult:
+    def submit_task_bid(
+        self,
+        task_id: str,
+        agent_id: str,
+        price: float,
+        estimated_seconds: int = 0,
+        capability_proof: dict = None,
+        reputation_score: float = 0.0,
+    ) -> ServiceResult:
         """Submit a bid on a task."""
         try:
             tm = self._get_task_market()
@@ -1782,20 +1859,26 @@ class OasyceServiceFacade:
 
     # ── Contribution subsystem ────────────────────────────────────
 
-    def query_contribution(self, file_path: str, creator_key: str, source_type: str = "manual") -> ServiceResult:
+    def query_contribution(
+        self, file_path: str, creator_key: str, source_type: str = "manual"
+    ) -> ServiceResult:
         """Generate and return a contribution proof for a file."""
         try:
             from oasyce.services.contribution import ContributionEngine
+
             engine = ContributionEngine()
             cert = engine.generate_proof(file_path, creator_key, source_type=source_type)
-            return ServiceResult(success=True, data={
-                "content_hash": cert.content_hash,
-                "semantic_fingerprint": cert.semantic_fingerprint,
-                "source_type": cert.source_type,
-                "source_evidence": cert.source_evidence,
-                "creator_key": cert.creator_key,
-                "timestamp": cert.timestamp,
-            })
+            return ServiceResult(
+                success=True,
+                data={
+                    "content_hash": cert.content_hash,
+                    "semantic_fingerprint": cert.semantic_fingerprint,
+                    "source_type": cert.source_type,
+                    "source_evidence": cert.source_evidence,
+                    "creator_key": cert.creator_key,
+                    "timestamp": cert.timestamp,
+                },
+            )
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
@@ -1803,6 +1886,7 @@ class OasyceServiceFacade:
         """Verify a contribution certificate against a file."""
         try:
             from oasyce.services.contribution import ContributionEngine, ContributionCertificate
+
             engine = ContributionEngine()
             cert = ContributionCertificate.from_dict(certificate_dict)
             result = engine.verify_proof(cert, file_path)
@@ -1816,6 +1900,7 @@ class OasyceServiceFacade:
         """Check leakage budget remaining for an agent-asset pair."""
         try:
             from oasyce.services.leakage import LeakageBudget
+
             lb = LeakageBudget()
             info = lb.get_remaining(agent_id, asset_id)
             return ServiceResult(success=True, data=info)
@@ -1826,6 +1911,7 @@ class OasyceServiceFacade:
         """Reset leakage budget for an agent-asset pair."""
         try:
             from oasyce.services.leakage import LeakageBudget
+
             lb = LeakageBudget()
             result = lb.reset_budget(agent_id, asset_id)
             return ServiceResult(success=True, data=result)
@@ -1838,6 +1924,7 @@ class OasyceServiceFacade:
         """Get provider cache statistics."""
         try:
             from oasyce.offline.provider_cache import ProviderCache
+
             cache = ProviderCache()
             return ServiceResult(success=True, data=cache.stats())
         except Exception as e:
@@ -1847,6 +1934,7 @@ class OasyceServiceFacade:
         """Purge expired entries from provider cache."""
         try:
             from oasyce.offline.provider_cache import ProviderCache
+
             cache = ProviderCache()
             removed = cache.purge_expired()
             return ServiceResult(success=True, data={"removed": removed})
@@ -1857,6 +1945,7 @@ class OasyceServiceFacade:
 # ---------------------------------------------------------------------------
 # OasyceQuery — read-only view of the service facade
 # ---------------------------------------------------------------------------
+
 
 class OasyceQuery:
     """Read-only projection of OasyceServiceFacade.
@@ -1872,34 +1961,36 @@ class OasyceQuery:
         result = query.buy(...)              # AttributeError
     """
 
-    _ALLOWED = frozenset({
-        # query_* — pure read forwarding
-        "query_chain_status",
-        "query_assets",
-        "query_blocks",
-        "query_block",
-        "query_stakes",
-        "query_transactions",
-        "query_fingerprints",
-        "query_trace",
-        "query_disputes",
-        "query_tasks",
-        "query_task",
-        "query_contribution",
-        "verify_contribution",
-        "query_leakage",
-        "query_cache_stats",
-        # get_* — read-only lookups
-        "get_equity_access_level",
-        "get_pool_info",
-        "get_portfolio",
-        "get_asset_versions",
-        "get_asset",
-        # quotes — read-only price estimation
-        "quote",
-        "access_quote",
-        "sell_quote",
-    })
+    _ALLOWED = frozenset(
+        {
+            # query_* — pure read forwarding
+            "query_chain_status",
+            "query_assets",
+            "query_blocks",
+            "query_block",
+            "query_stakes",
+            "query_transactions",
+            "query_fingerprints",
+            "query_trace",
+            "query_disputes",
+            "query_tasks",
+            "query_task",
+            "query_contribution",
+            "verify_contribution",
+            "query_leakage",
+            "query_cache_stats",
+            # get_* — read-only lookups
+            "get_equity_access_level",
+            "get_pool_info",
+            "get_portfolio",
+            "get_asset_versions",
+            "get_asset",
+            # quotes — read-only price estimation
+            "quote",
+            "access_quote",
+            "sell_quote",
+        }
+    )
 
     def __init__(self, facade: OasyceServiceFacade):
         object.__setattr__(self, "_facade", facade)

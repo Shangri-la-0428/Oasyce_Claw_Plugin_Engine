@@ -56,8 +56,9 @@ class OasyceSkills:
         return result.data
 
     def _get_facade(self):
-        if not hasattr(self, '_facade') or self._facade is None:
+        if not hasattr(self, "_facade") or self._facade is None:
             from oasyce.services.facade import OasyceServiceFacade
+
             self._facade = OasyceServiceFacade(config=self.config, ledger=self.ledger)
         return self._facade
 

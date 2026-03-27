@@ -31,6 +31,7 @@ class TradeStatus(str, Enum):
 
 class AssetStatus(str, Enum):
     """Asset lifecycle states: ACTIVE → SHUTDOWN_PENDING → TERMINATED."""
+
     ACTIVE = "active"
     SHUTDOWN_PENDING = "shutdown_pending"
     TERMINATED = "terminated"
@@ -170,7 +171,9 @@ class SettlementEngine:
         if asset_id in self._pools:
             return self._pools[asset_id]
         if initial_reserve > 0 and initial_reserve < MIN_INITIAL_RESERVE:
-            raise ValueError(f"Initial reserve must be >= {MIN_INITIAL_RESERVE} OAS or 0 (unfunded)")
+            raise ValueError(
+                f"Initial reserve must be >= {MIN_INITIAL_RESERVE} OAS or 0 (unfunded)"
+            )
         pool = AssetPool(
             asset_id=asset_id,
             owner=owner,
@@ -480,9 +483,7 @@ class SettlementEngine:
             if pool.owner != owner:
                 raise PermissionError("Only the asset owner can initiate shutdown")
             if pool.status != AssetStatus.ACTIVE:
-                raise ValueError(
-                    f"Cannot shutdown: asset is {pool.status.value} (must be ACTIVE)"
-                )
+                raise ValueError(f"Cannot shutdown: asset is {pool.status.value} (must be ACTIVE)")
             pool.status = AssetStatus.SHUTDOWN_PENDING
             pool.shutdown_start_time = time.time()
             pool.shutdown_end_time = pool.shutdown_start_time + self.SHUTDOWN_COOLDOWN_SECONDS
@@ -503,9 +504,7 @@ class SettlementEngine:
                 )
             if time.time() < pool.shutdown_end_time:
                 remaining = pool.shutdown_end_time - time.time()
-                raise ValueError(
-                    f"Cooldown not finished: {remaining:.0f}s remaining"
-                )
+                raise ValueError(f"Cooldown not finished: {remaining:.0f}s remaining")
             # Snapshot for pro-rata distribution
             pool.snapshot_reserve = pool.reserve_balance
             pool.snapshot_total_shares = pool.supply
@@ -523,9 +522,7 @@ class SettlementEngine:
             if pool is None:
                 raise ValueError(f"Asset {asset_id} not found")
             if pool.status != AssetStatus.TERMINATED:
-                raise ValueError(
-                    f"Cannot claim: asset is {pool.status.value} (must be TERMINATED)"
-                )
+                raise ValueError(f"Cannot claim: asset is {pool.status.value} (must be TERMINATED)")
             if pool.claimed.get(holder):
                 raise ValueError(f"Already claimed: {holder}")
 

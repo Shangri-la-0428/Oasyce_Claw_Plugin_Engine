@@ -82,6 +82,7 @@ try:
         get_economics,
         get_bootstrap_nodes,
     )
+
     check("All core imports succeed", True)
 except Exception as e:
     check(f"Core imports: {e}", False)
@@ -99,9 +100,10 @@ check("creator_rate == 0.85", abs(pp.creator_rate - 0.85) < 1e-9)
 check("validator_rate == 0.07", abs(pp.validator_rate - 0.07) < 1e-9)
 check("burn_rate == 0.05", abs(pp.burn_rate - 0.05) < 1e-9)
 check("treasury_rate == 0.03", abs(pp.treasury_rate - 0.03) < 1e-9)
-check("rates sum to 1.0", abs(
-    pp.creator_rate + pp.validator_rate + pp.burn_rate + pp.treasury_rate - 1.0
-) < 1e-9)
+check(
+    "rates sum to 1.0",
+    abs(pp.creator_rate + pp.validator_rate + pp.burn_rate + pp.treasury_rate - 1.0) < 1e-9,
+)
 
 # Validate frozen
 try:

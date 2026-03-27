@@ -185,9 +185,7 @@ class Ledger:
     def delete_asset(self, asset_id: str) -> bool:
         """Delete an asset and its fingerprint_records. Returns False if not found."""
         with self._lock, self._conn:
-            cursor = self._conn.execute(
-                "DELETE FROM assets WHERE asset_id = ?", (asset_id,)
-            )
+            cursor = self._conn.execute("DELETE FROM assets WHERE asset_id = ?", (asset_id,))
             if cursor.rowcount == 0:
                 return False
             try:
@@ -500,9 +498,7 @@ class Ledger:
         allowed = {"created_at", "asset_id", "owner"}
         col = order_by if order_by in allowed else "created_at"
         with self._lock:
-            rows = self._conn.execute(
-                f"SELECT * FROM assets ORDER BY {col} {direction}"
-            ).fetchall()
+            rows = self._conn.execute(f"SELECT * FROM assets ORDER BY {col} {direction}").fetchall()
             return [dict(r) for r in rows]
 
     # ── Fingerprint queries ───────────────────────────────────
@@ -545,6 +541,7 @@ class Ledger:
     def reconnect(self) -> None:
         """Re-open the connection for multi-threaded use."""
         import sqlite3
+
         self._conn.close()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row

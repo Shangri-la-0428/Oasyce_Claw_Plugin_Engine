@@ -42,10 +42,10 @@ RESERVE_SOLVENCY_CAP = _defaults.reserve_solvency_cap
 
 # ── Rights Type Multipliers ────────────────────────────────────────
 RIGHTS_MULTIPLIERS = {
-    "original": 1.0,        # Full value
-    "co_creation": 0.9,     # 90% — shared creation
-    "licensed": 0.7,        # 70% — licensed content
-    "collection": 0.3,      # 30% — aggregated data
+    "original": 1.0,  # Full value
+    "co_creation": 0.9,  # 90% — shared creation
+    "licensed": 0.7,  # 70% — licensed content
+    "collection": 0.3,  # 30% — aggregated data
 }
 
 
@@ -56,10 +56,10 @@ def rights_multiplier(rights_type: str) -> float:
 
 # ── Share Diminishing Returns ──────────────────────────────────────
 DIMINISHING_RATES = [
-    (0, 1.0),        # First buyer: 100% share rate
-    (1, 0.8),        # Second: 80%
-    (2, 0.6),        # Third: 60%
-    (3, 0.4),        # Fourth+: 40%
+    (0, 1.0),  # First buyer: 100% share rate
+    (1, 0.8),  # Second: 80%
+    (2, 0.6),  # Third: 60%
+    (3, 0.4),  # Fourth+: 40%
 ]
 
 
@@ -97,29 +97,30 @@ def reputation_decay(score: float, elapsed_days: float) -> float:
 
 
 # ── Dispute Economics ──────────────────────────────────────────────
-DISPUTE_FEE = 5.0              # OAS required to file dispute
-JUROR_REWARD = 2.0             # OAS per juror for correct vote
-MAJORITY_THRESHOLD = 2 / 3     # 2/3 majority required
+DISPUTE_FEE = 5.0  # OAS required to file dispute
+JUROR_REWARD = 2.0  # OAS per juror for correct vote
+MAJORITY_THRESHOLD = 2 / 3  # 2/3 majority required
 REP_PENALTY_PROVIDER_LOSS = -10.0  # Provider loses dispute
-REP_PENALTY_CONSUMER_LOSS = -5.0   # Consumer loses dispute
-REP_REWARD_MAJORITY_JUROR = 1.0    # Correct jury vote
+REP_PENALTY_CONSUMER_LOSS = -5.0  # Consumer loses dispute
+REP_REWARD_MAJORITY_JUROR = 1.0  # Correct jury vote
 REP_PENALTY_MINORITY_JUROR = -2.0  # Incorrect jury vote
 
 # ── Access Constants ────────────────────────────────────────────────
 EQUITY_ACCESS_THRESHOLDS = [
-    (0.10, "L3"),   # >= 10% → Deliver
-    (0.05, "L2"),   # >= 5%  → Compute
-    (0.01, "L1"),   # >= 1%  → Sample
+    (0.10, "L3"),  # >= 10% → Deliver
+    (0.05, "L2"),  # >= 5%  → Compute
+    (0.01, "L1"),  # >= 1%  → Sample
     (0.001, "L0"),  # >= 0.1% → Query
 ]
 
-REPUTATION_SANDBOX = 20   # R < 20 → L0 only
-REPUTATION_LIMITED = 50   # R 20-49 → L0+L1; R ≥ 50 → all
+REPUTATION_SANDBOX = 20  # R < 20 → L0 only
+REPUTATION_LIMITED = 50  # R 20-49 → L0+L1; R ≥ 50 → all
 
 LEVEL_INDEX = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
 
 
 # ── Bonding Curve ───────────────────────────────────────────────────
+
 
 def calculate_fees(amount: float) -> Tuple[float, float, float, float]:
     """Return (protocol_fee, burn, treasury, net_amount) for a given gross payment.
@@ -183,6 +184,7 @@ def price_impact(price_before: float, price_after: float) -> float:
 
 # ── Equity → Access ─────────────────────────────────────────────────
 
+
 def equity_to_access_level(equity_pct: float, reputation: float) -> Optional[str]:
     """Determine access level from equity % and reputation score.
 
@@ -215,6 +217,7 @@ def equity_to_access_level(equity_pct: float, reputation: float) -> Optional[str
 
 
 # ── Jury Selection ──────────────────────────────────────────────────
+
 
 def jury_score(dispute_id: str, node_id: str, reputation: float) -> float:
     """Weighted jury selection score: random × log(1 + reputation).

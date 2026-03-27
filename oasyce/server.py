@@ -51,6 +51,7 @@ def create_app(
 
     # -- Middleware: API key auth + rate limiting --
     from oasyce.middleware import APIKeyMiddleware, RateLimitMiddleware
+
     app.add_middleware(RateLimitMiddleware, read_rate=100, write_rate=20)
     app.add_middleware(APIKeyMiddleware)
 
@@ -97,6 +98,7 @@ def create_app(
     @app.get("/health")
     def health():
         import os
+
         uptime = int(time.time()) - app.state.start_time
         return {
             "status": "ok",

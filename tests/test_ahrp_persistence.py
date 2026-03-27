@@ -58,8 +58,12 @@ class TestAHRPStore:
     def test_save_and_load_escrow(self):
         store = AHRPStore(":memory:")
         store.save_escrow(
-            tx_id="tx-001", buyer="alice", seller="bob",
-            amount_oas=10.0, locked_at=1000, released=False,
+            tx_id="tx-001",
+            buyer="alice",
+            seller="bob",
+            amount_oas=10.0,
+            locked_at=1000,
+            released=False,
             chain_escrow_id="chain-abc",
         )
 
@@ -80,8 +84,10 @@ class TestAHRPStore:
     def test_save_and_load_auction(self):
         store = AHRPStore(":memory:")
         store.save_auction(
-            request_id="req-1", requester_id="alice",
-            budget_oas=50.0, deadline=9999,
+            request_id="req-1",
+            requester_id="alice",
+            budget_oas=50.0,
+            deadline=9999,
             bids=[{"provider": "bob", "price": 30.0}],
             closed=False,
         )

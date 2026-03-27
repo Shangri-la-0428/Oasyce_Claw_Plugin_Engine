@@ -160,10 +160,15 @@ def _forward_feedback_webhook(fb: dict):
         return
     try:
         import urllib.request
-        label = {"bug": "🐛 Bug", "suggestion": "💡 Suggestion", "other": "📝 Other"}.get(fb.get("type", ""), "📝")
+
+        label = {"bug": "🐛 Bug", "suggestion": "💡 Suggestion", "other": "📝 Other"}.get(
+            fb.get("type", ""), "📝"
+        )
         text = f"**{label}** from `{fb.get('agent_id', 'anonymous')}`\n{fb['message']}"
         payload = json.dumps({"content": text}).encode("utf-8")
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(
+            url, data=payload, headers={"Content-Type": "application/json"}
+        )
         urllib.request.urlopen(req, timeout=5)
     except Exception:
         logger.debug("Feedback webhook forwarding failed", exc_info=True)
@@ -177,6 +182,7 @@ def _forward_feedback_github(fb: dict):
         return
     try:
         import urllib.request
+
         label_map = {"bug": "bug", "suggestion": "enhancement", "other": "feedback"}
         title = fb["message"][:80]
         if len(fb["message"]) > 80:
@@ -191,17 +197,23 @@ def _forward_feedback_github(fb: dict):
         ctx = fb.get("context")
         if ctx and ctx != "{}":
             body_parts += ["", "### Context", f"```json\n{ctx}\n```"]
-        payload = json.dumps({
-            "title": title,
-            "body": "\n".join(body_parts),
-            "labels": [label_map.get(fb.get("type", ""), "feedback")],
-        }).encode("utf-8")
+        payload = json.dumps(
+            {
+                "title": title,
+                "body": "\n".join(body_parts),
+                "labels": [label_map.get(fb.get("type", ""), "feedback")],
+            }
+        ).encode("utf-8")
         url = f"https://api.github.com/repos/{repo}/issues"
-        req = urllib.request.Request(url, data=payload, headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "Content-Type": "application/json",
-        })
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "Content-Type": "application/json",
+            },
+        )
         resp = urllib.request.urlopen(req, timeout=10)
         return json.loads(resp.read().decode("utf-8")).get("html_url", "")
     except Exception:
@@ -298,6 +310,7 @@ def _ensure_init():
     with _init_lock:
         if _config is None:
             from oasyce.config import Config
+
             _config = Config.from_env()
         if _ledger is None:
             _ledger = Ledger(_config.db_path)
@@ -474,9 +487,12 @@ def _json_response(handler: BaseHTTPRequestHandler, data: Any, status: int = 200
 
 # C1: Multipart parser to replace deprecated cgi.FieldStorage (removed in Python 3.13)
 
+
 class _MultipartFile:
     """A single file from a multipart upload."""
+
     __slots__ = ("filename", "file")
+
     def __init__(self, filename: str, data: bytes):
         self.filename = filename
         self.file = BytesIO(data)
@@ -489,7 +505,7 @@ class _MultipartForm:
         self._fields: Dict[str, list] = defaultdict(list)
         self._files: Dict[str, list] = defaultdict(list)
         # Extract boundary
-        m = re.search(r'boundary=([^\s;]+)', content_type)
+        m = re.search(r"boundary=([^\s;]+)", content_type)
         if not m:
             return
         boundary = m.group(1).encode("utf-8")
@@ -566,6 +582,7 @@ _AGENT_DISCOVERY_FILES: Dict[str, str] = {
     "/.well-known/ai-plugin.json": os.path.join(".well-known", "ai-plugin.json"),
 }
 
+
 def _serve_project_file(handler, filename):
     """Serve a file from the project root directory."""
     file_path = os.path.join(_PROJECT_ROOT, filename)
@@ -610,7 +627,16 @@ def _api_status() -> Dict[str, Any]:
         "total_assets": data.get("total_assets", 0),
         "total_blocks": data.get("chain_height", 0),
         "total_distributions": data.get("total_distributions", 0),
-        **{k: data[k] for k in ("total_burned", "protocol_fees_collected", "burn_rate_pct", "protocol_fee_pct") if k in data},
+        **{
+            k: data[k]
+            for k in (
+                "total_burned",
+                "protocol_fees_collected",
+                "burn_rate_pct",
+                "protocol_fee_pct",
+            )
+            if k in data
+        },
     }
 
 
@@ -1009,6 +1035,7 @@ _AHRP_UNREACHABLE = json.dumps(
 def _proxy_ahrp(handler: BaseHTTPRequestHandler, method: str, path: str, body: bytes = b"") -> None:
     # Sanitize: reject path traversal and non-AHRP paths
     from posixpath import normpath
+
     clean = normpath(path)
     if ".." in clean or not clean.startswith("/ahrp/"):
         handler.send_response(400)
@@ -1134,8 +1161,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/staking":
             stakes = _api_stakes()
             validators = [
-                {"id": s["validator_id"], "staked": s["total"], "reputation": 50}
-                for s in stakes
+                {"id": s["validator_id"], "staked": s["total"], "reputation": 50} for s in stakes
             ]
             return _json_response(self, {"validators": validators})
 
@@ -1147,11 +1173,15 @@ class _Handler(BaseHTTPRequestHandler):
             holdings = []
             if result.success:
                 for h in result.data.get("holdings", []):
-                    holdings.append({
-                        "asset_id": h["asset_id"],
-                        "shares": round(h["tokens"], 4),
-                        "avg_price": round(h["value_oas"] / h["tokens"], 6) if h["tokens"] > 0 else 0,
-                    })
+                    holdings.append(
+                        {
+                            "asset_id": h["asset_id"],
+                            "shares": round(h["tokens"], 4),
+                            "avg_price": (
+                                round(h["value_oas"] / h["tokens"], 6) if h["tokens"] > 0 else 0
+                            ),
+                        }
+                    )
             return _json_response(self, holdings)
 
         # /api/fingerprint/distributions — trace watermark distribution for an asset
@@ -1270,12 +1300,15 @@ class _Handler(BaseHTTPRequestHandler):
                 if not result.success:
                     return _json_response(self, {"error": result.error}, 400)
                 d = result.data
-                return _json_response(self, {
-                    "payout_oas": round(d.get("payout_oas", 0), 6),
-                    "protocol_fee": round(d.get("protocol_fee", 0), 6),
-                    "burn_amount": round(d.get("burn_amount", 0), 6),
-                    "price_impact_pct": round(d.get("price_impact_pct", 0), 2),
-                })
+                return _json_response(
+                    self,
+                    {
+                        "payout_oas": round(d.get("payout_oas", 0), 6),
+                        "protocol_fee": round(d.get("protocol_fee", 0), 6),
+                        "burn_amount": round(d.get("burn_amount", 0), 6),
+                        "price_impact_pct": round(d.get("price_impact_pct", 0), 2),
+                    },
+                )
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
@@ -1349,14 +1382,18 @@ class _Handler(BaseHTTPRequestHandler):
             holdings = []
             if result.success:
                 for h in result.data.get("holdings", []):
-                    holdings.append({
-                        "asset_id": h["asset_id"],
-                        "shares": round(h["tokens"], 4),
-                        "equity_pct": h.get("pct", 0),
-                        "access_level": h.get("access_level") or "—",
-                        "spot_price": round(h["value_oas"] / h["tokens"], 6) if h["tokens"] > 0 else 0,
-                        "value_oas": round(h["value_oas"], 4),
-                    })
+                    holdings.append(
+                        {
+                            "asset_id": h["asset_id"],
+                            "shares": round(h["tokens"], 4),
+                            "equity_pct": h.get("pct", 0),
+                            "access_level": h.get("access_level") or "—",
+                            "spot_price": (
+                                round(h["value_oas"] / h["tokens"], 6) if h["tokens"] > 0 else 0
+                            ),
+                            "value_oas": round(h["value_oas"], 4),
+                        }
+                    )
             return _json_response(self, holdings)
 
         # Transaction history
@@ -1629,12 +1666,18 @@ class _Handler(BaseHTTPRequestHandler):
 
         # Consensus & governance GET routes moved to Go chain
         consensus_get_paths = (
-            "/api/consensus/status", "/api/consensus/validators", "/api/consensus/rewards",
-            "/api/governance/proposals", "/api/governance/params", "/api/consensus/slashing",
+            "/api/consensus/status",
+            "/api/consensus/validators",
+            "/api/consensus/rewards",
+            "/api/governance/proposals",
+            "/api/governance/params",
+            "/api/consensus/slashing",
             "/api/consensus/sync",
         )
         if path in consensus_get_paths or path.startswith("/api/governance/proposal/"):
-            return _json_response(self, {"error": "Consensus features moved to Go chain. Use oasyced CLI."}, 501)
+            return _json_response(
+                self, {"error": "Consensus features moved to Go chain. Use oasyced CLI."}, 501
+            )
 
         if path == "/api/consensus/mempool":
             if _mempool is None:
@@ -1799,7 +1842,9 @@ class _Handler(BaseHTTPRequestHandler):
                         if max_level < required:
                             return _json_response(
                                 self,
-                                {"error": f"Insufficient access: you have L{max_level}, need {level_str}"},
+                                {
+                                    "error": f"Insufficient access: you have L{max_level}, need {level_str}"
+                                },
                                 403,
                             )
                 except Exception:
@@ -2105,6 +2150,7 @@ class _Handler(BaseHTTPRequestHandler):
 
                 # Check if already registered (has any balance from onboarding)
                 from pathlib import Path as _ObPath
+
                 onboard_state_path = _ObPath(data_dir) / "onboarding_state.json"
                 registered_addrs: set = set()
                 if onboard_state_path.exists():
@@ -2151,7 +2197,9 @@ class _Handler(BaseHTTPRequestHandler):
                     nonce, attempts = future.result(timeout=30)
                 except Exception:
                     return _json_response(
-                        self, {"ok": False, "error": "PoW computation timed out"}, 504,
+                        self,
+                        {"ok": False, "error": "PoW computation timed out"},
+                        504,
                     )
 
                 # H7: credit via public method if available, else fallback
@@ -2164,7 +2212,9 @@ class _Handler(BaseHTTPRequestHandler):
                 # Record registration
                 registered_addrs.add(address)
                 onboard_state_path.parent.mkdir(parents=True, exist_ok=True)
-                onboard_state_path.write_text(json.dumps({"registered": list(registered_addrs)}, indent=2))
+                onboard_state_path.write_text(
+                    json.dumps({"registered": list(registered_addrs)}, indent=2)
+                )
 
                 new_balance = faucet.balance(address)
 
@@ -2184,8 +2234,13 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/identity/export":
             try:
                 from oasyce.identity import Wallet
+
                 w = Wallet.load()
-                key_data = w.export_key() if hasattr(w, "export_key") else {"address": w.address, "public_key": w.public_key_hex}
+                key_data = (
+                    w.export_key()
+                    if hasattr(w, "export_key")
+                    else {"address": w.address, "public_key": w.public_key_hex}
+                )
                 return _json_response(self, {"ok": True, **key_data})
             except Exception as e:
                 return _json_response(self, {"ok": False, "error": str(e)}, 400)
@@ -2194,8 +2249,11 @@ class _Handler(BaseHTTPRequestHandler):
             key_json = body.get("key_data", "")
             try:
                 from oasyce.identity import Wallet
+
                 if not Wallet.exists():
-                    return _json_response(self, {"ok": False, "error": "no wallet to import into"}, 400)
+                    return _json_response(
+                        self, {"ok": False, "error": "no wallet to import into"}, 400
+                    )
                 w = Wallet.load()
                 if hasattr(w, "import_key"):
                     w.import_key(key_json)
@@ -2662,10 +2720,13 @@ class _Handler(BaseHTTPRequestHandler):
                             # Cache mtime/size for next check
                             try:
                                 st = os.stat(a_file_path)
-                                _ledger.update_asset_metadata(aid, {
-                                    "_cached_size": st.st_size,
-                                    "_cached_mtime": st.st_mtime,
-                                })
+                                _ledger.update_asset_metadata(
+                                    aid,
+                                    {
+                                        "_cached_size": st.st_size,
+                                        "_cached_mtime": st.st_mtime,
+                                    },
+                                )
                             except Exception:
                                 pass
                 facade = _get_facade()
@@ -2733,13 +2794,16 @@ class _Handler(BaseHTTPRequestHandler):
                 if not result.success:
                     return _json_response(self, {"error": result.error}, 400)
                 d = result.data
-                return _json_response(self, {
-                    "ok": True,
-                    "payout_oas": round(d.get("payout_oas", 0), 6),
-                    "protocol_fee": round(d.get("protocol_fee", 0), 6),
-                    "burn_amount": round(d.get("burn_amount", 0), 6),
-                    "receipt_id": d.get("receipt_id", ""),
-                })
+                return _json_response(
+                    self,
+                    {
+                        "ok": True,
+                        "payout_oas": round(d.get("payout_oas", 0), 6),
+                        "protocol_fee": round(d.get("protocol_fee", 0), 6),
+                        "burn_amount": round(d.get("burn_amount", 0), 6),
+                        "receipt_id": d.get("receipt_id", ""),
+                    },
+                )
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
 
@@ -2766,13 +2830,18 @@ class _Handler(BaseHTTPRequestHandler):
                                 break
                         if bond_oas > 0:
                             from oasyce.config import get_data_dir, NetworkMode
+
                             _bd = _config.data_dir if _config else get_data_dir(NetworkMode.TESTNET)
                             _faucet = Faucet(_bd)
                             bal = _faucet.balance(buyer)
                             if bal < bond_oas:
-                                return _json_response(self, {
-                                    "error": f"Insufficient balance: {bal:.2f} OAS < {bond_oas:.2f} OAS required"
-                                }, 400)
+                                return _json_response(
+                                    self,
+                                    {
+                                        "error": f"Insufficient balance: {bal:.2f} OAS < {bond_oas:.2f} OAS required"
+                                    },
+                                    400,
+                                )
                 except Exception:
                     logger.debug("Pre-quote for access buy failed", exc_info=True)
 
@@ -2822,9 +2891,7 @@ class _Handler(BaseHTTPRequestHandler):
                 _ledger.update_stake(node_id, staker, amount)
                 # Read back total
                 stakes = _ledger.get_stakes_summary()
-                total = next(
-                    (s["total"] for s in stakes if s["validator_id"] == node_id), amount
-                )
+                total = next((s["total"] for s in stakes if s["validator_id"] == node_id), amount)
                 return _json_response(
                     self,
                     {
@@ -2959,14 +3026,17 @@ class _Handler(BaseHTTPRequestHandler):
                     verdict=verdict_map[verdict],
                 )
                 if result.success:
-                    return _json_response(self, {
-                        "ok": True,
-                        "dispute_id": dispute_id,
-                        "juror": juror,
-                        "verdict": verdict,
-                        "recorded": True,
-                        "data": result.data,
-                    })
+                    return _json_response(
+                        self,
+                        {
+                            "ok": True,
+                            "dispute_id": dispute_id,
+                            "juror": juror,
+                            "verdict": verdict,
+                            "recorded": True,
+                            "data": result.data,
+                        },
+                    )
                 else:
                     return _json_response(self, {"ok": False, "error": result.error}, 400)
             except Exception as e:
@@ -2983,8 +3053,13 @@ class _Handler(BaseHTTPRequestHandler):
             if not facade:
                 return _json_response(self, {"error": "service unavailable"}, 503)
             result = facade.submit_evidence(
-                dispute_id, submitter, evidence_hash, evidence_type,
-                weight, description, "gui",
+                dispute_id,
+                submitter,
+                evidence_hash,
+                evidence_type,
+                weight,
+                description,
+                "gui",
             )
             if result.success:
                 return _json_response(self, {"ok": True, **result.data})
@@ -3197,29 +3272,45 @@ class _Handler(BaseHTTPRequestHandler):
         # ── Invocation lifecycle routes (chain transactions) ─────
         _inv_prefix = "/api/delivery/invocation/"
         if path.startswith(_inv_prefix):
-            rest = path[len(_inv_prefix):]
+            rest = path[len(_inv_prefix) :]
             parts = rest.split("/", 1)
             if len(parts) == 2:
                 invocation_id, action = parts[0], parts[1]
 
                 if action == "complete":
                     result = _api_delivery_invocation_complete(invocation_id, body)
-                    status = 200 if result.get("ok") else (503 if "not available" in result.get("error", "") else 400)
+                    status = (
+                        200
+                        if result.get("ok")
+                        else (503 if "not available" in result.get("error", "") else 400)
+                    )
                     return _json_response(self, result, status)
 
                 if action == "fail":
                     result = _api_delivery_invocation_fail(invocation_id)
-                    status = 200 if result.get("ok") else (503 if "not available" in result.get("error", "") else 400)
+                    status = (
+                        200
+                        if result.get("ok")
+                        else (503 if "not available" in result.get("error", "") else 400)
+                    )
                     return _json_response(self, result, status)
 
                 if action == "claim":
                     result = _api_delivery_invocation_claim(invocation_id)
-                    status = 200 if result.get("ok") else (503 if "not available" in result.get("error", "") else 400)
+                    status = (
+                        200
+                        if result.get("ok")
+                        else (503 if "not available" in result.get("error", "") else 400)
+                    )
                     return _json_response(self, result, status)
 
                 if action == "dispute":
                     result = _api_delivery_invocation_dispute(invocation_id, body)
-                    status = 200 if result.get("ok") else (503 if "not available" in result.get("error", "") else 400)
+                    status = (
+                        200
+                        if result.get("ok")
+                        else (503 if "not available" in result.get("error", "") else 400)
+                    )
                     return _json_response(self, result, status)
 
         return None
@@ -3229,11 +3320,16 @@ class _Handler(BaseHTTPRequestHandler):
         # Consensus features (delegate, undelegate, governance) moved to Go chain.
         # Use oasyced CLI for consensus operations.
         consensus_paths = (
-            "/api/consensus/mempool/submit", "/api/consensus/delegate",
-            "/api/consensus/undelegate", "/api/governance/propose", "/api/governance/vote",
+            "/api/consensus/mempool/submit",
+            "/api/consensus/delegate",
+            "/api/consensus/undelegate",
+            "/api/governance/propose",
+            "/api/governance/vote",
         )
         if path in consensus_paths:
-            return _json_response(self, {"error": "Consensus features moved to Go chain. Use oasyced CLI."}, 501)
+            return _json_response(
+                self, {"error": "Consensus features moved to Go chain. Use oasyced CLI."}, 501
+            )
         return None
 
     # ── POST handler: Fingerprint routes ─────────────────────────
@@ -3262,7 +3358,9 @@ class _Handler(BaseHTTPRequestHandler):
                         aid = os.path.basename(file_path)
                 if not all([aid, caller, content]):
                     return _json_response(
-                        self, {"error": "asset_id, caller_id, and content (or file_path) required"}, 400
+                        self,
+                        {"error": "asset_id, caller_id, and content (or file_path) required"},
+                        400,
                     )
                 fp = engine.generate_fingerprint(aid, caller, int(time.time()))
                 watermarked = engine.embed_text(content, fp)
@@ -3297,9 +3395,7 @@ class _Handler(BaseHTTPRequestHandler):
                             self, {"ok": False, "error": "file path not allowed"}, 403
                         )
                     if not os.path.isfile(resolved_fp):
-                        return _json_response(
-                            self, {"ok": False, "error": "file not found"}, 404
-                        )
+                        return _json_response(self, {"ok": False, "error": "file not found"}, 404)
                     # H3: use context manager to avoid file handle leak
                     with open(resolved_fp, "rb") as f:
                         raw = f.read()
@@ -3318,13 +3414,9 @@ class _Handler(BaseHTTPRequestHandler):
                     )
 
                 if fingerprint:
-                    return _json_response(
-                        self, {"ok": True, "fingerprint": fingerprint}
-                    )
+                    return _json_response(self, {"ok": True, "fingerprint": fingerprint})
                 else:
-                    return _json_response(
-                        self, {"ok": False, "error": "no fingerprint found"}
-                    )
+                    return _json_response(self, {"ok": False, "error": "no fingerprint found"})
             except Exception as e:
                 return _json_response(self, {"ok": False, "error": str(e)}, 400)
 
@@ -3463,7 +3555,9 @@ class _Handler(BaseHTTPRequestHandler):
                     count = ns.mark_all_read(address)
                     return _json_response(self, {"ok": True, "marked": count})
                 else:
-                    return _json_response(self, {"error": "notification_id or address required"}, 400)
+                    return _json_response(
+                        self, {"error": "notification_id or address required"}, 400
+                    )
             except Exception as exc:
                 return _json_response(self, {"error": str(exc)}, 500)
 
@@ -3495,7 +3589,9 @@ class _Handler(BaseHTTPRequestHandler):
             if not file_path or not creator_key:
                 return _json_response(self, {"error": "file_path and creator_key required"}, 400)
             facade = _get_facade()
-            result = facade.query_contribution(file_path, creator_key, body.get("source_type", "manual"))
+            result = facade.query_contribution(
+                file_path, creator_key, body.get("source_type", "manual")
+            )
             if not result.success:
                 return _json_response(self, {"error": result.error}, 500)
             return _json_response(self, result.data)
@@ -3580,7 +3676,11 @@ class _Handler(BaseHTTPRequestHandler):
             if fb_type not in ("bug", "suggestion", "other"):
                 fb_type = "bug"
             agent_id = body.get("agent_id", "anonymous")
-            context_str = json.dumps(body.get("context", {})) if isinstance(body.get("context"), dict) else str(body.get("context", "{}"))
+            context_str = (
+                json.dumps(body.get("context", {}))
+                if isinstance(body.get("context"), dict)
+                else str(body.get("context", "{}"))
+            )
             feedback_id = f"FB_{secrets.token_hex(8)}"
             now = time.time()
             try:
@@ -3593,8 +3693,13 @@ class _Handler(BaseHTTPRequestHandler):
                 db.commit()
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 500)
-            fb = {"feedback_id": feedback_id, "type": fb_type, "message": message,
-                  "context": context_str, "agent_id": agent_id}
+            fb = {
+                "feedback_id": feedback_id,
+                "type": fb_type,
+                "message": message,
+                "context": context_str,
+                "agent_id": agent_id,
+            }
             _forward_feedback_webhook(fb)
             github_url = _forward_feedback_github(fb)
             result = {"ok": True, "feedback_id": feedback_id}
@@ -3658,7 +3763,6 @@ class _Handler(BaseHTTPRequestHandler):
 
         return _json_response(self, {"error": "not found"}, 404)
 
-
     def do_OPTIONS(self):
         """M8: Handle CORS preflight for localhost origins."""
         origin = self.headers.get("Origin", "")
@@ -3699,8 +3803,6 @@ class _Handler(BaseHTTPRequestHandler):
 # ── Legacy _INDEX_HTML removed — React SPA in dashboard/dist/ ────────
 # Run `cd dashboard && npm run build` to generate the SPA.
 # If dist/index.html is missing, the server returns a 503 with instructions.
-
-
 
 
 # ── GUI class ────────────────────────────────────────────────────────

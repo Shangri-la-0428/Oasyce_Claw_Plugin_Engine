@@ -60,13 +60,17 @@ def safe(fn, default=None):
 # QA-100: Protocol Parameters
 # ===========================================================================
 
+
 def test_protocol_params():
     section("QA-100: Protocol Parameters")
 
     from oasyce.core.protocol_params import ProtocolParams, get_protocol_params
     from oasyce.core.formulas import (
-        RESERVE_RATIO, PROTOCOL_FEE_RATE, BURN_RATE,
-        CREATOR_RATE, TREASURY_RATE,
+        RESERVE_RATIO,
+        PROTOCOL_FEE_RATE,
+        BURN_RATE,
+        CREATOR_RATE,
+        TREASURY_RATE,
     )
 
     pp = get_protocol_params()
@@ -75,9 +79,11 @@ def test_protocol_params():
     check("QA-103", "validator_rate == 0.07", abs(pp.validator_rate - 0.07) < 1e-9)
     check("QA-104", "burn_rate == 0.05", abs(pp.burn_rate - 0.05) < 1e-9)
     check("QA-105", "treasury_rate == 0.03", abs(pp.treasury_rate - 0.03) < 1e-9)
-    check("QA-106", "rates sum to 1.0", abs(
-        pp.creator_rate + pp.validator_rate + pp.burn_rate + pp.treasury_rate - 1.0
-    ) < 1e-9)
+    check(
+        "QA-106",
+        "rates sum to 1.0",
+        abs(pp.creator_rate + pp.validator_rate + pp.burn_rate + pp.treasury_rate - 1.0) < 1e-9,
+    )
     check("QA-107", "initial_price present", hasattr(pp, "initial_price") or True)
     check("QA-108", "solvency_cap present", hasattr(pp, "reserve_solvency_cap") or True)
 
@@ -99,6 +105,7 @@ def test_protocol_params():
 # QA-200: Network Security Modes
 # ===========================================================================
 
+
 def test_security_modes():
     section("QA-200: Network Security Modes")
 
@@ -115,7 +122,9 @@ def test_security_modes():
     try:
         local_sec = get_security(NetworkMode.LOCAL)
         check("QA-205", "LOCAL require_signatures=False", local_sec["require_signatures"] is False)
-        check("QA-206", "LOCAL allow_local_fallback=True", local_sec["allow_local_fallback"] is True)
+        check(
+            "QA-206", "LOCAL allow_local_fallback=True", local_sec["allow_local_fallback"] is True
+        )
     except Exception:
         skip("QA-205", "LOCAL security", "NetworkMode.LOCAL not defined")
         skip("QA-206", "LOCAL fallback", "NetworkMode.LOCAL not defined")
@@ -124,6 +133,7 @@ def test_security_modes():
 # ===========================================================================
 # QA-300: Economics Config
 # ===========================================================================
+
 
 def test_economics():
     section("QA-300: Economics Config")
@@ -150,12 +160,16 @@ def test_economics():
 # QA-400: Bonding Curve Lifecycle
 # ===========================================================================
 
+
 def test_bonding_curve():
     section("QA-400: Bonding Curve Lifecycle")
 
     from oasyce.services.settlement.engine import (
-        AssetPool, QuoteResult, SellQuoteResult,
-        SettlementConfig, SettlementEngine,
+        AssetPool,
+        QuoteResult,
+        SellQuoteResult,
+        SettlementConfig,
+        SettlementEngine,
     )
     from oasyce.core.formulas import calculate_fees
 
@@ -191,7 +205,7 @@ def test_bonding_curve():
         r = engine.buy("QA_ASSET_001", buyer="x", amount_oas=0)
         # If no error, check if it's a no-op (acceptable)
         zero_eq = engine.get_equity("QA_ASSET_001", "x")
-        zero_err = (zero_eq == 0)  # accept no-op as valid
+        zero_err = zero_eq == 0  # accept no-op as valid
     except (ValueError, Exception):
         zero_err = True
     check("QA-412", "Buy amount=0 → error or no-op", zero_err)
@@ -212,9 +226,11 @@ def test_bonding_curve():
     # 6.5 Sell
     pre_eq = engine.get_equity("QA_ASSET_001", "bob")
     sell_receipt = engine.sell("QA_ASSET_001", seller="bob", tokens_to_sell=pre_eq * 0.5)
-    check("QA-421", "Equity halved after sell", abs(
-        engine.get_equity("QA_ASSET_001", "bob") - pre_eq * 0.5
-    ) < 1e-6)
+    check(
+        "QA-421",
+        "Equity halved after sell",
+        abs(engine.get_equity("QA_ASSET_001", "bob") - pre_eq * 0.5) < 1e-6,
+    )
     check("QA-422", "Pool reserve decreased", True)  # implicit from sell
     check("QA-423", "Pool supply decreased", True)
 
@@ -229,6 +245,7 @@ def test_bonding_curve():
 # ===========================================================================
 # QA-500: Facade API
 # ===========================================================================
+
 
 def test_facade_api():
     section("QA-500: Facade API")
@@ -252,7 +269,11 @@ def test_facade_api():
     check("QA-535", "facade.query_disputes exists", hasattr(facade, "query_disputes"))
 
     # Access control
-    check("QA-509", "facade.get_equity_access_level exists", hasattr(facade, "get_equity_access_level"))
+    check(
+        "QA-509",
+        "facade.get_equity_access_level exists",
+        hasattr(facade, "get_equity_access_level"),
+    )
     check("QA-510", "facade.access_quote exists", hasattr(facade, "access_quote"))
     check("QA-511", "facade.access_buy exists", hasattr(facade, "access_buy"))
 
@@ -316,6 +337,7 @@ def test_facade_api():
 # QA-600: Task Market
 # ===========================================================================
 
+
 def test_task_market():
     section("QA-600: Task Market")
 
@@ -353,6 +375,7 @@ def test_task_market():
 # QA-700: Chain Client Surface
 # ===========================================================================
 
+
 def test_chain_client():
     section("QA-700: Chain Client")
 
@@ -368,13 +391,18 @@ def test_chain_client():
     check("QA-708", "ChainClient.is_connected", hasattr(ChainClient, "is_connected"))
     check("QA-709", "OasyceClient class exists", OasyceClient is not None)
     check("QA-710", "OasyceClient.sell_shares", hasattr(OasyceClient, "sell_shares"))
-    check("QA-711", "OasyceClient.get_bonding_curve_price", hasattr(OasyceClient, "get_bonding_curve_price"))
+    check(
+        "QA-711",
+        "OasyceClient.get_bonding_curve_price",
+        hasattr(OasyceClient, "get_bonding_curve_price"),
+    )
     check("QA-712", "OasyceClient.get_shareholders", hasattr(OasyceClient, "get_shareholders"))
 
 
 # ===========================================================================
 # QA-800: Middleware
 # ===========================================================================
+
 
 def test_middleware():
     section("QA-800: Middleware")
@@ -400,6 +428,7 @@ def test_middleware():
 # ===========================================================================
 # QA-900: AHRP Persistence
 # ===========================================================================
+
 
 def test_ahrp_persistence():
     section("QA-900: AHRP Persistence")
@@ -428,8 +457,11 @@ def test_ahrp_persistence():
 
         # Save / load escrow
         store.save_escrow(
-            tx_id="tx-qa-001", buyer="bob", seller="alice",
-            amount_oas=50.0, locked_at=int(time.time()),
+            tx_id="tx-qa-001",
+            buyer="bob",
+            seller="alice",
+            amount_oas=50.0,
+            locked_at=int(time.time()),
         )
         escrows = store.load_escrows()
         check("QA-904", "Escrow persisted", len(escrows) >= 1)
@@ -465,6 +497,7 @@ def test_ahrp_persistence():
 # QA-1000: Read-Only Query Layer
 # ===========================================================================
 
+
 def test_query_layer():
     section("QA-1000: Read-Only Query Layer")
 
@@ -475,12 +508,19 @@ def test_query_layer():
     check("QA-1001", "OasyceQuery wraps facade", True)
 
     # Allowed methods
-    check("QA-1002", "Allowed methods accessible",
-          "quote" in OasyceQuery._ALLOWED and "sell_quote" in OasyceQuery._ALLOWED)
+    check(
+        "QA-1002",
+        "Allowed methods accessible",
+        "quote" in OasyceQuery._ALLOWED and "sell_quote" in OasyceQuery._ALLOWED,
+    )
 
     # Blocked write methods
-    for qa_id, method in [("QA-1003", "buy"), ("QA-1004", "sell"),
-                          ("QA-1005", "register"), ("QA-1006", "dispute")]:
+    for qa_id, method in [
+        ("QA-1003", "buy"),
+        ("QA-1004", "sell"),
+        ("QA-1005", "register"),
+        ("QA-1006", "dispute"),
+    ]:
         blocked = False
         try:
             getattr(query, method)("x", "y", 1.0)
@@ -493,6 +533,7 @@ def test_query_layer():
 # QA-1100: Reputation System
 # ===========================================================================
 
+
 def test_reputation():
     section("QA-1100: Reputation System")
 
@@ -504,10 +545,16 @@ def test_reputation():
     check("QA-1102", "Success gain = 2.0", abs(cfg.rep_success - 2.0) < 1e-9)
     check("QA-1103", "Leak penalty = -50.0", abs(cfg.rep_leak - (-50.0)) < 1e-9)
     check("QA-1111", "Damage penalty = -10.0", abs(cfg.rep_damage - (-10.0)) < 1e-9)
-    check("QA-1104", "Decay = -5.0 / 90 days",
-          abs(cfg.rep_decay_amount - (-5.0)) < 1e-9 and cfg.rep_decay_days == 90)
-    check("QA-1105", "Score range [0, 95]",
-          abs(cfg.rep_floor - 0.0) < 1e-9 and abs(cfg.rep_cap - 95.0) < 1e-9)
+    check(
+        "QA-1104",
+        "Decay = -5.0 / 90 days",
+        abs(cfg.rep_decay_amount - (-5.0)) < 1e-9 and cfg.rep_decay_days == 90,
+    )
+    check(
+        "QA-1105",
+        "Score range [0, 95]",
+        abs(cfg.rep_floor - 0.0) < 1e-9 and abs(cfg.rep_cap - 95.0) < 1e-9,
+    )
     check("QA-1106", "Bond discount floor = 0.20", abs(cfg.bond_discount_floor - 0.20) < 1e-9)
     check("QA-1112", "Daily gain cap = 5.0", abs(cfg.rep_max_gain_per_day - 5.0) < 1e-9)
 
@@ -519,10 +566,10 @@ def test_reputation():
     # Reputation engine integration
     try:
         from oasyce.services.reputation import ReputationEngine
+
         rep_engine = ReputationEngine(config=cfg)
         initial = rep_engine.get_reputation("new_agent")
-        check("QA-1107", "New agent starts at rep_initial",
-              abs(initial - cfg.rep_initial) < 1e-9)
+        check("QA-1107", "New agent starts at rep_initial", abs(initial - cfg.rep_initial) < 1e-9)
     except Exception as e:
         skip("QA-1107", "ReputationEngine", str(e))
 
@@ -531,20 +578,29 @@ def test_reputation():
 # QA-1200: Dispute Resolution
 # ===========================================================================
 
+
 def test_dispute():
     section("QA-1200: Dispute Resolution")
 
     from oasyce.capabilities.dispute import (
-        DisputeManager, DisputeState, Verdict, ResolutionOutcome,
-        DISPUTE_FEE, DEFAULT_JURY_SIZE, MAJORITY_THRESHOLD,
-        MIN_JUROR_REPUTATION, JUROR_REWARD_FIXED, JUROR_STAKE_REQUIRED,
-        VOTING_DEADLINE, DISPUTE_WINDOWS_BY_LEVEL,
+        DisputeManager,
+        DisputeState,
+        Verdict,
+        ResolutionOutcome,
+        DISPUTE_FEE,
+        DEFAULT_JURY_SIZE,
+        MAJORITY_THRESHOLD,
+        MIN_JUROR_REPUTATION,
+        JUROR_REWARD_FIXED,
+        JUROR_STAKE_REQUIRED,
+        VOTING_DEADLINE,
+        DISPUTE_WINDOWS_BY_LEVEL,
     )
 
     # Constants
     check("QA-1209", "DISPUTE_FEE = 5.0", abs(DISPUTE_FEE - 5.0) < 1e-9)
     check("QA-1210", "DEFAULT_JURY_SIZE = 5", DEFAULT_JURY_SIZE == 5)
-    check("QA-1211", "MAJORITY_THRESHOLD = 2/3", abs(MAJORITY_THRESHOLD - 2/3) < 1e-9)
+    check("QA-1211", "MAJORITY_THRESHOLD = 2/3", abs(MAJORITY_THRESHOLD - 2 / 3) < 1e-9)
     check("QA-1212", "MIN_JUROR_REPUTATION = 50.0", abs(MIN_JUROR_REPUTATION - 50.0) < 1e-9)
     check("QA-1213", "JUROR_REWARD_FIXED = 2.0", abs(JUROR_REWARD_FIXED - 2.0) < 1e-9)
     check("QA-1214", "JUROR_STAKE_REQUIRED = 10.0", abs(JUROR_STAKE_REQUIRED - 10.0) < 1e-9)
@@ -557,10 +613,18 @@ def test_dispute():
     check("QA-1219", "L3 window = 2592000 (30d)", DISPUTE_WINDOWS_BY_LEVEL["L3"] == 2592000)
 
     # Dispute flow with mock dependencies
-    invocations = {"inv-001": type("Inv", (), {
-        "consumer_id": "consumer_a", "provider_id": "provider_b",
-        "escrow_id": "esc-001", "amount": 100.0,
-    })()}
+    invocations = {
+        "inv-001": type(
+            "Inv",
+            (),
+            {
+                "consumer_id": "consumer_a",
+                "provider_id": "provider_b",
+                "escrow_id": "esc-001",
+                "amount": 100.0,
+            },
+        )()
+    }
 
     refunded = []
     released = []
@@ -568,7 +632,7 @@ def test_dispute():
     dm = DisputeManager(
         get_invocation=lambda iid: invocations.get(iid),
         get_reputation=lambda nid: 60.0,  # above MIN_JUROR_REPUTATION
-        get_stake=lambda nid: 20.0,       # above JUROR_STAKE_REQUIRED
+        get_stake=lambda nid: 20.0,  # above JUROR_STAKE_REQUIRED
         escrow_refund=lambda eid: refunded.append(eid),
         escrow_release=lambda eid: released.append(eid),
     )
@@ -583,15 +647,20 @@ def test_dispute():
     eligible = [f"juror_{i}" for i in range(10)]
     jurors = dm.select_jury(dispute.dispute_id, eligible, jury_size=5)
     check("QA-1207", "5 jurors selected", len(jurors) == 5)
-    check("QA-1222", "Parties not in jury",
-          "consumer_a" not in jurors and "provider_b" not in jurors)
+    check(
+        "QA-1222", "Parties not in jury", "consumer_a" not in jurors and "provider_b" not in jurors
+    )
 
     # Voting
     for i, jid in enumerate(jurors[:4]):
         v = dm.submit_vote(dispute.dispute_id, jid, "consumer", reason="bad quality")
     v_last = dm.submit_vote(dispute.dispute_id, jurors[4], "provider", reason="data was fine")
     check("QA-1208", "Votes submitted", True)
-    check("QA-1223", "Verdict is consumer/provider", v_last.verdict in (Verdict.CONSUMER, Verdict.PROVIDER))
+    check(
+        "QA-1223",
+        "Verdict is consumer/provider",
+        v_last.verdict in (Verdict.CONSUMER, Verdict.PROVIDER),
+    )
 
     # Duplicate vote rejected
     dup_rejected = False
@@ -604,8 +673,11 @@ def test_dispute():
     # Resolve
     resolution = dm.resolve(dispute.dispute_id)
     check("QA-1204", "Dispute resolved", resolution is not None)
-    check("QA-1228", "4/5 consumer → CONSUMER_WINS",
-          resolution.outcome == ResolutionOutcome.CONSUMER_WINS)
+    check(
+        "QA-1228",
+        "4/5 consumer → CONSUMER_WINS",
+        resolution.outcome == ResolutionOutcome.CONSUMER_WINS,
+    )
 
     # Evidence submission
     has_evidence = hasattr(dm, "submit_evidence")
@@ -619,6 +691,7 @@ def test_dispute():
 # ===========================================================================
 # QA-1300: Fingerprint & Watermark
 # ===========================================================================
+
 
 def test_fingerprint():
     section("QA-1300: Fingerprint & Watermark")
@@ -637,8 +710,11 @@ def test_fingerprint():
 
         extracted = FingerprintEngine.extract_text(watermarked)
         check("QA-1302", "extract_text extracts fingerprint", extracted is not None)
-        check("QA-1303", "Round-trip: extracted == original",
-              extracted is not None and extracted == fp)
+        check(
+            "QA-1303",
+            "Round-trip: extracted == original",
+            extracted is not None and extracted == fp,
+        )
 
         # Binary watermark
         data = b"binary data payload"
@@ -657,14 +733,23 @@ def test_fingerprint():
         check("QA-1308", "Different caller → different fingerprint", fp3 != fp)
 
     except ImportError as e:
-        for qid in ["QA-1301", "QA-1302", "QA-1303", "QA-1304", "QA-1305",
-                     "QA-1306", "QA-1307", "QA-1308"]:
+        for qid in [
+            "QA-1301",
+            "QA-1302",
+            "QA-1303",
+            "QA-1304",
+            "QA-1305",
+            "QA-1306",
+            "QA-1307",
+            "QA-1308",
+        ]:
             skip(qid, "Fingerprint", str(e))
 
 
 # ===========================================================================
 # QA-1400: Access Control
 # ===========================================================================
+
 
 def test_access_control():
     section("QA-1400: Access Control")
@@ -727,6 +812,7 @@ def test_access_control():
 # QA-1500: Agent Skills
 # ===========================================================================
 
+
 def test_agent_skills():
     section("QA-1500: Agent Skills")
 
@@ -740,28 +826,62 @@ def test_agent_skills():
         check("QA-1502", "classify_data_skill exists", hasattr(skills_cls, "classify_data_skill"))
         check("QA-1508", "check_privacy_skill exists", hasattr(skills_cls, "check_privacy_skill"))
         check("QA-1509", "filter_batch_skill exists", hasattr(skills_cls, "filter_batch_skill"))
-        check("QA-1503", "generate_metadata_skill exists", hasattr(skills_cls, "generate_metadata_skill"))
-        check("QA-1504", "create_certificate_skill exists", hasattr(skills_cls, "create_certificate_skill"))
-        check("QA-1505", "register_data_asset_skill exists", hasattr(skills_cls, "register_data_asset_skill"))
+        check(
+            "QA-1503",
+            "generate_metadata_skill exists",
+            hasattr(skills_cls, "generate_metadata_skill"),
+        )
+        check(
+            "QA-1504",
+            "create_certificate_skill exists",
+            hasattr(skills_cls, "create_certificate_skill"),
+        )
+        check(
+            "QA-1505",
+            "register_data_asset_skill exists",
+            hasattr(skills_cls, "register_data_asset_skill"),
+        )
 
         # Search & Trading
         check("QA-1510", "search_data_skill exists", hasattr(skills_cls, "search_data_skill"))
         check("QA-1511", "trade_data_skill exists", hasattr(skills_cls, "trade_data_skill"))
-        check("QA-1512", "discover_and_buy_skill exists", hasattr(skills_cls, "discover_and_buy_skill"))
+        check(
+            "QA-1512",
+            "discover_and_buy_skill exists",
+            hasattr(skills_cls, "discover_and_buy_skill"),
+        )
         check("QA-1513", "buy_shares_skill exists", hasattr(skills_cls, "buy_shares_skill"))
         check("QA-1514", "get_shares_skill exists", hasattr(skills_cls, "get_shares_skill"))
 
         # Pricing
-        check("QA-1515", "calculate_price_skill exists", hasattr(skills_cls, "calculate_price_skill"))
+        check(
+            "QA-1515", "calculate_price_skill exists", hasattr(skills_cls, "calculate_price_skill")
+        )
         check("QA-1516", "calculate_bond_skill exists", hasattr(skills_cls, "calculate_bond_skill"))
         check("QA-1517", "stake_skill exists", hasattr(skills_cls, "stake_skill"))
         check("QA-1518", "mine_block_skill exists", hasattr(skills_cls, "mine_block_skill"))
 
         # Fingerprint
-        check("QA-1519", "fingerprint_embed_skill exists", hasattr(skills_cls, "fingerprint_embed_skill"))
-        check("QA-1520", "fingerprint_extract_skill exists", hasattr(skills_cls, "fingerprint_extract_skill"))
-        check("QA-1521", "fingerprint_trace_skill exists", hasattr(skills_cls, "fingerprint_trace_skill"))
-        check("QA-1522", "fingerprint_list_skill exists", hasattr(skills_cls, "fingerprint_list_skill"))
+        check(
+            "QA-1519",
+            "fingerprint_embed_skill exists",
+            hasattr(skills_cls, "fingerprint_embed_skill"),
+        )
+        check(
+            "QA-1520",
+            "fingerprint_extract_skill exists",
+            hasattr(skills_cls, "fingerprint_extract_skill"),
+        )
+        check(
+            "QA-1521",
+            "fingerprint_trace_skill exists",
+            hasattr(skills_cls, "fingerprint_trace_skill"),
+        )
+        check(
+            "QA-1522",
+            "fingerprint_list_skill exists",
+            hasattr(skills_cls, "fingerprint_list_skill"),
+        )
 
         # Access control skills
         check("QA-1523", "query_data_skill exists", hasattr(skills_cls, "query_data_skill"))
@@ -770,21 +890,45 @@ def test_agent_skills():
         check("QA-1526", "deliver_data_skill exists", hasattr(skills_cls, "deliver_data_skill"))
 
         # Reputation & compliance
-        check("QA-1527", "check_reputation_skill exists", hasattr(skills_cls, "check_reputation_skill"))
-        check("QA-1528", "check_leakage_budget_skill exists", hasattr(skills_cls, "check_leakage_budget_skill"))
-        check("QA-1529", "get_asset_standard_skill exists", hasattr(skills_cls, "get_asset_standard_skill"))
-        check("QA-1530", "validate_asset_standard_skill exists", hasattr(skills_cls, "validate_asset_standard_skill"))
+        check(
+            "QA-1527",
+            "check_reputation_skill exists",
+            hasattr(skills_cls, "check_reputation_skill"),
+        )
+        check(
+            "QA-1528",
+            "check_leakage_budget_skill exists",
+            hasattr(skills_cls, "check_leakage_budget_skill"),
+        )
+        check(
+            "QA-1529",
+            "get_asset_standard_skill exists",
+            hasattr(skills_cls, "get_asset_standard_skill"),
+        )
+        check(
+            "QA-1530",
+            "validate_asset_standard_skill exists",
+            hasattr(skills_cls, "validate_asset_standard_skill"),
+        )
 
         # Contribution proof
-        check("QA-1531", "generate_contribution_proof_skill exists",
-              hasattr(skills_cls, "generate_contribution_proof_skill"))
-        check("QA-1532", "verify_contribution_proof_skill exists",
-              hasattr(skills_cls, "verify_contribution_proof_skill"))
+        check(
+            "QA-1531",
+            "generate_contribution_proof_skill exists",
+            hasattr(skills_cls, "generate_contribution_proof_skill"),
+        )
+        check(
+            "QA-1532",
+            "verify_contribution_proof_skill exists",
+            hasattr(skills_cls, "verify_contribution_proof_skill"),
+        )
 
         # Node
         check("QA-1533", "start_node_skill exists", hasattr(skills_cls, "start_node_skill"))
         check("QA-1534", "node_info_skill exists", hasattr(skills_cls, "node_info_skill"))
-        check("QA-1535", "enable_privacy_filter exists", hasattr(skills_cls, "enable_privacy_filter"))
+        check(
+            "QA-1535", "enable_privacy_filter exists", hasattr(skills_cls, "enable_privacy_filter")
+        )
 
     except ImportError as e:
         skip("QA-1501", "Agent skills", str(e))
@@ -794,16 +938,19 @@ def test_agent_skills():
 # QA-1600: AHRP Protocol
 # ===========================================================================
 
+
 def test_ahrp_protocol():
     section("QA-1600: AHRP Protocol")
 
     try:
         from oasyce.ahrp.executor import AHRPExecutor
 
-        check("QA-1601", "AHRPExecutor.handle_announce exists",
-              hasattr(AHRPExecutor, "handle_announce"))
-        check("QA-1604", "AHRPExecutor.find_matches exists",
-              hasattr(AHRPExecutor, "find_matches"))
+        check(
+            "QA-1601",
+            "AHRPExecutor.handle_announce exists",
+            hasattr(AHRPExecutor, "handle_announce"),
+        )
+        check("QA-1604", "AHRPExecutor.find_matches exists", hasattr(AHRPExecutor, "find_matches"))
     except ImportError as e:
         skip("QA-1601", "AHRP Executor", str(e))
 
@@ -819,7 +966,11 @@ def test_ahrp_protocol():
     try:
         from oasyce.ahrp.market import Market
 
-        check("QA-1609", "Market auction create", hasattr(Market, "create_auction") or hasattr(Market, "open_auction"))
+        check(
+            "QA-1609",
+            "Market auction create",
+            hasattr(Market, "create_auction") or hasattr(Market, "open_auction"),
+        )
     except ImportError as e:
         skip("QA-1609", "AHRP Market", str(e))
 
@@ -828,11 +979,14 @@ def test_ahrp_protocol():
 # QA-1700: Asset Lifecycle
 # ===========================================================================
 
+
 def test_asset_lifecycle():
     section("QA-1700: Asset Lifecycle")
 
     from oasyce.services.settlement.engine import (
-        AssetPool, SettlementConfig, SettlementEngine,
+        AssetPool,
+        SettlementConfig,
+        SettlementEngine,
     )
 
     engine = SettlementEngine(config=SettlementConfig(chain_required=False))
@@ -868,6 +1022,7 @@ def test_asset_lifecycle():
 
     # Versioning
     from oasyce.services.facade import OasyceServiceFacade
+
     facade = OasyceServiceFacade()
     check("QA-1706", "add_asset_version exists", hasattr(facade, "add_asset_version"))
     check("QA-1707", "get_asset_versions exists", hasattr(facade, "get_asset_versions"))
@@ -877,12 +1032,14 @@ def test_asset_lifecycle():
 # QA-1800: Server Endpoints
 # ===========================================================================
 
+
 def test_server_endpoints():
     section("QA-1800: Server Endpoints")
 
     # Verify server module has expected routes (without starting server)
     try:
         from oasyce import server
+
         check("QA-1801", "Server module importable", True)
         # Check for health/status/metrics route registrations
         src = open(server.__file__).read()
@@ -897,10 +1054,12 @@ def test_server_endpoints():
 # QA-1900: Go Chain Modules (requires running chain)
 # ===========================================================================
 
+
 def _chain_rest_get(path: str, rest_url: str = "http://localhost:1317") -> Optional[Dict[str, Any]]:
     """GET a chain REST endpoint, return parsed JSON or None on failure."""
     try:
         import requests
+
         resp = requests.get(f"{rest_url}{path}", timeout=5)
         if resp.status_code == 200:
             return resp.json()
@@ -914,6 +1073,7 @@ def test_go_chain_modules():
 
     # Check chain binary
     import shutil
+
     oasyced = shutil.which("oasyced")
     if not oasyced:
         # Check common build paths
@@ -947,10 +1107,13 @@ def test_go_chain_modules():
     # These are compile-time constants in Go, verified via Go tests.
     # Here we cross-check Python constants match.
     from oasyce.core.protocol_params import get_protocol_params
+
     pp = get_protocol_params()
     check("QA-1901", "Go BurnRate = 0.05 (Python match)", abs(pp.burn_rate - 0.05) < 1e-9)
     check("QA-1902", "Go TreasuryRate = 0.03 (Python match)", abs(pp.treasury_rate - 0.03) < 1e-9)
-    check("QA-1903", "Go ProtocolFeeRate = 0.07 (Python match)", abs(pp.validator_rate - 0.07) < 1e-9)
+    check(
+        "QA-1903", "Go ProtocolFeeRate = 0.07 (Python match)", abs(pp.validator_rate - 0.07) < 1e-9
+    )
     check("QA-1904", "Go ReserveRatio = 0.50 (Python match)", abs(pp.reserve_ratio - 0.50) < 1e-9)
     solvency = getattr(pp, "reserve_solvency_cap", 0.95)
     check("QA-1905", "Go ReserveSolvencyCap = 0.95 (Python match)", abs(solvency - 0.95) < 1e-9)
@@ -958,30 +1121,54 @@ def test_go_chain_modules():
     # QA-1906..1907: Fee split verification
     total_fee = pp.creator_rate + pp.validator_rate + pp.burn_rate + pp.treasury_rate
     check("QA-1906", "ReleaseEscrow fee split sums to 1.0", abs(total_fee - 1.0) < 1e-9)
-    check("QA-1907", "SellShares protocol fee = validator_rate (0.07)", abs(pp.validator_rate - 0.07) < 1e-9)
+    check(
+        "QA-1907",
+        "SellShares protocol fee = validator_rate (0.07)",
+        abs(pp.validator_rate - 0.07) < 1e-9,
+    )
 
     # QA-1908..1913: Module availability (check REST endpoints respond with 200, not 501)
     def _chain_rest_ok(path: str) -> bool:
         """Return True only if endpoint returns HTTP 200 (not 501 Not Implemented)."""
         try:
             import requests
+
             resp = requests.get(f"http://localhost:1317{path}", timeout=5)
             return resp.status_code == 200
         except Exception:
             return False
 
-    check("QA-1908", "x/datarights REST responds", _chain_rest_ok("/oasyce/datarights/v1/data_assets"))
-    check("QA-1909", "x/settlement REST responds", _chain_rest_ok("/oasyce/settlement/v1/escrows/_"))
-    check("QA-1910", "x/capability REST responds", _chain_rest_ok("/oasyce/capability/v1/capabilities"))
-    check("QA-1911", "x/reputation REST responds", _chain_rest_ok("/oasyce/reputation/v1/leaderboard"))
+    check(
+        "QA-1908", "x/datarights REST responds", _chain_rest_ok("/oasyce/datarights/v1/data_assets")
+    )
+    check(
+        "QA-1909", "x/settlement REST responds", _chain_rest_ok("/oasyce/settlement/v1/escrows/_")
+    )
+    check(
+        "QA-1910",
+        "x/capability REST responds",
+        _chain_rest_ok("/oasyce/capability/v1/capabilities"),
+    )
+    check(
+        "QA-1911", "x/reputation REST responds", _chain_rest_ok("/oasyce/reputation/v1/leaderboard")
+    )
     # work and onboarding params endpoints return 501 — gRPC gateway not wired (known bug)
-    check("QA-1912", "x/work REST responds", _chain_rest_ok("/oasyce/work/v1/tasks_by_status/TASK_STATUS_SUBMITTED"))
-    check("QA-1913", "x/onboarding REST responds", _chain_rest_ok("/oasyce/onboarding/v1/registration/_"))
+    check(
+        "QA-1912",
+        "x/work REST responds",
+        _chain_rest_ok("/oasyce/work/v1/tasks_by_status/TASK_STATUS_SUBMITTED"),
+    )
+    check(
+        "QA-1913",
+        "x/onboarding REST responds",
+        _chain_rest_ok("/oasyce/onboarding/v1/registration/_"),
+    )
 
 
 # ===========================================================================
 # QA-2100: Internal Network Testing (requires running chain)
 # ===========================================================================
+
 
 def test_internal_network():
     section("QA-2100: Internal Network Testing")
@@ -1009,6 +1196,7 @@ def test_internal_network():
     grpc_ok = False
     try:
         import socket
+
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(3)
         s.connect(("localhost", 9090))
@@ -1037,6 +1225,7 @@ def test_internal_network():
     cap_data = _chain_rest_get("/oasyce/capability/v1/capabilities")
     # We check the default code value since there's no params query for capability
     from oasyce.chain_client import ChainClient
+
     cc = ChainClient()
 
     # For params without a REST query, we verify the Go source defaults
@@ -1045,10 +1234,14 @@ def test_internal_network():
 
     # datarights.dispute_deposit — check Go source default
     from oasyce.core.formulas import RESERVE_RATIO  # just to verify import works
+
     DR_DISPUTE_DEPOSIT_UOAS = 10000000  # Go default: 10 OAS (lowered for testnet)
     DR_DISPUTE_DEPOSIT_OAS = DR_DISPUTE_DEPOSIT_UOAS / 1_000_000
-    check("QA-2112", f"datarights.dispute_deposit <= 100 OAS (current: {DR_DISPUTE_DEPOSIT_OAS})",
-          DR_DISPUTE_DEPOSIT_OAS <= 100)
+    check(
+        "QA-2112",
+        f"datarights.dispute_deposit <= 100 OAS (current: {DR_DISPUTE_DEPOSIT_OAS})",
+        DR_DISPUTE_DEPOSIT_OAS <= 100,
+    )
 
     # onboarding.pow_difficulty
     pow_diff = 16  # Go default
@@ -1064,7 +1257,11 @@ def test_internal_network():
             airdrop_oas = int(amt.get("amount", 20000000)) / 1_000_000
         else:
             airdrop_oas = 20
-    check("QA-2114", f"onboarding.airdrop_amount >= 10 OAS (current: {airdrop_oas})", airdrop_oas >= 10)
+    check(
+        "QA-2114",
+        f"onboarding.airdrop_amount >= 10 OAS (current: {airdrop_oas})",
+        airdrop_oas >= 10,
+    )
 
     # work.min_executor_reputation
     min_rep = 50  # Go default
@@ -1074,24 +1271,36 @@ def test_internal_network():
 
     # settlement.escrow_timeout
     escrow_timeout = 300  # Go default (5 min)
-    check("QA-2116", f"settlement.escrow_timeout >= 60s (current: {escrow_timeout})", escrow_timeout >= 60)
+    check(
+        "QA-2116",
+        f"settlement.escrow_timeout >= 60s (current: {escrow_timeout})",
+        escrow_timeout >= 60,
+    )
 
     # settlement.protocol_fee_rate
     check("QA-2117", "settlement.protocol_fee_rate == 0.07", True)  # verified in Go source
 
     # --- 23.3 Parameter alignment (Python ↔ Go) ---
     from oasyce.core.protocol_params import get_protocol_params
+
     pp = get_protocol_params()
 
     py_sum = pp.creator_rate + pp.validator_rate + pp.burn_rate + pp.treasury_rate
     check("QA-2121", f"Python fee_split sum == 1.0 (got {py_sum})", abs(py_sum - 1.0) < 1e-9)
-    check("QA-2122", f"Python reserve_ratio == Go 0.50 (got {pp.reserve_ratio})",
-          abs(pp.reserve_ratio - 0.50) < 1e-9)
-    check("QA-2123", f"Python burn_rate == Go 0.05 (got {pp.burn_rate})",
-          abs(pp.burn_rate - 0.05) < 1e-9)
+    check(
+        "QA-2122",
+        f"Python reserve_ratio == Go 0.50 (got {pp.reserve_ratio})",
+        abs(pp.reserve_ratio - 0.50) < 1e-9,
+    )
+    check(
+        "QA-2123",
+        f"Python burn_rate == Go 0.05 (got {pp.burn_rate})",
+        abs(pp.burn_rate - 0.05) < 1e-9,
+    )
     solvency = getattr(pp, "reserve_solvency_cap", 0.95)
-    check("QA-2124", f"Python solvency_cap == Go 0.95 (got {solvency})",
-          abs(solvency - 0.95) < 1e-9)
+    check(
+        "QA-2124", f"Python solvency_cap == Go 0.95 (got {solvency})", abs(solvency - 0.95) < 1e-9
+    )
 
     # --- 23.4 Chain transaction flow (requires funded accounts) ---
     # These are skipped if no accounts are set up
@@ -1105,14 +1314,16 @@ def test_internal_network():
 
     # --- 23.5 Python-Chain connectivity ---
     from oasyce.chain_client import ChainClient as CC2
+
     client = CC2()
     connected = safe(lambda: client.is_connected(), False)
     check("QA-2141", "ChainClient.is_connected() == True", connected)
 
     # Facade chain mode
     chain_mode_env = os.environ.get("OASYCE_STRICT_CHAIN", "0")
-    check("QA-2142", "OASYCE_STRICT_CHAIN env set for chain mode",
-          chain_mode_env == "1" or connected)
+    check(
+        "QA-2142", "OASYCE_STRICT_CHAIN env set for chain mode", chain_mode_env == "1" or connected
+    )
 
     # Dashboard reading chain assets
     assets = _chain_rest_get("/oasyce/datarights/v1/data_assets")
@@ -1155,10 +1366,15 @@ CHAIN_MODULES = {
 # Main
 # ===========================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(description="Oasyce QA Regression Suite")
-    parser.add_argument("--module", type=str, help="Run single module (e.g., facade, bonding_curve)")
-    parser.add_argument("--include-chain", action="store_true", help="Include chain-dependent tests")
+    parser.add_argument(
+        "--module", type=str, help="Run single module (e.g., facade, bonding_curve)"
+    )
+    parser.add_argument(
+        "--include-chain", action="store_true", help="Include chain-dependent tests"
+    )
     parser.add_argument("--json", action="store_true", help="Output JSON report")
     parser.add_argument("--list-modules", action="store_true", help="List available modules")
     args = parser.parse_args()
@@ -1208,7 +1424,9 @@ def main():
     print(f"\n\033[1m{'=' * 60}\033[0m")
     print(f"  \033[1mSUMMARY\033[0m")
     print(f"\033[1m{'=' * 60}\033[0m")
-    print(f"\n  \033[32mPASS: {passed}\033[0m  |  \033[31mFAIL: {failed}\033[0m  |  \033[33mSKIP: {skipped}\033[0m  |  TOTAL: {total}")
+    print(
+        f"\n  \033[32mPASS: {passed}\033[0m  |  \033[31mFAIL: {failed}\033[0m  |  \033[33mSKIP: {skipped}\033[0m  |  TOTAL: {total}"
+    )
 
     if failed == 0:
         print(f"\n  \033[32m✓ All {passed} checks passed.\033[0m")

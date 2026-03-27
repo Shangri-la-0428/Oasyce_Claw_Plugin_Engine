@@ -21,6 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 # ── Rate limiter ─────────────────────────────────────────────────────
 
+
 class RateLimiter:
     """Token bucket rate limiter per IP address."""
 
@@ -37,9 +38,7 @@ class RateLimiter:
 
         with self._lock:
             # Prune old entries
-            self._requests[key] = [
-                t for t in self._requests[key] if t > cutoff
-            ]
+            self._requests[key] = [t for t in self._requests[key] if t > cutoff]
             if len(self._requests[key]) >= self._rate:
                 return False
             self._requests[key].append(now)
@@ -57,7 +56,11 @@ class RateLimiter:
 # ── Read-only paths (no auth required) ───────────────────────────────
 
 READ_PATHS: Set[str] = {
-    "/health", "/status", "/metrics", "/docs", "/openapi.json",
+    "/health",
+    "/status",
+    "/metrics",
+    "/docs",
+    "/openapi.json",
 }
 
 READ_PREFIXES: Tuple[str, ...] = (
@@ -78,6 +81,7 @@ def _is_read_only(method: str, path: str) -> bool:
 
 
 # ── API Key Auth Middleware ──────────────────────────────────────────
+
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     """Require API key for write endpoints when enabled.
@@ -109,6 +113,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
 
 # ── Rate Limit Middleware ────────────────────────────────────────────
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """IP-based rate limiting: reads 100/min, writes 20/min."""

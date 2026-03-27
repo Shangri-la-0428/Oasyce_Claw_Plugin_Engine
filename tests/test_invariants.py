@@ -1,4 +1,5 @@
 """Tests for critical invariants added in P7-P10."""
+
 from __future__ import annotations
 
 import pytest
@@ -73,7 +74,7 @@ def test_decay_all_applies_to_multiple_agents():
     from oasyce.services.access.config import AccessControlConfig
 
     config = AccessControlConfig(
-        rep_decay_days=0.0001,    # ~8.6 seconds, for fast test
+        rep_decay_days=0.0001,  # ~8.6 seconds, for fast test
         rep_decay_amount=-5.0,
     )
 
@@ -151,7 +152,9 @@ def test_share_adjustment_must_sum_to_100():
     ledger = Ledger(db_path=":memory:")
     # Create a disputed asset in the ledger
     ledger.register_asset(
-        "SHARE_TEST", "creator", "hash123",
+        "SHARE_TEST",
+        "creator",
+        "hash123",
         {"tags": ["test"], "disputed": True, "dispute_status": "open"},
     )
 
@@ -160,10 +163,12 @@ def test_share_adjustment_must_sum_to_100():
     result = facade.resolve_dispute(
         asset_id="SHARE_TEST",
         remedy="share_adjustment",
-        details={"co_creators": [
-            {"address": "alice", "share": 60},
-            {"address": "bob", "share": 60},  # Sum = 120, invalid
-        ]},
+        details={
+            "co_creators": [
+                {"address": "alice", "share": 60},
+                {"address": "bob", "share": 60},  # Sum = 120, invalid
+            ]
+        },
     )
     assert not result.success
     assert "sum to 100" in result.error.lower()

@@ -41,7 +41,8 @@ class AHRPStore:
 
     def _init_schema(self) -> None:
         with self._lock, self._conn:
-            self._conn.executescript("""
+            self._conn.executescript(
+                """
                 PRAGMA journal_mode=WAL;
 
                 CREATE TABLE IF NOT EXISTS ahrp_agents (
@@ -117,7 +118,8 @@ class AHRPStore:
                     matches_sent  INTEGER DEFAULT 0,
                     offers_data   TEXT DEFAULT '[]'
                 );
-            """)
+            """
+            )
 
     # ── Agent CRUD ────────────────────────────────────────────────────
 
@@ -137,10 +139,16 @@ class AHRPStore:
                        (SELECT created_at FROM ahrp_agents WHERE agent_id = ?), ?
                    ))""",
                 (
-                    agent.agent_id, agent.public_key, agent.reputation,
-                    agent.stake, json.dumps(agent.metadata),
-                    json.dumps(endpoints), now, announce_count,
-                    agent.agent_id, now,
+                    agent.agent_id,
+                    agent.public_key,
+                    agent.reputation,
+                    agent.stake,
+                    json.dumps(agent.metadata),
+                    json.dumps(endpoints),
+                    now,
+                    announce_count,
+                    agent.agent_id,
+                    now,
                 ),
             )
 
@@ -170,9 +178,7 @@ class AHRPStore:
 
     def save_capabilities(self, agent_id: str, caps: List[Capability]) -> None:
         with self._lock, self._conn:
-            self._conn.execute(
-                "DELETE FROM ahrp_capabilities WHERE agent_id = ?", (agent_id,)
-            )
+            self._conn.execute("DELETE FROM ahrp_capabilities WHERE agent_id = ?", (agent_id,))
             for cap in caps:
                 self._conn.execute(
                     """INSERT INTO ahrp_capabilities
@@ -180,9 +186,12 @@ class AHRPStore:
                         access_levels, price_floor, origin_type)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        cap.capability_id, agent_id,
-                        json.dumps(cap.tags), cap.description,
-                        json.dumps(cap.access_levels), cap.price_floor,
+                        cap.capability_id,
+                        agent_id,
+                        json.dumps(cap.tags),
+                        cap.description,
+                        json.dumps(cap.access_levels),
+                        cap.price_floor,
                         cap.origin_type,
                     ),
                 )
@@ -227,12 +236,17 @@ class AHRPStore:
                        (SELECT created_at FROM ahrp_transactions WHERE tx_id = ?), ?
                    ), ?)""",
                 (
-                    tx_id, buyer, seller, state,
+                    tx_id,
+                    buyer,
+                    seller,
+                    state,
                     json.dumps(offer_data or {}),
                     json.dumps(accept_data or {}),
                     json.dumps(deliver_data or {}),
                     json.dumps(confirm_data or {}),
-                    tx_id, now, now,
+                    tx_id,
+                    now,
+                    now,
                 ),
             )
 
@@ -281,8 +295,15 @@ class AHRPStore:
                 """INSERT OR REPLACE INTO ahrp_escrows
                    (tx_id, buyer, seller, amount_oas, locked_at, released, chain_escrow_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (tx_id, buyer, seller, amount_oas, locked_at,
-                 1 if released else 0, chain_escrow_id),
+                (
+                    tx_id,
+                    buyer,
+                    seller,
+                    amount_oas,
+                    locked_at,
+                    1 if released else 0,
+                    chain_escrow_id,
+                ),
             )
 
     def update_escrow_released(self, tx_id: str, released: bool) -> None:
@@ -335,19 +356,23 @@ class AHRPStore:
                        (SELECT created_at FROM ahrp_auctions WHERE request_id = ?), ?
                    ))""",
                 (
-                    request_id, requester_id, budget_oas, deadline, sla_ms,
-                    min_reputation, bidding_window_ms,
+                    request_id,
+                    requester_id,
+                    budget_oas,
+                    deadline,
+                    sla_ms,
+                    min_reputation,
+                    bidding_window_ms,
                     json.dumps(bids or []),
                     json.dumps(winner) if winner else "",
                     1 if closed else 0,
                     json.dumps(request_data or {}),
-                    request_id, now,
+                    request_id,
+                    now,
                 ),
             )
 
-    def update_auction_closed(
-        self, request_id: str, winner: Optional[Dict], closed: bool
-    ) -> None:
+    def update_auction_closed(self, request_id: str, winner: Optional[Dict], closed: bool) -> None:
         with self._lock, self._conn:
             self._conn.execute(
                 "UPDATE ahrp_auctions SET winner = ?, closed = ? WHERE request_id = ?",

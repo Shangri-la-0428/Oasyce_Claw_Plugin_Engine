@@ -222,6 +222,7 @@ def get_executor() -> AHRPExecutor:
     global _executor_instance
     if _executor_instance is None:
         from oasyce.config import get_network_mode, get_security
+
         mode = get_network_mode()
         security = get_security(mode)
         _executor_instance = AHRPExecutor(

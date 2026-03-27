@@ -840,9 +840,7 @@ class OasyceClient:
         return self._local_engine
 
     def _fallback_disabled_error(self, operation: str) -> ChainClientError:
-        return ChainClientError(
-            f"Chain unavailable for {operation}; local fallback is disabled."
-        )
+        return ChainClientError(f"Chain unavailable for {operation}; local fallback is disabled.")
 
     def _call_with_optional_fallback(
         self,

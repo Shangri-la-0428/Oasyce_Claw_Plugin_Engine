@@ -28,9 +28,11 @@ from oasyce.cli import main
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ServiceResult:
     """Mirror of oasyce.services.facade.ServiceResult for test mocks."""
+
     success: bool
     data: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
@@ -68,6 +70,7 @@ def run_cli(*argv: str):
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _suppress_update_check():
     """Prevent the background update check from running during tests."""
@@ -78,6 +81,7 @@ def _suppress_update_check():
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. Top-level / help / no-command
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestTopLevel:
     """Tests for running `oas` with no subcommand or with --help."""
@@ -101,6 +105,7 @@ class TestTopLevel:
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. Data Asset commands: register, search, quote, buy, sell, shares
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestRegister:
     """Tests for `oas register`."""
@@ -187,7 +192,10 @@ class TestRegister:
         assert code == 0
         # Facade should be called with price_model="free"
         call_kwargs = facade.register.call_args
-        assert call_kwargs[1]["price_model"] == "free" or call_kwargs.kwargs.get("price_model") == "free"
+        assert (
+            call_kwargs[1]["price_model"] == "free"
+            or call_kwargs.kwargs.get("price_model") == "free"
+        )
 
     @patch("oasyce.services.facade.OasyceServiceFacade")
     @patch("oasyce.identity.Wallet")
@@ -279,7 +287,11 @@ class TestBuy:
         facade = mock_facade_cls.return_value
         facade.buy.return_value = ServiceResult(
             success=True,
-            data={"buyer": "bob", "receipt_id": "R_001", "quote": {"equity_minted": 3.0, "protocol_fee": 0.07}},
+            data={
+                "buyer": "bob",
+                "receipt_id": "R_001",
+                "quote": {"equity_minted": 3.0, "protocol_fee": 0.07},
+            },
         )
 
         code, out, err = run_cli("buy", "OAS_TEST", "--buyer", "bob", "--amount", "10.0", "--json")
@@ -361,6 +373,7 @@ class TestShares:
 # 3. Pricing commands: price, price-factors
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestPrice:
     """Tests for `oas price` and `oas price-factors`."""
 
@@ -403,6 +416,7 @@ class TestPrice:
 # 4. Dispute & Resolution
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestDispute:
     """Tests for `oas dispute`."""
 
@@ -415,9 +429,7 @@ class TestDispute:
             data={"dispute_id": "DIS_001", "state": "open", "arbitrators": []},
         )
 
-        code, out, err = run_cli(
-            "dispute", "OAS_BAD", "--reason", "plagiarised content", "--json"
-        )
+        code, out, err = run_cli("dispute", "OAS_BAD", "--reason", "plagiarised content", "--json")
         assert code == 0
         parsed = json.loads(out)
         assert parsed["dispute_id"] == "DIS_001"
@@ -428,9 +440,7 @@ class TestDispute:
         facade = mock_facade_cls.return_value
         facade.dispute.return_value = ServiceResult(success=False, error="already disputed")
 
-        code, out, err = run_cli(
-            "dispute", "OAS_BAD", "--reason", "dup", "--json"
-        )
+        code, out, err = run_cli("dispute", "OAS_BAD", "--reason", "dup", "--json")
         assert code == 1
         parsed = json.loads(out)
         assert parsed["ok"] is False
@@ -450,7 +460,12 @@ class TestResolve:
         facade = mock_facade_cls.return_value
         facade.resolve_dispute.return_value = ServiceResult(
             success=True,
-            data={"dispute_id": "DIS_001", "outcome": "consumer", "consumer_refunded": True, "slash_amount": 5.0},
+            data={
+                "dispute_id": "DIS_001",
+                "outcome": "consumer",
+                "consumer_refunded": True,
+                "slash_amount": 5.0,
+            },
         )
 
         code, out, err = run_cli(
@@ -497,9 +512,7 @@ class TestJuryVote:
     @patch("oasyce.services.facade.OasyceServiceFacade")
     def test_jury_vote_uphold_json(self, mock_facade_cls, mock_ledger_cls):
         facade = mock_facade_cls.return_value
-        facade.jury_vote.return_value = ServiceResult(
-            success=True, data={"recorded": True}
-        )
+        facade.jury_vote.return_value = ServiceResult(success=True, data={"recorded": True})
 
         code, out, err = run_cli(
             "jury-vote", "DIS_001", "--verdict", "uphold", "--juror", "charlie", "--json"
@@ -512,9 +525,7 @@ class TestJuryVote:
     @patch("oasyce.services.facade.OasyceServiceFacade")
     def test_jury_vote_reject_json(self, mock_facade_cls, mock_ledger_cls):
         facade = mock_facade_cls.return_value
-        facade.jury_vote.return_value = ServiceResult(
-            success=True, data={"recorded": True}
-        )
+        facade.jury_vote.return_value = ServiceResult(success=True, data={"recorded": True})
 
         code, out, err = run_cli(
             "jury-vote", "DIS_001", "--verdict", "reject", "--juror", "dave", "--json"
@@ -522,9 +533,7 @@ class TestJuryVote:
         assert code == 0
 
     def test_jury_vote_invalid_verdict(self):
-        code, out, err = run_cli(
-            "jury-vote", "DIS_001", "--verdict", "maybe", "--juror", "x"
-        )
+        code, out, err = run_cli("jury-vote", "DIS_001", "--verdict", "maybe", "--juror", "x")
         assert code != 0
 
     def test_jury_vote_missing_juror(self):
@@ -535,6 +544,7 @@ class TestJuryVote:
 # ═══════════════════════════════════════════════════════════════════════════
 # 5. Capability Marketplace
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestCapabilityRegister:
     """Tests for `oas capability register`."""
@@ -547,11 +557,16 @@ class TestCapabilityRegister:
         mock_proto.return_value = (MagicMock(), reg, MagicMock())
 
         code, out, err = run_cli(
-            "capability", "register",
-            "--name", "Translate",
-            "--endpoint", "https://api.example.com/tr",
-            "--price", "0.5",
-            "--tags", "nlp,translation",
+            "capability",
+            "register",
+            "--name",
+            "Translate",
+            "--endpoint",
+            "https://api.example.com/tr",
+            "--price",
+            "0.5",
+            "--tags",
+            "nlp,translation",
             "--json",
         )
         assert code == 0
@@ -559,15 +574,11 @@ class TestCapabilityRegister:
         assert parsed["capability_id"] == "CAP_001"
 
     def test_capability_register_missing_name(self):
-        code, out, err = run_cli(
-            "capability", "register", "--endpoint", "https://x.com/api"
-        )
+        code, out, err = run_cli("capability", "register", "--endpoint", "https://x.com/api")
         assert code != 0
 
     def test_capability_register_missing_endpoint(self):
-        code, out, err = run_cli(
-            "capability", "register", "--name", "Foo"
-        )
+        code, out, err = run_cli("capability", "register", "--name", "Foo")
         assert code != 0
 
 
@@ -627,8 +638,11 @@ class TestCapabilityInvoke:
         mock_proto.return_value = (protocol, reg, escrow)
 
         code, out, err = run_cli(
-            "capability", "invoke", "CAP_001",
-            "--input", '{"text":"hi"}',
+            "capability",
+            "invoke",
+            "CAP_001",
+            "--input",
+            '{"text":"hi"}',
             "--json",
         )
         assert code == 0
@@ -654,9 +668,7 @@ class TestCapabilityEarnings:
         escrow.close = MagicMock()
         mock_proto.return_value = (protocol, reg, escrow)
 
-        code, out, err = run_cli(
-            "capability", "earnings", "--provider", "alice", "--json"
-        )
+        code, out, err = run_cli("capability", "earnings", "--provider", "alice", "--json")
         assert code == 0
         parsed = json.loads(out)
         assert parsed["total_calls"] == 10
@@ -681,6 +693,7 @@ class TestCapabilityEarnings:
 # 6. Task Market (AHRP)
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestTaskPost:
 
     @patch("oasyce.cli._get_task_facade")
@@ -699,10 +712,14 @@ class TestTaskPost:
         mock_facade_fn.return_value = facade
 
         code, out, err = run_cli(
-            "task", "post",
-            "--requester", "alice",
-            "--description", "Translate EN->FR",
-            "--budget", "50",
+            "task",
+            "post",
+            "--requester",
+            "alice",
+            "--description",
+            "Translate EN->FR",
+            "--budget",
+            "50",
             "--json",
         )
         assert code == 0
@@ -710,15 +727,11 @@ class TestTaskPost:
         assert parsed["task_id"] == "TASK_001"
 
     def test_task_post_missing_requester(self):
-        code, out, err = run_cli(
-            "task", "post", "--description", "x", "--budget", "10"
-        )
+        code, out, err = run_cli("task", "post", "--description", "x", "--budget", "10")
         assert code != 0
 
     def test_task_post_missing_budget(self):
-        code, out, err = run_cli(
-            "task", "post", "--requester", "alice", "--description", "x"
-        )
+        code, out, err = run_cli("task", "post", "--requester", "alice", "--description", "x")
         assert code != 0
 
 
@@ -730,7 +743,13 @@ class TestTaskList:
         facade.query_tasks.return_value = ServiceResult(
             success=True,
             data=[
-                {"task_id": "T1", "budget": 10.0, "status": "open", "bids": [], "description": "Task one"},
+                {
+                    "task_id": "T1",
+                    "budget": 10.0,
+                    "status": "open",
+                    "bids": [],
+                    "description": "Task one",
+                },
             ],
         )
         mock_facade_fn.return_value = facade
@@ -763,8 +782,14 @@ class TestTaskBid:
         mock_facade_fn.return_value = facade
 
         code, out, err = run_cli(
-            "task", "bid", "TASK_001",
-            "--agent", "bob", "--price", "30", "--json",
+            "task",
+            "bid",
+            "TASK_001",
+            "--agent",
+            "bob",
+            "--price",
+            "30",
+            "--json",
         )
         assert code == 0
         parsed = json.loads(out)
@@ -832,6 +857,7 @@ class TestTaskCancel:
 # 7. Reputation
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestReputation:
 
     @patch("oasyce.cli.OasyceSkills")
@@ -855,9 +881,7 @@ class TestReputation:
         skills.access_provider = MagicMock()
         skills.access_provider.reputation = rep_mock
 
-        code, out, err = run_cli(
-            "reputation", "update", "alice", "--success", "--json"
-        )
+        code, out, err = run_cli("reputation", "update", "alice", "--success", "--json")
         assert code == 0
         parsed = json.loads(out)
         assert parsed["reputation"] == 9.0
@@ -871,6 +895,7 @@ class TestReputation:
 # ═══════════════════════════════════════════════════════════════════════════
 # 8. Access Control
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestAccess:
 
@@ -900,9 +925,7 @@ class TestAccess:
         assert code != 0
 
     def test_access_buy_invalid_level(self):
-        code, out, err = run_cli(
-            "access", "buy", "OAS_X", "--agent", "bob", "--level", "L9"
-        )
+        code, out, err = run_cli("access", "buy", "OAS_X", "--agent", "bob", "--level", "L9")
         assert code != 0
 
     @patch("oasyce.services.facade.OasyceServiceFacade")
@@ -914,14 +937,18 @@ class TestAccess:
                 "asset_id": "OAS_X",
                 "reputation": 8.0,
                 "levels": [
-                    {"level": "L0", "name": "Query", "available": True, "bond_oas": 1.0, "lock_days": 7},
+                    {
+                        "level": "L0",
+                        "name": "Query",
+                        "available": True,
+                        "bond_oas": 1.0,
+                        "lock_days": 7,
+                    },
                 ],
             },
         )
 
-        code, out, err = run_cli(
-            "access", "quote", "OAS_X", "--agent", "bob", "--json"
-        )
+        code, out, err = run_cli("access", "quote", "OAS_X", "--agent", "bob", "--json")
         assert code == 0
         parsed = json.loads(out)
         assert parsed["levels"][0]["level"] == "L0"
@@ -935,9 +962,7 @@ class TestAccess:
             "data": {"rows": 100},
         }
 
-        code, out, err = run_cli(
-            "access", "query", "OAS_X", "--agent", "bob", "--json"
-        )
+        code, out, err = run_cli("access", "query", "OAS_X", "--agent", "bob", "--json")
         assert code == 0
         parsed = json.loads(out)
         assert parsed["success"] is True
@@ -966,6 +991,7 @@ class TestAccess:
 # ═══════════════════════════════════════════════════════════════════════════
 # 9. Agent Scheduler
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestAgent:
 
@@ -1071,6 +1097,7 @@ class TestAgent:
 # 10. Node commands
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestNode:
 
     @patch("oasyce.config.load_or_create_node_identity")
@@ -1104,6 +1131,7 @@ class TestNode:
 # 11. Fingerprint commands
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestFingerprint:
 
     @patch("oasyce.fingerprint.registry.FingerprintRegistry")
@@ -1123,9 +1151,7 @@ class TestFingerprint:
         f = tmp_path / "doc.txt"
         f.write_text("original text content")
 
-        code, out, err = run_cli(
-            "fingerprint", "embed", str(f), "--caller", "bob", "--json"
-        )
+        code, out, err = run_cli("fingerprint", "embed", str(f), "--caller", "bob", "--json")
         assert code == 0
         parsed = json.loads(out)
         assert "fingerprint" in parsed
@@ -1182,6 +1208,7 @@ class TestFingerprint:
 # 12. Info / Diagnostics
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestInfo:
 
     def test_info_json(self):
@@ -1203,6 +1230,7 @@ class TestInfo:
 # ═══════════════════════════════════════════════════════════════════════════
 # 13. Leakage commands
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestLeakage:
 
@@ -1243,22 +1271,26 @@ class TestLeakage:
 # 14. Subcommand group help (no subcommand -> show help, exit 0)
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestSubcommandGroupHelp:
     """All command groups should print help and exit 0 when no sub given."""
 
-    @pytest.mark.parametrize("group", [
-        "node",
-        "fingerprint",
-        "access",
-        "reputation",
-        "contribution",
-        "leakage",
-        "testnet",
-        "keys",
-        "cache",
-        "agent",
-        "task",
-    ])
+    @pytest.mark.parametrize(
+        "group",
+        [
+            "node",
+            "fingerprint",
+            "access",
+            "reputation",
+            "contribution",
+            "leakage",
+            "testnet",
+            "keys",
+            "cache",
+            "agent",
+            "task",
+        ],
+    )
     def test_group_no_subcommand_shows_help(self, group):
         code, out, err = run_cli(group)
         assert code == 0
@@ -1267,6 +1299,7 @@ class TestSubcommandGroupHelp:
 # ═══════════════════════════════════════════════════════════════════════════
 # 15. Feedback command
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestFeedback:
 
@@ -1277,9 +1310,7 @@ class TestFeedback:
         cfg.data_dir = str(tmp_path)
         mock_config_cls.from_env.return_value = cfg
 
-        code, out, err = run_cli(
-            "feedback", "This is a bug report", "--type", "bug", "--json"
-        )
+        code, out, err = run_cli("feedback", "This is a bug report", "--type", "bug", "--json")
         assert code == 0
         parsed = json.loads(out)
         assert parsed.get("ok") is True or "feedback_id" in parsed
@@ -1295,6 +1326,7 @@ class TestFeedback:
 # ═══════════════════════════════════════════════════════════════════════════
 # 16. Parametric: --json flag produces valid JSON across many commands
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestJsonOutputFormat:
     """Ensure various commands with --json produce parseable JSON on stdout."""
@@ -1318,9 +1350,7 @@ class TestJsonOutputFormat:
     @patch("oasyce.services.facade.OasyceServiceFacade")
     def test_quote_json_is_valid(self, mock_facade_cls):
         facade = mock_facade_cls.return_value
-        facade.quote.return_value = ServiceResult(
-            success=True, data={"payment_oas": 10.0}
-        )
+        facade.quote.return_value = ServiceResult(success=True, data={"payment_oas": 10.0})
 
         code, out, err = run_cli("quote", "OAS_X", "--json")
         assert code == 0
@@ -1336,6 +1366,7 @@ class TestJsonOutputFormat:
 # ═══════════════════════════════════════════════════════════════════════════
 # 17. Contribution commands
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestContribution:
 
@@ -1359,9 +1390,7 @@ class TestContribution:
         f = tmp_path / "data.txt"
         f.write_text("some data")
 
-        code, out, err = run_cli(
-            "contribution", "prove", str(f), "--creator", "pk1", "--json"
-        )
+        code, out, err = run_cli("contribution", "prove", str(f), "--creator", "pk1", "--json")
         assert code == 0
         parsed = json.loads(out)
         assert parsed["content_hash"] == "abc123"
@@ -1370,6 +1399,7 @@ class TestContribution:
 # ═══════════════════════════════════════════════════════════════════════════
 # 18. Discover command
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestDiscover:
 
@@ -1389,9 +1419,7 @@ class TestDiscover:
         engine = mock_discovery_cls.return_value
         engine.discover.return_value = [candidate]
 
-        code, out, err = run_cli(
-            "discover", "--intents", "translate", "--tags", "nlp", "--json"
-        )
+        code, out, err = run_cli("discover", "--intents", "translate", "--tags", "nlp", "--json")
         assert code == 0
         parsed = json.loads(out)
         assert len(parsed) == 1
@@ -1411,17 +1439,46 @@ class TestDiscover:
 # 19. Asset info / validate
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestAssetInfo:
 
     @patch("oasyce.cli.OasyceSkills")
     def test_asset_info_json(self, mock_skills_cls):
         skills = mock_skills_cls.return_value
         skills.get_asset_standard_skill.return_value = {
-            "identity": {"asset_id": "OAS_X", "creator": "alice", "created_at": 1700000000, "version": "1.0", "namespace": "oasyce"},
-            "metadata": {"title": "Test", "tags": ["ai"], "file_size_bytes": 1024, "description": "", "category": ""},
-            "access_policy": {"risk_level": "public", "max_access_level": "L3", "price_model": "bonding_curve", "license_type": "proprietary"},
-            "compute_interface": {"supported_operations": [], "runtime": "python3", "max_compute_seconds": 300, "memory_limit_mb": 1024},
-            "provenance": {"popc_signature": None, "certificate_issuer": None, "parent_assets": [], "fingerprint_id": None, "semantic_vector": None},
+            "identity": {
+                "asset_id": "OAS_X",
+                "creator": "alice",
+                "created_at": 1700000000,
+                "version": "1.0",
+                "namespace": "oasyce",
+            },
+            "metadata": {
+                "title": "Test",
+                "tags": ["ai"],
+                "file_size_bytes": 1024,
+                "description": "",
+                "category": "",
+            },
+            "access_policy": {
+                "risk_level": "public",
+                "max_access_level": "L3",
+                "price_model": "bonding_curve",
+                "license_type": "proprietary",
+            },
+            "compute_interface": {
+                "supported_operations": [],
+                "runtime": "python3",
+                "max_compute_seconds": 300,
+                "memory_limit_mb": 1024,
+            },
+            "provenance": {
+                "popc_signature": None,
+                "certificate_issuer": None,
+                "parent_assets": [],
+                "fingerprint_id": None,
+                "semantic_vector": None,
+            },
         }
 
         code, out, err = run_cli("asset-info", "OAS_X", "--json")
@@ -1447,19 +1504,23 @@ class TestAssetInfo:
 # 20. Unit conversion helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestUnitConversion:
     """Test the from_units / to_units helpers."""
 
     def test_from_units(self):
         from oasyce.cli import from_units, OAS_DECIMALS
+
         assert from_units(OAS_DECIMALS) == 1.0
         assert from_units(0) == 0.0
 
     def test_to_units(self):
         from oasyce.cli import to_units, OAS_DECIMALS
+
         assert to_units(1.0) == OAS_DECIMALS
         assert to_units(0.0) == 0
 
     def test_roundtrip(self):
         from oasyce.cli import from_units, to_units
+
         assert from_units(to_units(3.14)) == pytest.approx(3.14, abs=1e-8)

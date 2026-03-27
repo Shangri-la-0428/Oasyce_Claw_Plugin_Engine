@@ -32,10 +32,10 @@ class TestCalculateFees:
     def test_normal(self):
         """93/3/2/2 split: 3% validator, 2% burn, 2% treasury, 93% creator."""
         fee, burn, treasury, net = calculate_fees(100.0)
-        assert fee == pytest.approx(3.0)        # 3% validator
-        assert burn == pytest.approx(2.0)       # 2% burn
-        assert treasury == pytest.approx(2.0)   # 2% treasury
-        assert net == pytest.approx(93.0)       # 93% creator/reserve
+        assert fee == pytest.approx(3.0)  # 3% validator
+        assert burn == pytest.approx(2.0)  # 2% burn
+        assert treasury == pytest.approx(2.0)  # 2% treasury
+        assert net == pytest.approx(93.0)  # 93% creator/reserve
 
     def test_zero(self):
         fee, burn, treasury, net = calculate_fees(0.0)
@@ -92,7 +92,7 @@ class TestBondingCurveBuy:
 class TestBondingCurveSell:
     def test_normal(self):
         payout = bonding_curve_sell(100.0, 50.0, 10.0)
-        expected = 50.0 * (1 - (1 - 10.0/100.0) ** (1 / RESERVE_RATIO))
+        expected = 50.0 * (1 - (1 - 10.0 / 100.0) ** (1 / RESERVE_RATIO))
         assert payout == pytest.approx(expected)
 
     def test_solvency_cap(self):
@@ -245,7 +245,7 @@ class TestBondingCurveBuyEdgeCases:
         """Very large payment should not overflow."""
         tokens = bonding_curve_buy(1000, 500, 1e10)
         assert tokens > 0
-        assert tokens < float('inf')
+        assert tokens < float("inf")
 
 
 class TestBondingCurveSellEdgeCases:
@@ -280,21 +280,24 @@ class TestJuryScoreEdgeCases:
     def test_very_high_reputation(self):
         s = jury_score("D1", "node_a", 1e6)
         assert s > 0
-        assert s < float('inf')
+        assert s < float("inf")
 
 
 class TestDisputeConstants:
     def test_majority_threshold(self):
         from oasyce.core.formulas import MAJORITY_THRESHOLD
-        assert MAJORITY_THRESHOLD == pytest.approx(2/3)
+
+        assert MAJORITY_THRESHOLD == pytest.approx(2 / 3)
 
     def test_reputation_penalties_are_negative(self):
         assert REP_PENALTY_PROVIDER_LOSS < 0
         from oasyce.core.formulas import REP_PENALTY_CONSUMER_LOSS, REP_PENALTY_MINORITY_JUROR
+
         assert REP_PENALTY_CONSUMER_LOSS < 0
         assert REP_PENALTY_MINORITY_JUROR < 0
 
     def test_rewards_are_positive(self):
         from oasyce.core.formulas import REP_REWARD_MAJORITY_JUROR, JUROR_REWARD
+
         assert REP_REWARD_MAJORITY_JUROR > 0
         assert JUROR_REWARD > 0

@@ -95,9 +95,7 @@ def cmd_info(args):
         print("  Asset types: data, capability, oracle, identity")
         print(f"  Schema version: {info['schema_version']}")
         print()
-        print(
-            "  For details: oas info --section <quickstart|architecture|economics|update|links>"
-        )
+        print("  For details: oas info --section <quickstart|architecture|economics|update|links>")
         print()
 
 
@@ -454,12 +452,14 @@ def cmd_feedback(args):
     context_str = args.context or "{}"
 
     # Try local API first (if server is running)
-    payload = json.dumps({
-        "message": message,
-        "type": fb_type,
-        "agent_id": agent_id,
-        "context": json.loads(context_str) if context_str.startswith("{") else {},
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "message": message,
+            "type": fb_type,
+            "agent_id": agent_id,
+            "context": json.loads(context_str) if context_str.startswith("{") else {},
+        }
+    ).encode("utf-8")
 
     try:
         port = int(os.getenv("OASYCE_PORT", "8420"))
@@ -486,7 +486,11 @@ def cmd_feedback(args):
     import time as _time
 
     config = Config.from_env()
-    data_dir = config.data_dir if hasattr(config, "data_dir") else os.path.join(os.path.expanduser("~"), ".oasyce")
+    data_dir = (
+        config.data_dir
+        if hasattr(config, "data_dir")
+        else os.path.join(os.path.expanduser("~"), ".oasyce")
+    )
     os.makedirs(data_dir, exist_ok=True)
     db_path = os.path.join(data_dir, "feedback.db")
     conn = sqlite3.connect(db_path)
@@ -739,6 +743,7 @@ def cmd_demo(args):
                 bridge_quote,
                 bridge_register,
             )
+
             _has_core = True
         except ImportError:
             _has_core = False
@@ -806,7 +811,12 @@ def cmd_demo(args):
                 "popc_signature": file_hash[:16],
             }
             reg_result = UploadEngine.register_asset(metadata, vault_dir)
-            steps["register"] = {"asset_id": asset_id, "owner": "alice", "tags": metadata["tags"], "status": "success"}
+            steps["register"] = {
+                "asset_id": asset_id,
+                "owner": "alice",
+                "tags": metadata["tags"],
+                "status": "success",
+            }
             if not args.json:
                 print(f"   Asset ID: {asset_id}")
                 print(f"   Owner:    alice")
@@ -2252,9 +2262,11 @@ def cmd_start(args):
 
     # Auto-open browser unless --no-browser
     if not getattr(args, "no_browser", False):
+
         def _open():
             time.sleep(1.5)
             webbrowser.open(f"http://localhost:{gui_port}")
+
         threading.Thread(target=_open, daemon=True).start()
 
     # Start Dashboard
@@ -2296,7 +2308,15 @@ def cmd_verify(args):
 
         result = CertificateEngine.verify_popc_certificate(metadata, config.public_key)
         if getattr(args, "json", False):
-            print(json.dumps({"valid": result.ok, "asset_id": metadata.get("asset_id"), "error": result.error if not result.ok else None}))
+            print(
+                json.dumps(
+                    {
+                        "valid": result.ok,
+                        "asset_id": metadata.get("asset_id"),
+                        "error": result.error if not result.ok else None,
+                    }
+                )
+            )
             if not result.ok:
                 sys.exit(1)
             return
@@ -2434,7 +2454,16 @@ def cmd_inbox_edit(args):
             print(f"❌ Item not found: {args.item_id}", file=sys.stderr)
         sys.exit(1)
     if getattr(args, "json", False):
-        print(json.dumps({"ok": True, "item_id": args.item_id, "action": "edited_and_approved", "changes": changes}))
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "item_id": args.item_id,
+                    "action": "edited_and_approved",
+                    "changes": changes,
+                }
+            )
+        )
     else:
         print(f"✅ Edited and approved: {args.item_id}")
 
@@ -2463,7 +2492,15 @@ def cmd_trust(args):
         level = inbox.get_trust_level()
         labels = {0: "manual", 1: "low-value auto", 2: "full auto"}
         if use_json:
-            print(json.dumps({"trust_level": level, "label": labels.get(level, "unknown"), "auto_approve_threshold": inbox.get_auto_threshold()}))
+            print(
+                json.dumps(
+                    {
+                        "trust_level": level,
+                        "label": labels.get(level, "unknown"),
+                        "auto_approve_threshold": inbox.get_auto_threshold(),
+                    }
+                )
+            )
         else:
             print(f"Trust level: {level} ({labels.get(level, 'unknown')})")
             print(f"Auto-approve threshold: {inbox.get_auto_threshold()} OAS")
@@ -2759,12 +2796,17 @@ def cmd_doctor(args):
 
     if use_json:
         overall = "error" if errors > 0 else ("warning" if warnings > 0 else "ok")
-        print(json.dumps({
-            "status": overall,
-            "errors": errors,
-            "warnings": warnings,
-            "checks": checks,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "status": overall,
+                    "errors": errors,
+                    "warnings": warnings,
+                    "checks": checks,
+                },
+                indent=2,
+            )
+        )
         return
 
     print("\u2550" * 39)
@@ -3137,6 +3179,7 @@ def cmd_serve(args):
 def _get_task_facade():
     """Create a minimal OasyceServiceFacade for task market operations."""
     from oasyce.services.facade import OasyceServiceFacade
+
     return OasyceServiceFacade()
 
 
@@ -3188,7 +3231,9 @@ def cmd_task_list(args):
         print("-" * 70)
         for t in tasks:
             desc = t["description"][:30] + "..." if len(t["description"]) > 30 else t["description"]
-            print(f"{t['task_id']:<18} {t['budget']:<10.2f} {t['status']:<10} {len(t['bids']):<6} {desc}")
+            print(
+                f"{t['task_id']:<18} {t['budget']:<10.2f} {t['status']:<10} {len(t['bids']):<6} {desc}"
+            )
 
 
 def cmd_task_info(args):
@@ -3214,7 +3259,9 @@ def cmd_task_info(args):
         if d.get("bids"):
             print(f"  Bids ({len(d['bids'])}):")
             for b in d["bids"]:
-                print(f"    {b['bid_id'][:12]}  agent={b['agent_id']}  price={b['price']}  rep={b['reputation_score']}")
+                print(
+                    f"    {b['bid_id'][:12]}  agent={b['agent_id']}  price={b['price']}  rep={b['reputation_score']}"
+                )
 
 
 def cmd_task_bid(args):
@@ -3414,9 +3461,9 @@ def _maybe_check_for_update():
                 if time.time() - last_check < 86400:  # 24 hours
                     # Show cached notice if there was one
                     cached_latest = data.get("latest")
-                    if cached_latest and _parse_version_tuple(
-                        cached_latest
-                    ) > _parse_version_tuple(current):
+                    if cached_latest and _parse_version_tuple(cached_latest) > _parse_version_tuple(
+                        current
+                    ):
                         print(
                             f"  Update available: {current} \u2192 {cached_latest}."
                             f" Run 'oas update'\n"
@@ -3429,9 +3476,7 @@ def _maybe_check_for_update():
 
         # Cache the result
         cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(
-            json.dumps({"last_check": time.time(), "latest": latest or current})
-        )
+        cache_file.write_text(json.dumps({"last_check": time.time(), "latest": latest or current}))
 
         if latest and _parse_version_tuple(latest) > _parse_version_tuple(current):
             print(f"  Update available: {current} \u2192 {latest}. Run 'oas update'\n")
@@ -3494,8 +3539,12 @@ def main():
     dispute_parser = subparsers.add_parser("dispute", help="File a dispute against an asset")
     dispute_parser.add_argument("asset_id", help="Asset ID to dispute")
     dispute_parser.add_argument("--reason", required=True, help="Reason for dispute")
-    dispute_parser.add_argument("--invocation-id", default=None, help="Related invocation ID (optional)")
-    dispute_parser.add_argument("--consumer", default=None, help="Consumer identity (default: local)")
+    dispute_parser.add_argument(
+        "--invocation-id", default=None, help="Related invocation ID (optional)"
+    )
+    dispute_parser.add_argument(
+        "--consumer", default=None, help="Consumer identity (default: local)"
+    )
     dispute_parser.add_argument("--json", action="store_true", help="Output as JSON")
     dispute_parser.set_defaults(func=cmd_dispute)
 
@@ -3509,7 +3558,9 @@ def main():
     # Jury-vote command
     jury_vote_parser = subparsers.add_parser("jury-vote", help="Cast a jury vote on a dispute")
     jury_vote_parser.add_argument("dispute_id", help="Dispute ID to vote on")
-    jury_vote_parser.add_argument("--verdict", required=True, choices=["uphold", "reject"], help="Vote verdict")
+    jury_vote_parser.add_argument(
+        "--verdict", required=True, choices=["uphold", "reject"], help="Vote verdict"
+    )
     jury_vote_parser.add_argument("--juror", required=True, help="Juror name/address")
     jury_vote_parser.add_argument("--json", action="store_true", help="Output as JSON")
     jury_vote_parser.set_defaults(func=cmd_jury_vote)
@@ -3517,7 +3568,9 @@ def main():
     # Resolve command
     resolve_parser = subparsers.add_parser("resolve", help="Resolve a dispute with a remedy")
     resolve_parser.add_argument("asset_id", help="Asset ID to resolve")
-    resolve_parser.add_argument("--dispute-id", default=None, help="Dispute ID to resolve (optional)")
+    resolve_parser.add_argument(
+        "--dispute-id", default=None, help="Dispute ID to resolve (optional)"
+    )
     resolve_parser.add_argument(
         "--remedy",
         required=True,
@@ -3529,11 +3582,17 @@ def main():
     resolve_parser.set_defaults(func=cmd_resolve)
 
     # Feedback command (AI agent bug reports / suggestions)
-    feedback_parser = subparsers.add_parser("feedback", help="Submit feedback (bug/suggestion) from an AI agent")
+    feedback_parser = subparsers.add_parser(
+        "feedback", help="Submit feedback (bug/suggestion) from an AI agent"
+    )
     feedback_parser.add_argument("message", help="Feedback message")
-    feedback_parser.add_argument("--type", choices=["bug", "suggestion", "other"], default="bug", help="Feedback type")
+    feedback_parser.add_argument(
+        "--type", choices=["bug", "suggestion", "other"], default="bug", help="Feedback type"
+    )
     feedback_parser.add_argument("--agent", default=None, help="Agent identifier")
-    feedback_parser.add_argument("--context", default=None, help='Context JSON, e.g. \'{"version":"2.1.1"}\'')
+    feedback_parser.add_argument(
+        "--context", default=None, help='Context JSON, e.g. \'{"version":"2.1.1"}\''
+    )
     feedback_parser.add_argument("--json", action="store_true", help="Output as JSON")
     feedback_parser.set_defaults(func=cmd_feedback)
 
@@ -3558,7 +3617,9 @@ def main():
     # Quote command
     quote_parser = subparsers.add_parser("quote", help="Get bonding curve pricing quote")
     quote_parser.add_argument("asset_id", help="Asset ID (e.g., OAS_6596A36F)")
-    quote_parser.add_argument("--amount", type=float, default=10.0, help="OAS to quote (default 10.0)")
+    quote_parser.add_argument(
+        "--amount", type=float, default=10.0, help="OAS to quote (default 10.0)"
+    )
     quote_parser.add_argument("--json", action="store_true", help="Output as JSON")
     quote_parser.set_defaults(func=cmd_quote)
 
@@ -3580,11 +3641,12 @@ def main():
     sell_parser.add_argument(
         "--seller", default=None, help="Seller identity (defaults to wallet address or 'anonymous')"
     )
+    sell_parser.add_argument("--tokens", type=float, required=True, help="Number of tokens to sell")
     sell_parser.add_argument(
-        "--tokens", type=float, required=True, help="Number of tokens to sell"
-    )
-    sell_parser.add_argument(
-        "--max-slippage", type=float, default=None, help="Max slippage tolerance (e.g. 0.05 for 5%%)"
+        "--max-slippage",
+        type=float,
+        default=None,
+        help="Max slippage tolerance (e.g. 0.05 for 5%%)",
     )
     sell_parser.add_argument("--json", action="store_true", help="Output as JSON")
     sell_parser.set_defaults(func=cmd_sell)
@@ -3619,7 +3681,9 @@ def main():
     demo_parser = subparsers.add_parser(
         "demo", help="Run full protocol demo (register→quote→buy→capability→invoke→sell)"
     )
-    demo_parser.add_argument("--full", action="store_true", help="Use chain bridge (requires oasyce-core)")
+    demo_parser.add_argument(
+        "--full", action="store_true", help="Use chain bridge (requires oasyce-core)"
+    )
     demo_parser.set_defaults(func=cmd_demo)
 
     # Verify command
@@ -3732,9 +3796,7 @@ def main():
     access_quote_parser.add_argument("--json", action="store_true", help="Output as JSON")
     access_quote_parser.set_defaults(func=cmd_access_quote)
 
-    access_buy_parser = access_sub.add_parser(
-        "buy", help="Buy tiered access to an asset (L0-L3)"
-    )
+    access_buy_parser = access_sub.add_parser("buy", help="Buy tiered access to an asset (L0-L3)")
     access_buy_parser.add_argument("asset_id", help="Asset ID")
     access_buy_parser.add_argument(
         "--agent", default=None, help="Agent/buyer ID (defaults to wallet address)"
@@ -3954,7 +4016,9 @@ def main():
     )
     testnet_start_parser.set_defaults(func=cmd_testnet_start)
 
-    testnet_faucet_parser = testnet_sub.add_parser("faucet", help="Claim OAS (testnet-only, requires registration)")
+    testnet_faucet_parser = testnet_sub.add_parser(
+        "faucet", help="Claim OAS (testnet-only, requires registration)"
+    )
     testnet_faucet_parser.set_defaults(func=cmd_testnet_faucet)
 
     testnet_status_parser = testnet_sub.add_parser("status", help="Show testnet status")
@@ -4027,8 +4091,9 @@ def main():
     )
     cap_reg_parser.add_argument("--json", action="store_true")
     cap_reg_parser.add_argument(
-        "--skip-liveness-check", action="store_true",
-        help="Skip endpoint liveness verification before registering"
+        "--skip-liveness-check",
+        action="store_true",
+        help="Skip endpoint liveness verification before registering",
     )
     cap_reg_parser.set_defaults(func=cmd_capability_register)
 
@@ -4064,19 +4129,28 @@ def main():
     task_post_parser.add_argument("--requester", required=True, help="Requester ID")
     task_post_parser.add_argument("--description", required=True, help="Task description")
     task_post_parser.add_argument("--budget", required=True, help="Budget in OAS")
-    task_post_parser.add_argument("--deadline", type=int, default=3600, help="Deadline in seconds (default: 3600)")
-    task_post_parser.add_argument("--capabilities", default=None, help="Comma-separated required capabilities")
     task_post_parser.add_argument(
-        "--strategy", default="weighted_score",
+        "--deadline", type=int, default=3600, help="Deadline in seconds (default: 3600)"
+    )
+    task_post_parser.add_argument(
+        "--capabilities", default=None, help="Comma-separated required capabilities"
+    )
+    task_post_parser.add_argument(
+        "--strategy",
+        default="weighted_score",
         choices=["weighted_score", "lowest_price", "best_reputation", "requester_choice"],
         help="Bid selection strategy (default: weighted_score)",
     )
-    task_post_parser.add_argument("--min-reputation", type=float, default=0.0, help="Minimum reputation score")
+    task_post_parser.add_argument(
+        "--min-reputation", type=float, default=0.0, help="Minimum reputation score"
+    )
     task_post_parser.add_argument("--json", action="store_true")
     task_post_parser.set_defaults(func=cmd_task_post)
 
     task_list_parser = task_sub.add_parser("list", help="List open tasks")
-    task_list_parser.add_argument("--capability", default=None, help="Filter by capability (comma-separated)")
+    task_list_parser.add_argument(
+        "--capability", default=None, help="Filter by capability (comma-separated)"
+    )
     task_list_parser.add_argument("--json", action="store_true")
     task_list_parser.set_defaults(func=cmd_task_list)
 
@@ -4089,14 +4163,20 @@ def main():
     task_bid_parser.add_argument("task_id", help="Task ID to bid on")
     task_bid_parser.add_argument("--agent", required=True, help="Agent ID")
     task_bid_parser.add_argument("--price", required=True, help="Bid price in OAS")
-    task_bid_parser.add_argument("--seconds", type=int, default=0, help="Estimated completion time in seconds")
-    task_bid_parser.add_argument("--reputation", type=float, default=0.0, help="Agent reputation score")
+    task_bid_parser.add_argument(
+        "--seconds", type=int, default=0, help="Estimated completion time in seconds"
+    )
+    task_bid_parser.add_argument(
+        "--reputation", type=float, default=0.0, help="Agent reputation score"
+    )
     task_bid_parser.add_argument("--json", action="store_true")
     task_bid_parser.set_defaults(func=cmd_task_bid)
 
     task_select_parser = task_sub.add_parser("select", help="Select winning bid")
     task_select_parser.add_argument("task_id", help="Task ID")
-    task_select_parser.add_argument("--agent", default=None, help="Agent ID (for requester_choice strategy)")
+    task_select_parser.add_argument(
+        "--agent", default=None, help="Agent ID (for requester_choice strategy)"
+    )
     task_select_parser.add_argument("--json", action="store_true")
     task_select_parser.set_defaults(func=cmd_task_select)
 
@@ -4198,9 +4278,7 @@ def main():
     start_parser.add_argument(
         "--port", type=int, default=8420, help="Dashboard port (default: 8420)"
     )
-    start_parser.add_argument(
-        "--no-browser", action="store_true", help="Don't auto-open browser"
-    )
+    start_parser.add_argument("--no-browser", action="store_true", help="Don't auto-open browser")
     start_parser.set_defaults(func=cmd_start)
 
     # ── serve ────────────────────────────────────────────────────────

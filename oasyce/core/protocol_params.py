@@ -25,11 +25,11 @@ from typing import Any, Dict, Optional, Tuple
 
 # ── Bounds: hard limits that governance cannot exceed ──────────────
 PARAM_BOUNDS: Dict[str, Tuple[float, float]] = {
-    "reserve_ratio":  (0.10, 1.00),
-    "creator_rate":   (0.50, 0.95),
+    "reserve_ratio": (0.10, 1.00),
+    "creator_rate": (0.50, 0.95),
     "validator_rate": (0.01, 0.25),
-    "burn_rate":      (0.00, 0.15),
-    "treasury_rate":  (0.00, 0.10),
+    "burn_rate": (0.00, 0.15),
+    "treasury_rate": (0.00, 0.10),
 }
 
 
@@ -45,20 +45,20 @@ class ProtocolParams:
     """
 
     # Bonding curve
-    reserve_ratio: float = 0.50        # Bancor CW — sqrt curve
+    reserve_ratio: float = 0.50  # Bancor CW — sqrt curve
 
     # Fee split (must sum to 1.0)
-    creator_rate: float = 0.93         # → reserve pool
-    validator_rate: float = 0.03       # → block validators
-    burn_rate: float = 0.02            # → burned (deflationary)
-    treasury_rate: float = 0.02        # → protocol treasury
+    creator_rate: float = 0.93  # → reserve pool
+    validator_rate: float = 0.03  # → block validators
+    burn_rate: float = 0.02  # → burned (deflationary)
+    treasury_rate: float = 0.02  # → protocol treasury
 
     # Price bootstrap
-    initial_price: float = 1.0         # OAS per token at genesis
-    min_initial_reserve: float = 100.0 # Minimum funded pool reserve
+    initial_price: float = 1.0  # OAS per token at genesis
+    min_initial_reserve: float = 100.0  # Minimum funded pool reserve
 
     # Solvency
-    reserve_solvency_cap: float = 0.95 # Max % of reserve payable on sell
+    reserve_solvency_cap: float = 0.95  # Max % of reserve payable on sell
 
     def validate(self) -> None:
         """Check bounds and rate sum. Raises ParamValidationError."""
@@ -66,17 +66,10 @@ class ProtocolParams:
         for name, (lo, hi) in PARAM_BOUNDS.items():
             val = getattr(self, name)
             if not (lo <= val <= hi):
-                raise ParamValidationError(
-                    f"{name}={val} out of bounds [{lo}, {hi}]"
-                )
+                raise ParamValidationError(f"{name}={val} out of bounds [{lo}, {hi}]")
 
         # Rate sum must be 1.0
-        rate_sum = (
-            self.creator_rate
-            + self.validator_rate
-            + self.burn_rate
-            + self.treasury_rate
-        )
+        rate_sum = self.creator_rate + self.validator_rate + self.burn_rate + self.treasury_rate
         if abs(rate_sum - 1.0) > 1e-9:
             raise ParamValidationError(
                 f"Fee rates sum to {rate_sum}, must be 1.0 "
@@ -87,8 +80,7 @@ class ProtocolParams:
         # Solvency cap
         if not (0.5 <= self.reserve_solvency_cap <= 1.0):
             raise ParamValidationError(
-                f"reserve_solvency_cap={self.reserve_solvency_cap} "
-                f"out of bounds [0.5, 1.0]"
+                f"reserve_solvency_cap={self.reserve_solvency_cap} " f"out of bounds [0.5, 1.0]"
             )
 
     def to_dict(self) -> Dict[str, float]:
@@ -108,6 +100,7 @@ class ProtocolParams:
 # ── Environment variable loading ──────────────────────────────────
 
 _ENV_PREFIX = "OASYCE_PARAM_"
+
 
 def _load_from_env() -> Dict[str, float]:
     """Read OASYCE_PARAM_* env vars. Returns only those that are set."""
@@ -133,6 +126,7 @@ def _load_from_env() -> Dict[str, float]:
 
 
 # ── Chain query (stub — real implementation calls oasyced) ────────
+
 
 def _load_from_chain() -> Optional[Dict[str, float]]:
     """Query chain for current governance parameters.

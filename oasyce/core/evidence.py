@@ -31,12 +31,13 @@ from typing import Any, Dict
 
 class EvidenceType(str, Enum):
     """Types of evidence that can be submitted to support a dispute."""
-    FINGERPRINT_MATCH = "fingerprint_match"     # Content fingerprint matched
-    WATERMARK_DETECTED = "watermark_detected"   # Watermark found in unauthorized copy
-    LEAKAGE_DETECTED = "leakage_detected"       # Data found outside authorized scope
-    HASH_MISMATCH = "hash_mismatch"             # Content hash doesn't match registration
-    RIGHTS_VIOLATION = "rights_violation"        # Rights type claim is incorrect
-    QUALITY_FAILURE = "quality_failure"          # Capability output below threshold
+
+    FINGERPRINT_MATCH = "fingerprint_match"  # Content fingerprint matched
+    WATERMARK_DETECTED = "watermark_detected"  # Watermark found in unauthorized copy
+    LEAKAGE_DETECTED = "leakage_detected"  # Data found outside authorized scope
+    HASH_MISMATCH = "hash_mismatch"  # Content hash doesn't match registration
+    RIGHTS_VIOLATION = "rights_violation"  # Rights type claim is incorrect
+    QUALITY_FAILURE = "quality_failure"  # Capability output below threshold
 
 
 @dataclass(frozen=True)
@@ -50,8 +51,9 @@ class Evidence:
     who vote on the dispute outcome. The weight is advisory: jurors may
     assign their own weight based on the evidence type and source reputation.
     """
-    evidence_hash: str          # SHA-256 of the underlying proof data
+
+    evidence_hash: str  # SHA-256 of the underlying proof data
     evidence_type: EvidenceType
-    weight: float = 1.0         # 0.0-1.0 confidence (advisory, not binding)
-    source: str = ""            # Who produced this evidence (agent_id)
+    weight: float = 1.0  # 0.0-1.0 confidence (advisory, not binding)
+    source: str = ""  # Who produced this evidence (agent_id)
     metadata: Dict[str, Any] = field(default_factory=dict)

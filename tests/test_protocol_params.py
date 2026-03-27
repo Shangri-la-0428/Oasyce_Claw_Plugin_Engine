@@ -56,8 +56,10 @@ class TestValidation:
     def test_burn_rate_too_high(self):
         """Burn rate capped at 15% to prevent liquidity death."""
         p = ProtocolParams(
-            creator_rate=0.59, validator_rate=0.01,
-            burn_rate=0.30, treasury_rate=0.10,
+            creator_rate=0.59,
+            validator_rate=0.01,
+            burn_rate=0.30,
+            treasury_rate=0.10,
         )
         with pytest.raises(ParamValidationError, match="burn_rate"):
             p.validate()
@@ -65,8 +67,10 @@ class TestValidation:
     def test_creator_rate_too_low(self):
         """Creator/reserve must be >= 50% for pool stability."""
         p = ProtocolParams(
-            creator_rate=0.40, validator_rate=0.25,
-            burn_rate=0.15, treasury_rate=0.20,
+            creator_rate=0.40,
+            validator_rate=0.25,
+            burn_rate=0.15,
+            treasury_rate=0.20,
         )
         with pytest.raises(ParamValidationError):
             p.validate()
@@ -75,8 +79,10 @@ class TestValidation:
         """Custom params within bounds should pass."""
         p = ProtocolParams(
             reserve_ratio=0.35,
-            creator_rate=0.70, validator_rate=0.15,
-            burn_rate=0.10, treasury_rate=0.05,
+            creator_rate=0.70,
+            validator_rate=0.15,
+            burn_rate=0.10,
+            treasury_rate=0.05,
         )
         p.validate()  # Should not raise
 
@@ -155,6 +161,12 @@ class TestEnvOverride:
 class TestBoundsCompleteness:
     def test_all_rate_fields_have_bounds(self):
         """Every rate field must have bounds defined."""
-        rate_fields = {"creator_rate", "validator_rate", "burn_rate", "treasury_rate", "reserve_ratio"}
+        rate_fields = {
+            "creator_rate",
+            "validator_rate",
+            "burn_rate",
+            "treasury_rate",
+            "reserve_ratio",
+        }
         for name in rate_fields:
             assert name in PARAM_BOUNDS, f"Missing bounds for {name}"

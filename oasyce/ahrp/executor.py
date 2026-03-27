@@ -88,6 +88,7 @@ class AHRPExecutor:
         self._store = None
         if db_path is not None:
             from oasyce.ahrp.persistence import AHRPStore
+
             self._store = AHRPStore(db_path)
             self._load_from_store()
 
@@ -105,9 +106,13 @@ class AHRPExecutor:
         # Escrows
         for esc in self._store.load_escrows():
             self.escrows[esc["tx_id"]] = EscrowRecord(
-                tx_id=esc["tx_id"], buyer=esc["buyer"], seller=esc["seller"],
-                amount_oas=esc["amount_oas"], locked_at=esc["locked_at"],
-                released=esc["released"], chain_escrow_id=esc["chain_escrow_id"],
+                tx_id=esc["tx_id"],
+                buyer=esc["buyer"],
+                seller=esc["seller"],
+                amount_oas=esc["amount_oas"],
+                locked_at=esc["locked_at"],
+                released=esc["released"],
+                chain_escrow_id=esc["chain_escrow_id"],
             )
         # Counters
         if self.escrows:
@@ -134,8 +139,13 @@ class AHRPExecutor:
         esc = self.escrows.get(tx_id)
         if esc:
             self._store.save_escrow(
-                esc.tx_id, esc.buyer, esc.seller, esc.amount_oas,
-                esc.locked_at, esc.released, esc.chain_escrow_id,
+                esc.tx_id,
+                esc.buyer,
+                esc.seller,
+                esc.amount_oas,
+                esc.locked_at,
+                esc.released,
+                esc.chain_escrow_id,
             )
 
     @property
@@ -336,9 +346,10 @@ class AHRPExecutor:
                 chain_released = True
             except ChainClientError as exc:
                 _log.error(
-                    "ESCROW RELEASE FAILED tx=%s escrow=%s error=%s — "
-                    "requires manual recovery",
-                    tx_id, escrow.chain_escrow_id, exc,
+                    "ESCROW RELEASE FAILED tx=%s escrow=%s error=%s — " "requires manual recovery",
+                    tx_id,
+                    escrow.chain_escrow_id,
+                    exc,
                 )
         else:
             chain_released = True  # local escrow, no chain action needed

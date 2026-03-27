@@ -543,7 +543,9 @@ class TestCompleteInvocationUsageReport:
             stderr="",
             returncode=0,
         )
-        client.complete_invocation("inv-100", "sha256:aabbccdd", usage_report="tokens:42,latency_ms:120")
+        client.complete_invocation(
+            "inv-100", "sha256:aabbccdd", usage_report="tokens:42,latency_ms:120"
+        )
 
         cmd = mock_run.call_args[0][0]
         assert "--usage-report" in cmd

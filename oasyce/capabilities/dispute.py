@@ -161,7 +161,8 @@ class DisputeManager:
         self._deposit_fn = deposit_fn
         self._get_manifest = get_manifest
         self._reputation_update_fn: Callable[[str, float, str], None] = (
-            reputation_update_fn if reputation_update_fn is not None
+            reputation_update_fn
+            if reputation_update_fn is not None
             else lambda agent_id, delta, reason: None
         )
         self._disputes: Dict[str, DisputeRecord] = {}
@@ -355,9 +356,7 @@ class DisputeManager:
         winning_verdict = (
             Verdict.CONSUMER
             if outcome == ResolutionOutcome.CONSUMER_WINS
-            else Verdict.PROVIDER
-            if outcome == ResolutionOutcome.PROVIDER_WINS
-            else None
+            else Verdict.PROVIDER if outcome == ResolutionOutcome.PROVIDER_WINS else None
         )
         if winning_verdict is not None:
             resolution.majority_jurors = [
@@ -418,14 +417,12 @@ class DisputeManager:
 
         if dispute.state not in (DisputeState.OPEN, DisputeState.VOTING):
             raise DisputeError(
-                f"cannot submit evidence in state {dispute.state.value}, "
-                "must be open or voting"
+                f"cannot submit evidence in state {dispute.state.value}, " "must be open or voting"
             )
 
         if party_id not in (dispute.consumer_id, dispute.provider_id):
             raise DisputeError(
-                f"{party_id} is not a party to this dispute "
-                "(must be consumer or provider)"
+                f"{party_id} is not a party to this dispute " "(must be consumer or provider)"
             )
 
         entry: Dict[str, str] = {
@@ -441,9 +438,7 @@ class DisputeManager:
 
         dispute.evidence.append(entry)
 
-    def resolve_timeout(
-        self, dispute_id: str, now: Optional[int] = None
-    ) -> DisputeResolution:
+    def resolve_timeout(self, dispute_id: str, now: Optional[int] = None) -> DisputeResolution:
         """Auto-resolve if voting deadline has passed without all votes.
 
         If current_time > dispute.created_at + VOTING_DEADLINE and not all
@@ -467,8 +462,7 @@ class DisputeManager:
 
         if current_time <= deadline:
             raise DisputeError(
-                f"voting deadline has not passed yet "
-                f"({deadline - current_time}s remaining)"
+                f"voting deadline has not passed yet " f"({deadline - current_time}s remaining)"
             )
 
         jury_size = len(dispute.juror_ids)
@@ -477,12 +471,8 @@ class DisputeManager:
             return self.resolve(dispute_id)
 
         # Count existing votes
-        consumer_votes = sum(
-            1 for v in dispute.votes if v.verdict == Verdict.CONSUMER
-        )
-        provider_votes = sum(
-            1 for v in dispute.votes if v.verdict == Verdict.PROVIDER
-        )
+        consumer_votes = sum(1 for v in dispute.votes if v.verdict == Verdict.CONSUMER)
+        provider_votes = sum(1 for v in dispute.votes if v.verdict == Verdict.PROVIDER)
 
         inv = self._get_invocation(dispute.invocation_id)
 
@@ -503,20 +493,14 @@ class DisputeManager:
         winning_verdict = (
             Verdict.CONSUMER
             if outcome == ResolutionOutcome.CONSUMER_WINS
-            else Verdict.PROVIDER
-            if outcome == ResolutionOutcome.PROVIDER_WINS
-            else None
+            else Verdict.PROVIDER if outcome == ResolutionOutcome.PROVIDER_WINS else None
         )
         if winning_verdict is not None:
             resolution.majority_jurors = [
-                v.juror_id
-                for v in dispute.votes
-                if v.verdict == winning_verdict
+                v.juror_id for v in dispute.votes if v.verdict == winning_verdict
             ]
             resolution.minority_jurors = [
-                v.juror_id
-                for v in dispute.votes
-                if v.verdict != winning_verdict
+                v.juror_id for v in dispute.votes if v.verdict != winning_verdict
             ]
 
         # Reputation updates based on outcome

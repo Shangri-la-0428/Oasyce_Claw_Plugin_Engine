@@ -8,6 +8,7 @@ Rules enforced:
 2. No direct SettlementEngine() instantiation outside facade
 3. READ-only _conn access is tracked as tech debt (warning, not failure)
 """
+
 from __future__ import annotations
 
 import re
