@@ -13,10 +13,11 @@ from dataclasses import dataclass
 class MsgRegisterDataAsset:
     creator: str = ""
     name: str = ""
+    description: str = ""
+    content_hash: str = ""
     fingerprint: str = ""
     rights_type: str = ""
     tags: str = ""
-    description: str = ""
     service_url: str = ""
 
 
@@ -42,13 +43,15 @@ class MsgUpdateServiceUrlResponse:
 @dataclass
 class DataAsset:
     id: str = ""
-    creator: str = ""
+    owner: str = ""
     name: str = ""
+    description: str = ""
+    content_hash: str = ""
     fingerprint: str = ""
     rights_type: str = ""
     tags: str = ""
-    description: str = ""
     total_shares: str = ""
-    price: str = ""
     status: str = ""
+    parent_asset_id: str = ""
+    version: int = 1
     service_url: str = ""
