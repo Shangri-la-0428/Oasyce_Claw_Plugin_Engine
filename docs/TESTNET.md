@@ -142,9 +142,9 @@ oas testnet faucet
 
 | Parameter | Value |
 |-----------|-------|
-| Amount per claim | 10,000 OAS |
-| Cooldown | 24 hours |
-| Max claims per address | 3 (lifetime) |
+| Amount per claim | 20 OAS |
+| Cooldown | 1 hour |
+| Max claims per address | unlimited (1/hr rate limit) |
 | Global supply cap | 10,000,000 OAS |
 
 ### HTTP Faucet Server
