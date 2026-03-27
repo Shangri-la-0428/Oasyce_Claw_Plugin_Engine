@@ -729,6 +729,7 @@ class OasyceServiceFacade:
         price_model: str = "auto",
         manual_price: Optional[float] = None,
         storage_backend: Optional[str] = None,
+        service_url: str = "",
     ) -> ServiceResult:
         """Register a data asset through the unified skill pipeline."""
         # Validate price model

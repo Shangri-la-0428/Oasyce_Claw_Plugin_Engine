@@ -509,6 +509,7 @@ class ChainClient:
         tags: Optional[List[str]] = None,
         co_creators: Optional[List[Dict[str, Any]]] = None,
         from_key: Optional[str] = None,
+        service_url: str = "",
     ) -> Dict[str, Any]:
         """Register a new data asset."""
         if self.has_cli:
@@ -519,6 +520,8 @@ class ChainClient:
                 args += ["--rights-type", rights_type]
             if tags:
                 args += ["--tags", ",".join(tags)]
+            if service_url:
+                args += ["--service-url", service_url]
             return self._run_cli(args, from_key=self._resolve_from_key(owner, from_key))
         rights_map = {
             "original": 0,
@@ -534,8 +537,27 @@ class ChainClient:
             "rights_type": rights_map.get(rights_type, 0),
             "tags": tags or [],
             "co_creators": co_creators or [],
+            "service_url": service_url,
         }
         return self._broadcast_tx("/oasyce.datarights.v1.MsgRegisterDataAsset", msg)
+
+    def update_service_url(
+        self,
+        owner: str,
+        asset_id: str,
+        service_url: str,
+        from_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update the data access endpoint for an asset (owner only)."""
+        if self.has_cli:
+            args = ["tx", "datarights", "update-service-url", asset_id, service_url]
+            return self._run_cli(args, from_key=self._resolve_from_key(owner, from_key))
+        msg = {
+            "creator": owner,
+            "asset_id": asset_id,
+            "service_url": service_url,
+        }
+        return self._broadcast_tx("/oasyce.datarights.v1.MsgUpdateServiceUrl", msg)
 
     def buy_shares(
         self,
@@ -974,6 +996,10 @@ class OasyceClient:
     def register_data_asset(self, **kwargs: Any) -> Dict[str, Any]:
         """Register a data asset on chain."""
         return self._chain.register_data_asset(**kwargs)
+
+    def update_service_url(self, **kwargs: Any) -> Dict[str, Any]:
+        """Update data access endpoint for an asset (owner only)."""
+        return self._chain.update_service_url(**kwargs)
 
     def buy_shares(self, **kwargs: Any) -> Dict[str, Any]:
         """Buy shares of a data asset on chain."""

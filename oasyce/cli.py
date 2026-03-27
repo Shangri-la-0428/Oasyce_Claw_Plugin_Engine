@@ -193,6 +193,27 @@ def cmd_register(args):
             print(f"   Core Asset ID: {core_result['core_asset_id']}")
 
 
+def cmd_update_service_url(args):
+    """Update data access endpoint for an asset."""
+    from oasyce.chain_client import ChainClient
+
+    try:
+        client = ChainClient()
+        result = client.update_service_url(
+            owner=args.owner,
+            asset_id=args.asset_id,
+            service_url=args.service_url,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Updated service_url for {args.asset_id}")
+            print(f"   New URL: {args.service_url or '(cleared)'}")
+    except Exception as e:
+        _output_error(args, str(e), code="UPDATE_SERVICE_URL_FAILED")
+        sys.exit(1)
+
+
 def cmd_search(args):
     """Search assets by tag."""
     config = Config.from_env()
@@ -3532,8 +3553,24 @@ def main():
         "--co-creators",
         help='Co-creators JSON, e.g. \'[{"address":"A","share":60},{"address":"B","share":40}]\'',
     )
+    reg_parser.add_argument(
+        "--service-url",
+        default="",
+        help="Data access endpoint URL (where buyers can access the data)",
+    )
     reg_parser.add_argument("--json", action="store_true", help="Output as JSON")
     reg_parser.set_defaults(func=cmd_register)
+
+    # Update service URL command
+    update_url_parser = subparsers.add_parser(
+        "update-service-url",
+        help="Update data access endpoint for an asset (owner only)",
+    )
+    update_url_parser.add_argument("asset_id", help="Asset ID")
+    update_url_parser.add_argument("service_url", help="New service URL (empty string to clear)")
+    update_url_parser.add_argument("--owner", required=True, help="Asset owner address")
+    update_url_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    update_url_parser.set_defaults(func=cmd_update_service_url)
 
     # Dispute command
     dispute_parser = subparsers.add_parser("dispute", help="File a dispute against an asset")

@@ -17,6 +17,7 @@ class MsgRegisterDataAsset:
     rights_type: str = ""
     tags: str = ""
     description: str = ""
+    service_url: str = ""
 
 
 @dataclass
@@ -24,6 +25,18 @@ class MsgBuyShares:
     buyer: str = ""
     asset_id: str = ""
     amount: str = ""
+
+
+@dataclass
+class MsgUpdateServiceUrl:
+    creator: str = ""
+    asset_id: str = ""
+    service_url: str = ""
+
+
+@dataclass
+class MsgUpdateServiceUrlResponse:
+    pass
 
 
 @dataclass
@@ -38,3 +51,4 @@ class DataAsset:
     total_shares: str = ""
     price: str = ""
     status: str = ""
+    service_url: str = ""
