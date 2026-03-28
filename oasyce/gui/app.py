@@ -31,6 +31,9 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError
 
 from oasyce.config import Config
+from oasyce.services.asset_availability import AssetAvailabilityProbe
+from oasyce.services.beta_support import get_beta_support_store
+from oasyce.services.buy_runtime import BuyRuntime
 from oasyce.storage.ledger import Ledger
 from oasyce.fingerprint import FingerprintRegistry
 
@@ -243,8 +246,10 @@ RATE_LIMIT_MAX = 60  # max requests per window for mutating endpoints
 
 # Anti-wash-trading cooldown: {(buyer, asset_id): last_buy_timestamp}
 _buy_cooldowns: Dict[tuple, float] = {}
+_buy_idempotency_cache: Dict[str, Dict[str, Any]] = {}
 _buy_lock = threading.Lock()
 BUY_COOLDOWN_SECONDS = 30  # minimum seconds between same buyer+asset purchases
+BUY_IDEMPOTENCY_TTL_SECONDS = 24 * 3600
 
 
 def _save_api_key(data_dir: str, api_key: str) -> None:
@@ -483,6 +488,264 @@ def _json_response(handler: BaseHTTPRequestHandler, data: Any, status: int = 200
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
+
+
+def _resolve_trace_id(handler: BaseHTTPRequestHandler, body: Optional[Dict[str, Any]] = None) -> str:
+    trace_id = ""
+    try:
+        trace_id = str(handler.headers.get("X-Trace-Id", "")).strip()
+    except Exception:
+        trace_id = ""
+    if not trace_id and isinstance(body, dict):
+        trace_id = str(body.get("trace_id", "")).strip()
+    if trace_id:
+        return trace_id[:128]
+    return f"trace-{int(time.time() * 1000)}-{secrets.token_hex(4)}"
+
+
+def _resolve_idempotency_key(
+    handler: BaseHTTPRequestHandler,
+    trace_id: str,
+    body: Optional[Dict[str, Any]] = None,
+) -> str:
+    key = ""
+    try:
+        key = str(handler.headers.get("Idempotency-Key", "")).strip()
+    except Exception:
+        key = ""
+    if not key and isinstance(body, dict):
+        key = str(body.get("idempotency_key", "")).strip()
+    if key:
+        return key[:128]
+    return trace_id
+
+
+def _wants_agent_contract(
+    handler: BaseHTTPRequestHandler,
+    body: Optional[Dict[str, Any]] = None,
+    qs: Optional[Dict[str, Any]] = None,
+) -> bool:
+    try:
+        header_format = str(handler.headers.get("X-Oasyce-Format", "")).strip().lower()
+    except Exception:
+        header_format = ""
+    if header_format == "agent":
+        return True
+    if isinstance(body, dict) and str(body.get("format", "")).strip().lower() == "agent":
+        return True
+    if isinstance(qs, dict):
+        value = qs.get("format", [""])
+        if isinstance(value, list):
+            value = value[0] if value else ""
+        if str(value).strip().lower() == "agent":
+            return True
+    return False
+
+
+def _buy_request_fingerprint(asset_id: str, buyer: str, amount: float) -> str:
+    payload = {
+        "asset_id": asset_id,
+        "buyer": buyer,
+        "amount": round(float(amount), 8),
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _canonical_buy_result(
+    asset_id: str,
+    buyer: str,
+    amount: float,
+    settled: bool,
+    receipt_id: str,
+    quote_data: Dict[str, Any],
+    equity_balance: float,
+) -> Dict[str, Any]:
+    return {
+        "asset_id": asset_id,
+        "buyer": buyer,
+        "amount_oas": round(float(amount), 6),
+        "settled": bool(settled),
+        "receipt_id": receipt_id,
+        "equity_minted": round(float(quote_data.get("equity_minted", 0) or 0), 4),
+        "spot_price_after": round(float(quote_data.get("spot_price_after", 0) or 0), 6),
+        "equity_balance": round(float(equity_balance or 0), 4),
+    }
+
+
+def _legacy_buy_payload(
+    buy_result: Dict[str, Any],
+    idempotency_key: str,
+    *,
+    idempotent_replay: bool = False,
+    original_trace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    payload = {
+        "receipt_id": buy_result.get("receipt_id", ""),
+        "idempotency_key": idempotency_key,
+        "tokens": round(float(buy_result.get("equity_minted", 0) or 0), 4),
+        "price_after": round(float(buy_result.get("spot_price_after", 0) or 0), 6),
+        "equity_balance": round(float(buy_result.get("equity_balance", 0) or 0), 4),
+        "error": None,
+    }
+    if idempotent_replay:
+        payload["idempotent_replay"] = True
+    if original_trace_id:
+        payload["original_trace_id"] = original_trace_id
+    return payload
+
+
+def _get_buy_runtime() -> BuyRuntime:
+    return BuyRuntime(
+        cooldown_seconds=BUY_COOLDOWN_SECONDS,
+        idempotency_ttl_seconds=BUY_IDEMPOTENCY_TTL_SECONDS,
+        cooldowns=_buy_cooldowns,
+        idempotency_cache=_buy_idempotency_cache,
+        lock=_buy_lock,
+    )
+
+
+def _get_asset_availability_probe() -> AssetAvailabilityProbe:
+    return AssetAvailabilityProbe(_ledger)
+
+
+def _log_beta_trace(level: str, event: str, trace_id: Optional[str], **fields: Any) -> None:
+    if not trace_id:
+        return
+    get_beta_support_store().record(event, trace_id, level, fields)
+    detail = " ".join(
+        f"{key}={value!r}" for key, value in sorted(fields.items()) if value is not None
+    )
+    message = f"beta_trace event={event} trace_id={trace_id}"
+    if detail:
+        message = f"{message} {detail}"
+    if level == "warning":
+        logger.warning(message)
+    elif level == "error":
+        logger.error(message)
+    else:
+        logger.info(message)
+
+
+def _traced_json_response(
+    handler: BaseHTTPRequestHandler,
+    trace_id: str,
+    data: Dict[str, Any],
+    status: int = 200,
+    event: Optional[str] = None,
+    level: str = "info",
+    **fields: Any,
+) -> None:
+    payload = dict(data)
+    payload.setdefault("trace_id", trace_id)
+    if event:
+        _log_beta_trace(level, event, trace_id, status=status, **fields)
+    return _json_response(handler, payload, status)
+
+
+_BETA_RETRYABLE_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
+_BETA_CORE_CONTRACT_VERSION = "beta-core-v1"
+
+
+def _beta_core_state(ok: bool, http_status: int) -> str:
+    if ok:
+        return "success"
+    if http_status in _BETA_RETRYABLE_HTTP_STATUSES:
+        return "retryable"
+    return "failed"
+
+
+def _beta_core_json_response(
+    handler: BaseHTTPRequestHandler,
+    trace_id: str,
+    data: Dict[str, Any],
+    status: int = 200,
+    ok: Optional[bool] = None,
+    state: Optional[str] = None,
+    retryable: Optional[bool] = None,
+    event: Optional[str] = None,
+    level: str = "info",
+    **fields: Any,
+) -> None:
+    payload = dict(data)
+    resolved_ok = bool(payload.get("ok", ok if ok is not None else status < 400))
+    resolved_state = payload.get("state") or state or _beta_core_state(resolved_ok, status)
+    resolved_retryable = (
+        bool(payload.get("retryable"))
+        if "retryable" in payload
+        else retryable
+        if retryable is not None
+        else resolved_state == "retryable"
+    )
+    payload["ok"] = resolved_ok
+    payload["state"] = resolved_state
+    payload["retryable"] = bool(resolved_retryable)
+    return _traced_json_response(
+        handler,
+        trace_id,
+        payload,
+        status=status,
+        event=event,
+        level=level,
+        **fields,
+    )
+
+
+def _beta_agent_json_response(
+    handler: BaseHTTPRequestHandler,
+    trace_id: str,
+    action: str,
+    data: Dict[str, Any],
+    status: int = 200,
+    ok: Optional[bool] = None,
+    state: Optional[str] = None,
+    retryable: Optional[bool] = None,
+    error: Optional[str] = None,
+    extras: Optional[Dict[str, Any]] = None,
+    event: Optional[str] = None,
+    level: str = "info",
+    **fields: Any,
+) -> None:
+    payload = {
+        "contract_version": _BETA_CORE_CONTRACT_VERSION,
+        "action": action,
+        "data": dict(data),
+    }
+    if extras:
+        payload.update(extras)
+    if error:
+        payload["error"] = error
+    return _beta_core_json_response(
+        handler,
+        trace_id,
+        payload,
+        status=status,
+        ok=ok,
+        state=state,
+        retryable=retryable,
+        event=event,
+        level=level,
+        **fields,
+    )
+
+
+def _service_error_http_status(error: Optional[str], default: int = 400) -> int:
+    text = str(error or "").strip().lower()
+    if not text:
+        return default
+    if "not found" in text:
+        return 404
+    if (
+        "not authorized" in text
+        or "only the asset owner" in text
+        or "identity verification failed" in text
+    ):
+        return 403
+    if "ledger not available" in text or "service unavailable" in text or "not initialized" in text:
+        return 503
+    if "duplicate" in text or "already" in text or "conflict" in text:
+        return 409
+    return default
 
 
 # C1: Multipart parser to replace deprecated cgi.FieldStorage (removed in Python 3.13)
@@ -1314,14 +1577,65 @@ class _Handler(BaseHTTPRequestHandler):
 
         # Bancor quote
         if path == "/api/quote":
+            trace_id = _resolve_trace_id(self)
+            agent_mode = _wants_agent_contract(self, qs=qs)
             asset_id = qs.get("asset_id", [""])[0]
             try:
                 amount = float(qs.get("amount", ["10"])[0])
             except (ValueError, TypeError):
-                return _json_response(self, {"error": "invalid amount"}, 400)
+                if agent_mode:
+                    return _beta_agent_json_response(
+                        self,
+                        trace_id,
+                        "quote",
+                        {"asset_id": asset_id},
+                        400,
+                        ok=False,
+                        error="invalid amount",
+                        event="quote.failed",
+                        level="warning",
+                        asset_id=asset_id,
+                    )
+                return _beta_core_json_response(
+                    self,
+                    trace_id,
+                    {"error": "invalid amount"},
+                    400,
+                    ok=False,
+                    event="quote.failed",
+                    level="warning",
+                    asset_id=asset_id,
+                )
             if not asset_id:
-                return _json_response(self, {"error": "asset_id required"}, 400)
+                if agent_mode:
+                    return _beta_agent_json_response(
+                        self,
+                        trace_id,
+                        "quote",
+                        {},
+                        400,
+                        ok=False,
+                        error="asset_id required",
+                        event="quote.failed",
+                        level="warning",
+                    )
+                return _beta_core_json_response(
+                    self,
+                    trace_id,
+                    {"error": "asset_id required"},
+                    400,
+                    ok=False,
+                    event="quote.failed",
+                    level="warning",
+                )
             try:
+                _log_beta_trace(
+                    "info",
+                    "quote.start",
+                    trace_id,
+                    asset_id=asset_id,
+                    amount=amount,
+                )
                 # Check if asset has a manual pricing model
                 asset_info = _ledger.get_asset(asset_id) if _ledger else None
                 asset_price_model = (asset_info or {}).get("price_model", "auto")
@@ -1329,8 +1643,32 @@ class _Handler(BaseHTTPRequestHandler):
 
                 if asset_price_model == "fixed" and asset_manual_price is not None:
                     # Fixed price: bypass bonding curve entirely
-                    return _json_response(
+                    if agent_mode:
+                        agent_data = {
+                            "asset_id": asset_id,
+                            "amount_oas": amount,
+                            "payment_oas": round(asset_manual_price, 6),
+                            "equity_minted": 1,
+                            "spot_price_before": round(asset_manual_price, 6),
+                            "spot_price_after": round(asset_manual_price, 6),
+                            "price_impact_pct": 0.0,
+                            "protocol_fee_oas": 0.0,
+                            "burn_amount_oas": 0.0,
+                            "price_model": "fixed",
+                        }
+                        return _beta_agent_json_response(
+                            self,
+                            trace_id,
+                            "quote",
+                            agent_data,
+                            ok=True,
+                            event="quote.success",
+                            asset_id=asset_id,
+                            amount=amount,
+                        )
+                    return _beta_core_json_response(
                         self,
+                        trace_id,
                         {
                             "asset_id": asset_id,
                             "payment": round(asset_manual_price, 6),
@@ -1342,11 +1680,37 @@ class _Handler(BaseHTTPRequestHandler):
                             "burn": 0.0,
                             "price_model": "fixed",
                         },
+                        ok=True,
+                        event="quote.success",
+                        asset_id=asset_id,
+                        amount=amount,
                     )
 
-                result = _get_query().quote(asset_id, amount)
+                result = _get_query().quote(asset_id, amount, trace_id=trace_id)
                 if not result.success:
-                    return _json_response(self, {"error": result.error}, 400)
+                    if agent_mode:
+                        return _beta_agent_json_response(
+                            self,
+                            result.trace_id or trace_id,
+                            "quote",
+                            {"asset_id": asset_id, "amount_oas": amount},
+                            400,
+                            ok=False,
+                            error=result.error,
+                            event="quote.failed",
+                            level="warning",
+                            asset_id=asset_id,
+                        )
+                    return _beta_core_json_response(
+                        self,
+                        result.trace_id or trace_id,
+                        {"error": result.error},
+                        400,
+                        ok=False,
+                        event="quote.failed",
+                        level="warning",
+                        asset_id=asset_id,
+                    )
 
                 d = result.data
                 price_before = round(d.get("spot_price_before", 0), 6)
@@ -1371,13 +1735,72 @@ class _Handler(BaseHTTPRequestHandler):
                 }
                 if asset_manual_price is not None:
                     resp["manual_price"] = round(float(asset_manual_price), 6)
-                return _json_response(self, resp)
+                if agent_mode:
+                    agent_data = {
+                        "asset_id": d.get("asset_id", asset_id),
+                        "amount_oas": amount,
+                        "payment_oas": d.get("payment_oas", 0),
+                        "equity_minted": round(d.get("equity_minted", 0), 4),
+                        "spot_price_before": price_before,
+                        "spot_price_after": price_after,
+                        "price_impact_pct": round(d.get("price_impact_pct", 0), 2),
+                        "protocol_fee_oas": round(d.get("protocol_fee", 0), 4),
+                        "burn_amount_oas": round(d.get("burn_amount", 0), 4),
+                        "price_model": asset_price_model,
+                    }
+                    if asset_manual_price is not None:
+                        agent_data["manual_price_oas"] = round(float(asset_manual_price), 6)
+                    return _beta_agent_json_response(
+                        self,
+                        result.trace_id or trace_id,
+                        "quote",
+                        agent_data,
+                        ok=True,
+                        event="quote.success",
+                        asset_id=asset_id,
+                        amount=amount,
+                    )
+                return _beta_core_json_response(
+                    self,
+                    result.trace_id or trace_id,
+                    resp,
+                    ok=True,
+                    event="quote.success",
+                    asset_id=asset_id,
+                    amount=amount,
+                )
             except Exception as e:
-                return _json_response(self, {"error": str(e)}, 400)
+                if agent_mode:
+                    return _beta_agent_json_response(
+                        self,
+                        trace_id,
+                        "quote",
+                        {"asset_id": asset_id},
+                        400,
+                        ok=False,
+                        error=str(e),
+                        event="quote.failed",
+                        level="warning",
+                        asset_id=asset_id,
+                    )
+                return _beta_core_json_response(
+                    self,
+                    trace_id,
+                    {"error": str(e)},
+                    400,
+                    ok=False,
+                    event="quote.failed",
+                    level="warning",
+                    asset_id=asset_id,
+                )
 
         # Portfolio (holdings)
         if path == "/api/portfolio":
             buyer = qs.get("buyer", [_default_identity()])[0]
+            agent_mode = _wants_agent_contract(self, qs=qs)
+            trace_id = _resolve_trace_id(self) if agent_mode else ""
+            if agent_mode:
+                _log_beta_trace("info", "portfolio.start", trace_id, buyer=buyer)
             result = _get_query().get_portfolio(buyer)
             holdings = []
             if result.success:
@@ -1394,6 +1817,30 @@ class _Handler(BaseHTTPRequestHandler):
                             "value_oas": round(h["value_oas"], 4),
                         }
                     )
+            if agent_mode:
+                if not result.success:
+                    return _beta_agent_json_response(
+                        self,
+                        trace_id,
+                        "portfolio",
+                        {"buyer": buyer, "holdings": []},
+                        500,
+                        ok=False,
+                        error=result.error,
+                        event="portfolio.failed",
+                        level="warning",
+                        buyer=buyer,
+                    )
+                return _beta_agent_json_response(
+                    self,
+                    trace_id,
+                    "portfolio",
+                    {"buyer": buyer, "holdings": holdings},
+                    ok=True,
+                    event="portfolio.success",
+                    buyer=buyer,
+                    holdings=len(holdings),
+                )
             return _json_response(self, holdings)
 
         # Transaction history
@@ -1401,6 +1848,28 @@ class _Handler(BaseHTTPRequestHandler):
             result = _get_query().query_transactions(limit=50)
             txs = result.data if result.success else []
             return _json_response(self, list(reversed(txs)))
+
+        if path == "/api/support/beta":
+            try:
+                limit = int(qs.get("limit", ["20"])[0] or 20)
+            except (TypeError, ValueError):
+                limit = 20
+            try:
+                tx_limit = int(qs.get("transactions_limit", ["20"])[0] or 20)
+            except (TypeError, ValueError):
+                tx_limit = 20
+            snapshot = get_beta_support_store().snapshot(limit=max(limit, 0))
+            tx_result = _get_query().query_transactions(limit=max(tx_limit, 0))
+            txs = tx_result.data if tx_result.success else []
+            return _json_response(
+                self,
+                {
+                    "ok": True,
+                    "events": snapshot["events"],
+                    "failures": snapshot["failures"],
+                    "transactions": list(reversed(txs)),
+                },
+            )
 
         if path == "/api/asset/versions":
             aid = qs.get("asset_id", [None])[0]
@@ -2268,14 +2737,49 @@ class _Handler(BaseHTTPRequestHandler):
     # ── POST handler: Asset routes ───────────────────────────────
     def _handle_assets(self, path, body, content_type):
         if path == "/api/register":
+            trace_id = _resolve_trace_id(self, body if isinstance(body, dict) else None)
+            agent_mode = _wants_agent_contract(self, body=body if isinstance(body, dict) else None)
+
+            def _register_error(message: str, status: int = 400, **extra: Any):
+                owner_hint = body.get("owner") if isinstance(body, dict) else None
+                if agent_mode:
+                    error_data = {}
+                    if owner_hint:
+                        error_data["owner"] = owner_hint
+                    if extra.get("existing_asset_id"):
+                        error_data["existing_asset_id"] = extra["existing_asset_id"]
+                    return _beta_agent_json_response(
+                        self,
+                        trace_id,
+                        "register",
+                        error_data,
+                        status,
+                        ok=False,
+                        error=message,
+                        event="register.failed",
+                        level="warning",
+                        owner=owner_hint,
+                    )
+                payload = {"error": message, **extra}
+                return _beta_core_json_response(
+                    self,
+                    trace_id,
+                    payload,
+                    status,
+                    ok=False,
+                    event="register.failed",
+                    level="warning",
+                    owner=owner_hint,
+                )
+
             try:
+                _log_beta_trace("info", "register.start", trace_id, content_type=content_type)
                 # Gate: wallet must exist
                 from oasyce.identity import Wallet as _RegWallet
 
                 if not _RegWallet.exists():
-                    return _json_response(
-                        self,
-                        {"error": "no wallet — create one first via /api/identity/create"},
+                    return _register_error(
+                        "no wallet — create one first via /api/identity/create",
                         400,
                     )
 
@@ -2284,7 +2788,7 @@ class _Handler(BaseHTTPRequestHandler):
                     form = _MultipartForm(self, content_type)
                     file_item = form.get_file("file")
                     if file_item is None or not getattr(file_item, "filename", None):
-                        return _json_response(self, {"error": "file required"}, 400)
+                        return _register_error("file required", 400)
 
                     upload_dir = os.path.join(os.path.expanduser("~"), ".oasyce", "uploads")
                     os.makedirs(upload_dir, exist_ok=True)
@@ -2302,7 +2806,7 @@ class _Handler(BaseHTTPRequestHandler):
                     try:
                         co_creators = json.loads(co_creators_raw) if co_creators_raw else None
                     except (json.JSONDecodeError, ValueError):
-                        return _json_response(self, {"error": "invalid co_creators JSON"}, 400)
+                        return _register_error("invalid co_creators JSON", 400)
                     price_model = form.getfirst("price_model", "auto")
                     price_raw = form.getfirst("price", "")
                     manual_price = float(price_raw) if price_raw else None
@@ -2316,140 +2820,55 @@ class _Handler(BaseHTTPRequestHandler):
                     price_model = body.get("price_model", "auto")
                     manual_price = body.get("price", None)
 
-                if not fp:
-                    return _json_response(self, {"error": "file_path required"}, 400)
-
-                # Validate rights_type
-                from oasyce.models import VALID_RIGHTS_TYPES
-
-                if rights_type not in VALID_RIGHTS_TYPES:
-                    return _json_response(
-                        self, {"error": f"invalid rights_type: {rights_type}"}, 400
-                    )
-
-                if rights_type == "co_creation":
-                    if not co_creators or len(co_creators) < 2:
-                        return _json_response(
-                            self,
-                            {"error": "co_creation requires at least 2 co_creators"},
-                            400,
-                        )
-
-                # Validate co_creators shares sum to 100
-                if co_creators:
-                    total_share = sum(c.get("share", 0) for c in co_creators)
-                    if abs(total_share - 100) > 0.01:
-                        return _json_response(
-                            self,
-                            {"error": f"co_creators shares must sum to 100, got {total_share}"},
-                            400,
-                        )
-
-                # Validate price_model and manual price
-                if price_model not in ("auto", "fixed", "floor"):
-                    return _json_response(
-                        self,
-                        {
-                            "error": f"invalid price_model: {price_model}. Must be auto, fixed, or floor."
-                        },
-                        400,
-                    )
-                if price_model in ("fixed", "floor"):
-                    if manual_price is None or manual_price <= 0:
-                        return _json_response(
-                            self,
-                            {"error": f"price must be > 0 when price_model is '{price_model}'"},
-                            400,
-                        )
-
-                # Path traversal prevention: resolve and check against allowed dirs
-                resolved_fp = os.path.realpath(fp)
-                home_dir = os.path.expanduser("~")
-                if not resolved_fp.startswith(home_dir):
-                    return _json_response(self, {"error": "file path not allowed"}, 403)
-                if not os.path.isfile(resolved_fp):
-                    return _json_response(self, {"error": "file not found"}, 404)
-                fp = resolved_fp
-                skills = _get_skills()
-                file_info = skills.scan_data_skill(fp)
-
-                # Check for duplicate file hash
-                file_hash = file_info.get("file_hash", "")
-                if file_hash and _ledger:
-                    for existing in _ledger.list_assets():
-                        if existing.get("file_hash") == file_hash:
-                            return _json_response(
-                                self,
-                                {
-                                    "error": f"Duplicate: file already registered as {existing.get('asset_id', 'unknown')}",
-                                    "existing_asset_id": existing.get("asset_id"),
-                                },
-                                409,
-                            )
-
-                metadata = skills.generate_metadata_skill(
-                    file_info,
-                    tags,
-                    owner,
+                facade = _get_facade()
+                result = facade.register(
+                    file_path=fp,
+                    owner=owner,
+                    tags=tags,
                     rights_type=rights_type,
                     co_creators=co_creators,
+                    price_model=price_model,
+                    manual_price=manual_price,
+                    trace_id=trace_id,
+                    enforce_allowed_paths=True,
+                    allowed_price_models=["auto", "fixed", "floor"],
                 )
-                metadata["file_path"] = os.path.abspath(fp)
-                # Store pricing model in metadata
-                metadata["price_model"] = price_model
-                if manual_price is not None:
-                    metadata["manual_price"] = manual_price
-                signed = skills.create_certificate_skill(metadata)
-                asset_id = signed.get("asset_id", "")
-                if _get_facade()._strict_chain_mode():
-                    from oasyce.bridge.core_bridge import bridge_register
-
-                    try:
-                        chain_result = bridge_register(signed, creator=owner)
-                    except Exception as chain_exc:
-                        return _json_response(
-                            self,
-                            {
-                                "error": f"Chain unavailable: {chain_exc}. "
-                                "Start the chain with 'oasyced start' or disable strict mode "
-                                "(unset OASYCE_STRICT_CHAIN) to register locally.",
-                                "chain_required": True,
-                            },
-                            503,
-                        )
-                    if not chain_result.get("valid"):
-                        return _json_response(
-                            self,
-                            {
-                                "error": chain_result.get("error")
-                                or chain_result.get("reason")
-                                or "Chain registration failed",
-                                "chain_required": True,
-                            },
-                            502,
-                        )
-                    asset_id = chain_result.get("core_asset_id", "")
-                    if not asset_id:
-                        return _json_response(
-                            self,
-                            {"error": "Chain registration returned no asset_id"},
-                            502,
-                        )
-                    signed["asset_id"] = asset_id
-                skills.register_data_asset_skill(signed, file_path=fp)
-                return _json_response(
+                if not result.success:
+                    return _register_error(
+                        result.error or "register failed",
+                        _service_error_http_status(result.error, 400),
+                        **(result.data if isinstance(result.data, dict) else {}),
+                    )
+                data = result.data
+                response_data = {
+                    "asset_id": data.get("asset_id", ""),
+                    "file_hash": data.get("file_hash", ""),
+                    "owner": data.get("owner", owner),
+                    "price_model": data.get("price_model", price_model),
+                    "rights_type": data.get("rights_type", rights_type),
+                }
+                if agent_mode:
+                    return _beta_agent_json_response(
+                        self,
+                        result.trace_id or trace_id,
+                        "register",
+                        response_data,
+                        ok=True,
+                        event="register.success",
+                        owner=owner,
+                        asset_id=data.get("asset_id", ""),
+                    )
+                return _beta_core_json_response(
                     self,
-                    {
-                        "ok": True,
-                        "asset_id": asset_id or signed.get("asset_id", ""),
-                        "file_hash": file_info.get("file_hash", ""),
-                        "owner": owner,
-                        "price_model": price_model,
-                        "rights_type": rights_type,
-                    },
+                    result.trace_id or trace_id,
+                    response_data,
+                    ok=True,
+                    event="register.success",
+                    owner=owner,
+                    asset_id=data.get("asset_id", ""),
                 )
             except Exception as e:
-                return _json_response(self, {"error": str(e)}, 400)
+                return _register_error(str(e), 400)
 
         if path == "/api/register-bundle":
             try:
@@ -2476,62 +2895,37 @@ class _Handler(BaseHTTPRequestHandler):
                     for fi in file_items:
                         fname = re.sub(r"[^\w./\-]", "_", fi.filename)
                         zf.writestr(fname, fi.file.read())
-
-                skills = _get_skills()
-                file_info = skills.scan_data_skill(zip_path)
-                metadata = skills.generate_metadata_skill(file_info, tags, owner)
-                metadata["file_path"] = os.path.abspath(zip_path)
-                metadata["bundle"] = True
-                metadata["file_count"] = len(file_items)
-                signed = skills.create_certificate_skill(metadata)
-                asset_id = signed.get("asset_id", "")
-                if _get_facade()._strict_chain_mode():
-                    from oasyce.bridge.core_bridge import bridge_register
-
-                    try:
-                        chain_result = bridge_register(signed, creator=owner)
-                    except Exception as chain_exc:
-                        return _json_response(
-                            self,
-                            {
-                                "error": f"Chain unavailable: {chain_exc}. "
-                                "Start the chain with 'oasyced start' or disable strict mode "
-                                "(unset OASYCE_STRICT_CHAIN) to register locally.",
-                                "chain_required": True,
-                            },
-                            503,
-                        )
-                    if not chain_result.get("valid"):
-                        return _json_response(
-                            self,
-                            {
-                                "error": chain_result.get("error")
-                                or chain_result.get("reason")
-                                or "Chain registration failed",
-                                "chain_required": True,
-                            },
-                            502,
-                        )
-                    asset_id = chain_result.get("core_asset_id", "")
-                    if not asset_id:
-                        return _json_response(
-                            self,
-                            {"error": "Chain registration returned no asset_id"},
-                            502,
-                        )
-                    signed["asset_id"] = asset_id
-                skills.register_data_asset_skill(signed, file_path=zip_path)
+                facade = _get_facade()
+                result = facade.register_bundle(
+                    zip_path=zip_path,
+                    owner=owner,
+                    tags=tags,
+                    bundle_name=bundle_name,
+                    file_count=len(file_items),
+                    file_names=[getattr(fi, "filename", "") for fi in file_items],
+                    enforce_allowed_paths=True,
+                )
+                if not result.success:
+                    return _json_response(
+                        self,
+                        {"error": result.error, **(result.data if isinstance(result.data, dict) else {})},
+                        _service_error_http_status(result.error, 400),
+                    )
+                data = result.data
                 return _json_response(
                     self,
                     {
                         "ok": True,
-                        "asset_id": asset_id or signed.get("asset_id", ""),
-                        "file_hash": file_info.get("file_hash", ""),
-                        "owner": owner,
-                        "bundle_name": bundle_name,
-                        "tags": tags,
-                        "file_count": len(file_items),
-                        "file_names": [getattr(fi, "filename", "") for fi in file_items],
+                        "asset_id": data.get("asset_id", ""),
+                        "file_hash": data.get("file_hash", ""),
+                        "owner": data.get("owner", owner),
+                        "bundle_name": data.get("bundle_name", bundle_name),
+                        "tags": data.get("tags", tags),
+                        "file_count": data.get("file_count", len(file_items)),
+                        "file_names": data.get(
+                            "file_names",
+                            [getattr(fi, "filename", "") for fi in file_items],
+                        ),
                     },
                 )
             except Exception as e:
@@ -2542,50 +2936,26 @@ class _Handler(BaseHTTPRequestHandler):
                 aid = body.get("asset_id", "")
                 if not aid:
                     return _json_response(self, {"error": "asset_id required"}, 400)
-                if not _ledger:
-                    return _json_response(self, {"error": "not initialized"}, 503)
-                meta = _ledger.get_asset_metadata(aid)
-                if meta is None:
-                    return _json_response(self, {"error": "asset not found"}, 404)
                 caller = _default_identity()
-                if meta.get("owner") and meta["owner"] != caller:
-                    return _json_response(self, {"error": "not authorized"}, 403)
-                file_path = meta.get("file_path")
-                if not file_path or not os.path.isfile(file_path):
-                    return _json_response(self, {"error": "file not found"}, 404)
-                # Compute current hash
-                h = hashlib.sha256()
-                with open(file_path, "rb") as f:
-                    for chunk in iter(lambda: f.read(8192), b""):
-                        h.update(chunk)
-                new_hash = h.hexdigest()
-                old_hash = meta.get("file_hash", "")
-                if new_hash == old_hash:
-                    return _json_response(self, {"ok": False, "message": "no changes detected"})
-                # Build version chain
-                versions = meta.get("versions", [])
-                if not versions and old_hash:
-                    versions.append(
-                        {
-                            "version": 1,
-                            "file_hash": old_hash,
-                            "timestamp": meta.get("created_at", ""),
-                        }
+                facade = _get_facade()
+                if not facade:
+                    return _json_response(self, {"error": "service unavailable"}, 503)
+                result = facade.reregister_asset(aid, owner=caller)
+                if not result.success:
+                    return _json_response(
+                        self,
+                        {"error": result.error},
+                        _service_error_http_status(result.error),
                     )
-                new_version = (versions[-1]["version"] + 1) if versions else 2
-
-                versions.append(
-                    {
-                        "version": new_version,
-                        "file_hash": new_hash,
-                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    }
-                )
-                meta["versions"] = versions
-                meta["file_hash"] = new_hash
-                _ledger.set_asset_metadata(aid, meta)
+                if not result.data.get("changed", False):
+                    return _json_response(self, {"ok": False, "message": "no changes detected"})
                 return _json_response(
-                    self, {"ok": True, "version": new_version, "file_hash": new_hash}
+                    self,
+                    {
+                        "ok": True,
+                        "version": result.data.get("version"),
+                        "file_hash": result.data.get("file_hash", ""),
+                    },
                 )
             except Exception as e:
                 return _json_response(self, {"error": str(e)}, 400)
@@ -2607,16 +2977,17 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/asset/update":
             aid = body.get("asset_id", "")
             new_tags = body.get("tags", [])
-            if not _ledger:
-                return _json_response(self, {"error": "ledger not initialized"}, 503)
-            meta = _ledger.get_asset_metadata(aid)
-            if meta is None:
-                return _json_response(self, {"error": "not found"}, 404)
             caller = _default_identity()
-            if meta.get("owner") and meta["owner"] != caller:
-                return _json_response(self, {"error": "not authorized"}, 403)
-            if not _ledger.update_asset_metadata(aid, {"tags": new_tags}):
-                return _json_response(self, {"error": "update failed"}, 500)
+            facade = _get_facade()
+            if not facade:
+                return _json_response(self, {"error": "service unavailable"}, 503)
+            result = facade.update_asset_metadata(aid, {"tags": new_tags}, owner=caller)
+            if not result.success:
+                return _json_response(
+                    self,
+                    {"error": result.error},
+                    _service_error_http_status(result.error),
+                )
             return _json_response(self, {"ok": True, "asset_id": aid, "tags": new_tags})
 
         if path == "/api/asset/shutdown":
@@ -2657,127 +3028,289 @@ class _Handler(BaseHTTPRequestHandler):
     # ── POST handler: Trading routes ─────────────────────────────
     def _handle_trading(self, path, body, content_type):
         if path == "/api/buy":
+            trace_id = _resolve_trace_id(self, body)
+            agent_mode = _wants_agent_contract(self, body=body)
             try:
                 aid = body.get("asset_id", "")
                 buyer = body.get("buyer") or _default_identity()
                 amount = float(body.get("amount", 10))
+                _log_beta_trace(
+                    "info",
+                    "buy.start",
+                    trace_id,
+                    asset_id=aid,
+                    buyer=buyer,
+                    amount=amount,
+                )
                 if not aid:
-                    return _json_response(self, {"error": "asset_id required"}, 400)
+                    if agent_mode:
+                        return _beta_agent_json_response(
+                            self,
+                            trace_id,
+                            "buy",
+                            {"asset_id": aid, "buyer": buyer, "amount_oas": round(amount, 6)},
+                            400,
+                            ok=False,
+                            error="asset_id required",
+                            event="buy.failed",
+                            level="warning",
+                            buyer=buyer,
+                        )
+                    return _beta_core_json_response(
+                        self,
+                        trace_id,
+                        {"error": "asset_id required"},
+                        400,
+                        ok=False,
+                        event="buy.failed",
+                        level="warning",
+                        buyer=buyer,
+                    )
                 if amount <= 0:
-                    return _json_response(self, {"error": "amount must be positive"}, 400)
+                    if agent_mode:
+                        return _beta_agent_json_response(
+                            self,
+                            trace_id,
+                            "buy",
+                            {"asset_id": aid, "buyer": buyer, "amount_oas": round(amount, 6)},
+                            400,
+                            ok=False,
+                            error="amount must be positive",
+                            event="buy.failed",
+                            level="warning",
+                            asset_id=aid,
+                            buyer=buyer,
+                        )
+                    return _beta_core_json_response(
+                        self,
+                        trace_id,
+                        {"error": "amount must be positive"},
+                        400,
+                        ok=False,
+                        event="buy.failed",
+                        level="warning",
+                        asset_id=aid,
+                        buyer=buyer,
+                    )
                 if amount > 1_000_000:
-                    return _json_response(self, {"error": "amount exceeds maximum"}, 400)
+                    if agent_mode:
+                        return _beta_agent_json_response(
+                            self,
+                            trace_id,
+                            "buy",
+                            {"asset_id": aid, "buyer": buyer, "amount_oas": round(amount, 6)},
+                            400,
+                            ok=False,
+                            error="amount exceeds maximum",
+                            event="buy.failed",
+                            level="warning",
+                            asset_id=aid,
+                            buyer=buyer,
+                        )
+                    return _beta_core_json_response(
+                        self,
+                        trace_id,
+                        {"error": "amount exceeds maximum"},
+                        400,
+                        ok=False,
+                        event="buy.failed",
+                        level="warning",
+                        asset_id=aid,
+                        buyer=buyer,
+                    )
+
+                idempotency_key = _resolve_idempotency_key(self, trace_id, body)
+                request_fingerprint = _buy_request_fingerprint(aid, buyer, amount)
+                buy_runtime = _get_buy_runtime()
+                lookup = buy_runtime.lookup_idempotency(idempotency_key, request_fingerprint)
+                if lookup.kind == "conflict":
+                    return _beta_core_json_response(
+                        self,
+                        trace_id,
+                        {
+                            "error": "idempotency key payload mismatch",
+                            "idempotency_key": idempotency_key,
+                        },
+                        409,
+                        ok=False,
+                        event="buy.failed",
+                        level="warning",
+                        asset_id=aid,
+                        buyer=buyer,
+                    )
+                if lookup.kind == "replay" and lookup.replay is not None:
+                    replay = lookup.replay
+                    replay_result = dict(replay.response)
+                    replay_extras = {
+                        "idempotent_replay": True,
+                        "idempotency_key": idempotency_key,
+                    }
+                    if replay.original_trace_id:
+                        replay_extras["original_trace_id"] = replay.original_trace_id
+                    if agent_mode:
+                        return _beta_agent_json_response(
+                            self,
+                            trace_id,
+                            "buy",
+                            replay_result,
+                            replay.status,
+                            ok=replay.ok,
+                            state=replay.state,
+                            retryable=replay.retryable,
+                            extras=replay_extras,
+                            event="buy.replay",
+                            asset_id=aid,
+                            buyer=buyer,
+                            receipt_id=replay_result.get("receipt_id", ""),
+                        )
+                    replay_payload = _legacy_buy_payload(
+                        replay_result,
+                        idempotency_key,
+                        idempotent_replay=True,
+                        original_trace_id=replay.original_trace_id,
+                    )
+                    return _beta_core_json_response(
+                        self,
+                        trace_id,
+                        replay_payload,
+                        replay.status,
+                        ok=replay.ok,
+                        state=replay.state,
+                        retryable=replay.retryable,
+                        event="buy.replay",
+                        asset_id=aid,
+                        buyer=buyer,
+                        receipt_id=replay_result.get("receipt_id", ""),
+                    )
 
                 # Anti-wash-trading: cooldown per buyer+asset
-                cooldown_key = (buyer, aid)
-                with _buy_lock:
-                    last_buy = _buy_cooldowns.get(cooldown_key, 0)
-                    if time.time() - last_buy < BUY_COOLDOWN_SECONDS:
-                        remaining = int(BUY_COOLDOWN_SECONDS - (time.time() - last_buy))
-                        return _json_response(self, {"error": f"cooldown: wait {remaining}s"}, 429)
-                # UNAVAILABLE check: verify file exists and hash matches
-                if not _ledger:
-                    return _json_response(self, {"error": "not initialized"}, 503)
-                asset_meta = _ledger.get_asset_metadata(aid)
-                if asset_meta is not None:
-                    a_file_path = asset_meta.get("file_path")
-                    a_file_hash = asset_meta.get("file_hash")
-                    if a_file_path and a_file_hash:
-                        if not os.path.isfile(a_file_path):
-                            return _json_response(
-                                self,
-                                {
-                                    "error": "UNAVAILABLE",
-                                    "message": "Asset file is missing or modified",
-                                },
-                                409,
-                            )
-                        # M4: skip expensive hash if file size/mtime unchanged
-                        need_hash = True
-                        try:
-                            st = os.stat(a_file_path)
-                            cached_size = asset_meta.get("_cached_size")
-                            cached_mtime = asset_meta.get("_cached_mtime")
-                            if cached_size == st.st_size and cached_mtime == st.st_mtime:
-                                need_hash = False
-                        except OSError:
-                            pass
-
-                        if need_hash:
-                            hb = hashlib.sha256()
-                            with open(a_file_path, "rb") as fb:
-                                for chunk in iter(lambda: fb.read(8192), b""):
-                                    hb.update(chunk)
-                            if hb.hexdigest() != a_file_hash:
-                                return _json_response(
-                                    self,
-                                    {
-                                        "error": "UNAVAILABLE",
-                                        "message": "Asset file is missing or modified",
-                                    },
-                                    409,
-                                )
-                            # Cache mtime/size for next check
-                            try:
-                                st = os.stat(a_file_path)
-                                _ledger.update_asset_metadata(
-                                    aid,
-                                    {
-                                        "_cached_size": st.st_size,
-                                        "_cached_mtime": st.st_mtime,
-                                    },
-                                )
-                            except Exception:
-                                pass
+                remaining = buy_runtime.cooldown_remaining(buyer, aid)
+                if remaining > 0:
+                    return _beta_core_json_response(
+                        self,
+                        trace_id,
+                        {"error": f"cooldown: wait {remaining}s"},
+                        429,
+                        ok=False,
+                        event="buy.failed",
+                        level="warning",
+                        asset_id=aid,
+                        buyer=buyer,
+                    )
+                availability = _get_asset_availability_probe().inspect(aid)
+                if not availability.available:
+                    payload = {"error": availability.error}
+                    if availability.message:
+                        payload["message"] = availability.message
+                    return _beta_core_json_response(
+                        self,
+                        trace_id,
+                        payload,
+                        availability.http_status,
+                        ok=False,
+                        event="buy.failed",
+                        level="warning",
+                        asset_id=aid,
+                        buyer=buyer,
+                    )
                 facade = _get_facade()
-                result = facade.buy(aid, buyer, amount)
+                result = facade.buy(aid, buyer, amount, trace_id=trace_id)
                 if not result.success:
-                    return _json_response(self, {"error": result.error}, 400)
+                    if agent_mode:
+                        return _beta_agent_json_response(
+                            self,
+                            result.trace_id or trace_id,
+                            "buy",
+                            {"asset_id": aid, "buyer": buyer, "amount_oas": round(amount, 6)},
+                            400,
+                            ok=False,
+                            error=result.error,
+                            event="buy.failed",
+                            level="warning",
+                            asset_id=aid,
+                            buyer=buyer,
+                        )
+                    return _beta_core_json_response(
+                        self,
+                        result.trace_id or trace_id,
+                        {"error": result.error},
+                        400,
+                        ok=False,
+                        event="buy.failed",
+                        level="warning",
+                        asset_id=aid,
+                        buyer=buyer,
+                    )
 
                 d = result.data
                 settled = d.get("settled", False)
-                if settled:
-                    with _buy_lock:
-                        _buy_cooldowns[cooldown_key] = time.time()
-                    # Send purchase notification to buyer
-                    try:
-                        quote_data = d.get("quote") or {}
-                        shares = round(quote_data.get("equity_minted", 0), 4)
-                        ns = _get_notification_service()
-                        ns.notify(
-                            buyer,
-                            "PURCHASE",
-                            f"Purchased {shares} shares of {aid[:12]}...",
-                            {"asset_id": aid, "shares": shares},
-                        )
-                        # Send sale notification to asset owner
-                        if _ledger:
-                            _asset_owner = _ledger.get_asset_owner(aid)
-                            if _asset_owner:
-                                ns.notify(
-                                    _asset_owner,
-                                    "SALE",
-                                    f"Your asset {aid[:12]}... was purchased by {buyer[:12]}...",
-                                    {"asset_id": aid, "buyer": buyer},
-                                )
-                    except Exception:
-                        logger.debug("Purchase notification failed", exc_info=True)
-
                 quote_data = d.get("quote") or {}
-                resp = {
-                    "ok": settled,
-                    "receipt_id": d.get("receipt_id", ""),
-                }
-                resp["tokens"] = round(quote_data.get("equity_minted", 0), 4)
-                resp["price_after"] = round(quote_data.get("spot_price_after", 0), 6)
-                # equity balance from pool (use settlement engine for pool state lookup)
-                se = _get_settlement()
-                pool = se.get_pool(aid)
-                resp["equity_balance"] = round(pool.equity.get(buyer, 0), 4) if pool else 0
-                resp["error"] = None
-                return _json_response(self, resp)
+                canonical_response = _canonical_buy_result(
+                    aid,
+                    buyer,
+                    amount,
+                    settled,
+                    d.get("receipt_id", ""),
+                    quote_data,
+                    d.get("equity_balance", 0),
+                )
+                if settled:
+                    buy_runtime.record_success(
+                        buyer=buyer,
+                        asset_id=aid,
+                        idempotency_key=idempotency_key,
+                        request_fingerprint=request_fingerprint,
+                        response=canonical_response,
+                        trace_id=trace_id,
+                    )
+                if agent_mode:
+                    return _beta_agent_json_response(
+                        self,
+                        result.trace_id or trace_id,
+                        "buy",
+                        canonical_response,
+                        ok=settled,
+                        extras={"idempotency_key": idempotency_key},
+                        event="buy.success" if settled else "buy.failed",
+                        level="info" if settled else "warning",
+                        asset_id=aid,
+                        buyer=buyer,
+                        receipt_id=d.get("receipt_id", ""),
+                    )
+                resp = _legacy_buy_payload(canonical_response, idempotency_key)
+                return _beta_core_json_response(
+                    self,
+                    result.trace_id or trace_id,
+                    resp,
+                    ok=settled,
+                    event="buy.success" if settled else "buy.failed",
+                    level="info" if settled else "warning",
+                    asset_id=aid,
+                    buyer=buyer,
+                    receipt_id=d.get("receipt_id", ""),
+                )
             except Exception as e:
-                return _json_response(self, {"error": str(e)}, 400)
+                if agent_mode:
+                    return _beta_agent_json_response(
+                        self,
+                        trace_id,
+                        "buy",
+                        {},
+                        400,
+                        ok=False,
+                        error=str(e),
+                        event="buy.failed",
+                        level="warning",
+                    )
+                return _beta_core_json_response(
+                    self,
+                    trace_id,
+                    {"error": str(e)},
+                    400,
+                    ok=False,
+                    event="buy.failed",
+                    level="warning",
+                )
 
         if path == "/api/sell":
             try:
@@ -2886,18 +3419,22 @@ class _Handler(BaseHTTPRequestHandler):
                 if not node_id or amount <= 0:
                     return _json_response(self, {"error": "node_id and amount required"}, 400)
                 staker = _default_identity()
-                if not _ledger:
-                    return _json_response(self, {"error": "ledger not initialized"}, 503)
-                _ledger.update_stake(node_id, staker, amount)
-                # Read back total
-                stakes = _ledger.get_stakes_summary()
-                total = next((s["total"] for s in stakes if s["validator_id"] == node_id), amount)
+                facade = _get_facade()
+                if not facade:
+                    return _json_response(self, {"error": "service unavailable"}, 503)
+                result = facade.stake_node(node_id, staker, amount)
+                if not result.success:
+                    return _json_response(
+                        self,
+                        {"error": result.error},
+                        _service_error_http_status(result.error),
+                    )
                 return _json_response(
                     self,
                     {
                         "ok": True,
-                        "node_id": node_id,
-                        "total_stake": total,
+                        "node_id": result.data.get("node_id", node_id),
+                        "total_stake": result.data.get("total_stake", amount),
                     },
                 )
             except Exception as e:
@@ -3772,7 +4309,10 @@ class _Handler(BaseHTTPRequestHandler):
         if allowed:
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header(
+                "Access-Control-Allow-Headers",
+                "Content-Type, Authorization, X-Trace-Id, Idempotency-Key",
+            )
             self.send_header("Access-Control-Max-Age", "86400")
         self.send_header("Content-Length", "0")
         self.end_headers()

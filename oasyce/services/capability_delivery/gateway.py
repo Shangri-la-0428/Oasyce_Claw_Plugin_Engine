@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, ProxyHandler, build_opener
 
 from oasyce.services.capability_delivery.registry import EndpointRegistry
 
@@ -154,12 +154,17 @@ class InvocationGateway:
         timeout: float = 30.0,
         max_retries: int = 0,
         allow_private: bool = False,
+        use_system_proxies: bool = False,
     ):
         self._registry = registry
         self._timeout = timeout
         self._max_retries = max_retries
         self._allow_private = allow_private
+        self._use_system_proxies = use_system_proxies
         self._call_timestamps: Dict[str, list] = {}  # capability_id -> [timestamps]
+        # Provider requests carry decrypted upstream API keys. Do not leak them
+        # through ambient shell proxies unless the caller opts in explicitly.
+        self._opener = build_opener(ProxyHandler() if use_system_proxies else ProxyHandler({}))
 
     def _check_rate_limit(self, capability_id: str, rate_limit: int) -> bool:
         """Return True if the call is within rate limit, False if exceeded.
@@ -276,7 +281,7 @@ class InvocationGateway:
                     headers=headers,
                     method="POST",
                 )
-                with urlopen(req, timeout=self._timeout) as resp:
+                with self._opener.open(req, timeout=self._timeout) as resp:
                     latency = (time.monotonic() - t0) * 1000
                     resp_body = resp.read().decode()
                     try:

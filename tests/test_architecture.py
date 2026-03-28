@@ -138,3 +138,186 @@ class TestFacadeNoDirectSql:
             msg = f"Facade has {len(violations)} direct _conn.execute calls:\n"
             msg += "\n".join(f"  {v}" for v in violations)
             pytest.fail(msg)
+
+
+class TestGuiTransportNoOfficialAssetWrites:
+    """GUI transport must not directly mutate official asset metadata.
+
+    Runtime probe-cache updates for `_cached_size/_cached_mtime` are allowed
+    for now. Official user-driven asset mutations must route through facade.
+    """
+
+    def test_gui_app_no_direct_asset_metadata_write(self):
+        app = ROOT / "gui" / "app.py"
+        lines = _read_lines(app)
+        violations = []
+        for i, line in enumerate(lines, 1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if "_ledger.update_asset_metadata(" not in line and "_ledger.set_asset_metadata(" not in line:
+                continue
+            window = "\n".join(lines[i - 1 : i + 6])
+            if '"_cached_size"' in window and '"_cached_mtime"' in window:
+                continue
+            violations.append(f"gui/app.py:{i}: {stripped.strip()}")
+
+        if violations:
+            msg = "Found direct official asset metadata writes in gui/app.py:\n"
+            msg += "\n".join(f"  {v}" for v in violations)
+            pytest.fail(msg)
+
+
+class TestGuiTransportNoDirectStakeWrites:
+    """GUI transport must not directly mutate stake state."""
+
+    def test_gui_app_no_direct_stake_write(self):
+        app = ROOT / "gui" / "app.py"
+        violations = []
+        for i, line in enumerate(_read_lines(app), 1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if "_ledger.update_stake(" in line:
+                violations.append(f"gui/app.py:{i}: {stripped.strip()}")
+
+        if violations:
+            msg = "Found direct stake writes in gui/app.py:\n"
+            msg += "\n".join(f"  {v}" for v in violations)
+            pytest.fail(msg)
+
+
+class TestGuiBuyTransportNoSettlementLookup:
+    """GUI buy transport should not inspect settlement state directly."""
+
+    def test_gui_buy_handler_does_not_call_get_settlement(self):
+        app = ROOT / "gui" / "app.py"
+        lines = _read_lines(app)
+        start = None
+        end = None
+
+        for i, line in enumerate(lines, 1):
+            if 'if path == "/api/buy":' in line:
+                start = i
+            elif start is not None and 'if path == "/api/sell":' in line:
+                end = i
+                break
+
+        assert start is not None, "Could not locate /api/buy handler in gui/app.py"
+        assert end is not None, "Could not locate /api/sell boundary in gui/app.py"
+
+        violations = []
+        for i in range(start, end - 1):
+            line = lines[i - 1]
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if "_get_settlement(" in line:
+                violations.append(f"gui/app.py:{i}: {stripped.strip()}")
+
+        if violations:
+            msg = "Found settlement lookup inside gui buy handler:\n"
+            msg += "\n".join(f"  {v}" for v in violations)
+            pytest.fail(msg)
+
+
+class TestGuiRegisterTransportNoDirectBusinessLogic:
+    """GUI register transport should not touch skills or ledger directly."""
+
+    def test_gui_register_handler_does_not_call_skills_or_ledger(self):
+        app = ROOT / "gui" / "app.py"
+        lines = _read_lines(app)
+        start = None
+        end = None
+
+        for i, line in enumerate(lines, 1):
+            if 'if path == "/api/register":' in line:
+                start = i
+            elif start is not None and 'if path == "/api/register-bundle":' in line:
+                end = i
+                break
+
+        assert start is not None, "Could not locate /api/register handler in gui/app.py"
+        assert end is not None, "Could not locate /api/register-bundle boundary in gui/app.py"
+
+        violations = []
+        for i in range(start, end - 1):
+            line = lines[i - 1]
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if "_get_skills(" in line or "_ledger" in line:
+                violations.append(f"gui/app.py:{i}: {stripped.strip()}")
+
+        if violations:
+            msg = "Found direct business logic access inside gui register handler:\n"
+            msg += "\n".join(f"  {v}" for v in violations)
+            pytest.fail(msg)
+
+
+class TestGuiRegisterBundleTransportNoDirectBusinessLogic:
+    """GUI register-bundle transport should not touch skills or chain bridge directly."""
+
+    def test_gui_register_bundle_handler_is_transport_only(self):
+        app = ROOT / "gui" / "app.py"
+        lines = _read_lines(app)
+        start = None
+        end = None
+
+        for i, line in enumerate(lines, 1):
+            if 'if path == "/api/register-bundle":' in line:
+                start = i
+            elif start is not None and 'if path == "/api/re-register":' in line:
+                end = i
+                break
+
+        assert start is not None, "Could not locate /api/register-bundle handler in gui/app.py"
+        assert end is not None, "Could not locate /api/re-register boundary in gui/app.py"
+
+        violations = []
+        for i in range(start, end - 1):
+            line = lines[i - 1]
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if "_get_skills(" in line or "_ledger" in line or "bridge_register" in line:
+                violations.append(f"gui/app.py:{i}: {stripped.strip()}")
+
+        if violations:
+            msg = "Found direct business logic access inside gui register-bundle handler:\n"
+            msg += "\n".join(f"  {v}" for v in violations)
+            pytest.fail(msg)
+
+
+class TestQueryAssetsNoDeepIntegrityScan:
+    """Asset list query should stay cheap and avoid content hashing."""
+
+    def test_query_assets_does_not_open_or_hash_files(self):
+        facade = ROOT / "services" / "facade.py"
+        lines = _read_lines(facade)
+        start = None
+        end = None
+
+        for i, line in enumerate(lines, 1):
+            if "def query_assets(self)" in line:
+                start = i
+            elif start is not None and "def query_fingerprints(self" in line:
+                end = i
+                break
+
+        assert start is not None, "Could not locate query_assets in facade.py"
+        assert end is not None, "Could not locate query_fingerprints boundary in facade.py"
+
+        violations = []
+        for i in range(start, end - 1):
+            line = lines[i - 1]
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if "open(" in line or "sha256" in line or "hashlib" in line:
+                violations.append(f"services/facade.py:{i}: {stripped.strip()}")
+
+        if violations:
+            msg = "Found deep integrity scan logic inside query_assets:\n"
+            msg += "\n".join(f"  {v}" for v in violations)
+            pytest.fail(msg)

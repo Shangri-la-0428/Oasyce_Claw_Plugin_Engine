@@ -57,16 +57,24 @@ class Oasyce:
 
     # ── HTTP primitives ──────────────────────────────────────────
 
-    def _request(self, method: str, path: str, body: Any = None) -> Any:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: Any = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Any:
         url = f"{self.base_url}{path}"
-        headers = {"Accept": "application/json"}
+        request_headers = {"Accept": "application/json"}
         data = None
         if body is not None:
-            headers["Content-Type"] = "application/json"
+            request_headers["Content-Type"] = "application/json"
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         if method == "POST" or method == "DELETE":
-            headers["Authorization"] = f"Bearer {self.token}"
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+            request_headers["Authorization"] = f"Bearer {self.token}"
+        if headers:
+            request_headers.update(headers)
+        req = urllib.request.Request(url, data=data, headers=request_headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8")
@@ -80,12 +88,23 @@ class Oasyce:
             msg = err_body.get("error", raw) if isinstance(err_body, dict) else raw
             raise OasyceAPIError(msg, status=e.code, body=err_body) from None
 
-    def _get(self, path: str, **params) -> Any:
-        qs = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
-        return self._request("GET", f"{path}?{qs}" if qs else path)
+    @staticmethod
+    def _trace_headers(trace_id: Optional[str]) -> Dict[str, str]:
+        if not trace_id:
+            return {}
+        return {"X-Trace-Id": trace_id}
 
-    def _post(self, path: str, body: Any = None) -> Any:
-        return self._request("POST", path, body or {})
+    def _get(self, path: str, headers: Optional[Dict[str, str]] = None, **params) -> Any:
+        qs = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
+        return self._request("GET", f"{path}?{qs}" if qs else path, headers=headers)
+
+    def _post(
+        self,
+        path: str,
+        body: Any = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Any:
+        return self._request("POST", path, body or {}, headers=headers)
 
     def _delete(self, path: str) -> Any:
         return self._request("DELETE", path)
@@ -99,6 +118,14 @@ class Oasyce:
     def status(self) -> Dict:
         """Dashboard API status."""
         return self._get("/api/status")
+
+    def support_beta(self, limit: int = 20, transactions_limit: int = 20) -> Dict:
+        """Recent beta core-flow events, failures, and transactions."""
+        return self._get(
+            "/api/support/beta",
+            limit=limit,
+            transactions_limit=transactions_limit,
+        )
 
     def balance(self, address: str) -> Dict:
         """Query OAS balance for an address."""
@@ -139,20 +166,29 @@ class Oasyce:
         owner: str,
         tags: str = "",
         rights_type: str = "original",
-        price_model: str = "bonding_curve",
+        price_model: str = "auto",
         price: float = 0,
+        machine: bool = False,
+        trace_id: Optional[str] = None,
     ) -> Dict:
-        """Register a new data asset."""
+        """Register a new data asset.
+
+        When `machine=True`, request the normalized agent contract envelope.
+        """
+        body = {
+            "file_path": file_path,
+            "owner": owner,
+            "tags": tags,
+            "rights_type": rights_type,
+            "price_model": price_model,
+            "price": price,
+        }
+        if machine:
+            body["format"] = "agent"
         return self._post(
             "/api/register",
-            {
-                "file_path": file_path,
-                "owner": owner,
-                "tags": tags,
-                "rights_type": rights_type,
-                "price_model": price_model,
-                "price": price,
-            },
+            body,
+            headers=self._trace_headers(trace_id),
         )
 
     def delete_asset(self, asset_id: str) -> Dict:
@@ -161,23 +197,57 @@ class Oasyce:
 
     # ── Trading ──────────────────────────────────────────────────
 
-    def quote(self, asset_id: str, amount: int = 10) -> Dict:
-        """Get bonding curve price quote."""
-        return self._get("/api/quote", asset_id=asset_id, amount=amount)
+    def quote(
+        self,
+        asset_id: str,
+        amount: int = 10,
+        machine: bool = False,
+        trace_id: Optional[str] = None,
+    ) -> Dict:
+        """Get bonding curve price quote.
+
+        When `machine=True`, request the normalized agent contract envelope.
+        """
+        return self._get(
+            "/api/quote",
+            asset_id=asset_id,
+            amount=amount,
+            format="agent" if machine else None,
+            headers=self._trace_headers(trace_id),
+        )
 
     def access_quote(self, asset_id: str, buyer: Optional[str] = None) -> Dict:
         """Get access-level pricing with bond requirements."""
         return self._get("/api/access/quote", asset_id=asset_id, buyer=buyer)
 
-    def buy(self, asset_id: str, buyer: str, amount: float = 10.0) -> Dict:
-        """Buy data asset tokens via bonding curve."""
+    def buy(
+        self,
+        asset_id: str,
+        buyer: str,
+        amount: float = 10.0,
+        machine: bool = False,
+        trace_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict:
+        """Buy data asset tokens via bonding curve.
+
+        Pass `idempotency_key` for agent-driven retries so the node can replay
+        the original success instead of executing a duplicate financial action.
+        """
+        headers = self._trace_headers(trace_id)
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
+        body = {
+            "asset_id": asset_id,
+            "buyer": buyer,
+            "amount": amount,
+        }
+        if machine:
+            body["format"] = "agent"
         return self._post(
             "/api/buy",
-            {
-                "asset_id": asset_id,
-                "buyer": buyer,
-                "amount": amount,
-            },
+            body,
+            headers=headers,
         )
 
     def sell(
@@ -200,9 +270,23 @@ class Oasyce:
             },
         )
 
-    def portfolio(self, buyer: Optional[str] = None) -> Dict:
-        """Holdings with equity and access levels."""
-        return self._get("/api/portfolio", buyer=buyer)
+    def portfolio(
+        self,
+        buyer: Optional[str] = None,
+        machine: bool = False,
+        trace_id: Optional[str] = None,
+    ) -> Any:
+        """Holdings with equity and access levels.
+
+        When `machine=True`, returns the agent contract envelope with
+        `contract_version/action/data/ok/state/retryable/trace_id`.
+        """
+        return self._get(
+            "/api/portfolio",
+            buyer=buyer,
+            format="agent" if machine else None,
+            headers=self._trace_headers(trace_id),
+        )
 
     def earnings(self, owner: str) -> Dict:
         """Total earnings and transaction list."""

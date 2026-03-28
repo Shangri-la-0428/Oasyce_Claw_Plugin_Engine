@@ -1217,10 +1217,18 @@ class TestInfo:
         parsed = json.loads(out)
         assert "project" in parsed
         assert "version" in parsed
+        assert "beta_onboarding" in parsed
 
     def test_info_section_economics(self):
         code, out, err = run_cli("info", "--section", "economics")
         assert code == 0
+
+    def test_info_section_beta(self):
+        code, out, err = run_cli("info", "--section", "beta")
+        assert code == 0
+        assert "register" in out.lower()
+        assert "quote" in out.lower()
+        assert "buy" in out.lower()
 
     def test_info_section_invalid(self):
         code, out, err = run_cli("info", "--section", "nonexistent_section")
@@ -1361,6 +1369,25 @@ class TestJsonOutputFormat:
         assert code == 0
         parsed = json.loads(out)
         assert isinstance(parsed, dict)
+
+
+class TestSupport:
+
+    @patch("oasyce.client.Oasyce")
+    def test_support_beta_json(self, mock_client_cls):
+        client = mock_client_cls.return_value
+        client.support_beta.return_value = {
+            "ok": True,
+            "events": [{"event": "buy.failed"}],
+            "failures": [{"event": "buy.failed"}],
+            "transactions": [{"tx_id": "tx-1"}],
+        }
+
+        code, out, err = run_cli("support", "beta", "--json")
+        assert code == 0
+        parsed = json.loads(out)
+        assert parsed["ok"] is True
+        assert parsed["events"][0]["event"] == "buy.failed"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

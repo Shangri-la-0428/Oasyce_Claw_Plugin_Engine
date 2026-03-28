@@ -19,6 +19,8 @@ GUI POST handlers and CLI commands use OasyceServiceFacade.
 
 from __future__ import annotations
 
+import datetime
+import hashlib
 import logging
 import os
 import threading
@@ -27,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from oasyce.chain_client import OasyceClient
+from oasyce.services.beta_support import get_beta_support_store
 from oasyce.services.settlement.engine import AssetStatus, QuoteResult, SettlementConfig
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,7 @@ class ServiceResult:
     success: bool
     data: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
+    trace_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +121,8 @@ class OasyceServiceFacade:
         self._skills = None
         self._dispute_manager = None
         self._chain_client = None
+        self._notifications = None
+        self._buy_notifications = None
 
     # -- lazy accessors -----------------------------------------------------
 
@@ -145,8 +151,44 @@ class OasyceServiceFacade:
                     )
         return self._chain_client
 
+    def _get_notifications(self):
+        if self._notifications is None:
+            with self._init_lock:
+                if self._notifications is None:  # double-check
+                    from oasyce.services.notifications import NotificationService
+
+                    db_path = None
+                    if self._config and getattr(self._config, "data_dir", None):
+                        db_path = os.path.join(self._config.data_dir, "notifications.db")
+                    self._notifications = NotificationService(db_path=db_path)
+        return self._notifications
+
+    def _get_buy_notifications(self):
+        if self._buy_notifications is None:
+            with self._init_lock:
+                if self._buy_notifications is None:  # double-check
+                    from oasyce.services.buy_notifications import BuyNotificationAdapter
+
+                    self._buy_notifications = BuyNotificationAdapter(
+                        ledger=self._ledger,
+                        config=self._config,
+                    )
+        return self._buy_notifications
+
     def _strict_chain_mode(self) -> bool:
         return not self._allow_local_fallback
+
+    def _log_trace_event(self, event: str, trace_id: Optional[str], **fields: Any) -> None:
+        if not trace_id:
+            return
+        get_beta_support_store().record(event, trace_id, "info", fields)
+        detail = " ".join(
+            f"{key}={value!r}" for key, value in sorted(fields.items()) if value is not None
+        )
+        message = f"beta_trace event={event} trace_id={trace_id}"
+        if detail:
+            message = f"{message} {detail}"
+        logger.info(message)
 
     @staticmethod
     def _parse_number(value: Any, scale: float = 1.0) -> float:
@@ -223,6 +265,147 @@ class OasyceServiceFacade:
                 holdings = self._parse_number(holder.get("shares", holder.get("amount", 0)))
                 break
         return holdings, market["supply"]
+
+    def _get_buy_equity_balance(
+        self,
+        asset_id: str,
+        buyer: str,
+        settlement=None,
+    ) -> float:
+        if settlement is not None:
+            try:
+                pool = settlement.get_pool(asset_id)
+                if pool is not None:
+                    equity = getattr(pool, "equity", {}) or {}
+                    return round(float(equity.get(buyer, 0) or 0), 4)
+            except Exception:
+                logger.debug("Failed to read local buy equity balance", exc_info=True)
+        try:
+            holdings, _ = self._get_onchain_holdings(asset_id, buyer)
+            return round(float(holdings or 0), 4)
+        except Exception:
+            logger.debug("Failed to read on-chain buy equity balance", exc_info=True)
+            return 0.0
+
+    @staticmethod
+    def _format_allowed_price_models(allowed_price_models: List[str]) -> str:
+        if not allowed_price_models:
+            return ""
+        if len(allowed_price_models) == 1:
+            return allowed_price_models[0]
+        if len(allowed_price_models) == 2:
+            return f"{allowed_price_models[0]} or {allowed_price_models[1]}"
+        return ", ".join(allowed_price_models[:-1]) + f", or {allowed_price_models[-1]}"
+
+    def _resolve_register_file_path(self, file_path: str, *, enforce_allowed_paths: bool) -> str:
+        if not file_path:
+            raise ValueError("file_path required")
+        resolved = os.path.realpath(file_path)
+        if enforce_allowed_paths:
+            home_dir = os.path.expanduser("~")
+            if not resolved.startswith(home_dir):
+                raise PermissionError("file path not allowed")
+        if not os.path.isfile(resolved):
+            raise FileNotFoundError("file not found")
+        return resolved
+
+    def _validate_register_request(
+        self,
+        *,
+        rights_type: str,
+        co_creators: Optional[List[Dict[str, Any]]],
+        price_model: str,
+        manual_price: Optional[float],
+        allowed_price_models: Optional[List[str]],
+    ) -> None:
+        from oasyce.models import VALID_RIGHTS_TYPES
+
+        if rights_type not in VALID_RIGHTS_TYPES:
+            raise ValueError(f"invalid rights_type: {rights_type}")
+        if rights_type == "co_creation" and (not co_creators or len(co_creators) < 2):
+            raise ValueError("co_creation requires at least 2 co_creators")
+        if co_creators:
+            total_share = sum(float(c.get("share", 0) or 0) for c in co_creators)
+            if abs(total_share - 100) > 0.01:
+                raise ValueError(f"co_creators shares must sum to 100, got {total_share}")
+
+        allowed = list(allowed_price_models or ["auto", "fixed", "floor", "free"])
+        if price_model not in allowed:
+            allowed_text = self._format_allowed_price_models(allowed)
+            raise ValueError(
+                f"invalid price_model: {price_model}. Must be {allowed_text}."
+            )
+        if price_model in ("fixed", "floor") and (manual_price is None or manual_price <= 0):
+            raise ValueError(f"price must be > 0 when price_model is '{price_model}'")
+
+    def _detect_duplicate_file_hash(self, file_hash: str) -> Optional[str]:
+        if not file_hash or self._ledger is None:
+            return None
+        try:
+            for existing in self._ledger.list_assets():
+                if existing.get("file_hash") == file_hash:
+                    return existing.get("asset_id") or "unknown"
+        except Exception:
+            logger.debug("Failed duplicate hash scan during register", exc_info=True)
+        return None
+
+    @staticmethod
+    def _project_hash_status(meta: Dict[str, Any]) -> Optional[str]:
+        file_path = meta.get("file_path")
+        file_hash = meta.get("file_hash")
+        if not file_path or not file_hash:
+            return "ok"
+        integrity_status = meta.get("_integrity_status")
+        if integrity_status in {"ok", "changed", "missing"}:
+            return integrity_status
+        try:
+            stat = os.stat(file_path)
+        except FileNotFoundError:
+            return "missing"
+        except OSError:
+            return None
+
+        cached_size = meta.get("_cached_size")
+        cached_mtime = meta.get("_cached_mtime")
+        if cached_size == stat.st_size and cached_mtime == stat.st_mtime:
+            return "ok"
+        return None
+
+    def _project_asset_row(self, row: Dict[str, Any], settlement) -> Dict[str, Any]:
+        import json as _j
+
+        meta = _j.loads(row["metadata"]) if row.get("metadata") else {}
+        aid = row["asset_id"]
+        entry: Dict[str, Any] = {
+            "asset_id": aid,
+            "owner": row["owner"],
+            "tags": meta.get("tags", []),
+            "created_at": row["created_at"],
+            "file_path": meta.get("file_path"),
+            "file_hash": meta.get("file_hash"),
+            "rights_type": meta.get("rights_type", "original"),
+            "co_creators": meta.get("co_creators"),
+            "disputed": meta.get("disputed", False),
+            "dispute_reason": meta.get("dispute_reason"),
+            "dispute_time": meta.get("dispute_time"),
+            "dispute_status": meta.get("dispute_status"),
+            "dispute_resolution": meta.get("dispute_resolution"),
+            "delisted": meta.get("delisted", False),
+            "spot_price": None,
+        }
+        if aid in settlement.pools:
+            pool = settlement.pools[aid]
+            if pool.supply > 0:
+                entry["spot_price"] = round(pool.spot_price, 6)
+
+        hash_status = self._project_hash_status(meta)
+        if hash_status is not None:
+            entry["hash_status"] = hash_status
+
+        versions = meta.get("versions", [])
+        entry["version"] = versions[-1]["version"] if versions else 1
+        entry["versions_count"] = len(versions) if versions else 1
+        return entry
 
     def _get_reputation(self):
         if self._reputation is None:
@@ -392,15 +575,24 @@ class OasyceServiceFacade:
     # -----------------------------------------------------------------------
     # Quote
     # -----------------------------------------------------------------------
-    def quote(self, asset_id: str, amount_oas: float = 10.0) -> ServiceResult:
+    def quote(
+        self, asset_id: str, amount_oas: float = 10.0, trace_id: Optional[str] = None
+    ) -> ServiceResult:
         """Get bonding-curve price quote for an asset."""
         try:
+            self._log_trace_event(
+                "facade.quote.start",
+                trace_id,
+                asset_id=asset_id,
+                amount_oas=amount_oas,
+                mode="chain" if self._strict_chain_mode() else "local",
+            )
             if self._strict_chain_mode():
                 qr = self._quote_from_chain_state(asset_id, amount_oas)
             else:
                 se = self._get_settlement()
                 qr = se.quote(asset_id, amount_oas)
-            return ServiceResult(
+            result = ServiceResult(
                 success=True,
                 data={
                     "asset_id": qr.asset_id,
@@ -412,20 +604,57 @@ class OasyceServiceFacade:
                     "protocol_fee": qr.protocol_fee,
                     "burn_amount": qr.burn_amount,
                 },
+                trace_id=trace_id,
             )
+            self._log_trace_event(
+                "facade.quote.success",
+                trace_id,
+                asset_id=asset_id,
+                payment_oas=qr.payment_oas,
+                equity_minted=qr.equity_minted,
+            )
+            return result
         except Exception as e:
-            return ServiceResult(success=False, error=str(e))
+            self._log_trace_event(
+                "facade.quote.failed",
+                trace_id,
+                asset_id=asset_id,
+                error=str(e),
+            )
+            return ServiceResult(success=False, error=str(e), trace_id=trace_id)
 
     # -----------------------------------------------------------------------
     # Buy
     # -----------------------------------------------------------------------
     def buy(
-        self, asset_id: str, buyer: str, amount_oas: float = 10.0, signature: Optional[str] = None
+        self,
+        asset_id: str,
+        buyer: str,
+        amount_oas: float = 10.0,
+        signature: Optional[str] = None,
+        trace_id: Optional[str] = None,
     ) -> ServiceResult:
         """Execute a share purchase through the settlement engine."""
+        self._log_trace_event(
+            "facade.buy.start",
+            trace_id,
+            asset_id=asset_id,
+            buyer=buyer,
+            amount_oas=amount_oas,
+            mode="chain" if self._strict_chain_mode() else "local",
+        )
         if not self._verify_agent(buyer, signature):
+            self._log_trace_event(
+                "facade.buy.failed",
+                trace_id,
+                asset_id=asset_id,
+                buyer=buyer,
+                error="Identity verification failed: invalid or missing signature",
+            )
             return ServiceResult(
-                success=False, error="Identity verification failed: invalid or missing signature"
+                success=False,
+                error="Identity verification failed: invalid or missing signature",
+                trace_id=trace_id,
             )
         try:
             if self._strict_chain_mode():
@@ -434,7 +663,14 @@ class OasyceServiceFacade:
                 qr = self._quote_from_chain_state(asset_id, amount_oas)
                 result = bridge_buy(asset_id, buyer, amount_oas, ledger=self._ledger)
                 if "error" in result:
-                    return ServiceResult(success=False, error=result["error"])
+                    self._log_trace_event(
+                        "facade.buy.failed",
+                        trace_id,
+                        asset_id=asset_id,
+                        buyer=buyer,
+                        error=result["error"],
+                    )
+                    return ServiceResult(success=False, error=result["error"], trace_id=trace_id)
 
                 access_granted = None
                 try:
@@ -442,7 +678,7 @@ class OasyceServiceFacade:
                 except Exception:
                     pass
 
-                return ServiceResult(
+                service_result = ServiceResult(
                     success=True,
                     data={
                         "tx_id": result.get("tx_id"),
@@ -456,9 +692,28 @@ class OasyceServiceFacade:
                             "spot_price_after": qr.spot_price_after,
                             "protocol_fee": qr.protocol_fee,
                         },
+                        "equity_balance": self._get_buy_equity_balance(asset_id, buyer),
                         "access_granted": access_granted,
                     },
+                    trace_id=trace_id,
                 )
+                self._log_trace_event(
+                    "facade.buy.success",
+                    trace_id,
+                    asset_id=asset_id,
+                    buyer=buyer,
+                    receipt_id=result.get("tx_id"),
+                )
+                self._get_buy_notifications().dispatch(
+                    asset_id,
+                    buyer,
+                    {
+                        "equity_minted": qr.equity_minted,
+                        "spot_price_after": qr.spot_price_after,
+                        "protocol_fee": qr.protocol_fee,
+                    },
+                )
+                return service_result
 
             se = self._get_settlement()
             pool = se.get_pool(asset_id)
@@ -476,14 +731,60 @@ class OasyceServiceFacade:
 
                         result = bridge_buy(asset_id, buyer, amount_oas, ledger=self._ledger)
                         if "error" not in result:
-                            return ServiceResult(success=True, data=result)
-                        return ServiceResult(success=False, error=result["error"])
+                            service_result = ServiceResult(
+                                success=True,
+                                data={
+                                    **result,
+                                    "equity_balance": self._get_buy_equity_balance(asset_id, buyer),
+                                },
+                                trace_id=trace_id,
+                            )
+                            self._log_trace_event(
+                                "facade.buy.success",
+                                trace_id,
+                                asset_id=asset_id,
+                                buyer=buyer,
+                                receipt_id=result.get("tx_id") or result.get("receipt_id"),
+                            )
+                            self._get_buy_notifications().dispatch(
+                                asset_id,
+                                buyer,
+                                result.get("quote") if isinstance(result, dict) else None,
+                            )
+                            return service_result
+                        self._log_trace_event(
+                            "facade.buy.failed",
+                            trace_id,
+                            asset_id=asset_id,
+                            buyer=buyer,
+                            error=result["error"],
+                        )
+                        return ServiceResult(
+                            success=False,
+                            error=result["error"],
+                            trace_id=trace_id,
+                        )
                     except Exception as e:
-                        return ServiceResult(success=False, error=str(e))
+                        self._log_trace_event(
+                            "facade.buy.failed",
+                            trace_id,
+                            asset_id=asset_id,
+                            buyer=buyer,
+                            error=str(e),
+                        )
+                        return ServiceResult(success=False, error=str(e), trace_id=trace_id)
 
             receipt = se.execute(asset_id, buyer, amount_oas)
             if receipt.status.value == "failed":
-                return ServiceResult(success=False, error=receipt.error or "Settlement failed")
+                error = receipt.error or "Settlement failed"
+                self._log_trace_event(
+                    "facade.buy.failed",
+                    trace_id,
+                    asset_id=asset_id,
+                    buyer=buyer,
+                    error=error,
+                )
+                return ServiceResult(success=False, error=error, trace_id=trace_id)
             data = {
                 "receipt_id": receipt.receipt_id,
                 "asset_id": receipt.asset_id,
@@ -501,10 +802,27 @@ class OasyceServiceFacade:
                 ),
             }
             # Equity → access: show what level the buyer now has
+            data["equity_balance"] = self._get_buy_equity_balance(asset_id, buyer, settlement=se)
             data["access_granted"] = self.get_equity_access_level(asset_id, buyer)
-            return ServiceResult(success=True, data=data)
+            service_result = ServiceResult(success=True, data=data, trace_id=trace_id)
+            self._log_trace_event(
+                "facade.buy.success",
+                trace_id,
+                asset_id=asset_id,
+                buyer=buyer,
+                receipt_id=receipt.receipt_id,
+            )
+            self._get_buy_notifications().dispatch(asset_id, buyer, data.get("quote"))
+            return service_result
         except Exception as e:
-            return ServiceResult(success=False, error=str(e))
+            self._log_trace_event(
+                "facade.buy.failed",
+                trace_id,
+                asset_id=asset_id,
+                buyer=buyer,
+                error=str(e),
+            )
+            return ServiceResult(success=False, error=str(e), trace_id=trace_id)
 
     # -----------------------------------------------------------------------
     # Sell
@@ -730,21 +1048,44 @@ class OasyceServiceFacade:
         manual_price: Optional[float] = None,
         storage_backend: Optional[str] = None,
         service_url: str = "",
+        trace_id: Optional[str] = None,
+        enforce_allowed_paths: bool = False,
+        allowed_price_models: Optional[List[str]] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
     ) -> ServiceResult:
         """Register a data asset through the unified skill pipeline."""
-        # Validate price model
-        if price_model in ("fixed", "floor"):
-            if manual_price is None or manual_price <= 0:
-                return ServiceResult(
-                    success=False,
-                    error=f"price_model={price_model} requires a positive manual_price",
-                )
-
         try:
+            self._log_trace_event(
+                "facade.register.start",
+                trace_id,
+                owner=owner,
+                file_path=file_path,
+                price_model=price_model,
+                rights_type=rights_type,
+            )
+            self._validate_register_request(
+                rights_type=rights_type,
+                co_creators=co_creators,
+                price_model=price_model,
+                manual_price=manual_price,
+                allowed_price_models=allowed_price_models,
+            )
+            resolved_path = self._resolve_register_file_path(
+                file_path,
+                enforce_allowed_paths=enforce_allowed_paths,
+            )
             skills = self._get_skills()
 
             # Scan → Classify → Metadata → Certificate → Register
-            file_info = skills.scan_data_skill(file_path)
+            file_info = skills.scan_data_skill(resolved_path)
+            duplicate_asset_id = self._detect_duplicate_file_hash(file_info.get("file_hash", ""))
+            if duplicate_asset_id:
+                return ServiceResult(
+                    success=False,
+                    data={"existing_asset_id": duplicate_asset_id},
+                    error=f"Duplicate: file already registered as {duplicate_asset_id}",
+                    trace_id=trace_id,
+                )
             classification = skills.classify_data_skill(file_info)
             metadata = skills.generate_metadata_skill(
                 file_info,
@@ -754,21 +1095,106 @@ class OasyceServiceFacade:
                 rights_type=rights_type,
                 co_creators=co_creators,
             )
+            metadata["file_path"] = os.path.abspath(resolved_path)
+            if service_url:
+                metadata["service_url"] = service_url
 
             # Attach price model
             metadata["price_model"] = price_model
             if manual_price is not None:
                 metadata["manual_price"] = manual_price
+            if extra_metadata:
+                metadata.update(extra_metadata)
+
+            signed = skills.create_certificate_skill(metadata)
+            if self._strict_chain_mode():
+                from oasyce.bridge.core_bridge import bridge_register
+
+                try:
+                    chain_result = bridge_register(signed, creator=owner)
+                except Exception as chain_exc:
+                    raise RuntimeError(
+                        f"Chain unavailable: {chain_exc}. "
+                        "Start the chain with 'oasyced start' or disable strict mode "
+                        "(unset OASYCE_STRICT_CHAIN) to register locally."
+                    ) from chain_exc
+                if not chain_result.get("valid"):
+                    raise RuntimeError(
+                        chain_result.get("error")
+                        or chain_result.get("reason")
+                        or "Chain registration failed"
+                    )
+                asset_id = chain_result.get("core_asset_id", "")
+                if not asset_id:
+                    raise RuntimeError("Chain registration returned no asset_id")
+                signed["asset_id"] = asset_id
 
             result = skills.register_data_asset_skill(
-                metadata,
-                file_path=file_path,
+                signed,
+                file_path=resolved_path,
                 storage_backend=storage_backend,
             )
+            response = dict(result)
+            response["asset_id"] = signed.get("asset_id") or response.get("asset_id", "")
+            response.setdefault("file_hash", file_info.get("file_hash", ""))
+            response.setdefault("owner", owner)
+            response.setdefault("price_model", price_model)
+            response.setdefault("rights_type", rights_type)
+            if manual_price is not None:
+                response.setdefault("manual_price", manual_price)
 
-            return ServiceResult(success=True, data=result)
+            service_result = ServiceResult(success=True, data=response, trace_id=trace_id)
+            self._log_trace_event(
+                "facade.register.success",
+                trace_id,
+                owner=owner,
+                asset_id=response.get("asset_id"),
+            )
+            return service_result
         except Exception as e:
-            return ServiceResult(success=False, error=str(e))
+            self._log_trace_event(
+                "facade.register.failed",
+                trace_id,
+                owner=owner,
+                file_path=file_path,
+                error=str(e),
+            )
+            return ServiceResult(success=False, error=str(e), trace_id=trace_id)
+
+    def register_bundle(
+        self,
+        zip_path: str,
+        owner: str,
+        tags: List[str],
+        bundle_name: str,
+        file_count: int,
+        file_names: List[str],
+        trace_id: Optional[str] = None,
+        enforce_allowed_paths: bool = False,
+    ) -> ServiceResult:
+        result = self.register(
+            file_path=zip_path,
+            owner=owner,
+            tags=tags,
+            rights_type="original",
+            price_model="auto",
+            trace_id=trace_id,
+            enforce_allowed_paths=enforce_allowed_paths,
+            allowed_price_models=["auto"],
+            extra_metadata={
+                "bundle": True,
+                "bundle_name": bundle_name,
+                "file_count": file_count,
+            },
+        )
+        if not result.success:
+            return result
+        data = dict(result.data)
+        data["bundle_name"] = bundle_name
+        data["tags"] = list(tags)
+        data["file_count"] = int(file_count)
+        data["file_names"] = list(file_names)
+        return ServiceResult(success=True, data=data, trace_id=result.trace_id)
 
     # -----------------------------------------------------------------------
     # Dispute
@@ -1140,6 +1566,94 @@ class OasyceServiceFacade:
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
 
+    def reregister_asset(
+        self,
+        asset_id: str,
+        owner: str = "",
+        signature: Optional[str] = None,
+        trace_id: Optional[str] = None,
+    ) -> ServiceResult:
+        """Recompute file hash and append a new metadata version when content changed."""
+        if not self._verify_agent(owner or asset_id, signature):
+            return ServiceResult(
+                success=False,
+                error="Identity verification failed: invalid or missing signature",
+                trace_id=trace_id,
+            )
+        if self._ledger is None:
+            return ServiceResult(success=False, error="Ledger not available", trace_id=trace_id)
+
+        try:
+            meta = self._ledger.get_asset_metadata(asset_id)
+            if meta is None:
+                return ServiceResult(
+                    success=False,
+                    error=f"Asset not found: {asset_id}",
+                    trace_id=trace_id,
+                )
+            if owner and meta.get("owner") != owner:
+                return ServiceResult(
+                    success=False,
+                    error="Only the asset owner can re-register",
+                    trace_id=trace_id,
+                )
+
+            file_path = meta.get("file_path")
+            if not file_path or not os.path.isfile(file_path):
+                return ServiceResult(success=False, error="file not found", trace_id=trace_id)
+
+            hasher = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    hasher.update(chunk)
+            new_hash = hasher.hexdigest()
+            old_hash = meta.get("file_hash", "")
+
+            if new_hash == old_hash:
+                return ServiceResult(
+                    success=True,
+                    data={
+                        "asset_id": asset_id,
+                        "changed": False,
+                        "message": "no changes detected",
+                    },
+                    trace_id=trace_id,
+                )
+
+            versions = list(meta.get("versions", []))
+            if not versions and old_hash:
+                versions.append(
+                    {
+                        "version": 1,
+                        "file_hash": old_hash,
+                        "timestamp": meta.get("created_at", ""),
+                    }
+                )
+            new_version = (versions[-1]["version"] + 1) if versions else 2
+            versions.append(
+                {
+                    "version": new_version,
+                    "file_hash": new_hash,
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                }
+            )
+            meta["versions"] = versions
+            meta["file_hash"] = new_hash
+            self._ledger.set_asset_metadata(asset_id, meta)
+
+            return ServiceResult(
+                success=True,
+                data={
+                    "asset_id": asset_id,
+                    "changed": True,
+                    "version": new_version,
+                    "file_hash": new_hash,
+                },
+                trace_id=trace_id,
+            )
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e), trace_id=trace_id)
+
     def delist_asset(
         self, asset_id: str, owner: str, signature: Optional[str] = None
     ) -> ServiceResult:
@@ -1206,6 +1720,37 @@ class OasyceServiceFacade:
                 "count": len(versions),
             },
         )
+
+    def stake_node(
+        self,
+        node_id: str,
+        staker: str,
+        amount: float,
+        signature: Optional[str] = None,
+    ) -> ServiceResult:
+        """Record stake through the facade so transport never mutates ledger directly."""
+        if not node_id or amount <= 0:
+            return ServiceResult(success=False, error="node_id and amount required")
+        if not self._verify_agent(staker, signature):
+            return ServiceResult(
+                success=False,
+                error="Identity verification failed: invalid or missing signature",
+            )
+        if self._ledger is None:
+            return ServiceResult(success=False, error="Ledger not available")
+        try:
+            self._ledger.update_stake(node_id, staker, amount)
+            stakes = self._ledger.get_stakes_summary()
+            total = next((s["total"] for s in stakes if s["validator_id"] == node_id), amount)
+            return ServiceResult(
+                success=True,
+                data={
+                    "node_id": node_id,
+                    "total_stake": total,
+                },
+            )
+        except Exception as e:
+            return ServiceResult(success=False, error=str(e))
 
     # -----------------------------------------------------------------------
     # Asset Lifecycle — Graceful Exit
@@ -1472,57 +2017,9 @@ class OasyceServiceFacade:
         if self._ledger is None:
             return ServiceResult(success=True, data=[])
         try:
-            import hashlib as _hl
-
             rows = self._ledger.list_assets()
             se = self._get_settlement()
-            results = []
-            for r in rows:
-                import json as _j
-
-                meta = _j.loads(r["metadata"]) if r.get("metadata") else {}
-                entry: dict = {
-                    "asset_id": r["asset_id"],
-                    "owner": r["owner"],
-                    "tags": meta.get("tags", []),
-                    "created_at": r["created_at"],
-                    "file_path": meta.get("file_path"),
-                    "file_hash": meta.get("file_hash"),
-                    "rights_type": meta.get("rights_type", "original"),
-                    "co_creators": meta.get("co_creators"),
-                    "disputed": meta.get("disputed", False),
-                    "dispute_reason": meta.get("dispute_reason"),
-                    "dispute_time": meta.get("dispute_time"),
-                    "dispute_status": meta.get("dispute_status"),
-                    "dispute_resolution": meta.get("dispute_resolution"),
-                    "delisted": meta.get("delisted", False),
-                    "spot_price": None,
-                }
-                aid = r["asset_id"]
-                if aid in se.pools:
-                    pool = se.pools[aid]
-                    if pool.supply > 0:
-                        entry["spot_price"] = round(pool.spot_price, 6)
-                # Hash integrity check
-                fp = meta.get("file_path")
-                fh = meta.get("file_hash")
-                if fp and fh:
-                    try:
-                        h = _hl.sha256()
-                        with open(fp, "rb") as f:
-                            for chunk in iter(lambda: f.read(8192), b""):
-                                h.update(chunk)
-                        entry["hash_status"] = "ok" if h.hexdigest() == fh else "changed"
-                    except FileNotFoundError:
-                        entry["hash_status"] = "missing"
-                else:
-                    entry["hash_status"] = "ok"
-                # Version info
-                full_meta = self._ledger.get_asset_metadata(aid) or {}
-                versions = full_meta.get("versions", [])
-                entry["version"] = versions[-1]["version"] if versions else 1
-                entry["versions_count"] = len(versions) if versions else 1
-                results.append(entry)
+            results = [self._project_asset_row(r, se) for r in rows]
             return ServiceResult(success=True, data=results)
         except Exception as e:
             return ServiceResult(success=False, error=str(e))

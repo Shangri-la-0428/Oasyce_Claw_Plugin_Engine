@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── Envelope ──────────────────────────────────────────────────────────
@@ -11,6 +11,17 @@ from pydantic import BaseModel
 class Envelope(BaseModel):
     ok: bool
     data: Any = None
+    error: Optional[str] = None
+
+
+class CoreActionEnvelope(BaseModel):
+    contract_version: str
+    action: str
+    ok: bool
+    state: Literal["success", "failed", "retryable"]
+    retryable: bool
+    trace_id: str
+    data: dict[str, Any] = Field(default_factory=dict)
     error: Optional[str] = None
 
 
@@ -33,6 +44,34 @@ class SubmitRequest(BaseModel):
 class BuyRequest(BaseModel):
     asset_id: str
     buyer: str
+
+
+class CoreRegisterRequest(BaseModel):
+    file_path: str
+    owner: str
+    tags: list[str] = Field(default_factory=list)
+    rights_type: str = "original"
+    price_model: Literal["auto", "fixed", "floor"] = "auto"
+    price: Optional[float] = None
+    trace_id: Optional[str] = None
+
+
+class CoreQuoteRequest(BaseModel):
+    asset_id: str
+    amount_oas: float = 10.0
+    trace_id: Optional[str] = None
+
+
+class CoreBuyRequest(BaseModel):
+    asset_id: str
+    buyer: str
+    amount_oas: float = 10.0
+    trace_id: Optional[str] = None
+
+
+class CorePortfolioRequest(BaseModel):
+    buyer: str
+    trace_id: Optional[str] = None
 
 
 # ── Response data models ──────────────────────────────────────────────

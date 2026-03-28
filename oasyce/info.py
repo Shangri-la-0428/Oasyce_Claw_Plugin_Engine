@@ -141,6 +141,25 @@ UPDATE_GUIDE: Dict[str, str] = {
     ),
 }
 
+BETA_ONBOARDING: Dict[str, str] = {
+    "en": (
+        "Beta Onboarding:\n"
+        "  - This beta is AI-first. The long-term user is an agent; the dashboard is a temporary collaboration surface.\n"
+        "  - First safe path: register one asset -> quote it -> buy it once with an Idempotency-Key -> verify holdings.\n"
+        "  - Success means: the action returns a trace_id, the status is machine-readable, and the result can be verified from holdings or transactions.\n"
+        "  - If buy times out, do not submit a second financial action blindly. Reuse the same Idempotency-Key or inspect support data first.\n"
+        "  - Before inviting a new beta user, run the beta smoke checklist and confirm the core flow still passes locally."
+    ),
+    "zh": (
+        "公测引导:\n"
+        "  - 这次公测是 AI-first。长期用户是 agent，dashboard 只是临时的人机协作界面。\n"
+        "  - 第一条安全主路径: 注册一个资产 -> 请求报价 -> 用 Idempotency-Key 买一次 -> 校验持仓。\n"
+        "  - 成功的定义: 返回 trace_id，状态可被机器判定，并且能从持仓或交易记录验证结果。\n"
+        "  - 如果 buy 超时，不要盲目再次发起第二笔金融动作。复用同一个 Idempotency-Key，或先查看 support 数据。\n"
+        "  - 在邀请新的 beta 用户前，先跑 beta smoke checklist，确认核心流程仍然本地通过。"
+    ),
+}
+
 
 def get_info(lang: str = "en") -> Dict[str, Any]:
     """Return full project info dict, suitable for JSON serialization."""
@@ -158,4 +177,5 @@ def get_info(lang: str = "en") -> Dict[str, Any]:
         "architecture": ARCHITECTURE[l],
         "economics": ECONOMICS[l],
         "update_guide": UPDATE_GUIDE[l],
+        "beta_onboarding": BETA_ONBOARDING[l],
     }

@@ -91,11 +91,17 @@ def cmd_info(args):
             print(f"    {line}")
         print()
 
+    if section == "beta":
+        print("  Beta Onboarding:")
+        for line in info["beta_onboarding"].split("\n"):
+            print(f"    {line}")
+        print()
+
     if section is None:
         print("  Asset types: data, capability, oracle, identity")
         print(f"  Schema version: {info['schema_version']}")
         print()
-        print("  For details: oas info --section <quickstart|architecture|economics|update|links>")
+        print("  For details: oas info --section <quickstart|architecture|economics|update|links|beta>")
         print()
 
 
@@ -3124,6 +3130,54 @@ def cmd_status(args):
             manager.cache.close()
 
 
+def cmd_support(args):
+    """Show recent beta support snapshot from a running local node."""
+    from oasyce.client import Oasyce, OasyceAPIError
+
+    try:
+        client = Oasyce(args.url)
+        snapshot = client.support_beta(limit=args.limit, transactions_limit=args.transactions_limit)
+    except OasyceAPIError as exc:
+        _output_error(args, exc.body or str(exc), code="SUPPORT_API_ERROR")
+        sys.exit(1)
+    except Exception as exc:
+        _output_error(args, str(exc), code="SUPPORT_UNAVAILABLE")
+        sys.exit(1)
+
+    if getattr(args, "json", False):
+        print(json.dumps(snapshot))
+        return
+
+    print("\n  Beta Support Snapshot")
+    print(f"  Events:       {len(snapshot.get('events', []))}")
+    print(f"  Failures:     {len(snapshot.get('failures', []))}")
+    print(f"  Transactions: {len(snapshot.get('transactions', []))}")
+
+    events = snapshot.get("events", [])
+    if events:
+        print("\n  Recent events:")
+        for event in events[:5]:
+            trace_id = event.get("trace_id") or "—"
+            print(f"    {event.get('event')}  trace={trace_id}")
+
+    failures = snapshot.get("failures", [])
+    if failures:
+        print("\n  Recent failures:")
+        for event in failures[:5]:
+            trace_id = event.get("trace_id") or "—"
+            print(f"    {event.get('event')}  trace={trace_id}")
+
+    transactions = snapshot.get("transactions", [])
+    if transactions:
+        print("\n  Recent transactions:")
+        for tx in transactions[:5]:
+            tx_id = tx.get("tx_id") or tx.get("receipt_id") or "—"
+            kind = tx.get("kind") or tx.get("type") or "tx"
+            status = tx.get("status") or "unknown"
+            print(f"    {tx_id}  {kind}  {status}")
+    print()
+
+
 def cmd_cache(args):
     """Manage provider cache."""
     from oasyce.offline import ProviderCache
@@ -4083,7 +4137,7 @@ def main():
     )
     info_parser.add_argument(
         "--section",
-        choices=["quickstart", "architecture", "economics", "update", "links"],
+        choices=["quickstart", "architecture", "economics", "update", "links", "beta"],
         help="Show a specific section",
     )
     info_parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -4248,6 +4302,34 @@ def main():
     status_parser.add_argument("--json", action="store_true", help="Output as JSON")
     status_parser.set_defaults(func=cmd_status)
 
+    # ── support ───────────────────────────────────────────────────
+    support_parser = subparsers.add_parser("support", help="Read-only beta support tools")
+    support_sub = support_parser.add_subparsers(dest="support_command", help="Support sub-commands")
+
+    support_beta_parser = support_sub.add_parser(
+        "beta",
+        help="Show recent beta events, failures, and transactions from a running node",
+    )
+    support_beta_parser.add_argument(
+        "--url",
+        default="http://localhost:8420",
+        help="Dashboard base URL (default: http://localhost:8420)",
+    )
+    support_beta_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Number of recent events to include",
+    )
+    support_beta_parser.add_argument(
+        "--transactions-limit",
+        type=int,
+        default=20,
+        help="Number of recent transactions to include",
+    )
+    support_beta_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    support_beta_parser.set_defaults(func=cmd_support)
+
     # ── cache management ──────────────────────────────────────────
     cache_parser = subparsers.add_parser("cache", help="Manage provider cache")
     cache_sub = cache_parser.add_subparsers(dest="cache_command", help="Cache sub-commands")
@@ -4399,6 +4481,10 @@ def main():
 
     if args.command == "agent" and getattr(args, "agent_command", None) is None:
         agent_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "support" and getattr(args, "support_command", None) is None:
+        support_parser.print_help()
         sys.exit(0)
 
     if args.command == "task" and getattr(args, "task_command", None) is None:

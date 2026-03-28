@@ -390,6 +390,34 @@ class TestInvocationGateway:
             server.shutdown()
             reg.close()
 
+    def test_invoke_bypasses_ambient_http_proxy(self, monkeypatch):
+        port = _free_port()
+        proxy_port = _free_port()
+        server = _start_mock_provider(port)
+        monkeypatch.setenv("HTTP_PROXY", f"http://127.0.0.1:{proxy_port}")
+        monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{proxy_port}")
+        monkeypatch.delenv("NO_PROXY", raising=False)
+        monkeypatch.delenv("no_proxy", raising=False)
+        try:
+            reg = EndpointRegistry(allow_private=True)
+            reg.register(
+                endpoint_url=f"http://127.0.0.1:{port}/translate",
+                api_key="sk-test",
+                provider_id="p1",
+                name="Test API",
+                capability_id="CAP_PROXY_SAFE",
+            )
+
+            gw = InvocationGateway(reg, timeout=5.0, allow_private=True)
+            result = gw.invoke("CAP_PROXY_SAFE", {"text": "hello"})
+
+            assert result.success is True
+            assert result.output["result"] == "translated: hello"
+            assert result.status_code == 200
+        finally:
+            server.shutdown()
+            reg.close()
+
     def test_invoke_not_found(self):
         reg = EndpointRegistry(allow_private=True)
         gw = InvocationGateway(reg, allow_private=True)
