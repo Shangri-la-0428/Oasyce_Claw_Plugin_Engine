@@ -28,6 +28,16 @@ def test_run_public_beta_doctor_success(monkeypatch):
         import_optional_module=lambda name: object(),
         wallet_exists=lambda: True,
         managed_install_reader=lambda: {"auto_update": True, "installed_via_bootstrap": True},
+        account_verifier=lambda **_: {
+            "ok": True,
+            "issues": [],
+            "warnings": [],
+            "status": {
+                "configured": True,
+                "account_address": "oasyce1test",
+                "can_sign": True,
+            },
+        },
         network_mode_reader=lambda: _Mode(),
         security_reader=lambda mode: {"allow_local_fallback": False},
         which=lambda name: "/usr/local/bin/datavault",
@@ -47,6 +57,7 @@ def test_run_public_beta_doctor_success(monkeypatch):
     assert report["errors"] == 0
     names = {item["name"] for item in report["checks"]}
     assert "Network mode" in names
+    assert "Canonical account" in names
     assert "Public chain RPC" in names
     assert "Public chain health" in names
     assert report["rest_url"] == "http://chain.example.test"
@@ -239,3 +250,49 @@ def test_run_public_beta_smoke_blocks_on_doctor_failure(tmp_path):
     assert report["status"] == "error"
     assert report["errors"] >= 1
     assert report["checks"][0]["name"] == "Doctor gate"
+
+
+def test_run_public_beta_doctor_rejects_readonly_account():
+    responses = iter(
+        [
+            {"result": {"node_info": {"network": "oasyce-testnet-1"}}},
+            {"chain_id": "oasyce-testnet-1"},
+            {"params": {"airdrop_amount": {"amount": "1"}, "pow_difficulty": 16}},
+        ]
+    )
+
+    report = run_public_beta_doctor(
+        rest_url="http://chain.example.test",
+        rpc_url="http://rpc.example.test",
+        import_optional_module=lambda name: object(),
+        wallet_exists=lambda: True,
+        managed_install_reader=lambda: {"auto_update": True, "installed_via_bootstrap": True},
+        account_verifier=lambda **_: {
+            "ok": False,
+            "issues": ["This device cannot sign as the canonical account."],
+            "warnings": [],
+            "status": {
+                "configured": True,
+                "account_address": "oasyce1readonly",
+                "can_sign": False,
+            },
+        },
+        network_mode_reader=lambda: _Mode(),
+        security_reader=lambda mode: {"allow_local_fallback": False},
+        which=lambda name: "/usr/local/bin/datavault",
+        find_oasyced=lambda: "/usr/local/bin/oasyced",
+        http_get_json=lambda url, timeout=5: next(responses),
+        signer_inspector=lambda **kwargs: {
+            "name": "oasyce-agent",
+            "address": "oasyce1readonly",
+            "key_exists": True,
+            "balance_uoas": 2_000_000,
+            "ready": True,
+        },
+    )
+
+    assert report["status"] == "error"
+    assert any(
+        item["name"] == "Canonical account signer" and item["status"] == "error"
+        for item in report["checks"]
+    )

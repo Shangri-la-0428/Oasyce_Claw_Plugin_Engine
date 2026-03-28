@@ -47,6 +47,62 @@ oas smoke public-beta --json
 
 ---
 
+## 多设备使用同一账号
+
+如果你希望另一台电脑上的 `Codex`、`Claude Code` 或其他 AI 继续代表**同一个经济账号**行动，不要在第二台设备上直接裸跑默认 `oas bootstrap`。先区分两种设备角色：
+
+### 主设备（负责签名）
+
+```bash
+export OASYCE_NETWORK_MODE=testnet
+export OASYCE_STRICT_CHAIN=1
+oas bootstrap
+oas account status --json
+oas account verify --require-signing --json
+```
+
+记下这两个值：
+
+- `account_address`
+- `signer_name`
+
+### 第二台设备，只读接入同一账号
+
+```bash
+export OASYCE_NETWORK_MODE=testnet
+export OASYCE_STRICT_CHAIN=1
+oas account adopt --address <ACCOUNT_ADDRESS> --readonly
+oas bootstrap --no-update
+oas account verify --json
+```
+
+这台机器会附着到同一个 canonical account，但不会尝试代表它签名。
+
+### 第二台设备，也要代表同一账号签名
+
+前提：这台机器上已经准备好了**同一个本地 signer**。在此基础上再执行：
+
+```bash
+export OASYCE_NETWORK_MODE=testnet
+export OASYCE_STRICT_CHAIN=1
+oas account adopt --address <ACCOUNT_ADDRESS> --signer-name <SIGNER_NAME>
+oas bootstrap --no-update
+oas account verify --require-signing --json
+oas doctor --public-beta --json
+```
+
+只有当 `doctor` 通过，才说明这台机器真的能以同一个 canonical account 做链上经济动作。
+
+### 当前边界
+
+- `oas account status`：查看这台机器当前绑定的 canonical account
+- `oas account verify`：检查这台机器是否真的能以该账号工作
+- `oas account adopt`：显式附着到已有账号
+- `oas bootstrap`：只做环境准备，并尊重已有的 canonical account
+- 如果第二台机器没有显式 `account adopt`，而是直接创建新的本地 signer，那么它就会形成**新的经济账号**
+
+---
+
 ## 你能做什么
 
 ### 注册数据资产

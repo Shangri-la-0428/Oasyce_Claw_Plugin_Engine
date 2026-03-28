@@ -213,6 +213,30 @@ class TestBootstrapUpdate:
             ),
             patch("oasyce.cli.importlib.util.find_spec", return_value=object()),
             patch("oasyce.cli.shutil.which", return_value="/usr/local/bin/datavault"),
+            patch("oasyce.account_state.configure_bootstrap_account"),
+            patch(
+                "oasyce.account_state.build_account_status",
+                side_effect=[
+                    {
+                        "configured": False,
+                        "account_address": "",
+                        "account_mode": "unconfigured",
+                        "signer_name": "",
+                        "signer_address": "",
+                        "wallet_address": "",
+                        "can_sign": False,
+                    },
+                    {
+                        "configured": True,
+                        "account_address": "oasyce1bootstrap",
+                        "account_mode": "managed_local",
+                        "signer_name": "oasyce-agent",
+                        "signer_address": "oasyce1bootstrap",
+                        "wallet_address": "wallet-new",
+                        "can_sign": True,
+                    },
+                ],
+            ),
             patch(
                 "oasyce.services.public_beta_signer.ensure_public_beta_signer",
                 return_value={
@@ -237,6 +261,64 @@ class TestBootstrapUpdate:
         assert payload["auto_update_enabled"] is True
         assert payload["chain_signer"]["name"] == "oasyce-agent"
         assert payload["chain_signer"]["ready"] is True
+        assert payload["account"]["account_address"] == "oasyce1bootstrap"
+
+    @patch("oasyce.identity.Wallet")
+    def test_bootstrap_can_attach_readonly_existing_account(self, mock_wallet_cls, monkeypatch):
+        monkeypatch.setenv("OASYCE_NETWORK_MODE", "testnet")
+        mock_wallet_cls.get_address.return_value = None
+
+        with (
+            patch(
+                "oasyce.cli._check_package_updates",
+                return_value=[
+                    {
+                        "name": "oasyce",
+                        "current": "2.3.2",
+                        "latest": "2.3.2",
+                        "installed": True,
+                        "up_to_date": True,
+                    },
+                    {
+                        "name": "odv",
+                        "current": "0.2.1",
+                        "latest": "0.2.1",
+                        "installed": True,
+                        "up_to_date": True,
+                    },
+                ],
+            ),
+            patch("oasyce.cli.importlib.util.find_spec", return_value=object()),
+            patch("oasyce.cli.shutil.which", return_value="/usr/local/bin/datavault"),
+            patch(
+                "oasyce.account_state.adopt_account",
+                return_value={
+                    "configured": True,
+                    "account_address": "oasyce1shared",
+                    "account_mode": "attached_readonly",
+                    "signer_name": "",
+                    "signer_address": "",
+                    "wallet_address": "",
+                    "can_sign": False,
+                },
+            ) as mock_adopt,
+            patch("oasyce.services.public_beta_signer.ensure_public_beta_signer") as mock_signer,
+        ):
+            code, out, err = run_cli(
+                "bootstrap",
+                "--account-address",
+                "oasyce1shared",
+                "--readonly",
+                "--json",
+            )
+
+        assert code == 0
+        assert mock_adopt.called
+        assert mock_signer.called is False
+        payload = json.loads(out)
+        assert payload["account"]["account_address"] == "oasyce1shared"
+        assert payload["account"]["can_sign"] is False
+        assert payload["ready"] is False
 
 
 class TestSupport:
@@ -258,6 +340,104 @@ class TestSupport:
         assert payload["recommended_action"] == "create_canonical_asset"
 
 
+class TestAccount:
+    def test_account_status_json(self):
+        with patch(
+            "oasyce.account_state.build_account_status",
+            return_value={
+                "configured": True,
+                "account_address": "oasyce1shared",
+                "account_mode": "managed_local",
+                "can_sign": True,
+                "signer_name": "oasyce-agent",
+                "signer_address": "oasyce1shared",
+                "wallet_address": "wallet-local",
+                "wallet_matches_account": False,
+                "signer_matches_account": True,
+            },
+        ):
+            code, out, err = run_cli("account", "status", "--json")
+
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["account_address"] == "oasyce1shared"
+        assert payload["can_sign"] is True
+
+    def test_account_verify_json(self):
+        with patch(
+            "oasyce.services.account_service.verify_account_payload",
+            return_value={
+                "ok": True,
+                "account_address": "oasyce1shared",
+                "account_mode": "managed_local",
+                "can_sign": True,
+                "issues": [],
+                "warnings": [],
+            },
+        ):
+            code, out, err = run_cli("account", "verify", "--require-signing", "--json")
+
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["ok"] is True
+        assert payload["account_address"] == "oasyce1shared"
+
+    def test_account_verify_failure_json(self):
+        with patch(
+            "oasyce.services.account_service.verify_account_payload",
+            return_value={
+                "ok": False,
+                "account_address": "oasyce1shared",
+                "account_mode": "attached_readonly",
+                "can_sign": False,
+                "issues": ["This device cannot sign as the canonical account."],
+                "warnings": [],
+            },
+        ):
+            code, out, err = run_cli("account", "verify", "--require-signing", "--json")
+
+        assert code == 1
+        payload = json.loads(out)
+        assert payload["ok"] is False
+        assert "cannot sign" in payload["issues"][0]
+
+    def test_account_adopt_json(self):
+        with patch(
+            "oasyce.account_state.adopt_account",
+            return_value={
+                "configured": True,
+                "account_address": "oasyce1shared",
+                "account_mode": "attached_readonly",
+                "can_sign": False,
+                "signer_name": "",
+                "signer_address": "",
+                "wallet_address": "wallet-local",
+                "wallet_matches_account": False,
+                "signer_matches_account": False,
+            },
+        ):
+            code, out, err = run_cli("account", "adopt", "--address", "oasyce1shared", "--readonly", "--json")
+
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["ok"] is True
+        assert payload["account_mode"] == "attached_readonly"
+
+    def test_account_adopt_error_json(self):
+        from oasyce.account_state import AccountStateError
+
+        with patch(
+            "oasyce.account_state.adopt_account",
+            side_effect=AccountStateError("signer mismatch"),
+        ):
+            code, out, err = run_cli("account", "adopt", "--address", "oasyce1shared", "--json")
+
+        assert code == 1
+        payload = json.loads(out)
+        assert payload["ok"] is False
+        assert "signer mismatch" in payload["error"]
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. Data Asset commands: register, search, quote, buy, sell, shares
 # ═══════════════════════════════════════════════════════════════════════════
@@ -267,9 +447,8 @@ class TestRegister:
     """Tests for `oas register`."""
 
     @patch("oasyce.services.facade.OasyceServiceFacade")
-    @patch("oasyce.identity.Wallet")
-    def test_register_success_json(self, mock_wallet_cls, mock_facade_cls, tmp_path):
-        mock_wallet_cls.get_address.return_value = "oas1testaddr"
+    @patch("oasyce.cli._default_economic_identity", return_value="oas1testaddr")
+    def test_register_success_json(self, _mock_default_identity, mock_facade_cls, tmp_path):
         facade = mock_facade_cls.return_value
         facade.register.return_value = ServiceResult(
             success=True,
@@ -290,9 +469,8 @@ class TestRegister:
         assert parsed["asset_id"] == "OAS_ABCD1234"
 
     @patch("oasyce.services.facade.OasyceServiceFacade")
-    @patch("oasyce.identity.Wallet")
-    def test_register_success_human(self, mock_wallet_cls, mock_facade_cls, tmp_path):
-        mock_wallet_cls.get_address.return_value = "oas1testaddr"
+    @patch("oasyce.cli._default_economic_identity", return_value="oas1testaddr")
+    def test_register_success_human(self, _mock_default_identity, mock_facade_cls, tmp_path):
         facade = mock_facade_cls.return_value
         facade.register.return_value = ServiceResult(
             success=True,
@@ -312,9 +490,8 @@ class TestRegister:
         assert "OAS_ABCD1234" in out
 
     @patch("oasyce.services.facade.OasyceServiceFacade")
-    @patch("oasyce.identity.Wallet")
-    def test_register_failure_json(self, mock_wallet_cls, mock_facade_cls, tmp_path):
-        mock_wallet_cls.get_address.return_value = "oas1testaddr"
+    @patch("oasyce.cli._default_economic_identity", return_value="oas1testaddr")
+    def test_register_failure_json(self, _mock_default_identity, mock_facade_cls, tmp_path):
         facade = mock_facade_cls.return_value
         facade.register.return_value = ServiceResult(success=False, error="file too large")
 
@@ -333,9 +510,8 @@ class TestRegister:
         assert code != 0
 
     @patch("oasyce.services.facade.OasyceServiceFacade")
-    @patch("oasyce.identity.Wallet")
-    def test_register_free_flag(self, mock_wallet_cls, mock_facade_cls, tmp_path):
-        mock_wallet_cls.get_address.return_value = "addr"
+    @patch("oasyce.cli._default_economic_identity", return_value="addr")
+    def test_register_free_flag(self, _mock_default_identity, mock_facade_cls, tmp_path):
         facade = mock_facade_cls.return_value
         facade.register.return_value = ServiceResult(
             success=True,
@@ -354,10 +530,9 @@ class TestRegister:
         )
 
     @patch("oasyce.services.facade.OasyceServiceFacade")
-    @patch("oasyce.identity.Wallet")
-    def test_register_rights_type_choices(self, mock_wallet_cls, mock_facade_cls, tmp_path):
+    @patch("oasyce.cli._default_economic_identity", return_value="addr")
+    def test_register_rights_type_choices(self, _mock_default_identity, mock_facade_cls, tmp_path):
         """Invalid --rights-type should fail."""
-        mock_wallet_cls.get_address.return_value = "addr"
         f = tmp_path / "f.txt"
         f.write_text("data")
 

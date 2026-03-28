@@ -1,0 +1,191 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from oasyce.account_state import (
+    AccountStateError,
+    adopt_account,
+    build_account_status,
+    configure_bootstrap_account,
+    read_account_state,
+    resolve_canonical_account_address,
+)
+
+
+def test_build_account_status_uses_stored_account_state(tmp_path: Path):
+    path = tmp_path / "account.json"
+    configure_bootstrap_account(
+        wallet_address="wallet-local",
+        chain_signer={"name": "oasyce-agent", "address": "oasyce1same"},
+        path=path,
+    )
+
+    status = build_account_status(
+        path=path,
+        wallet_get_address=lambda: "wallet-local",
+        managed_state_reader=lambda: {
+            "chain_signer_name": "oasyce-agent",
+            "chain_signer_address": "oasyce1same",
+            "auto_update": True,
+        },
+        signer_inspector=lambda **_: {"name": "oasyce-agent", "address": "oasyce1same", "ready": True},
+    )
+
+    assert status["configured"] is True
+    assert status["account_address"] == "oasyce1same"
+    assert status["account_mode"] == "managed_local"
+    assert status["wallet_matches_account"] is False
+    assert status["signer_matches_account"] is True
+    assert resolve_canonical_account_address(
+        path=path,
+        wallet_get_address=lambda: "wallet-local",
+        managed_state_reader=lambda: {
+            "chain_signer_name": "oasyce-agent",
+            "chain_signer_address": "oasyce1same",
+        },
+        signer_inspector=lambda **_: {"name": "oasyce-agent", "address": "oasyce1same", "ready": True},
+    ) == "oasyce1same"
+
+
+def test_read_account_state_ignores_legacy_derived_fields(tmp_path: Path):
+    path = tmp_path / "account.json"
+    path.write_text(
+        """
+        {
+          "version": 1,
+          "account_address": "oasyce1legacy",
+          "account_mode": "attached_readonly",
+          "signer_name": "legacy-signer",
+          "wallet_address": "wallet-old",
+          "wallet_matches_account": true,
+          "signer_matches_account": false
+        }
+        """
+    )
+
+    state = read_account_state(path)
+
+    assert state["account_address"] == "oasyce1legacy"
+    assert state["account_mode"] == "attached_readonly"
+    assert state["signer_name"] == "legacy-signer"
+    assert "wallet_address" not in state
+    assert "wallet_matches_account" not in state
+
+
+def test_adopt_account_readonly_without_local_signer(tmp_path: Path):
+    path = tmp_path / "account.json"
+    status = adopt_account(
+        account_address="oasyce1shared",
+        readonly=True,
+        path=path,
+        wallet_get_address=lambda: "wallet-local",
+        managed_state_reader=lambda: {},
+        signer_inspector=lambda **_: {"name": "", "address": "", "ready": False},
+    )
+
+    assert status["account_address"] == "oasyce1shared"
+    assert status["account_mode"] == "attached_readonly"
+    assert status["can_sign"] is False
+    assert status["wallet_address"] == "wallet-local"
+
+
+def test_adopt_account_persists_only_explicit_account_intent(tmp_path: Path):
+    path = tmp_path / "account.json"
+    adopt_account(
+        account_address="oasyce1shared",
+        readonly=True,
+        path=path,
+        wallet_get_address=lambda: "wallet-local",
+        managed_state_reader=lambda: {},
+        signer_inspector=lambda **_: {"name": "", "address": "", "ready": False},
+    )
+
+    raw = path.read_text()
+
+    assert '"account_address": "oasyce1shared"' in raw
+    assert '"account_mode": "attached_readonly"' in raw
+    assert '"wallet_address"' not in raw
+    assert '"wallet_matches_account"' not in raw
+    assert '"signer_matches_account"' not in raw
+
+
+def test_adopt_account_requires_matching_signer_for_write_access(tmp_path: Path):
+    path = tmp_path / "account.json"
+    with pytest.raises(AccountStateError):
+        adopt_account(
+            account_address="oasyce1wanted",
+            signer_name="oasyce-agent",
+            readonly=False,
+            path=path,
+            wallet_get_address=lambda: "wallet-local",
+            managed_state_reader=lambda: {
+                "chain_signer_name": "oasyce-agent",
+                "chain_signer_address": "oasyce1different",
+            },
+            signer_inspector=lambda **_: {
+                "name": "oasyce-agent",
+                "address": "oasyce1different",
+                "ready": True,
+            },
+        )
+
+
+def test_adopt_account_signing_mode_uses_local_signer(tmp_path: Path):
+    path = tmp_path / "account.json"
+    status = adopt_account(
+        signer_name="oasyce-agent",
+        readonly=False,
+        path=path,
+        wallet_get_address=lambda: "wallet-local",
+        managed_state_reader=lambda: {
+            "chain_signer_name": "oasyce-agent",
+            "chain_signer_address": "oasyce1shared",
+        },
+        signer_inspector=lambda **_: {
+            "name": "oasyce-agent",
+            "address": "oasyce1shared",
+            "ready": True,
+        },
+    )
+
+    assert status["account_address"] == "oasyce1shared"
+    assert status["account_mode"] == "managed_local"
+    assert status["can_sign"] is True
+
+
+def test_configure_bootstrap_account_clears_stale_attach_override(tmp_path: Path):
+    path = tmp_path / "account.json"
+    adopt_account(
+        account_address="oasyce1shared",
+        readonly=True,
+        path=path,
+        wallet_get_address=lambda: "wallet-local",
+        managed_state_reader=lambda: {},
+        signer_inspector=lambda **_: {"name": "", "address": "", "ready": False},
+    )
+
+    configure_bootstrap_account(
+        wallet_address="wallet-local",
+        chain_signer={"name": "oasyce-agent", "address": "oasyce1primary"},
+        path=path,
+    )
+    status = build_account_status(
+        path=path,
+        wallet_get_address=lambda: "wallet-local",
+        managed_state_reader=lambda: {
+            "chain_signer_name": "oasyce-agent",
+            "chain_signer_address": "oasyce1primary",
+            "auto_update": True,
+        },
+        signer_inspector=lambda **_: {
+            "name": "oasyce-agent",
+            "address": "oasyce1primary",
+            "ready": True,
+        },
+    )
+
+    assert status["account_address"] == "oasyce1primary"
+    assert status["account_mode"] == "managed_local"
+    assert status["can_sign"] is True

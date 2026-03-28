@@ -68,10 +68,12 @@ def run_public_beta_doctor(
     find_oasyced: Optional[Callable[[], Optional[str]]] = None,
     http_get_json: Callable[[str, int], Dict[str, Any]] = _http_get_json,
     signer_inspector: Callable[..., Dict[str, Any]] = inspect_public_beta_signer,
+    account_verifier: Optional[Callable[..., Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     from oasyce.chain_client import _find_oasyced
     from oasyce.config import get_network_mode, get_security
     from oasyce.identity import Wallet
+    from oasyce.services.account_service import verify_account_payload
     from oasyce.update_manager import read_managed_install_state
 
     checks: list[dict[str, Any]] = []
@@ -110,6 +112,26 @@ def run_public_beta_doctor(
         _check("Managed install", "ok", "Auto-update enabled via bootstrap")
     else:
         _check("Managed install", "error", "Run `oas bootstrap` to enable managed updates")
+
+    verification = (account_verifier or verify_account_payload)(require_signing=True)
+    account = verification.get("status") or {}
+    if account.get("configured"):
+        _check(
+            "Canonical account",
+            "ok",
+            str(account.get("account_address") or ""),
+        )
+    else:
+        _check("Canonical account", "error", "Configure a canonical account before public beta use")
+    if verification.get("ok"):
+        _check("Canonical account signer", "ok", "This device can sign as the canonical account")
+    else:
+        _check(
+            "Canonical account signer",
+            "error",
+            "; ".join(verification.get("issues") or [])
+            or "This device is read-only or has a signer/account mismatch",
+        )
 
     try:
         import_optional_module("datavault")
@@ -204,14 +226,13 @@ def _write_smoke_asset(smoke_dir: Path, trace_prefix: str) -> Path:
     return path
 
 
-def _resolve_wallet_actor(fallback: str) -> str:
+def _resolve_account_actor(fallback: str) -> str:
     try:
-        from oasyce.identity import Wallet
+        from oasyce.account_state import resolve_canonical_account_address
 
-        if Wallet.exists():
-            wallet = Wallet.load()
-            if getattr(wallet, "address", ""):
-                return str(wallet.address)
+        resolved = resolve_canonical_account_address(fallback="")
+        if resolved:
+            return resolved
     except Exception:
         pass
     return fallback
@@ -249,12 +270,12 @@ def run_public_beta_smoke(
     resolved_owner = (
         default_signer_address
         if owner == "beta-smoke-owner" and default_signer_address
-        else _resolve_wallet_actor(owner)
+        else _resolve_account_actor(owner)
     )
     resolved_buyer = (
         default_signer_address
         if buyer == "beta-smoke-buyer" and default_signer_address
-        else _resolve_wallet_actor(buyer)
+        else _resolve_account_actor(buyer)
     )
 
     def _check(

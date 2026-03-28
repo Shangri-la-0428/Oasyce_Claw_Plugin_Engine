@@ -133,22 +133,26 @@ def cmd_info(args):
         print()
 
 
+def _default_economic_identity(fallback: str = "anonymous") -> str:
+    from oasyce.account_state import resolve_canonical_account_address
+
+    return resolve_canonical_account_address(fallback=fallback)
+
+
 def cmd_register(args):
     """Register a file as an Oasyce asset via unified service facade."""
     from oasyce.services.facade import OasyceServiceFacade
 
-    # Resolve owner: explicit flag > wallet address > error
+    # Resolve owner: explicit flag > canonical account > error
     owner = args.owner
     if not owner:
-        from oasyce.identity import Wallet
-
-        wallet_addr = Wallet.get_address()
-        if wallet_addr:
-            owner = wallet_addr
+        owner = _default_economic_identity(fallback="")
+        if owner:
+            owner = owner
         else:
             _output_error(
                 args,
-                "--owner is required (or create a wallet with: oas keys generate)",
+                "--owner is required (or configure a canonical account with: oas account adopt)",
                 code="OWNER_REQUIRED",
             )
             sys.exit(1)
@@ -644,12 +648,7 @@ def cmd_buy(args):
     """Buy asset shares via unified service facade."""
     from oasyce.services.facade import OasyceServiceFacade
 
-    # Resolve buyer: explicit flag > wallet address > "anonymous"
-    buyer = args.buyer
-    if not buyer:
-        from oasyce.identity import Wallet
-
-        buyer = Wallet.get_address() or "anonymous"
+    buyer = args.buyer or _default_economic_identity()
 
     config = Config.from_env()
     facade = OasyceServiceFacade(config=config)
@@ -683,12 +682,7 @@ def cmd_sell(args):
     """Sell asset tokens back to the bonding curve via unified service facade."""
     from oasyce.services.facade import OasyceServiceFacade
 
-    # Resolve seller: explicit flag > wallet address > "anonymous"
-    seller = args.seller
-    if not seller:
-        from oasyce.identity import Wallet
-
-        seller = Wallet.get_address() or "anonymous"
+    seller = args.seller or _default_economic_identity()
 
     config = Config.from_env()
     facade = OasyceServiceFacade(config=config)
@@ -718,12 +712,7 @@ def cmd_access_buy(args):
     """Buy tiered access to an asset via unified service facade."""
     from oasyce.services.facade import OasyceServiceFacade
 
-    # Resolve buyer: explicit flag > wallet address > "anonymous"
-    buyer = args.agent
-    if not buyer:
-        from oasyce.identity import Wallet
-
-        buyer = Wallet.get_address() or "anonymous"
+    buyer = args.agent or _default_economic_identity()
 
     config = Config.from_env()
     facade = OasyceServiceFacade(config=config)
@@ -3702,116 +3691,136 @@ def cmd_update(args):
 
 def cmd_bootstrap(args):
     """AI-first bootstrap: self-update, ensure wallet, verify DataVault entrypoints."""
-    from oasyce.identity import Wallet
     from oasyce.config import NetworkMode, get_network_mode
-    from oasyce.services.public_beta_signer import (
-        PublicBetaSignerError,
-        ensure_public_beta_signer,
-        public_beta_bootstrap_required,
-    )
+    from oasyce.services.account_service import run_bootstrap
 
     use_json = getattr(args, "json", False)
-    skip_update = getattr(args, "no_update", False)
-    packages = _check_package_updates()
-
-    if not skip_update and any(pkg["latest"] is None for pkg in packages):
-        failed = ", ".join(pkg["name"] for pkg in packages if pkg["latest"] is None)
-        if use_json:
-            print(json.dumps({"ok": False, "error": f"Failed to check PyPI for: {failed}"}))
-        else:
-            print(f"  Error: Could not reach PyPI to check updates for: {failed}.")
-        sys.exit(1)
-
-    updated = False
-    if not skip_update and any(
-        (not pkg["installed"]) or (not pkg["up_to_date"]) for pkg in packages
-    ):
-        result = _upgrade_managed_packages()
-        if result.returncode != 0:
-            if use_json:
-                print(json.dumps({"ok": False, "error": result.stderr or "upgrade failed"}))
-            else:
-                print(f"  Bootstrap upgrade failed: {result.stderr.strip()}")
-            sys.exit(1)
-        updated = True
-        packages = _check_package_updates()
-
-    wallet_address = Wallet.get_address()
-    wallet_created = False
-    if not wallet_address:
-        wallet_address = Wallet.create().address
-        wallet_created = True
-
-    datavault_module = importlib.util.find_spec("datavault") is not None
-    datavault_cli = shutil.which("datavault") is not None
-    managed_state = _update_manager.enable_managed_install(auto_update=True)
-    chain_signer = None
-    mode = get_network_mode()
-    if public_beta_bootstrap_required() and mode == NetworkMode.TESTNET:
-        try:
-            chain_signer = ensure_public_beta_signer()
-        except PublicBetaSignerError as exc:
-            payload = {
-                "ok": False,
-                "error": str(exc),
-                "wallet_address": wallet_address,
-                "wallet_created": wallet_created,
-                "datavault_module": datavault_module,
-                "datavault_cli": datavault_cli,
-                "auto_update_enabled": managed_state.get("auto_update", False),
-            }
-            if use_json:
-                print(json.dumps(payload, indent=2))
-            else:
-                print(f"  Bootstrap failed: {exc}")
-            sys.exit(1)
-
-    ready = bool(wallet_address and datavault_module and datavault_cli)
-    if chain_signer is not None:
-        ready = ready and bool(chain_signer.get("ready"))
-
-    payload = {
-        "ok": True,
-        "action": "bootstrap",
-        "updated": updated,
-        "packages": packages,
-        "wallet_address": wallet_address,
-        "wallet_created": wallet_created,
-        "datavault_module": datavault_module,
-        "datavault_cli": datavault_cli,
-        "ready": ready,
-        "auto_update_enabled": managed_state.get("auto_update", False),
-    }
-    if chain_signer is not None:
-        payload["chain_signer"] = {
-            "name": chain_signer.get("name"),
-            "address": chain_signer.get("address"),
-            "created": chain_signer.get("created", False),
-            "claimed_faucet": chain_signer.get("claimed_faucet", False),
-            "ready": chain_signer.get("ready", False),
-        }
+    payload = run_bootstrap(
+        no_update=getattr(args, "no_update", False),
+        account_address=getattr(args, "account_address", None),
+        signer_name=getattr(args, "signer_name", None),
+        readonly=getattr(args, "readonly", False),
+        check_package_updates=_check_package_updates,
+        upgrade_managed_packages=_upgrade_managed_packages,
+        module_spec_finder=importlib.util.find_spec,
+        which=shutil.which,
+    )
 
     if use_json:
         print(json.dumps(payload, indent=2))
+        if not payload.get("ok"):
+            sys.exit(1)
         return
 
+    if not payload.get("ok"):
+        print(f"  Bootstrap failed: {payload.get('error')}")
+        sys.exit(1)
+
+    mode = get_network_mode()
     print("  Oasyce bootstrap complete.")
-    if updated:
+    if payload.get("updated"):
         print("    Packages updated: yes")
     else:
         print("    Packages updated: no")
-    print(f"    Wallet address:    {wallet_address}")
-    print(f"    Wallet created:    {'yes' if wallet_created else 'no'}")
-    print(f"    DataVault module:  {'yes' if datavault_module else 'no'}")
-    print(f"    DataVault CLI:     {'yes' if datavault_cli else 'no'}")
+    print(f"    Wallet address:    {payload.get('wallet_address')}")
+    print(f"    Wallet created:    {'yes' if payload.get('wallet_created') else 'no'}")
+    print(f"    DataVault module:  {'yes' if payload.get('datavault_module') else 'no'}")
+    print(f"    DataVault CLI:     {'yes' if payload.get('datavault_cli') else 'no'}")
+    account = payload.get("account") or {}
+    print(f"    Account address:   {account.get('account_address') or '(unconfigured)'}")
+    print(f"    Account mode:      {account.get('account_mode')}")
+    chain_signer = payload.get("chain_signer")
     if chain_signer is not None:
         print(f"    Chain signer:      {chain_signer.get('name')} ({chain_signer.get('address')})")
         print(f"    Signer created:    {'yes' if chain_signer.get('created') else 'no'}")
         print(f"    Faucet claimed:    {'yes' if chain_signer.get('claimed_faucet') else 'no'}")
-    print(f"    Auto-update:       {'yes' if managed_state.get('auto_update') else 'no'}")
-    print(f"    Ready:             {'yes' if ready else 'no'}")
-    if not ready:
+    print(f"    Auto-update:       {'yes' if payload.get('auto_update_enabled') else 'no'}")
+    print(f"    Ready:             {'yes' if payload.get('ready') else 'no'}")
+    if not payload.get("ready"):
         print("    Action: run `pip install --upgrade --upgrade-strategy eager oasyce odv`")
+
+
+def cmd_account_status(args):
+    """Show canonical economic account status for this device."""
+    from oasyce.services.account_service import get_account_status_payload
+
+    status = get_account_status_payload()
+    if args.json:
+        print(json.dumps(status, indent=2))
+        return
+
+    print("  Canonical account:")
+    print(f"    Configured:        {'yes' if status['configured'] else 'no'}")
+    print(f"    Address:           {status['account_address'] or '(none)'}")
+    print(f"    Mode:              {status['account_mode']}")
+    print(f"    Can sign:          {'yes' if status['can_sign'] else 'no'}")
+    print(f"    Signer name:       {status['signer_name'] or '(none)'}")
+    print(f"    Signer address:    {status['signer_address'] or '(none)'}")
+    print(f"    Wallet address:    {status['wallet_address'] or '(none)'}")
+    print(f"    Wallet matches:    {'yes' if status['wallet_matches_account'] else 'no'}")
+    print(f"    Signer matches:    {'yes' if status['signer_matches_account'] else 'no'}")
+
+
+def cmd_account_verify(args):
+    """Verify whether this device is coherent for canonical account use."""
+    from oasyce.services.account_service import verify_account_payload
+
+    payload = verify_account_payload(require_signing=getattr(args, "require_signing", False))
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        if not payload.get("ok"):
+            sys.exit(1)
+        return
+
+    print("  Canonical account verification:")
+    print(f"    OK:               {'yes' if payload.get('ok') else 'no'}")
+    print(f"    Address:          {payload.get('account_address') or '(none)'}")
+    print(f"    Mode:             {payload.get('account_mode')}")
+    print(f"    Can sign:         {'yes' if payload.get('can_sign') else 'no'}")
+    issues = payload.get("issues") or []
+    warnings = payload.get("warnings") or []
+    if issues:
+        print("    Issues:")
+        for issue in issues:
+            print(f"      - {issue}")
+    if warnings:
+        print("    Warnings:")
+        for warning in warnings:
+            print(f"      - {warning}")
+    if not payload.get("ok"):
+        sys.exit(1)
+
+
+def cmd_account_adopt(args):
+    """Attach this machine to an existing economic account."""
+    from oasyce.account_state import AccountStateError
+    from oasyce.services.account_service import adopt_account_payload
+
+    try:
+        payload = adopt_account_payload(
+            account_address=args.address,
+            signer_name=args.signer_name,
+            readonly=args.readonly,
+        )
+    except AccountStateError as exc:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
+        else:
+            print(f"  Account adopt failed: {exc}")
+        sys.exit(1)
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return
+
+    status = payload
+    print("  Account adopted.")
+    print(f"    Address:        {status['account_address']}")
+    print(f"    Mode:           {status['account_mode']}")
+    print(f"    Can sign:       {'yes' if status['can_sign'] else 'no'}")
+    if status.get("signer_name"):
+        print(f"    Signer name:    {status['signer_name']}")
+    if status.get("signer_address"):
+        print(f"    Signer address: {status['signer_address']}")
 
 
 def _maybe_check_for_update():
@@ -4570,6 +4579,51 @@ def main():
     keys_show_parser.add_argument("--json", action="store_true")
     keys_show_parser.set_defaults(func=cmd_keys_show)
 
+    account_parser = subparsers.add_parser(
+        "account", help="Canonical economic account management"
+    )
+    account_sub = account_parser.add_subparsers(dest="account_command", help="Account sub-commands")
+
+    account_status_parser = account_sub.add_parser(
+        "status", help="Show the canonical local economic account"
+    )
+    account_status_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    account_status_parser.set_defaults(func=cmd_account_status)
+
+    account_verify_parser = account_sub.add_parser(
+        "verify",
+        help="Verify canonical account coherence on this device",
+    )
+    account_verify_parser.add_argument(
+        "--require-signing",
+        action="store_true",
+        help="Fail if this device cannot sign as the canonical account",
+    )
+    account_verify_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    account_verify_parser.set_defaults(func=cmd_account_verify)
+
+    account_adopt_parser = account_sub.add_parser(
+        "adopt",
+        help="Attach this device to an existing economic account",
+    )
+    account_adopt_parser.add_argument(
+        "--address",
+        default=None,
+        help="Canonical account address to attach to",
+    )
+    account_adopt_parser.add_argument(
+        "--signer-name",
+        default=None,
+        help="Local oasyced signer name to use for write-capable attach",
+    )
+    account_adopt_parser.add_argument(
+        "--readonly",
+        action="store_true",
+        help="Attach as read-only even if no local signer is available",
+    )
+    account_adopt_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    account_adopt_parser.set_defaults(func=cmd_account_adopt)
+
     # ── status (offline mode) ─────────────────────────────────────
     status_parser = subparsers.add_parser("status", help="Show network connectivity status")
     status_parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -4770,6 +4824,21 @@ def main():
         action="store_true",
         help="Skip package self-update before readiness checks",
     )
+    bootstrap_parser.add_argument(
+        "--account-address",
+        default=None,
+        help="Attach bootstrap to an existing canonical account address",
+    )
+    bootstrap_parser.add_argument(
+        "--signer-name",
+        default=None,
+        help="Use an existing local oasyced signer for write-capable account attach",
+    )
+    bootstrap_parser.add_argument(
+        "--readonly",
+        action="store_true",
+        help="Attach as read-only instead of preparing a signing account",
+    )
     bootstrap_parser.add_argument("--json", action="store_true", help="Output as JSON")
     bootstrap_parser.set_defaults(func=cmd_bootstrap)
 
@@ -4837,6 +4906,10 @@ def main():
 
     if args.command == "keys" and getattr(args, "keys_command", None) is None:
         keys_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "account" and getattr(args, "account_command", None) is None:
+        account_parser.print_help()
         sys.exit(0)
 
     if args.command == "cache" and getattr(args, "cache_command", None) is None:

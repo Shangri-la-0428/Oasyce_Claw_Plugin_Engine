@@ -324,3 +324,59 @@ class TestQueryAssetsNoDeepIntegrityScan:
             msg = "Found deep integrity scan logic inside query_assets:\n"
             msg += "\n".join(f"  {v}" for v in violations)
             pytest.fail(msg)
+
+
+class TestCliAccountCommandsStayThin:
+    """CLI account/bootstrap commands should delegate to service helpers."""
+
+    @staticmethod
+    def _function_block(path: Path, start_marker: str, end_marker: str) -> str:
+        lines = _read_lines(path)
+        start = None
+        end = None
+        for i, line in enumerate(lines, 1):
+            if start is None and line.startswith(start_marker):
+                start = i
+                continue
+            if start is not None and line.startswith(end_marker):
+                end = i
+                break
+        assert start is not None, f"Could not find {start_marker}"
+        assert end is not None, f"Could not find {end_marker}"
+        return "\n".join(lines[start - 1 : end - 1])
+
+    def test_cmd_bootstrap_does_not_inline_account_or_signer_orchestration(self):
+        cli = ROOT / "cli.py"
+        block = self._function_block(cli, "def cmd_bootstrap(args):", "def cmd_account_status(args):")
+
+        forbidden = [
+            "from oasyce.account_state",
+            "from oasyce.identity import Wallet",
+            "from oasyce.services.public_beta_signer",
+            "adopt_account(",
+            "build_account_status(",
+            "configure_bootstrap_account(",
+            "ensure_public_beta_signer(",
+            "Wallet.create(",
+        ]
+        violations = [token for token in forbidden if token in block]
+        if violations:
+            pytest.fail(
+                "cmd_bootstrap should stay transport-thin; found inline orchestration tokens:\n  "
+                + "\n  ".join(violations)
+            )
+
+    def test_cmd_account_status_and_verify_do_not_read_state_directly(self):
+        cli = ROOT / "cli.py"
+        block = self._function_block(cli, "def cmd_account_status(args):", "def cmd_account_adopt(args):")
+
+        forbidden = [
+            "from oasyce.account_state",
+            "build_account_status(",
+        ]
+        violations = [token for token in forbidden if token in block]
+        if violations:
+            pytest.fail(
+                "cmd_account_status/cmd_account_verify should delegate to account_service:\n  "
+                + "\n  ".join(violations)
+            )

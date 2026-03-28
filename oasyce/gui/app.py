@@ -225,13 +225,13 @@ def _forward_feedback_github(fb: dict):
 
 
 def _default_identity() -> str:
-    """Return the wallet address if available, otherwise 'anonymous'."""
+    """Return the canonical account address if available, otherwise 'anonymous'."""
     try:
-        from oasyce.identity import Wallet
+        from oasyce.account_state import resolve_canonical_account_address
 
-        return Wallet.get_address() or "anonymous"
+        return resolve_canonical_account_address(fallback="anonymous")
     except Exception:
-        logger.debug("Failed to get wallet address", exc_info=True)
+        logger.debug("Failed to resolve canonical account address", exc_info=True)
         return "anonymous"
 
 
