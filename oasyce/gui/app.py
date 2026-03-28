@@ -490,7 +490,9 @@ def _json_response(handler: BaseHTTPRequestHandler, data: Any, status: int = 200
     handler.wfile.write(body)
 
 
-def _resolve_trace_id(handler: BaseHTTPRequestHandler, body: Optional[Dict[str, Any]] = None) -> str:
+def _resolve_trace_id(
+    handler: BaseHTTPRequestHandler, body: Optional[Dict[str, Any]] = None
+) -> str:
     trace_id = ""
     try:
         trace_id = str(handler.headers.get("X-Trace-Id", "")).strip()
@@ -673,9 +675,7 @@ def _beta_core_json_response(
     resolved_retryable = (
         bool(payload.get("retryable"))
         if "retryable" in payload
-        else retryable
-        if retryable is not None
-        else resolved_state == "retryable"
+        else retryable if retryable is not None else resolved_state == "retryable"
     )
     payload["ok"] = resolved_ok
     payload["state"] = resolved_state
@@ -2908,7 +2908,10 @@ class _Handler(BaseHTTPRequestHandler):
                 if not result.success:
                     return _json_response(
                         self,
-                        {"error": result.error, **(result.data if isinstance(result.data, dict) else {})},
+                        {
+                            "error": result.error,
+                            **(result.data if isinstance(result.data, dict) else {}),
+                        },
                         _service_error_http_status(result.error, 400),
                     )
                 data = result.data
@@ -3129,34 +3132,38 @@ class _Handler(BaseHTTPRequestHandler):
                         "buyer": buyer,
                         "amount_oas": round(amount, 6),
                     }
-                    return _beta_core_json_response(
-                        self,
-                        trace_id,
-                        {
-                            "error": "idempotency key payload mismatch",
-                            "idempotency_key": idempotency_key,
-                        },
-                        409,
-                        ok=False,
-                        event="buy.failed",
-                        level="warning",
-                        asset_id=aid,
-                        buyer=buyer,
-                    ) if not agent_mode else _beta_agent_json_response(
-                        self,
-                        trace_id,
-                        "buy",
-                        conflict_data,
-                        409,
-                        ok=False,
-                        error="idempotency key payload mismatch",
-                        state="failed",
-                        retryable=False,
-                        extras={"idempotency_key": idempotency_key},
-                        event="buy.failed",
-                        level="warning",
-                        asset_id=aid,
-                        buyer=buyer,
+                    return (
+                        _beta_core_json_response(
+                            self,
+                            trace_id,
+                            {
+                                "error": "idempotency key payload mismatch",
+                                "idempotency_key": idempotency_key,
+                            },
+                            409,
+                            ok=False,
+                            event="buy.failed",
+                            level="warning",
+                            asset_id=aid,
+                            buyer=buyer,
+                        )
+                        if not agent_mode
+                        else _beta_agent_json_response(
+                            self,
+                            trace_id,
+                            "buy",
+                            conflict_data,
+                            409,
+                            ok=False,
+                            error="idempotency key payload mismatch",
+                            state="failed",
+                            retryable=False,
+                            extras={"idempotency_key": idempotency_key},
+                            event="buy.failed",
+                            level="warning",
+                            asset_id=aid,
+                            buyer=buyer,
+                        )
                     )
                 if lookup.kind == "replay" and lookup.replay is not None:
                     replay = lookup.replay
@@ -3211,30 +3218,34 @@ class _Handler(BaseHTTPRequestHandler):
                         "buyer": buyer,
                         "amount_oas": round(amount, 6),
                     }
-                    return _beta_core_json_response(
-                        self,
-                        trace_id,
-                        {"error": f"cooldown: wait {remaining}s"},
-                        429,
-                        ok=False,
-                        event="buy.failed",
-                        level="warning",
-                        asset_id=aid,
-                        buyer=buyer,
-                    ) if not agent_mode else _beta_agent_json_response(
-                        self,
-                        trace_id,
-                        "buy",
-                        cooldown_data,
-                        429,
-                        ok=False,
-                        error=f"cooldown: wait {remaining}s",
-                        state="retryable",
-                        retryable=True,
-                        event="buy.failed",
-                        level="warning",
-                        asset_id=aid,
-                        buyer=buyer,
+                    return (
+                        _beta_core_json_response(
+                            self,
+                            trace_id,
+                            {"error": f"cooldown: wait {remaining}s"},
+                            429,
+                            ok=False,
+                            event="buy.failed",
+                            level="warning",
+                            asset_id=aid,
+                            buyer=buyer,
+                        )
+                        if not agent_mode
+                        else _beta_agent_json_response(
+                            self,
+                            trace_id,
+                            "buy",
+                            cooldown_data,
+                            429,
+                            ok=False,
+                            error=f"cooldown: wait {remaining}s",
+                            state="retryable",
+                            retryable=True,
+                            event="buy.failed",
+                            level="warning",
+                            asset_id=aid,
+                            buyer=buyer,
+                        )
                     )
                 availability = _get_asset_availability_probe().inspect(aid)
                 if not availability.available:
@@ -3248,28 +3259,32 @@ class _Handler(BaseHTTPRequestHandler):
                     }
                     if availability.message:
                         availability_data["message"] = availability.message
-                    return _beta_core_json_response(
-                        self,
-                        trace_id,
-                        payload,
-                        availability.http_status,
-                        ok=False,
-                        event="buy.failed",
-                        level="warning",
-                        asset_id=aid,
-                        buyer=buyer,
-                    ) if not agent_mode else _beta_agent_json_response(
-                        self,
-                        trace_id,
-                        "buy",
-                        availability_data,
-                        availability.http_status,
-                        ok=False,
-                        error=availability.error,
-                        event="buy.failed",
-                        level="warning",
-                        asset_id=aid,
-                        buyer=buyer,
+                    return (
+                        _beta_core_json_response(
+                            self,
+                            trace_id,
+                            payload,
+                            availability.http_status,
+                            ok=False,
+                            event="buy.failed",
+                            level="warning",
+                            asset_id=aid,
+                            buyer=buyer,
+                        )
+                        if not agent_mode
+                        else _beta_agent_json_response(
+                            self,
+                            trace_id,
+                            "buy",
+                            availability_data,
+                            availability.http_status,
+                            ok=False,
+                            error=availability.error,
+                            event="buy.failed",
+                            level="warning",
+                            asset_id=aid,
+                            buyer=buyer,
+                        )
                     )
                 facade = _get_facade()
                 result = facade.buy(aid, buyer, amount, trace_id=trace_id)

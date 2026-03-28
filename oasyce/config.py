@@ -13,8 +13,10 @@ from typing import Literal as _Literal
 try:
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover - optional convenience dependency
+
     def load_dotenv():
         return False
+
 
 # Auto-load .env from project root
 load_dotenv()

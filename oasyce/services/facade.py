@@ -333,9 +333,7 @@ class OasyceServiceFacade:
         allowed = list(allowed_price_models or ["auto", "fixed", "floor", "free"])
         if price_model not in allowed:
             allowed_text = self._format_allowed_price_models(allowed)
-            raise ValueError(
-                f"invalid price_model: {price_model}. Must be {allowed_text}."
-            )
+            raise ValueError(f"invalid price_model: {price_model}. Must be {allowed_text}.")
         if price_model in ("fixed", "floor") and (manual_price is None or manual_price <= 0):
             raise ValueError(f"price must be > 0 when price_model is '{price_model}'")
 

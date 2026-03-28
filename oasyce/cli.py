@@ -122,7 +122,9 @@ def cmd_info(args):
         print("  Asset types: data, capability, oracle, identity")
         print(f"  Schema version: {info['schema_version']}")
         print()
-        print("  For details: oas info --section <quickstart|architecture|economics|update|links|beta>")
+        print(
+            "  For details: oas info --section <quickstart|architecture|economics|update|links|beta>"
+        )
         print()
 
 
@@ -3750,7 +3752,9 @@ def cmd_bootstrap(args):
         sys.exit(1)
 
     updated = False
-    if not skip_update and any((not pkg["installed"]) or (not pkg["up_to_date"]) for pkg in packages):
+    if not skip_update and any(
+        (not pkg["installed"]) or (not pkg["up_to_date"]) for pkg in packages
+    ):
         result = _upgrade_managed_packages()
         if result.returncode != 0:
             if use_json:

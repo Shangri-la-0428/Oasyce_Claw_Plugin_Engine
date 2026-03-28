@@ -140,7 +140,9 @@ def test_register_bundle_sets_bundle_metadata_and_response(monkeypatch, tmp_path
             },
             create_certificate_skill=lambda metadata: {**metadata, "asset_id": "ASSET_BUNDLE_1"},
             register_data_asset_skill=lambda signed, file_path=None, storage_backend=None: (
-                captured.update({"signed": signed, "file_path": file_path, "storage_backend": storage_backend})
+                captured.update(
+                    {"signed": signed, "file_path": file_path, "storage_backend": storage_backend}
+                )
                 or {"status": "success", "asset_id": signed["asset_id"]}
             ),
         ),

@@ -23,7 +23,9 @@ def test_maybe_auto_update_skips_when_disabled(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
 
     called = {"upgrade": False}
-    monkeypatch.setattr(update_manager, "upgrade_managed_packages", lambda: called.update({"upgrade": True}))
+    monkeypatch.setattr(
+        update_manager, "upgrade_managed_packages", lambda: called.update({"upgrade": True})
+    )
 
     result = update_manager.maybe_auto_update_for_cli(
         module_name="oasyce.cli",

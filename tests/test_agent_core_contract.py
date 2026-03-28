@@ -373,8 +373,12 @@ def test_buy_agent_format_returns_normalized_contract(monkeypatch):
     handler = _DummyHandler(headers={"X-Trace-Id": "trace-buy-agent"})
 
     monkeypatch.setattr(gui_app, "_ledger", SimpleNamespace(get_asset_metadata=lambda aid: None))
-    monkeypatch.setattr(gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None))
-    monkeypatch.setattr(gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None))
+    monkeypatch.setattr(
+        gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None)
+    )
+    monkeypatch.setattr(
+        gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None)
+    )
     monkeypatch.setattr(gui_app, "_buy_cooldowns", {})
     monkeypatch.setattr(gui_app, "_buy_idempotency_cache", {})
     monkeypatch.setattr(
@@ -428,8 +432,12 @@ def test_buy_reuses_cached_result_for_same_idempotency_key(monkeypatch):
     calls = {"count": 0}
 
     monkeypatch.setattr(gui_app, "_ledger", SimpleNamespace(get_asset_metadata=lambda aid: None))
-    monkeypatch.setattr(gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None))
-    monkeypatch.setattr(gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None))
+    monkeypatch.setattr(
+        gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None)
+    )
+    monkeypatch.setattr(
+        gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None)
+    )
     monkeypatch.setattr(gui_app, "_buy_cooldowns", {})
     monkeypatch.setattr(gui_app, "_buy_idempotency_cache", {})
 
@@ -481,8 +489,12 @@ def test_buy_rejects_payload_mismatch_for_same_idempotency_key(monkeypatch):
     calls = {"count": 0}
 
     monkeypatch.setattr(gui_app, "_ledger", SimpleNamespace(get_asset_metadata=lambda aid: None))
-    monkeypatch.setattr(gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None))
-    monkeypatch.setattr(gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None))
+    monkeypatch.setattr(
+        gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None)
+    )
+    monkeypatch.setattr(
+        gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None)
+    )
     monkeypatch.setattr(gui_app, "_buy_cooldowns", {})
     monkeypatch.setattr(gui_app, "_buy_idempotency_cache", {})
 
@@ -544,7 +556,9 @@ def test_buy_agent_rejects_payload_mismatch_with_machine_contract(monkeypatch):
     monkeypatch.setattr(
         gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None)
     )
-    monkeypatch.setattr(gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None))
+    monkeypatch.setattr(
+        gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None)
+    )
     monkeypatch.setattr(gui_app, "_buy_cooldowns", {})
     monkeypatch.setattr(gui_app, "_buy_idempotency_cache", {})
     monkeypatch.setattr(
@@ -597,7 +611,9 @@ def test_buy_agent_cooldown_returns_retryable_machine_contract(monkeypatch):
     monkeypatch.setattr(
         gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None)
     )
-    monkeypatch.setattr(gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None))
+    monkeypatch.setattr(
+        gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None)
+    )
     monkeypatch.setattr(gui_app, "_buy_cooldowns", {("agent-1", "ASSET_1"): time.time()})
     monkeypatch.setattr(gui_app, "_buy_idempotency_cache", {})
 
@@ -628,7 +644,9 @@ def test_buy_agent_unavailable_asset_returns_machine_contract(monkeypatch):
     monkeypatch.setattr(
         gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None)
     )
-    monkeypatch.setattr(gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None))
+    monkeypatch.setattr(
+        gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None)
+    )
     monkeypatch.setattr(gui_app, "_buy_cooldowns", {})
     monkeypatch.setattr(gui_app, "_buy_idempotency_cache", {})
     monkeypatch.setattr(

@@ -135,43 +135,46 @@ class TestBootstrapUpdate:
 
     def test_update_uses_eager_upgrade_strategy(self):
         completed = types.SimpleNamespace(returncode=0, stderr="")
-        with patch(
-            "oasyce.cli._check_package_updates",
-            side_effect=[
-                [
-                    {
-                        "name": "oasyce",
-                        "current": "2.3.0",
-                        "latest": "2.4.0",
-                        "installed": True,
-                        "up_to_date": False,
-                    },
-                    {
-                        "name": "odv",
-                        "current": "0.2.0",
-                        "latest": "0.3.0",
-                        "installed": True,
-                        "up_to_date": False,
-                    },
+        with (
+            patch(
+                "oasyce.cli._check_package_updates",
+                side_effect=[
+                    [
+                        {
+                            "name": "oasyce",
+                            "current": "2.3.0",
+                            "latest": "2.4.0",
+                            "installed": True,
+                            "up_to_date": False,
+                        },
+                        {
+                            "name": "odv",
+                            "current": "0.2.0",
+                            "latest": "0.3.0",
+                            "installed": True,
+                            "up_to_date": False,
+                        },
+                    ],
+                    [
+                        {
+                            "name": "oasyce",
+                            "current": "2.4.0",
+                            "latest": "2.4.0",
+                            "installed": True,
+                            "up_to_date": True,
+                        },
+                        {
+                            "name": "odv",
+                            "current": "0.3.0",
+                            "latest": "0.3.0",
+                            "installed": True,
+                            "up_to_date": True,
+                        },
+                    ],
                 ],
-                [
-                    {
-                        "name": "oasyce",
-                        "current": "2.4.0",
-                        "latest": "2.4.0",
-                        "installed": True,
-                        "up_to_date": True,
-                    },
-                    {
-                        "name": "odv",
-                        "current": "0.3.0",
-                        "latest": "0.3.0",
-                        "installed": True,
-                        "up_to_date": True,
-                    },
-                ],
-            ],
-        ), patch("oasyce.cli._upgrade_managed_packages", return_value=completed) as mock_upgrade:
+            ),
+            patch("oasyce.cli._upgrade_managed_packages", return_value=completed) as mock_upgrade,
+        ):
             code, out, err = run_cli("update", "--json")
 
         assert code == 0
@@ -185,26 +188,28 @@ class TestBootstrapUpdate:
         mock_wallet_cls.get_address.return_value = None
         mock_wallet_cls.create.return_value = types.SimpleNamespace(address="wallet-new")
 
-        with patch(
-            "oasyce.cli._check_package_updates",
-            return_value=[
-                {
-                    "name": "oasyce",
-                    "current": "2.3.0",
-                    "latest": "2.3.0",
-                    "installed": True,
-                    "up_to_date": True,
-                },
-                {
-                    "name": "odv",
-                    "current": "0.2.0",
-                    "latest": "0.2.0",
-                    "installed": True,
-                    "up_to_date": True,
-                },
-            ],
-        ), patch("oasyce.cli.importlib.util.find_spec", return_value=object()), patch(
-            "oasyce.cli.shutil.which", return_value="/usr/local/bin/datavault"
+        with (
+            patch(
+                "oasyce.cli._check_package_updates",
+                return_value=[
+                    {
+                        "name": "oasyce",
+                        "current": "2.3.0",
+                        "latest": "2.3.0",
+                        "installed": True,
+                        "up_to_date": True,
+                    },
+                    {
+                        "name": "odv",
+                        "current": "0.2.0",
+                        "latest": "0.2.0",
+                        "installed": True,
+                        "up_to_date": True,
+                    },
+                ],
+            ),
+            patch("oasyce.cli.importlib.util.find_spec", return_value=object()),
+            patch("oasyce.cli.shutil.which", return_value="/usr/local/bin/datavault"),
         ):
             code, out, err = run_cli("bootstrap", "--json")
 

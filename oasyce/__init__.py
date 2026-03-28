@@ -14,6 +14,7 @@ def _version_from_local_pyproject() -> str | None:
         return None
     return match.group(1)
 
+
 try:
     __version__ = _version_from_local_pyproject() or version("oasyce")
 except PackageNotFoundError:

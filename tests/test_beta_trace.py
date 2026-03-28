@@ -80,7 +80,9 @@ def test_buy_post_returns_trace_id_and_logs(caplog, monkeypatch):
     handler = _DummyHandler(headers={"X-Trace-Id": trace_id})
 
     monkeypatch.setattr(gui_app, "_ledger", SimpleNamespace(get_asset_metadata=lambda aid: None))
-    monkeypatch.setattr(gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None))
+    monkeypatch.setattr(
+        gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None)
+    )
     monkeypatch.setattr(
         gui_app,
         "_get_settlement",
@@ -276,7 +278,11 @@ def test_facade_quote_logs_trace_id(caplog, monkeypatch):
         burn_amount=0.2,
     )
     monkeypatch.setattr(facade, "_strict_chain_mode", lambda: False)
-    monkeypatch.setattr(facade, "_get_settlement", lambda: SimpleNamespace(quote=lambda asset_id, amount: quote_result))
+    monkeypatch.setattr(
+        facade,
+        "_get_settlement",
+        lambda: SimpleNamespace(quote=lambda asset_id, amount: quote_result),
+    )
 
     with caplog.at_level(logging.INFO, logger="oasyce.services.facade"):
         result = facade.quote("ASSET_1", 10.0, trace_id="trace-facade-quote-001")

@@ -155,7 +155,10 @@ class TestGuiTransportNoOfficialAssetWrites:
             stripped = line.lstrip()
             if stripped.startswith("#"):
                 continue
-            if "_ledger.update_asset_metadata(" not in line and "_ledger.set_asset_metadata(" not in line:
+            if (
+                "_ledger.update_asset_metadata(" not in line
+                and "_ledger.set_asset_metadata(" not in line
+            ):
                 continue
             window = "\n".join(lines[i - 1 : i + 6])
             if '"_cached_size"' in window and '"_cached_mtime"' in window:
