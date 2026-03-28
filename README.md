@@ -140,6 +140,7 @@ oas doctor --public-beta --json   # 公测发布 gate
 oas start              # 启动 Dashboard（推荐）
 oas demo               # 跑一遍完整演示
 oas bootstrap          # AI-first 自更新 + 钱包 + DataVault 就绪
+oas device join        # 第二台设备一条命令接入已有账号
 oas account status     # 查看这台机器绑定的 canonical account
 oas account verify     # 验证这台机器的账号绑定是否一致
 oas account adopt      # 显式附着到已有账号（多设备场景）
@@ -164,7 +165,7 @@ oas sell <asset_id> --amount <n>  # 卖回份额
   --max-slippage 0.05               # 滑点保护（默认 5%）
 ```
 
-多设备如果要使用**同一个经济账号**，第二台机器先执行 `oas account adopt`，再执行 `oas bootstrap` 和 `oas account verify`。完整流程见 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md) 里的“多设备使用同一账号”章节。
+多设备如果要使用**同一个经济账号**，第二台机器优先使用 `oas device join`。完整流程见 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md) 里的“多设备使用同一账号”章节。
 
 ### 争议
 

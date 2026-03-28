@@ -438,6 +438,50 @@ class TestAccount:
         assert "signer mismatch" in payload["error"]
 
 
+class TestDevice:
+    def test_device_join_json(self):
+        with patch(
+            "oasyce.services.account_service.join_device_payload",
+            return_value={
+                "ok": True,
+                "account_address": "oasyce1shared",
+                "readonly": True,
+                "environment_ready": True,
+                "write_ready": False,
+            },
+        ):
+            code, out, err = run_cli("device", "join", "--account", "oasyce1shared", "--readonly", "--json")
+
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["ok"] is True
+        assert payload["readonly"] is True
+
+    def test_device_join_failure_json(self):
+        with patch(
+            "oasyce.services.account_service.join_device_payload",
+            return_value={
+                "ok": False,
+                "error": "This device cannot sign as the canonical account.",
+                "verify": {"issues": ["This device cannot sign as the canonical account."]},
+            },
+        ):
+            code, out, err = run_cli(
+                "device",
+                "join",
+                "--account",
+                "oasyce1shared",
+                "--signer-name",
+                "oasyce-agent",
+                "--json",
+            )
+
+        assert code == 1
+        payload = json.loads(out)
+        assert payload["ok"] is False
+        assert "cannot sign" in payload["error"]
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. Data Asset commands: register, search, quote, buy, sell, shares
 # ═══════════════════════════════════════════════════════════════════════════

@@ -5,6 +5,7 @@ import types
 from oasyce.services.account_service import (
     adopt_account_payload,
     get_account_status_payload,
+    join_device_payload,
     run_bootstrap,
     verify_account_payload,
 )
@@ -129,3 +130,55 @@ def test_run_bootstrap_reuses_existing_account_without_creating_wallet(monkeypat
     assert payload["used_existing_account"] is True
     assert payload["wallet_created"] is False
     assert wallet_calls["created"] is False
+
+
+def test_join_device_payload_readonly_success():
+    payload = join_device_payload(
+        account_address="oasyce1shared",
+        readonly=True,
+        no_update=True,
+        check_package_updates=lambda: [],
+        upgrade_managed_packages=lambda: types.SimpleNamespace(returncode=0, stderr=""),
+        module_spec_finder=lambda name: object(),
+        which=lambda name: "/usr/local/bin/datavault",
+        adopter=lambda **_: {
+            "configured": True,
+            "account_address": "oasyce1shared",
+            "account_mode": "attached_readonly",
+            "can_sign": False,
+        },
+        bootstrap_runner=lambda **_: {
+            "ok": True,
+            "datavault_module": True,
+            "datavault_cli": True,
+            "account": {"account_address": "oasyce1shared"},
+        },
+        verifier=lambda **_: {
+            "ok": True,
+            "status": {
+                "configured": True,
+                "account_address": "oasyce1shared",
+                "can_sign": False,
+            },
+            "issues": [],
+            "warnings": [],
+        },
+    )
+
+    assert payload["ok"] is True
+    assert payload["readonly"] is True
+    assert payload["write_ready"] is False
+
+
+def test_join_device_payload_requires_account():
+    payload = join_device_payload(
+        account_address="",
+        readonly=True,
+        no_update=True,
+        check_package_updates=lambda: [],
+        upgrade_managed_packages=lambda: types.SimpleNamespace(returncode=0, stderr=""),
+        which=lambda name: "/usr/local/bin/datavault",
+    )
+
+    assert payload["ok"] is False
+    assert "Pass --account" in payload["error"]

@@ -3823,6 +3823,41 @@ def cmd_account_adopt(args):
         print(f"    Signer address: {status['signer_address']}")
 
 
+def cmd_device_join(args):
+    """Join this device to an existing canonical account with one command."""
+    from oasyce.services.account_service import join_device_payload
+
+    payload = join_device_payload(
+        account_address=args.account,
+        signer_name=args.signer_name,
+        readonly=args.readonly,
+        no_update=getattr(args, "no_update", False),
+        check_package_updates=_check_package_updates,
+        upgrade_managed_packages=_upgrade_managed_packages,
+        module_spec_finder=importlib.util.find_spec,
+        which=shutil.which,
+    )
+
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        if not payload.get("ok"):
+            sys.exit(1)
+        return
+
+    if not payload.get("ok"):
+        print(f"  Device join failed: {payload.get('error') or 'verification failed'}")
+        verify = payload.get("verify") or {}
+        for issue in verify.get("issues") or []:
+            print(f"    Issue: {issue}")
+        sys.exit(1)
+
+    print("  Device joined.")
+    print(f"    Account:          {payload.get('account_address')}")
+    print(f"    Role:             {'read-only' if payload.get('readonly') else 'signing'}")
+    print(f"    Environment:      {'ready' if payload.get('environment_ready') else 'not ready'}")
+    print(f"    Write-ready:      {'yes' if payload.get('write_ready') else 'no'}")
+
+
 def _maybe_check_for_update():
     """Background version check -- prints a one-line notice if a newer version is available.
 
@@ -4624,6 +4659,36 @@ def main():
     account_adopt_parser.add_argument("--json", action="store_true", help="Output as JSON")
     account_adopt_parser.set_defaults(func=cmd_account_adopt)
 
+    device_parser = subparsers.add_parser("device", help="Device-level onboarding shortcuts")
+    device_sub = device_parser.add_subparsers(dest="device_command", help="Device sub-commands")
+
+    device_join_parser = device_sub.add_parser(
+        "join",
+        help="Join this device to an existing canonical account",
+    )
+    device_join_parser.add_argument(
+        "--account",
+        required=True,
+        help="Canonical account address to join",
+    )
+    device_join_parser.add_argument(
+        "--signer-name",
+        default=None,
+        help="Existing local signer to use for write-capable join",
+    )
+    device_join_parser.add_argument(
+        "--readonly",
+        action="store_true",
+        help="Join as read-only instead of enabling signing",
+    )
+    device_join_parser.add_argument(
+        "--no-update",
+        action="store_true",
+        help="Skip package self-update before readiness checks",
+    )
+    device_join_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    device_join_parser.set_defaults(func=cmd_device_join)
+
     # ── status (offline mode) ─────────────────────────────────────
     status_parser = subparsers.add_parser("status", help="Show network connectivity status")
     status_parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -4910,6 +4975,10 @@ def main():
 
     if args.command == "account" and getattr(args, "account_command", None) is None:
         account_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "device" and getattr(args, "device_command", None) is None:
+        device_parser.print_help()
         sys.exit(0)
 
     if args.command == "cache" and getattr(args, "cache_command", None) is None:

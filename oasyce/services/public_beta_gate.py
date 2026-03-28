@@ -7,8 +7,6 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-import requests
-
 from oasyce.client import Oasyce
 from oasyce.services.public_beta_signer import inspect_public_beta_signer
 
@@ -50,6 +48,8 @@ def _add_check(
 
 
 def _http_get_json(url: str, timeout: int = 5) -> dict[str, Any]:
+    import requests
+
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     return resp.json()

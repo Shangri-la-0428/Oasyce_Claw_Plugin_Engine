@@ -6,8 +6,6 @@ import subprocess
 import time
 from typing import Any, Callable, Dict, Optional
 
-import requests
-
 from oasyce.config import NetworkMode, get_chain_rest_url, get_network_mode
 from oasyce.update_manager import read_managed_install_state, write_managed_install_state
 
@@ -20,6 +18,8 @@ class PublicBetaSignerError(RuntimeError):
 
 
 def _http_get_json(url: str, timeout: int = 5) -> dict[str, Any]:
+    import requests
+
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
@@ -153,6 +153,7 @@ def ensure_public_beta_signer(
     find_oasyced: Optional[Callable[[], Optional[str]]] = None,
     run_oasyced: Optional[Callable[..., dict[str, Any]]] = None,
     http_get_json: Callable[[str, int], dict[str, Any]] = _http_get_json,
+    http_get: Optional[Callable[..., Any]] = None,
 ) -> Dict[str, Any]:
     target_name = signer_name or _configured_signer_name()
     target_rest_url = _target_rest_url(rest_url)
@@ -187,12 +188,18 @@ def ensure_public_beta_signer(
 
     if inspect["address"] and (not inspect["account_exists"] or inspect["balance_uoas"] <= 0):
         try:
-            requests.get(
+            request_get = http_get
+            if request_get is None:
+                import requests
+
+                request_get = requests.get
+
+            request_get(
                 f"{target_faucet_url}/faucet",
                 params={"address": inspect["address"]},
                 timeout=5,
             ).raise_for_status()
-        except requests.RequestException as exc:
+        except Exception as exc:
             raise PublicBetaSignerError(f"Public beta faucet request failed: {exc}") from exc
         claimed_faucet = True
 

@@ -71,9 +71,7 @@ oas account verify --require-signing --json
 ```bash
 export OASYCE_NETWORK_MODE=testnet
 export OASYCE_STRICT_CHAIN=1
-oas account adopt --address <ACCOUNT_ADDRESS> --readonly
-oas bootstrap --no-update
-oas account verify --json
+oas device join --account <ACCOUNT_ADDRESS> --readonly
 ```
 
 这台机器会附着到同一个 canonical account，但不会尝试代表它签名。
@@ -85,9 +83,7 @@ oas account verify --json
 ```bash
 export OASYCE_NETWORK_MODE=testnet
 export OASYCE_STRICT_CHAIN=1
-oas account adopt --address <ACCOUNT_ADDRESS> --signer-name <SIGNER_NAME>
-oas bootstrap --no-update
-oas account verify --require-signing --json
+oas device join --account <ACCOUNT_ADDRESS> --signer-name <SIGNER_NAME>
 oas doctor --public-beta --json
 ```
 
@@ -95,10 +91,12 @@ oas doctor --public-beta --json
 
 ### 当前边界
 
+- `oas device join`：第二台设备的最简单接入入口
 - `oas account status`：查看这台机器当前绑定的 canonical account
 - `oas account verify`：检查这台机器是否真的能以该账号工作
 - `oas account adopt`：显式附着到已有账号
 - `oas bootstrap`：只做环境准备，并尊重已有的 canonical account
+- `device join` 内部仍然是 `account adopt + bootstrap + verify`
 - 如果第二台机器没有显式 `account adopt`，而是直接创建新的本地 signer，那么它就会形成**新的经济账号**
 
 ---

@@ -70,14 +70,13 @@ def test_ensure_public_beta_signer_creates_and_claims(monkeypatch, tmp_path):
         state["funded"] = True
         return SimpleNamespace(raise_for_status=lambda: None)
 
-    monkeypatch.setattr(public_beta_signer.requests, "get", fake_faucet)
-
     result = ensure_public_beta_signer(
         signer_name="oasyce-agent",
         rest_url="http://chain.example.test",
         faucet_url="http://faucet.example.test",
         run_oasyced=fake_runner,
         http_get_json=fake_http_get_json,
+        http_get=fake_faucet,
         wait_seconds=1,
     )
 
@@ -107,8 +106,6 @@ def test_ensure_public_beta_signer_wraps_faucet_http_errors(monkeypatch, tmp_pat
         response = SimpleNamespace(status_code=429)
         raise requests.HTTPError("429 Client Error", response=response)
 
-    monkeypatch.setattr(public_beta_signer.requests, "get", fake_faucet)
-
     with pytest.raises(PublicBetaSignerError, match="Public beta faucet request failed"):
         ensure_public_beta_signer(
             signer_name="oasyce-agent",
@@ -116,5 +113,6 @@ def test_ensure_public_beta_signer_wraps_faucet_http_errors(monkeypatch, tmp_pat
             faucet_url="http://faucet.example.test",
             run_oasyced=fake_runner,
             http_get_json=fake_http_get_json,
+            http_get=fake_faucet,
             wait_seconds=1,
         )

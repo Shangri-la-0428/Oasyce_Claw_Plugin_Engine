@@ -380,3 +380,22 @@ class TestCliAccountCommandsStayThin:
                 "cmd_account_status/cmd_account_verify should delegate to account_service:\n  "
                 + "\n  ".join(violations)
             )
+
+    def test_cmd_device_join_stays_thin(self):
+        cli = ROOT / "cli.py"
+        block = self._function_block(cli, "def cmd_device_join(args):", "def _maybe_check_for_update():")
+
+        forbidden = [
+            "from oasyce.account_state",
+            "from oasyce.identity import Wallet",
+            "from oasyce.services.public_beta_signer",
+            "adopt_account(",
+            "run_bootstrap(",
+            "verify_account_payload(",
+        ]
+        violations = [token for token in forbidden if token in block]
+        if violations:
+            pytest.fail(
+                "cmd_device_join should delegate to account_service:\n  "
+                + "\n  ".join(violations)
+            )

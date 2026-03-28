@@ -67,6 +67,73 @@ def adopt_account_payload(
     return {"ok": True, **status}
 
 
+def join_device_payload(
+    *,
+    account_address: str,
+    signer_name: Optional[str] = None,
+    readonly: bool = False,
+    no_update: bool = False,
+    check_package_updates: Callable[[], list[dict[str, Any]]],
+    upgrade_managed_packages: Callable[[], Any],
+    module_spec_finder: Callable[[str], Any] = importlib.util.find_spec,
+    which: Callable[[str], Optional[str]],
+    adopter: Optional[Callable[..., Dict[str, Any]]] = None,
+    verifier: Optional[Callable[..., Dict[str, Any]]] = None,
+    bootstrap_runner: Optional[Callable[..., Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    if not str(account_address or "").strip():
+        return {"ok": False, "error": "Pass --account to join an existing canonical account."}
+
+    adopt_payload = adopt_account_payload(
+        account_address=account_address,
+        signer_name=signer_name,
+        readonly=readonly,
+        adopter=adopter,
+    )
+
+    if bootstrap_runner is None:
+        bootstrap_runner = run_bootstrap
+    bootstrap = bootstrap_runner(
+        no_update=no_update,
+        check_package_updates=check_package_updates,
+        upgrade_managed_packages=upgrade_managed_packages,
+        module_spec_finder=module_spec_finder,
+        which=which,
+    )
+    if not bootstrap.get("ok"):
+        return {
+            "ok": False,
+            "error": bootstrap.get("error", "bootstrap failed"),
+            "adopt": adopt_payload,
+            "bootstrap": bootstrap,
+        }
+
+    if verifier is None:
+        verifier = verify_account_payload
+    verify = verifier(require_signing=not readonly)
+
+    status = verify.get("status") or {}
+    environment_ready = bool(
+        bootstrap.get("datavault_module")
+        and bootstrap.get("datavault_cli")
+        and status.get("configured")
+    )
+    write_ready = bool(environment_ready and status.get("can_sign"))
+    device_ready = bool(environment_ready and (readonly or write_ready))
+
+    return {
+        "ok": bool(verify.get("ok") and device_ready),
+        "action": "device_join",
+        "readonly": bool(readonly),
+        "account_address": str(account_address or "").strip(),
+        "environment_ready": environment_ready,
+        "write_ready": write_ready,
+        "adopt": adopt_payload,
+        "bootstrap": bootstrap,
+        "verify": verify,
+    }
+
+
 def _prepare_bootstrap_environment(
     *,
     no_update: bool,

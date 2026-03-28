@@ -254,12 +254,16 @@ class TestFingerprintRegistry:
 
 class TestFingerprintCLI:
     def _run_cli(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [sys.executable, "-m", "oasyce.cli", "--json", *args],
-            capture_output=True,
-            text=True,
-            cwd=os.path.dirname(os.path.dirname(__file__)),
-        )
+        with tempfile.TemporaryDirectory(prefix="oas-fingerprint-cli-") as temp_home:
+            env = dict(os.environ)
+            env["OASYCE_DATA_DIR"] = os.path.join(temp_home, ".oasyce-data")
+            return subprocess.run(
+                [sys.executable, "-m", "oasyce.cli", "--json", *args],
+                capture_output=True,
+                text=True,
+                cwd=os.path.dirname(os.path.dirname(__file__)),
+                env=env,
+            )
 
     def test_embed_and_extract_text(self, tmp_path) -> None:
         src = tmp_path / "test.txt"
