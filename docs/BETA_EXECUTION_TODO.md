@@ -74,9 +74,9 @@ Target date: 2026-04-26
   - Delivered in: `oasyce/gui/app.py`, `tests/test_beta_trace.py`
   - Acceptance: UI and API both distinguish `processing`, `success`, `failed`, `retryable`
 
-- [x] Issue: create manual beta smoke checklist
-  - Delivered in: `docs/BETA_SMOKE_CHECKLIST.md`
-  - Acceptance: one repeatable checklist is run before each beta-facing release
+- [x] Issue: create executable beta smoke gate
+  - Delivered in: `oas smoke public-beta --json`, `docs/BETA_SMOKE_CHECKLIST.md`
+  - Acceptance: one repeatable command runs the beta release gate before each beta-facing release
 
 - [x] Issue: define machine-facing core flow contract
   - Delivered in: `docs/AGENT_CORE_FLOW_CONTRACT.md`, `tests/test_agent_core_contract.py`, `oasyce/client.py`, `oasyce/gui/app.py`

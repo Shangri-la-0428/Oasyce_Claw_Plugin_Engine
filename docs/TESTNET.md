@@ -4,9 +4,9 @@
 
 For real public beta onboarding, use the chain-side guide on [chain.oasyce](https://chain.oasyce.com) or the companion doc in `oasyce-chain/docs/PUBLIC_BETA.md`.
 
-## What `oas testnet` actually is
+## What `oas sandbox` actually is
 
-`oas sandbox *` is the canonical local simulation environment for demos, UX testing, and agent smoke tests. `oas testnet *` remains only as a deprecated compatibility alias.
+`oas sandbox *` is the canonical local simulation environment for demos, UX testing, and agent smoke tests.
 
 - No real public-chain identity is created
 - No real public beta tokens are minted

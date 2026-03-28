@@ -43,6 +43,7 @@ class RewardEvent:
 @dataclass
 class StakingConfig:
     rest_url: str = "http://localhost:1317"
+    rpc_url: str = "http://localhost:26657"
 
 
 @dataclass
@@ -60,7 +61,7 @@ class StakingEngine:
 
     def __init__(self, config: Optional[StakingConfig] = None):
         cfg = config or StakingConfig()
-        self._chain = OasyceClient(rest_url=cfg.rest_url)
+        self._chain = OasyceClient(rest_url=cfg.rest_url, rpc_url=cfg.rpc_url)
         self.validators: Dict[str, Validator] = {}
 
     def delegate(self, delegator: str, validator_id: str, amount_uoas: int) -> Dict[str, Any]:

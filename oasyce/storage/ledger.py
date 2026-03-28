@@ -414,6 +414,14 @@ class Ledger:
             rows = self._conn.execute("SELECT * FROM shares WHERE owner = ?", (owner,)).fetchall()
         return [dict(r) for r in rows]
 
+    def get_asset_holders(self, asset_id: str) -> List[Dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT owner, amount FROM shares WHERE asset_id = ? ORDER BY amount DESC, owner ASC",
+                (asset_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     # ── Stakes ─────────────────────────────────────────────────
 
     def update_stake(self, validator_id: str, staker: str, amount: float) -> None:

@@ -120,7 +120,7 @@ def test_client_core_methods_forward_trace_id(monkeypatch):
 
     monkeypatch.setattr(client, "_request", fake_request)
 
-    client.register("/tmp/demo.txt", "agent-1", trace_id="trace-register")
+    client.register("/tmp/demo.txt", "agent-1", tags="beta,agent", trace_id="trace-register")
     client.quote("ASSET_1", amount=10, trace_id="trace-quote")
     client.buy(
         "ASSET_1",
@@ -134,6 +134,7 @@ def test_client_core_methods_forward_trace_id(monkeypatch):
     assert calls[0]["path"] == "/api/register"
     assert calls[0]["headers"]["X-Trace-Id"] == "trace-register"
     assert calls[0]["body"]["price_model"] == "auto"
+    assert calls[0]["body"]["tags"] == ["beta", "agent"]
 
     assert calls[1]["method"] == "GET"
     assert calls[1]["path"] == "/api/quote?asset_id=ASSET_1&amount=10"

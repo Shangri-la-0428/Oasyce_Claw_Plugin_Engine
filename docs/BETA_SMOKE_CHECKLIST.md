@@ -1,54 +1,42 @@
 # Beta Smoke Checklist
 
-> Updated: 2026-03-28
+> Updated: 2026-03-29
 > Scope: local pre-push and pre-beta verification for `oasyce-net`
 
-Run this checklist before any push intended for beta users.
+## Primary Gate
 
-## 1. Local Test Gate
+Run exactly one command:
 
-- [ ] `pytest -q /Users/wutongcheng/Desktop/Net/oasyce-net/tests`
-- [ ] Confirm result is zero failures
-- [ ] Confirm any skipped tests are expected Go chain gates, not missing dependencies
-- [ ] `oas doctor --public-beta --json`
-- [ ] Confirm doctor returns `status = ok`
-- [ ] If `.github/workflows/*` changed, run the release workflow gate in `docs/RELEASE_GATE.md`
+```bash
+oas smoke public-beta --json
+```
 
-## 2. Agent Core Flow
+It already includes:
 
-- [ ] Register one test asset through the API or Python client
-- [ ] Request a quote for that asset
-- [ ] Execute one buy with an `Idempotency-Key`
-- [ ] Re-submit the same buy and confirm replay, not duplicate execution
-- [ ] Read holdings with `format=agent` and confirm the result is visible
+- `doctor --public-beta`
+- one register
+- one quote
+- one buy
+- one idempotent replay
+- one portfolio verification
+- one support trace verification
 
-## 3. Failure Semantics
+Only push when the command returns `status = ok`.
 
-- [ ] Try one malformed quote request and confirm `failed`, not ambiguous error text
-- [ ] Try one cooldown-triggering buy and confirm `retryable`
-- [ ] Try one conflicting `Idempotency-Key` payload and confirm conflict response
-- [ ] Confirm each beta-critical response includes `trace_id`
+## Debug Appendix
 
-## 4. GUI / Transport Boundaries
+If the smoke command fails, use these manual checks to isolate the broken layer:
 
-- [ ] Confirm `asset/update` still works
-- [ ] Confirm `re-register` still works
-- [ ] Confirm `stake` still works
-- [ ] Confirm none of those paths required direct GUI ledger writes to pass
+- `pytest -q /Users/wutongcheng/Desktop/Net/oasyce-net/tests`
+- `oas doctor --public-beta --json`
+- `oas support beta --json`
+- inspect the returned `trace_prefix` and failing `checks[]`
 
-## 5. Logs And Recovery
-
-- [ ] Confirm the trace log for one successful buy can be found locally
-- [ ] Confirm one failed beta-core request can be traced by `trace_id`
-- [ ] Confirm the team knows whether chain state or local projection wins for the tested action
-
-## 6. Push Decision
+## Push Decision
 
 Only push when all are true:
 
-- [ ] The full suite is green
-- [ ] The core agent flow is green
-- [ ] Retry and idempotency behavior are green
-- [ ] No new direct GUI write path was introduced
-- [ ] The change is small enough that rollback scope is obvious
-- [ ] Remote CI is green before any beta announcement
+- the full suite is green
+- `oas smoke public-beta --json` is green
+- any workflow-specific local gate from [RELEASE_GATE.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/RELEASE_GATE.md) is green
+- remote CI is green before any beta announcement

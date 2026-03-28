@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import urllib.request
 import urllib.error
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 
@@ -176,7 +176,7 @@ class Oasyce:
         self,
         file_path: str,
         owner: str,
-        tags: str = "",
+        tags: Union[str, List[str]] = "",
         rights_type: str = "original",
         price_model: str = "auto",
         price: float = 0,
@@ -187,10 +187,15 @@ class Oasyce:
 
         When `machine=True`, request the normalized agent contract envelope.
         """
+        normalized_tags = (
+            [tag.strip() for tag in tags.split(",") if tag.strip()]
+            if isinstance(tags, str)
+            else [str(tag).strip() for tag in tags if str(tag).strip()]
+        )
         body = {
             "file_path": file_path,
             "owner": owner,
-            "tags": tags,
+            "tags": normalized_tags,
             "rights_type": rights_type,
             "price_model": price_model,
             "price": price,

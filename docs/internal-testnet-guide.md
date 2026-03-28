@@ -228,7 +228,7 @@ oas task list
 oas task bid TASK_ID --price 30 --seconds 1800
 
 # 诊断
-oas testnet status
+oas sandbox status
 oas doctor
 oas info --section economics
 ```

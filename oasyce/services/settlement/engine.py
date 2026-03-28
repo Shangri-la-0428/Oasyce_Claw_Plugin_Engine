@@ -112,6 +112,7 @@ class SettlementReceipt:
 @dataclass
 class SettlementConfig:
     rest_url: str = "http://localhost:1317"
+    rpc_url: str = "http://localhost:26657"
     min_initial_reserve: float = MIN_INITIAL_RESERVE
     chain_required: bool = True  # fail settlement if chain escrow fails
     allow_local_fallback: Optional[bool] = None
@@ -155,6 +156,7 @@ class SettlementEngine:
         self._chain_error_type = ChainClientError
         self._chain = OasyceClient(
             rest_url=self._config.rest_url,
+            rpc_url=self._config.rpc_url,
             allow_local_fallback=allow_local_fallback,
         )
         self._pools: Dict[str, AssetPool] = {}

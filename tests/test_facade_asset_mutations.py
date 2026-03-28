@@ -140,3 +140,63 @@ def test_buy_success_dispatches_buy_notifications(monkeypatch, tmp_path):
             },
         )
     ]
+
+
+def test_quote_uses_bootstrap_price_when_chain_curve_state_missing(monkeypatch, tmp_path):
+    ledger = Ledger(str(tmp_path / "ledger.db"))
+    facade = OasyceServiceFacade(ledger=ledger, allow_local_fallback=False)
+
+    class _Chain:
+        def get_bonding_curve_price(self, asset_id):
+            raise RuntimeError(f"bonding curve state not found: asset {asset_id}")
+
+    monkeypatch.setattr(facade, "_strict_chain_mode", lambda: True)
+    monkeypatch.setattr(facade, "_get_chain_client", lambda: _Chain())
+
+    result = facade.quote("ASSET_BOOTSTRAP", 1.0)
+
+    assert result.success is True
+    assert result.data["asset_id"] == "ASSET_BOOTSTRAP"
+    assert result.data["spot_price_before"] == 1.0
+    assert result.data["spot_price_after"] >= 1.0
+
+
+def test_get_portfolio_uses_chain_profile_in_strict_mode(monkeypatch, tmp_path):
+    ledger = Ledger(str(tmp_path / "ledger.db"))
+    facade = OasyceServiceFacade(ledger=ledger, allow_local_fallback=False)
+
+    class _Chain:
+        def get_agent_profile(self, agent_id):
+            assert agent_id == "oasyce1buyer"
+            return {
+                "address": agent_id,
+                "shareholdings": [
+                    {"asset_id": "DATA_PORT_1", "shares": "5000000"},
+                    {"asset_id": "DATA_ZERO", "shares": "0"},
+                ],
+            }
+
+    monkeypatch.setattr(facade, "_get_chain_client", lambda: _Chain())
+    monkeypatch.setattr(
+        facade,
+        "_get_chain_market_state",
+        lambda asset_id: {
+            "DATA_PORT_1": {"supply": 10_000_000.0, "reserve": 5.0, "spot_price": 1.25},
+            "DATA_ZERO": {"supply": 0.0, "reserve": 0.0, "spot_price": 1.0},
+        }[asset_id],
+    )
+    monkeypatch.setattr(facade, "_get_reputation", lambda: SimpleNamespace(get_reputation=lambda _: 500))
+
+    result = facade.get_portfolio("oasyce1buyer")
+
+    assert result.success is True
+    assert result.data["agent_id"] == "oasyce1buyer"
+    assert result.data["holdings"] == [
+        {
+            "asset_id": "DATA_PORT_1",
+            "tokens": 5_000_000.0,
+            "pct": 50.0,
+            "value_oas": 6_250_000.0,
+            "access_level": "L3",
+        }
+    ]

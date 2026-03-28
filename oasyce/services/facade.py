@@ -146,8 +146,10 @@ class OasyceServiceFacade:
                     from oasyce.chain_client import OasyceClient
 
                     rest_url = getattr(self._config, "rest_url", "http://localhost:1317")
+                    rpc_url = getattr(self._config, "rpc_url", "http://localhost:26657")
                     self._chain_client = OasyceClient(
                         rest_url=rest_url,
+                        rpc_url=rpc_url,
                         allow_local_fallback=self._allow_local_fallback,
                     )
         return self._chain_client
@@ -200,8 +202,21 @@ class OasyceServiceFacade:
         except (TypeError, ValueError):
             return 0.0
 
+    @staticmethod
+    def _is_missing_bonding_curve_state(exc: Exception) -> bool:
+        return "bonding curve state not found" in str(exc).lower()
+
     def _get_chain_market_state(self, asset_id: str) -> Dict[str, float]:
-        data = self._get_chain_client().get_bonding_curve_price(asset_id)
+        try:
+            data = self._get_chain_client().get_bonding_curve_price(asset_id)
+        except Exception as exc:
+            if not self._is_missing_bonding_curve_state(exc):
+                raise
+            return {
+                "supply": 0.0,
+                "reserve": 0.0,
+                "spot_price": INITIAL_PRICE,
+            }
         supply = self._parse_number(data.get("supply", 0))
         reserve = self._parse_number(data.get("reserve", {}), scale=1e8)
         quoted_price = self._parse_number(data.get("price", {}), scale=1e8)
@@ -1503,6 +1518,33 @@ class OasyceServiceFacade:
     def get_portfolio(self, agent_id: str) -> ServiceResult:
         """Get an agent's equity holdings across all pools."""
         try:
+            if self._strict_chain_mode():
+                profile = self._get_chain_client().get_agent_profile(agent_id)
+                reputation = self._get_reputation().get_reputation(agent_id)
+                holdings = []
+                for item in profile.get("shareholdings", []):
+                    asset_id = str(item.get("asset_id") or "").strip()
+                    if not asset_id:
+                        continue
+                    tokens = self._parse_number(item.get("shares", 0))
+                    if tokens <= 0:
+                        continue
+                    market = self._get_chain_market_state(asset_id)
+                    supply = market["supply"]
+                    pct = tokens / supply if supply > 0 else 0.0
+                    holdings.append(
+                        {
+                            "asset_id": asset_id,
+                            "tokens": tokens,
+                            "pct": round(pct * 100, 4),
+                            "value_oas": round(tokens * market["spot_price"], 6),
+                            "access_level": (
+                                equity_to_access_level(pct, reputation) if pct > 0 else None
+                            ),
+                        }
+                    )
+                return ServiceResult(success=True, data={"agent_id": agent_id, "holdings": holdings})
+
             se = self._get_settlement()
             holdings = []
             for aid, pool in se.pools.items():

@@ -12,9 +12,12 @@ import logging
 import os
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import requests
+
+from oasyce.config import NetworkMode, get_chain_rest_url, get_chain_rpc_url, get_network_mode
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,7 @@ _DEFAULT_TIMEOUT = 10
 
 # Paths to check for oasyced binary.
 _OASYCED_SEARCH_PATHS = [
+    str(Path(__file__).resolve().parents[2] / "oasyce-chain" / "build" / "oasyced"),
     os.path.expanduser("~/Desktop/oasyce-chain/build/oasyced"),
     "/usr/local/bin/oasyced",
 ]
@@ -33,6 +37,16 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _managed_default_from() -> Optional[str]:
+    try:
+        from oasyce.update_manager import read_managed_install_state
+
+        value = str(read_managed_install_state().get("chain_signer_name") or "").strip()
+        return value or None
+    except Exception:
+        return None
 
 
 def _find_oasyced() -> Optional[str]:
@@ -61,20 +75,27 @@ class ChainClient:
 
     def __init__(
         self,
-        rest_url: str = "http://localhost:1317",
+        rest_url: Optional[str] = None,
+        rpc_url: Optional[str] = None,
         grpc_url: str = "localhost:9090",
         timeout: int = _DEFAULT_TIMEOUT,
-        chain_id: str = "oasyce-local-1",
+        chain_id: Optional[str] = None,
         keyring_backend: str = "test",
         default_from: Optional[str] = None,
         fees: str = "10000uoas",
     ):
-        self.rest_url = rest_url.rstrip("/")
+        mode = get_network_mode()
+        self.rest_url = (rest_url or get_chain_rest_url(mode)).rstrip("/")
+        self.rpc_url = (rpc_url or get_chain_rpc_url(mode)).rstrip("/")
         self.grpc_url = grpc_url
         self.timeout = timeout
-        self.chain_id = chain_id
+        self.chain_id = chain_id or (
+            "oasyce-testnet-1" if mode == NetworkMode.TESTNET else "oasyce-local-1"
+        )
         self.keyring_backend = keyring_backend
-        self.default_from = default_from
+        self.default_from = (
+            default_from or os.getenv("OASYCE_CHAIN_FROM") or _managed_default_from()
+        )
         self.fees = fees
         self._oasyced = _find_oasyced()
 
@@ -105,7 +126,13 @@ class ChainClient:
             resp.raise_for_status()
             return resp.json()
         except requests.RequestException as exc:
-            raise ChainClientError(f"GET {path} failed: {exc}") from exc
+            detail = ""
+            response = getattr(exc, "response", None)
+            if response is not None:
+                body = str(getattr(response, "text", "") or "").strip()
+                if body:
+                    detail = f" [{body[:400]}]"
+            raise ChainClientError(f"GET {path} failed: {exc}{detail}") from exc
 
     def _post(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
         """Perform a POST request against the chain REST API."""
@@ -115,7 +142,13 @@ class ChainClient:
             resp.raise_for_status()
             return resp.json()
         except requests.RequestException as exc:
-            raise ChainClientError(f"POST {path} failed: {exc}") from exc
+            detail = ""
+            response = getattr(exc, "response", None)
+            if response is not None:
+                text = str(getattr(response, "text", "") or "").strip()
+                if text:
+                    detail = f" [{text[:400]}]"
+            raise ChainClientError(f"POST {path} failed: {exc}{detail}") from exc
 
     # ------------------------------------------------------------------
     # CLI-based transaction execution
@@ -143,6 +176,8 @@ class ChainClient:
         if from_key:
             cmd += ["--from", from_key]
         cmd += [
+            "--node",
+            self.rpc_url,
             "--keyring-backend",
             self.keyring_backend,
             "--chain-id",
@@ -169,6 +204,8 @@ class ChainClient:
                 raise ChainClientError(
                     f"oasyced returned no output. Exit code: {result.returncode}"
                 )
+            if result.returncode != 0:
+                raise ChainClientError(output)
 
             try:
                 return json.loads(output)
@@ -190,7 +227,7 @@ class ChainClient:
 
     def _resolve_from_key(self, actor: str, from_key: Optional[str] = None) -> str:
         """Resolve the CLI signer without silently changing the business actor."""
-        signer = from_key or actor or self.default_from
+        signer = from_key or self.default_from or actor
         if signer:
             return signer
         raise ChainClientError(
@@ -206,7 +243,7 @@ class ChainClient:
         if not self._oasyced:
             raise ChainClientError("oasyced binary not found")
 
-        cmd = [self._oasyced] + args + ["--output", "json"]
+        cmd = [self._oasyced] + args + ["--node", self.rpc_url, "--output", "json"]
 
         try:
             result = subprocess.run(
@@ -777,6 +814,10 @@ class ChainClient:
         """Query account info (sequence, account number, etc.)."""
         return self._get(f"/cosmos/auth/v1beta1/accounts/{address}")
 
+    def get_agent_profile(self, address: str) -> Dict[str, Any]:
+        """Query aggregate profile data for an address on the Oasyce chain."""
+        return self._get(f"/oasyce/v1/agent-profile/{address}")
+
 
 # ======================================================================
 # OasyceClient — high-level wrapper with local-engine fallback
@@ -797,12 +838,18 @@ class OasyceClient:
 
     def __init__(
         self,
-        rest_url: str = "http://localhost:1317",
+        rest_url: Optional[str] = None,
+        rpc_url: Optional[str] = None,
         grpc_url: str = "localhost:9090",
         timeout: int = _DEFAULT_TIMEOUT,
         allow_local_fallback: Optional[bool] = None,
     ):
-        self._chain = ChainClient(rest_url=rest_url, grpc_url=grpc_url, timeout=timeout)
+        self._chain = ChainClient(
+            rest_url=rest_url,
+            rpc_url=rpc_url,
+            grpc_url=grpc_url,
+            timeout=timeout,
+        )
         self._local_engine: Optional[Any] = None
         self._chain_available: Optional[bool] = None
         self._allow_local_fallback = (
@@ -1122,6 +1169,16 @@ class OasyceClient:
             "get_balance",
             address,
         )
+
+    def get_agent_profile(self, address: str) -> Dict[str, Any]:
+        """Get the aggregate on-chain profile for an address."""
+        if self._check_chain():
+            return self._chain.get_agent_profile(address)
+        if self._allow_local_fallback:
+            raise ChainClientError(
+                "Local engine does not support get_agent_profile; public beta requires chain mode."
+            )
+        raise self._fallback_disabled_error("get_agent_profile")
 
     def is_connected(self) -> bool:
         """Check if chain is reachable."""

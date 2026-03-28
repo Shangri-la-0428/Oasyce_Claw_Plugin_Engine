@@ -715,12 +715,12 @@
 
 | 命令 | QA ID |
 |------|-------|
-| `oas testnet start` | QA-2054 |
-| `oas testnet faucet` | QA-2055 |
-| `oas testnet status` | QA-2056 |
-| `oas testnet onboard` (PoW 自注册) | QA-2057 |
-| `oas testnet faucet-serve` (运行 faucet 服务) | QA-2058 |
-| `oas testnet reset` | QA-2059 |
+| `oas sandbox start` | QA-2054 |
+| `oas sandbox faucet` | QA-2055 |
+| `oas sandbox status` | QA-2056 |
+| `oas sandbox onboard` (PoW 自注册) | QA-2057 |
+| `oas sandbox faucet-serve` (运行 faucet 服务) | QA-2058 |
+| `oas sandbox reset` | QA-2059 |
 
 ### 20.10 Agent 调度器
 

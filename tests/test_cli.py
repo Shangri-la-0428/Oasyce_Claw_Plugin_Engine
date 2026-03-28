@@ -184,7 +184,10 @@ class TestBootstrapUpdate:
         assert payload["packages"][1]["current"] == "0.3.0"
 
     @patch("oasyce.identity.Wallet")
-    def test_bootstrap_json_auto_creates_wallet_and_checks_datavault(self, mock_wallet_cls):
+    def test_bootstrap_json_auto_creates_wallet_and_checks_datavault(
+        self, mock_wallet_cls, monkeypatch
+    ):
+        monkeypatch.setenv("OASYCE_NETWORK_MODE", "testnet")
         mock_wallet_cls.get_address.return_value = None
         mock_wallet_cls.create.return_value = types.SimpleNamespace(address="wallet-new")
 
@@ -210,6 +213,16 @@ class TestBootstrapUpdate:
             ),
             patch("oasyce.cli.importlib.util.find_spec", return_value=object()),
             patch("oasyce.cli.shutil.which", return_value="/usr/local/bin/datavault"),
+            patch(
+                "oasyce.services.public_beta_signer.ensure_public_beta_signer",
+                return_value={
+                    "name": "oasyce-agent",
+                    "address": "oasyce1bootstrap",
+                    "created": True,
+                    "claimed_faucet": True,
+                    "ready": True,
+                },
+            ),
         ):
             code, out, err = run_cli("bootstrap", "--json")
 
@@ -222,6 +235,27 @@ class TestBootstrapUpdate:
         assert payload["datavault_cli"] is True
         assert payload["ready"] is True
         assert payload["auto_update_enabled"] is True
+        assert payload["chain_signer"]["name"] == "oasyce-agent"
+        assert payload["chain_signer"]["ready"] is True
+
+
+class TestSupport:
+    def test_support_asset_update_json(self):
+        with patch(
+            "oasyce.services.asset_update_audit.audit_local_asset_update",
+            return_value={
+                "ok": True,
+                "asset_id": "ASSET_X",
+                "recommended_action": "create_canonical_asset",
+                "warnings": ["test-like"],
+            },
+        ):
+            code, out, err = run_cli("support", "asset-update", "ASSET_X", "--json")
+
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["asset_id"] == "ASSET_X"
+        assert payload["recommended_action"] == "create_canonical_asset"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1415,7 +1449,7 @@ class TestSubcommandGroupHelp:
             "contribution",
             "leakage",
             "sandbox",
-            "testnet",
+            "smoke",
             "keys",
             "cache",
             "agent",
@@ -1427,20 +1461,7 @@ class TestSubcommandGroupHelp:
         assert code == 0
 
 
-class TestTestnetCli:
-    def test_testnet_group_help_marks_local_simulation(self):
-        code, out, err = run_cli("testnet")
-        assert code == 0
-        assert "local sandbox" in out.lower()
-
-    def test_testnet_status_json_marks_local_simulation(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("HOME", str(tmp_path))
-        code, out, err = run_cli("--json", "testnet", "status")
-        assert code == 0
-        parsed = json.loads(out)
-        assert parsed["mode"] == "LOCAL_SIMULATION"
-        assert parsed["network"] == "sandbox"
-
+class TestSandboxCli:
     def test_sandbox_status_json_marks_local_simulation(self, monkeypatch, tmp_path):
         monkeypatch.setenv("HOME", str(tmp_path))
         code, out, err = run_cli("--json", "sandbox", "status")
@@ -1449,66 +1470,52 @@ class TestTestnetCli:
         assert parsed["mode"] == "LOCAL_SIMULATION"
         assert parsed["network"] == "sandbox"
 
+    def test_testnet_command_is_removed(self):
+        code, out, err = run_cli("testnet")
+        assert code != 0
+        assert "invalid choice" in err.lower()
+
 
 class TestDoctor:
-    @patch("requests.get")
-    @patch("shutil.which", return_value="/usr/local/bin/datavault")
-    @patch("oasyce.cli._import_optional_module")
-    @patch("oasyce.update_manager.read_managed_install_state")
-    @patch("oasyce.identity.Wallet.exists", return_value=True)
-    def test_public_beta_doctor_json_success(
-        self,
-        mock_wallet_exists,
-        mock_managed_state,
-        mock_import_module,
-        mock_which,
-        mock_requests_get,
-        monkeypatch,
-    ):
-        monkeypatch.setenv("OASYCE_NETWORK_MODE", "testnet")
-        mock_managed_state.return_value = {
-            "auto_update": True,
-            "installed_via_bootstrap": True,
+    @patch("oasyce.cli.run_public_beta_doctor")
+    def test_public_beta_doctor_json_success(self, mock_run):
+        mock_run.return_value = {
+            "scope": "public_beta",
+            "status": "ok",
+            "errors": 0,
+            "warnings": 0,
+            "checks": [
+                {"name": "Network mode", "status": "ok", "detail": "OASYCE_NETWORK_MODE=testnet"}
+            ],
         }
-
-        health = MagicMock()
-        health.json.return_value = {"status": "ok", "chain_id": "oasyce-testnet-1"}
-        health.raise_for_status.return_value = None
-        params = MagicMock()
-        params.json.return_value = {
-            "params": {"airdrop_amount": {"amount": "1"}, "pow_difficulty": 16}
-        }
-        params.raise_for_status.return_value = None
-        mock_requests_get.side_effect = [health, params]
-
         code, out, err = run_cli("doctor", "--public-beta", "--json")
         assert code == 0
         parsed = json.loads(out)
         assert parsed["scope"] == "public_beta"
         assert parsed["status"] == "ok"
         assert parsed["errors"] == 0
-        names = {item["name"] for item in parsed["checks"]}
-        assert "Network mode" in names
-        assert "Strict chain mode" in names
-        assert "Public chain health" in names
+        mock_run.assert_called_once()
 
-    @patch("requests.get")
-    @patch("shutil.which", return_value=None)
-    @patch("oasyce.cli._import_optional_module", side_effect=ImportError("missing datavault"))
-    @patch("oasyce.update_manager.read_managed_install_state", return_value={"auto_update": False})
-    @patch("oasyce.identity.Wallet.exists", return_value=False)
-    def test_public_beta_doctor_json_failure(
-        self,
-        mock_wallet_exists,
-        mock_managed_state,
-        mock_import_module,
-        mock_which,
-        mock_requests_get,
-        monkeypatch,
-    ):
-        monkeypatch.delenv("OASYCE_NETWORK_MODE", raising=False)
-        mock_requests_get.side_effect = RuntimeError("offline")
-
+    @patch("oasyce.cli.run_public_beta_doctor")
+    def test_public_beta_doctor_json_failure(self, mock_run):
+        mock_run.return_value = {
+            "scope": "public_beta",
+            "status": "error",
+            "errors": 3,
+            "warnings": 0,
+            "checks": [
+                {
+                    "name": "Network mode",
+                    "status": "error",
+                    "detail": "Set OASYCE_NETWORK_MODE=testnet",
+                },
+                {
+                    "name": "Managed install",
+                    "status": "error",
+                    "detail": "Run `oas bootstrap` to enable managed updates",
+                },
+            ],
+        }
         code, out, err = run_cli("doctor", "--public-beta", "--json")
         assert code == 0
         parsed = json.loads(out)
@@ -1518,6 +1525,47 @@ class TestDoctor:
         details = {item["name"]: item["detail"] for item in parsed["checks"]}
         assert "Set OASYCE_NETWORK_MODE=testnet" in details["Network mode"]
         assert "Run `oas bootstrap`" in details["Managed install"]
+
+
+class TestSmoke:
+    @patch("oasyce.cli.run_public_beta_smoke")
+    def test_public_beta_smoke_json_success(self, mock_run):
+        mock_run.return_value = {
+            "scope": "public_beta_smoke",
+            "status": "ok",
+            "errors": 0,
+            "warnings": 0,
+            "checks": [
+                {"name": "Doctor gate", "status": "ok", "detail": "Public beta doctor passed"},
+                {"name": "Register", "status": "ok", "detail": "Asset registered"},
+            ],
+        }
+
+        code, out, err = run_cli("smoke", "public-beta", "--json")
+
+        assert code == 0
+        parsed = json.loads(out)
+        assert parsed["scope"] == "public_beta_smoke"
+        assert parsed["status"] == "ok"
+        mock_run.assert_called_once()
+
+    @patch("oasyce.cli.run_public_beta_smoke")
+    def test_public_beta_smoke_json_failure(self, mock_run):
+        mock_run.return_value = {
+            "scope": "public_beta_smoke",
+            "status": "error",
+            "errors": 1,
+            "warnings": 0,
+            "checks": [
+                {"name": "Doctor gate", "status": "error", "detail": "Doctor must pass first"}
+            ],
+        }
+
+        code, out, err = run_cli("smoke", "public-beta", "--json")
+
+        assert code == 0
+        parsed = json.loads(out)
+        assert parsed["status"] == "error"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

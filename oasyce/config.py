@@ -221,6 +221,24 @@ def get_sandbox_economics() -> dict:
     return dict(SANDBOX_ECONOMICS)
 
 
+def get_chain_rest_url(mode: Optional[NetworkMode] = None) -> str:
+    if mode is None:
+        mode = get_network_mode()
+    return (
+        os.getenv("OASYCE_CHAIN_REST_URL")
+        or os.getenv("OASYCE_CHAIN_API")
+        or ("http://47.93.32.88:1317" if mode == NetworkMode.TESTNET else "http://localhost:1317")
+    )
+
+
+def get_chain_rpc_url(mode: Optional[NetworkMode] = None) -> str:
+    if mode is None:
+        mode = get_network_mode()
+    return os.getenv("OASYCE_CHAIN_RPC") or (
+        "http://47.93.32.88:26657" if mode == NetworkMode.TESTNET else "http://localhost:26657"
+    )
+
+
 # ── Security configuration ──────────────────────────────────────────
 MAINNET_SECURITY = {
     "require_signatures": True,
@@ -283,6 +301,8 @@ class Config:
     signing_key_id: str = ""
     data_dir: str = ""
     db_path: str = ""
+    rest_url: str = "http://localhost:1317"
+    rpc_url: str = "http://localhost:26657"
     node_host: str = "0.0.0.0"
     node_port: int = 9527
 
@@ -306,8 +326,9 @@ class Config:
         env_tags = os.getenv("OASYCE_TAGS")
         env_key = os.getenv("OASYCE_SIGNING_KEY")
         env_key_id = os.getenv("OASYCE_SIGNING_KEY_ID")
+        mode = get_network_mode()
 
-        resolved_data_dir = data_dir or os.getenv("OASYCE_DATA_DIR") or _default_data_dir()
+        resolved_data_dir = data_dir or os.getenv("OASYCE_DATA_DIR") or get_data_dir(mode)
         key_dir = os.path.join(resolved_data_dir, "keys")
 
         # If signing_key provided explicitly, use it as-is (Ed25519 private key hex).
@@ -324,6 +345,8 @@ class Config:
         resolved_db = (
             db_path or os.getenv("OASYCE_DB_PATH") or os.path.join(resolved_data_dir, "chain.db")
         )
+        resolved_rest = get_chain_rest_url(mode)
+        resolved_rpc = get_chain_rpc_url(mode)
 
         resolved_host = node_host or os.getenv("OASYCE_NODE_HOST") or "0.0.0.0"
         resolved_port = node_port or int(os.getenv("OASYCE_NODE_PORT", "0") or "0") or 9527
@@ -337,6 +360,8 @@ class Config:
             signing_key_id=signing_key_id or env_key_id or "ed25519:default",
             data_dir=resolved_data_dir,
             db_path=resolved_db,
+            rest_url=resolved_rest,
+            rpc_url=resolved_rpc,
             node_host=resolved_host,
             node_port=resolved_port,
         )

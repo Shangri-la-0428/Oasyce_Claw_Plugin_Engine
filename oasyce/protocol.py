@@ -50,9 +50,10 @@ class OasyceProtocol:
     def __init__(
         self,
         rest_url: str = "http://localhost:1317",
+        rpc_url: str = "http://localhost:26657",
         grpc_url: str = "localhost:9090",
     ):
-        self._chain = OasyceClient(rest_url=rest_url, grpc_url=grpc_url)
+        self._chain = OasyceClient(rest_url=rest_url, rpc_url=rpc_url, grpc_url=grpc_url)
         self._verifier = MockVerifier()
 
     @property

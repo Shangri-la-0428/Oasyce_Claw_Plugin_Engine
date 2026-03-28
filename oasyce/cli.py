@@ -18,6 +18,11 @@ from pathlib import Path
 
 from oasyce.config import Config
 from oasyce import update_manager as _update_manager
+from oasyce.services.public_beta_gate import (
+    DEFAULT_PUBLIC_BETA_NODE_URL,
+    run_public_beta_doctor,
+    run_public_beta_smoke,
+)
 
 OasyceSkills = None
 
@@ -1912,7 +1917,7 @@ def cmd_asset_validate(args):
                 print(f"   - {err}")
 
 
-def cmd_testnet_start(args):
+def cmd_sandbox_start(args):
     """Start a local sandbox node."""
     import asyncio
     from oasyce.config import (
@@ -1966,7 +1971,7 @@ def cmd_testnet_start(args):
         pass
 
 
-def cmd_testnet_faucet(args):
+def cmd_sandbox_faucet(args):
     """Claim OAS from the local sandbox faucet simulation."""
     from oasyce.config import get_sandbox_data_dir, load_or_create_node_identity
     from oasyce.services.faucet import Faucet
@@ -1992,7 +1997,7 @@ def cmd_testnet_faucet(args):
         print(f"  Balance: {result['balance']:.0f} OAS")
 
 
-def cmd_testnet_status(args):
+def cmd_sandbox_status(args):
     """Show local sandbox status."""
     from oasyce.config import (
         SANDBOX_NETWORK_CONFIG,
@@ -2059,7 +2064,7 @@ def cmd_testnet_status(args):
         print(f"  Block reward: {from_units(economics['block_reward']):.0f} OAS")
 
 
-def cmd_testnet_onboard(args):
+def cmd_sandbox_onboard(args):
     """Run the local one-click sandbox onboarding simulation."""
     from oasyce.config import get_sandbox_data_dir, load_or_create_node_identity
     from oasyce.services.sandbox import SandboxOnboardingService
@@ -2079,7 +2084,7 @@ def cmd_testnet_onboard(args):
             print(f"  {step}")
 
 
-def cmd_testnet_reset(args):
+def cmd_sandbox_reset(args):
     """Reset local sandbox data."""
     import shutil
     from oasyce.config import get_sandbox_data_dir
@@ -2110,7 +2115,7 @@ def cmd_testnet_reset(args):
         print(f"Sandbox data reset. Removed {data_dir}")
 
 
-def cmd_testnet_faucet_serve(args):
+def cmd_sandbox_faucet_serve(args):
     """Start the local sandbox faucet HTTP server."""
     from scripts.run_faucet import main as faucet_main
 
@@ -2123,53 +2128,44 @@ def cmd_testnet_faucet_serve(args):
     faucet_main()
 
 
-cmd_sandbox_start = cmd_testnet_start
-cmd_sandbox_faucet = cmd_testnet_faucet
-cmd_sandbox_status = cmd_testnet_status
-cmd_sandbox_onboard = cmd_testnet_onboard
-cmd_sandbox_reset = cmd_testnet_reset
-cmd_sandbox_faucet_serve = cmd_testnet_faucet_serve
-
-
-def _register_sandbox_subcommands(parent_parser, *, deprecated_alias: bool = False) -> None:
+def _register_sandbox_subcommands(parent_parser) -> None:
     sub = parent_parser.add_subparsers(dest="sandbox_command", help="Sandbox sub-commands")
-    alias_note = " (deprecated alias)" if deprecated_alias else ""
 
     start_parser = sub.add_parser(
         "start",
-        help=f"Start a local sandbox simulation node{alias_note}",
+        help="Start a local sandbox simulation node",
     )
     start_parser.add_argument("--port", type=int, default=None, help="Listen port (default 9528)")
     start_parser.set_defaults(func=cmd_sandbox_start)
 
     faucet_parser = sub.add_parser(
         "faucet",
-        help=f"Claim local simulated OAS{alias_note}",
+        help="Claim local simulated OAS",
     )
     faucet_parser.set_defaults(func=cmd_sandbox_faucet)
 
     status_parser = sub.add_parser(
         "status",
-        help=f"Show local sandbox status{alias_note}",
+        help="Show local sandbox status",
     )
     status_parser.set_defaults(func=cmd_sandbox_status)
 
     onboard_parser = sub.add_parser(
         "onboard",
-        help=f"Local simulation: faucet + sample asset + stake{alias_note}",
+        help="Local simulation: faucet + sample asset + stake",
     )
     onboard_parser.set_defaults(func=cmd_sandbox_onboard)
 
     reset_parser = sub.add_parser(
         "reset",
-        help=f"Reset local sandbox data{alias_note}",
+        help="Reset local sandbox data",
     )
     reset_parser.add_argument("--force", action="store_true", help="Confirm reset")
     reset_parser.set_defaults(func=cmd_sandbox_reset)
 
     faucet_serve_parser = sub.add_parser(
         "faucet-serve",
-        help=f"Start the local sandbox faucet HTTP server{alias_note}",
+        help="Start the local sandbox faucet HTTP server",
     )
     faucet_serve_parser.add_argument("--port", type=int, default=8421, help="Listen port")
     faucet_serve_parser.add_argument("--data-dir", default=None, help="Data directory")
@@ -2740,131 +2736,50 @@ def cmd_agent_config(args):
     print()
 
 
+def _print_gate_report(report: dict[str, object], title: str) -> None:
+    print(f"\n🔍 {title}")
+    print("═" * max(len(title) + 2, 43))
+    for check in report.get("checks", []):
+        if not isinstance(check, dict):
+            continue
+        status = str(check.get("status", "warning"))
+        detail = str(check.get("detail", ""))
+        icon = {"ok": "✅", "warning": "⚠️ ", "error": "❌"}.get(status, "•")
+        print(f"{icon} {str(check.get('name', 'Check')):<26s} {detail}")
+    print("═" * max(len(title) + 2, 43))
+    errors = int(report.get("errors", 0))
+    warnings = int(report.get("warnings", 0))
+    if errors > 0:
+        print(f"❌ {errors} blocking issue(s).")
+    elif warnings > 0:
+        print(f"⚠️  {warnings} warning(s). Review above before rollout.")
+    else:
+        print("✅ Gate passed.")
+    print()
+
+
 def cmd_doctor(args):
     """Run security and readiness checks for the Oasyce node."""
-    import platform
-    import socket
-    import subprocess
-
     if getattr(args, "public_beta", False):
-        import shutil
-
-        import requests
-
-        from oasyce.config import NetworkMode, get_network_mode, get_security
         from oasyce.identity import Wallet
         from oasyce.update_manager import read_managed_install_state
 
-        use_json = getattr(args, "json", False)
-        checks = []
-        errors = 0
-        warnings = 0
-
-        def _check(name, status, detail):
-            nonlocal errors, warnings
-            if status == "error":
-                errors += 1
-            elif status == "warning":
-                warnings += 1
-            checks.append({"name": name, "status": status, "detail": detail})
-            if not use_json:
-                icon = {"ok": "\u2705", "warning": "\u26a0\ufe0f ", "error": "\u274c"}[status]
-                print(f"{icon} {name:<26s} {detail}")
-
-        rest_url = (
-            getattr(args, "rest_url", None)
-            or os.getenv("OASYCE_PUBLIC_BETA_REST_URL")
-            or os.getenv("OASYCE_CHAIN_REST_URL")
-            or "http://47.93.32.88:1317"
-        ).rstrip("/")
-
-        if not use_json:
-            print("\n\U0001f50d Oasyce Public Beta Doctor")
-            print("\u2550" * 43)
-
-        mode = get_network_mode()
-        if mode == NetworkMode.TESTNET:
-            _check("Network mode", "ok", "OASYCE_NETWORK_MODE=testnet")
-        else:
-            _check("Network mode", "error", "Set OASYCE_NETWORK_MODE=testnet")
-
-        security = get_security(mode)
-        if security.get("allow_local_fallback") is False:
-            _check("Strict chain mode", "ok", "Local fallback disabled")
-        else:
-            _check("Strict chain mode", "error", "Enable strict chain mode for public beta")
-
-        if Wallet.exists():
-            _check("Wallet", "ok", "Wallet exists")
-        else:
-            _check("Wallet", "error", "Missing wallet — run `oas bootstrap`")
-
-        managed_state = read_managed_install_state()
-        if managed_state.get("auto_update") and managed_state.get("installed_via_bootstrap"):
-            _check("Managed install", "ok", "Auto-update enabled via bootstrap")
-        else:
-            _check("Managed install", "error", "Run `oas bootstrap` to enable managed updates")
-
-        try:
-            _import_optional_module("datavault")
-            _check("DataVault module", "ok", "Importable")
-        except ImportError:
-            _check("DataVault module", "error", "Missing Python module `datavault`")
-
-        if shutil.which("datavault"):
-            _check("DataVault CLI", "ok", "CLI on PATH")
-        else:
-            _check("DataVault CLI", "error", "Missing `datavault` CLI on PATH")
-
-        try:
-            resp = requests.get(f"{rest_url}/health", timeout=5)
-            resp.raise_for_status()
-            payload = resp.json()
-            if payload.get("chain_id") == "oasyce-testnet-1":
-                _check("Public chain health", "ok", f"{rest_url}/health reachable")
-            else:
-                _check("Public chain health", "error", "Unexpected chain_id from public endpoint")
-        except Exception as exc:
-            _check("Public chain health", "error", f"Unreachable: {exc}")
-
-        try:
-            resp = requests.get(f"{rest_url}/oasyce/onboarding/v1/params", timeout=5)
-            resp.raise_for_status()
-            payload = resp.json()
-            params = payload.get("params", {})
-            if {"airdrop_amount", "pow_difficulty"} <= set(params):
-                _check("Onboarding params", "ok", "Public onboarding params reachable")
-            else:
-                _check("Onboarding params", "error", "Public onboarding params incomplete")
-        except Exception as exc:
-            _check("Onboarding params", "error", f"Unreachable: {exc}")
-
-        if use_json:
-            overall = "error" if errors > 0 else ("warning" if warnings > 0 else "ok")
-            print(
-                json.dumps(
-                    {
-                        "scope": "public_beta",
-                        "rest_url": rest_url,
-                        "status": overall,
-                        "errors": errors,
-                        "warnings": warnings,
-                        "checks": checks,
-                    },
-                    indent=2,
-                )
-            )
+        report = run_public_beta_doctor(
+            rest_url=getattr(args, "rest_url", None),
+            rpc_url=getattr(args, "rpc_url", None),
+            import_optional_module=_import_optional_module,
+            wallet_exists=Wallet.exists,
+            managed_install_reader=read_managed_install_state,
+        )
+        if getattr(args, "json", False):
+            print(json.dumps(report, indent=2))
             return
-
-        print("\u2550" * 43)
-        if errors > 0:
-            print(f"\u274c {errors} blocking issue(s) before public beta use.")
-        elif warnings > 0:
-            print(f"\u26a0\ufe0f  {warnings} warning(s). Review above before rollout.")
-        else:
-            print("\u2705 Public beta gate passed.")
-        print()
+        _print_gate_report(report, "Oasyce Public Beta Doctor")
         return
+
+    import platform
+    import socket
+    import subprocess
 
     home = Path.home()
     oasyce_dir = home / ".oasyce"
@@ -3041,6 +2956,24 @@ def cmd_doctor(args):
     else:
         print("\u2705 All checks passed. Your node is ready.")
     print()
+
+
+def cmd_smoke_public_beta(args):
+    """Run the executable public beta smoke flow."""
+    report = run_public_beta_smoke(
+        base_url=getattr(args, "url", DEFAULT_PUBLIC_BETA_NODE_URL),
+        rest_url=getattr(args, "rest_url", None),
+        rpc_url=getattr(args, "rpc_url", None),
+        asset_id=getattr(args, "asset_id", None),
+        owner=getattr(args, "owner", "beta-smoke-owner"),
+        buyer=getattr(args, "buyer", "beta-smoke-buyer"),
+        amount=float(getattr(args, "amount", 0.05)),
+        trace_prefix=getattr(args, "trace_prefix", None),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(report, indent=2))
+        return
+    _print_gate_report(report, "Oasyce Public Beta Smoke")
 
 
 def cmd_work_list(args):
@@ -3371,6 +3304,38 @@ def cmd_support(args):
             kind = tx.get("kind") or tx.get("type") or "tx"
             status = tx.get("status") or "unknown"
             print(f"    {tx_id}  {kind}  {status}")
+    print()
+
+
+def cmd_support_asset_update(args):
+    """Audit whether an asset should be re-registered, versioned, or replaced."""
+    from oasyce.services.asset_update_audit import audit_local_asset_update
+
+    report = audit_local_asset_update(args.asset_id)
+    if not report.get("ok"):
+        _output_error(args, report.get("reason", "Asset audit failed"), code="ASSET_AUDIT_FAILED")
+        sys.exit(1)
+
+    if getattr(args, "json", False):
+        print(json.dumps(report))
+        return
+
+    print("\n  Asset Update Audit")
+    print(f"  Asset ID:           {report['asset_id']}")
+    print(f"  Owner:              {report.get('owner') or '—'}")
+    print(f"  Filename:           {report.get('filename') or '—'}")
+    print(f"  File path present:  {'yes' if report.get('file_path') else 'no'}")
+    print(f"  File exists:        {'yes' if report.get('file_exists') else 'no'}")
+    print(f"  Holders:            {report.get('holders_count', 0)}")
+    print(f"  Versions:           {report.get('versions_count', 0)}")
+    print(f"  Test-like:          {'yes' if report.get('is_test_like') else 'no'}")
+    print(f"  Recommended action: {report.get('recommended_action')}")
+    print(f"  Rationale:          {report.get('rationale')}")
+    warnings = report.get("warnings") or []
+    if warnings:
+        print("\n  Warnings:")
+        for warning in warnings:
+            print(f"    - {warning}")
     print()
 
 
@@ -3738,6 +3703,12 @@ def cmd_update(args):
 def cmd_bootstrap(args):
     """AI-first bootstrap: self-update, ensure wallet, verify DataVault entrypoints."""
     from oasyce.identity import Wallet
+    from oasyce.config import NetworkMode, get_network_mode
+    from oasyce.services.public_beta_signer import (
+        PublicBetaSignerError,
+        ensure_public_beta_signer,
+        public_beta_bootstrap_required,
+    )
 
     use_json = getattr(args, "json", False)
     skip_update = getattr(args, "no_update", False)
@@ -3773,8 +3744,31 @@ def cmd_bootstrap(args):
 
     datavault_module = importlib.util.find_spec("datavault") is not None
     datavault_cli = shutil.which("datavault") is not None
-    ready = bool(wallet_address and datavault_module and datavault_cli)
     managed_state = _update_manager.enable_managed_install(auto_update=True)
+    chain_signer = None
+    mode = get_network_mode()
+    if public_beta_bootstrap_required() and mode == NetworkMode.TESTNET:
+        try:
+            chain_signer = ensure_public_beta_signer()
+        except PublicBetaSignerError as exc:
+            payload = {
+                "ok": False,
+                "error": str(exc),
+                "wallet_address": wallet_address,
+                "wallet_created": wallet_created,
+                "datavault_module": datavault_module,
+                "datavault_cli": datavault_cli,
+                "auto_update_enabled": managed_state.get("auto_update", False),
+            }
+            if use_json:
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"  Bootstrap failed: {exc}")
+            sys.exit(1)
+
+    ready = bool(wallet_address and datavault_module and datavault_cli)
+    if chain_signer is not None:
+        ready = ready and bool(chain_signer.get("ready"))
 
     payload = {
         "ok": True,
@@ -3788,6 +3782,14 @@ def cmd_bootstrap(args):
         "ready": ready,
         "auto_update_enabled": managed_state.get("auto_update", False),
     }
+    if chain_signer is not None:
+        payload["chain_signer"] = {
+            "name": chain_signer.get("name"),
+            "address": chain_signer.get("address"),
+            "created": chain_signer.get("created", False),
+            "claimed_faucet": chain_signer.get("claimed_faucet", False),
+            "ready": chain_signer.get("ready", False),
+        }
 
     if use_json:
         print(json.dumps(payload, indent=2))
@@ -3802,6 +3804,10 @@ def cmd_bootstrap(args):
     print(f"    Wallet created:    {'yes' if wallet_created else 'no'}")
     print(f"    DataVault module:  {'yes' if datavault_module else 'no'}")
     print(f"    DataVault CLI:     {'yes' if datavault_cli else 'no'}")
+    if chain_signer is not None:
+        print(f"    Chain signer:      {chain_signer.get('name')} ({chain_signer.get('address')})")
+        print(f"    Signer created:    {'yes' if chain_signer.get('created') else 'no'}")
+        print(f"    Faucet claimed:    {'yes' if chain_signer.get('claimed_faucet') else 'no'}")
     print(f"    Auto-update:       {'yes' if managed_state.get('auto_update') else 'no'}")
     print(f"    Ready:             {'yes' if ready else 'no'}")
     if not ready:
@@ -4390,20 +4396,13 @@ def main():
     )
     trust_parser.set_defaults(func=cmd_trust)
 
-    # ── sandbox / legacy testnet alias ───────────────────────────────
+    # ── sandbox ──────────────────────────────────────────────────────
     sandbox_parser = subparsers.add_parser(
         "sandbox",
         help="Local sandbox simulation management",
         description="Local sandbox simulation commands",
     )
     _register_sandbox_subcommands(sandbox_parser)
-
-    testnet_parser = subparsers.add_parser(
-        "testnet",
-        help="Deprecated alias for local sandbox commands",
-        description="Deprecated alias for local sandbox simulation commands",
-    )
-    _register_sandbox_subcommands(testnet_parser, deprecated_alias=True)
 
     # ── info ───────────────────────────────────────────────────────
     info_parser = subparsers.add_parser(
@@ -4604,6 +4603,14 @@ def main():
     support_beta_parser.add_argument("--json", action="store_true", help="Output as JSON")
     support_beta_parser.set_defaults(func=cmd_support)
 
+    support_asset_parser = support_sub.add_parser(
+        "asset-update",
+        help="Audit whether an asset should be re-registered, versioned, or replaced",
+    )
+    support_asset_parser.add_argument("asset_id", help="Asset ID to audit")
+    support_asset_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    support_asset_parser.set_defaults(func=cmd_support_asset_update)
+
     # ── cache management ──────────────────────────────────────────
     cache_parser = subparsers.add_parser("cache", help="Manage provider cache")
     cache_sub = cache_parser.add_subparsers(dest="cache_command", help="Cache sub-commands")
@@ -4695,8 +4702,64 @@ def main():
         default=None,
         help="Public beta chain REST URL (default: official testnet)",
     )
+    doctor_parser.add_argument(
+        "--rpc-url",
+        default=None,
+        help="Public beta signer RPC URL (default: official testnet)",
+    )
     doctor_parser.add_argument("--json", action="store_true", help="Output as JSON")
     doctor_parser.set_defaults(func=cmd_doctor)
+
+    smoke_parser = subparsers.add_parser("smoke", help="Executable release smoke flows")
+    smoke_sub = smoke_parser.add_subparsers(dest="smoke_command", help="Smoke sub-commands")
+
+    smoke_beta_parser = smoke_sub.add_parser(
+        "public-beta",
+        help="Run register -> quote -> buy -> replay -> portfolio against a running node",
+    )
+    smoke_beta_parser.add_argument(
+        "--url",
+        default=DEFAULT_PUBLIC_BETA_NODE_URL,
+        help=f"Dashboard base URL (default: {DEFAULT_PUBLIC_BETA_NODE_URL})",
+    )
+    smoke_beta_parser.add_argument(
+        "--rest-url",
+        default=None,
+        help="Public beta chain REST URL (default: official testnet)",
+    )
+    smoke_beta_parser.add_argument(
+        "--rpc-url",
+        default=None,
+        help="Public beta signer RPC URL (default: official testnet)",
+    )
+    smoke_beta_parser.add_argument(
+        "--asset-id",
+        default=None,
+        help="Reuse an existing asset instead of registering a new smoke asset",
+    )
+    smoke_beta_parser.add_argument(
+        "--owner",
+        default="beta-smoke-owner",
+        help="Owner identity for auto-registered smoke assets",
+    )
+    smoke_beta_parser.add_argument(
+        "--buyer",
+        default="beta-smoke-buyer",
+        help="Buyer identity used for the smoke purchase",
+    )
+    smoke_beta_parser.add_argument(
+        "--amount",
+        type=float,
+        default=0.05,
+        help="OAS spend for the smoke buy (default: 0.05)",
+    )
+    smoke_beta_parser.add_argument(
+        "--trace-prefix",
+        default=None,
+        help="Override the generated trace prefix",
+    )
+    smoke_beta_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    smoke_beta_parser.set_defaults(func=cmd_smoke_public_beta)
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap",
@@ -4772,10 +4835,6 @@ def main():
         sandbox_parser.print_help()
         sys.exit(0)
 
-    if args.command == "testnet" and getattr(args, "sandbox_command", None) is None:
-        testnet_parser.print_help()
-        sys.exit(0)
-
     if args.command == "keys" and getattr(args, "keys_command", None) is None:
         keys_parser.print_help()
         sys.exit(0)
@@ -4786,6 +4845,10 @@ def main():
 
     if args.command == "agent" and getattr(args, "agent_command", None) is None:
         agent_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "smoke" and getattr(args, "smoke_command", None) is None:
+        smoke_parser.print_help()
         sys.exit(0)
 
     if args.command == "support" and getattr(args, "support_command", None) is None:

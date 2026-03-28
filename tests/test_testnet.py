@@ -11,18 +11,21 @@ from unittest.mock import patch
 import pytest
 
 from oasyce.config import (
+    Config,
     MAINNET_ECONOMICS,
     SANDBOX_ECONOMICS,
     SANDBOX_NETWORK_CONFIG,
     TESTNET_ECONOMICS,
     TESTNET_NETWORK_CONFIG,
     NetworkMode,
+    get_chain_rest_url,
     get_data_dir,
     get_economics,
     get_sandbox_data_dir,
     get_sandbox_economics,
 )
 from oasyce.cli import to_units
+from oasyce.chain_client import OasyceClient
 import oasyce.services.faucet as faucet_module
 from oasyce.services.faucet import Faucet
 from oasyce.services.sandbox import SandboxOnboardingService
@@ -236,6 +239,36 @@ class TestTestnetConfig:
         assert mainnet_dir != testnet_dir
         assert "oasyce-testnet" in testnet_dir
         assert "oasyce-testnet" not in mainnet_dir
+
+    def test_testnet_chain_rest_defaults_to_public_endpoint(self, monkeypatch):
+        monkeypatch.setenv("OASYCE_NETWORK_MODE", "testnet")
+        monkeypatch.delenv("OASYCE_CHAIN_REST_URL", raising=False)
+        monkeypatch.delenv("OASYCE_CHAIN_API", raising=False)
+        assert get_chain_rest_url() == "http://47.93.32.88:1317"
+
+    def test_config_from_env_uses_testnet_data_dir_and_rest_url(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("OASYCE_NETWORK_MODE", "testnet")
+        monkeypatch.delenv("OASYCE_DATA_DIR", raising=False)
+        monkeypatch.delenv("OASYCE_CHAIN_REST_URL", raising=False)
+        monkeypatch.delenv("OASYCE_CHAIN_API", raising=False)
+
+        config = Config.from_env()
+
+        assert "oasyce-testnet" in config.data_dir
+        assert config.rest_url == "http://47.93.32.88:1317"
+
+    def test_oasyce_client_defaults_to_public_testnet_endpoint(self, monkeypatch):
+        monkeypatch.setenv("OASYCE_NETWORK_MODE", "testnet")
+        monkeypatch.delenv("OASYCE_CHAIN_REST_URL", raising=False)
+        monkeypatch.delenv("OASYCE_CHAIN_API", raising=False)
+        monkeypatch.delenv("OASYCE_CHAIN_RPC", raising=False)
+
+        client = OasyceClient()
+
+        assert client.chain.rest_url == "http://47.93.32.88:1317"
+        assert client.chain.rpc_url == "http://47.93.32.88:26657"
+        assert client.chain.chain_id == "oasyce-testnet-1"
 
     def test_get_economics(self):
         """get_economics returns correct params for each mode."""

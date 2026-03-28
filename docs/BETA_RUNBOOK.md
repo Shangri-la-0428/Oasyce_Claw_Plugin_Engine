@@ -43,7 +43,7 @@ oas support beta --json
 Before inviting a new public beta user, also run:
 
 ```bash
-oas doctor --public-beta --json
+oas smoke public-beta --json
 ```
 
 What to look for:
@@ -185,7 +185,7 @@ If a manual fix is needed, fix the projection or presentation layer without chan
 Before the session:
 
 - run `pytest -q /Users/wutongcheng/Desktop/Net/oasyce-net/tests`
-- run the beta smoke checklist in `docs/BETA_SMOKE_CHECKLIST.md`
+- run `oas smoke public-beta --json`
 - if CI or workflow files changed, run `docs/RELEASE_GATE.md`
 - make sure `oas support beta --json` returns usable data
 

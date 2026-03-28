@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from oasyce.chain_client import ChainClient, ChainClientError, OasyceClient
 
@@ -20,13 +21,37 @@ class TestChainClientInit:
         assert client.rest_url == "http://localhost:1317"
         assert client.grpc_url == "localhost:9090"
 
+    def test_testnet_defaults_and_chain_from_env(self, monkeypatch):
+        monkeypatch.setenv("OASYCE_NETWORK_MODE", "testnet")
+        monkeypatch.setenv("OASYCE_CHAIN_FROM", "e2e-agent")
+
+        client = ChainClient()
+
+        assert client.rest_url == "http://47.93.32.88:1317"
+        assert client.rpc_url == "http://47.93.32.88:26657"
+        assert client.chain_id == "oasyce-testnet-1"
+        assert client.default_from == "e2e-agent"
+
+    def test_managed_chain_from_used_when_env_missing(self, monkeypatch, tmp_path):
+        from oasyce import update_manager
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("OASYCE_CHAIN_FROM", raising=False)
+        update_manager.write_managed_install_state(chain_signer_name="managed-agent")
+
+        client = ChainClient()
+
+        assert client.default_from == "managed-agent"
+
     def test_custom_urls(self):
         client = ChainClient(
             rest_url="http://mynode:1317/",
+            rpc_url="http://mynode:26657/",
             grpc_url="mynode:9090",
         )
         # Trailing slash should be stripped.
         assert client.rest_url == "http://mynode:1317"
+        assert client.rpc_url == "http://mynode:26657"
         assert client.grpc_url == "mynode:9090"
 
     def test_custom_timeout(self):
@@ -176,6 +201,35 @@ class TestChainClientQueriesMocked:
         result = client.get_reputation("oasyce1addr")
         assert result["total_score"] == "450"
 
+    @patch("oasyce.chain_client.requests.get")
+    def test_get_agent_profile(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "address": "oasyce1addr",
+                "shareholdings": [{"asset_id": "DATA_1", "shares": "100"}],
+            },
+        )
+        mock_get.return_value.raise_for_status = MagicMock()
+        client = ChainClient()
+        result = client.get_agent_profile("oasyce1addr")
+        assert result["address"] == "oasyce1addr"
+        assert result["shareholdings"][0]["asset_id"] == "DATA_1"
+
+    @patch("oasyce.chain_client.requests.get")
+    def test_get_includes_response_body_on_http_error(self, mock_get):
+        response = MagicMock()
+        response.text = '{"message":"bonding curve state not found"}'
+        response.status_code = 500
+        response.raise_for_status.side_effect = requests.HTTPError(
+            "500 Server Error", response=response
+        )
+        mock_get.return_value = response
+
+        client = ChainClient()
+        with pytest.raises(ChainClientError, match="bonding curve state not found"):
+            client.get_bonding_curve_price("asset-1")
+
 
 # ======================================================================
 # ChainClient — transaction methods (unsigned tx shape)
@@ -323,7 +377,28 @@ class TestInvocationTransactions:
         assert "inv-42" in cmd
         assert "sha256:deadbeef" in cmd
         assert "--from" in cmd
-        assert "provider1" in cmd
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_default_from_precedes_business_actor_for_cli_signing(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout='{"txhash": "ABC123"}',
+            stderr="",
+            returncode=0,
+        )
+        client = ChainClient(default_from="e2e-agent", fees="10000uoas")
+        client._oasyced = "/usr/local/bin/oasyced"
+
+        client.register_data_asset(
+            owner="wallet-address-not-key-name",
+            name="demo",
+            description="demo",
+            content_hash="a" * 64,
+        )
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[cmd.index("--from") + 1] == "e2e-agent"
+        assert "wallet-address-not-key-name" not in cmd
+        assert cmd[cmd.index("--node") + 1] == client.rpc_url
         assert "--fees" in cmd
         assert "10000uoas" in cmd
         assert "--yes" in cmd
@@ -519,6 +594,34 @@ class TestInvocationSubprocessError:
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=1)
         with pytest.raises(ChainClientError, match="no output"):
             client.claim_invocation("inv-1")
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_run_cli_raises_on_nonzero_with_error_output(self, mock_run, client):
+        mock_run.return_value = MagicMock(
+            stdout='{"Error": "key not found"}',
+            stderr="",
+            returncode=1,
+        )
+        with pytest.raises(ChainClientError, match="key not found"):
+            client.register_data_asset(
+                owner="alice",
+                name="demo",
+                description="demo",
+                content_hash="a" * 64,
+            )
+
+    @patch("oasyce.chain_client.subprocess.run")
+    def test_query_cli_uses_rpc_node(self, mock_run, client):
+        mock_run.return_value = MagicMock(
+            stdout='{"account": {"address": "oasyce1abc"}}',
+            stderr="",
+            returncode=0,
+        )
+
+        client._query_cli(["query", "auth", "account", "oasyce1abc"])
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[cmd.index("--node") + 1] == client.rpc_url
 
 
 # ======================================================================

@@ -18,7 +18,7 @@ oas bootstrap
 # 或: https://github.com/Shangri-la-0428/oasyce-chain/blob/main/docs/PUBLIC_BETA_CN.md
 ```
 
-> 注意：`oas sandbox *` 当前只是 **LOCAL_SIMULATION**。`oas testnet *` 只是兼容别名；两者都不会在公网链上创建身份，也不会领取真实公开测试币。
+> 注意：`oas sandbox *` 当前只是 **LOCAL_SIMULATION**，不会在公网链上创建身份，也不会领取真实公开测试币。
 
 ```bash
 # 查看本地沙盒状态
@@ -36,6 +36,14 @@ oas doctor --public-beta --json
 ```
 
 只有当 `oas doctor --public-beta --json` 返回 `status: ok`，才说明这台机器已经满足公开测试的最小发布门槛：网络模式正确、不会回退到本地账本、钱包已就绪、DataVault 可用、公共链端点可达。
+
+如果你是在做发版或邀请新一批 beta 用户，继续执行：
+
+```bash
+oas smoke public-beta --json
+```
+
+这条命令会把 `doctor + register -> quote -> buy -> replay -> portfolio` 一起跑完，替代人工 checklist。
 
 ---
 

@@ -12,16 +12,21 @@ used when explicitly enabled.
 from __future__ import annotations
 
 import hashlib
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from oasyce.chain_client import OasyceClient, ChainClientError
+from oasyce.config import get_chain_rest_url, get_chain_rpc_url
 
 
 def _get_client() -> OasyceClient:
     """Return a singleton-like OasyceClient."""
     if not hasattr(_get_client, "_instance"):
-        _get_client._instance = OasyceClient()
+        _get_client._instance = OasyceClient(
+            rest_url=get_chain_rest_url(),
+            rpc_url=get_chain_rpc_url(),
+        )
     return _get_client._instance
 
 
@@ -71,6 +76,33 @@ def _verify_pack(pack) -> dict:
     return {"valid": result.valid, "reason": result.reason}
 
 
+def _is_missing_bonding_curve_state(exc: Exception) -> bool:
+    return "bonding curve state not found" in str(exc).lower()
+
+
+def _resolve_registered_asset_id(
+    client: OasyceClient,
+    *,
+    owner: str,
+    content_hash: str,
+    fallback_txhash: str,
+) -> str:
+    """Resolve the canonical chain asset_id after a successful register tx."""
+    for _ in range(5):
+        try:
+            payload = client.chain.list_data_assets(owner=owner)
+            assets = payload.get("data_assets", []) if isinstance(payload, dict) else []
+            for asset in assets:
+                if str(asset.get("content_hash", "")).strip() == content_hash:
+                    resolved = str(asset.get("id", "") or asset.get("asset_id", "")).strip()
+                    if resolved:
+                        return resolved
+        except ChainClientError:
+            pass
+        time.sleep(1)
+    return fallback_txhash
+
+
 # ---------------------------------------------------------------------------
 # Public bridge API
 # ---------------------------------------------------------------------------
@@ -106,9 +138,34 @@ def bridge_register(signed_metadata: dict, creator: Optional[str] = None) -> dic
             rights_type=rights_type,
             tags=tags,
         )
-        asset_id = tx_result.get("tx_response", {}).get("txhash") or tx_result.get("txhash")
-        if not asset_id:
+        tx_response = tx_result.get("tx_response", {}) if isinstance(tx_result, dict) else {}
+        txhash = ""
+        if isinstance(tx_response, dict):
+            txhash = str(tx_response.get("txhash", "")).strip()
+        if not txhash:
+            txhash = str(tx_result.get("txhash", "")).strip()
+        error_text = str(tx_result.get("error") or tx_result.get("Error") or "").strip()
+        if not error_text and isinstance(tx_response, dict):
+            if tx_response.get("code") not in (None, 0, "0"):
+                error_text = str(
+                    tx_response.get("raw_log")
+                    or tx_response.get("codespace")
+                    or "chain transaction failed"
+                ).strip()
+        if not error_text:
+            raw_output = str(tx_result.get("raw_output", "")).strip()
+            if raw_output.startswith("Error:"):
+                error_text = raw_output
+        if error_text:
+            raise ChainClientError(error_text)
+        if not txhash:
             raise ChainClientError("Chain registration returned no txhash")
+        asset_id = _resolve_registered_asset_id(
+            client,
+            owner=creator,
+            content_hash=content_hash,
+            fallback_txhash=txhash,
+        )
     except ChainClientError as exc:
         if client.allow_local_fallback:
             asset_id = hashlib.sha256(f"{creator}:{content_hash}".encode()).hexdigest()[:16]
@@ -138,6 +195,13 @@ def bridge_quote(asset_id: str) -> dict:
             "reserve": float(data.get("reserve", {}).get("amount", 0)) / 1e8,
         }
     except ChainClientError as exc:
+        if _is_missing_bonding_curve_state(exc):
+            return {
+                "asset_id": asset_id,
+                "price_oas": 1.0,
+                "supply": 0,
+                "reserve": 0.0,
+            }
         return {"error": f"Failed to get quote for {asset_id}: {exc}"}
 
 
@@ -167,7 +231,22 @@ def bridge_buy(
             asset_id=asset_id,
             amount_uoas=amount_uoas,
         )
-        tx_id = tx_result.get("tx_response", {}).get("txhash") or tx_result.get("txhash")
+        tx_response = tx_result.get("tx_response", {}) if isinstance(tx_result, dict) else {}
+        tx_id = tx_response.get("txhash") or tx_result.get("txhash")
+        error_text = str(tx_result.get("error") or tx_result.get("Error") or "").strip()
+        if not error_text and isinstance(tx_response, dict):
+            if tx_response.get("code") not in (None, 0, "0"):
+                error_text = str(
+                    tx_response.get("raw_log")
+                    or tx_response.get("codespace")
+                    or "chain transaction failed"
+                ).strip()
+        if not error_text:
+            raw_output = str(tx_result.get("raw_output", "")).strip()
+            if raw_output.startswith("Error:"):
+                error_text = raw_output
+        if error_text:
+            raise ChainClientError(error_text)
         if not tx_id:
             raise ChainClientError("Chain buy returned no txhash")
         result: dict = {
