@@ -40,6 +40,12 @@ Recommended first command:
 oas support beta --json
 ```
 
+Before inviting a new public beta user, also run:
+
+```bash
+oas doctor --public-beta --json
+```
+
 What to look for:
 
 - recent `register.*`, `quote.*`, `buy.*`, `portfolio.*` events

@@ -2738,6 +2738,127 @@ def cmd_doctor(args):
     import socket
     import subprocess
 
+    if getattr(args, "public_beta", False):
+        import importlib
+        import shutil
+
+        import requests
+
+        from oasyce.config import NetworkMode, get_network_mode, get_security
+        from oasyce.identity import Wallet
+        from oasyce.update_manager import read_managed_install_state
+
+        use_json = getattr(args, "json", False)
+        checks = []
+        errors = 0
+        warnings = 0
+
+        def _check(name, status, detail):
+            nonlocal errors, warnings
+            if status == "error":
+                errors += 1
+            elif status == "warning":
+                warnings += 1
+            checks.append({"name": name, "status": status, "detail": detail})
+            if not use_json:
+                icon = {"ok": "\u2705", "warning": "\u26a0\ufe0f ", "error": "\u274c"}[status]
+                print(f"{icon} {name:<26s} {detail}")
+
+        rest_url = (
+            getattr(args, "rest_url", None)
+            or os.getenv("OASYCE_PUBLIC_BETA_REST_URL")
+            or os.getenv("OASYCE_CHAIN_REST_URL")
+            or "http://47.93.32.88:1317"
+        ).rstrip("/")
+
+        if not use_json:
+            print("\n\U0001f50d Oasyce Public Beta Doctor")
+            print("\u2550" * 43)
+
+        mode = get_network_mode()
+        if mode == NetworkMode.TESTNET:
+            _check("Network mode", "ok", "OASYCE_NETWORK_MODE=testnet")
+        else:
+            _check("Network mode", "error", "Set OASYCE_NETWORK_MODE=testnet")
+
+        security = get_security(mode)
+        if security.get("allow_local_fallback") is False:
+            _check("Strict chain mode", "ok", "Local fallback disabled")
+        else:
+            _check("Strict chain mode", "error", "Enable strict chain mode for public beta")
+
+        if Wallet.exists():
+            _check("Wallet", "ok", "Wallet exists")
+        else:
+            _check("Wallet", "error", "Missing wallet — run `oas bootstrap`")
+
+        managed_state = read_managed_install_state()
+        if managed_state.get("auto_update") and managed_state.get("installed_via_bootstrap"):
+            _check("Managed install", "ok", "Auto-update enabled via bootstrap")
+        else:
+            _check("Managed install", "error", "Run `oas bootstrap` to enable managed updates")
+
+        try:
+            importlib.import_module("datavault")
+            _check("DataVault module", "ok", "Importable")
+        except ImportError:
+            _check("DataVault module", "error", "Missing Python module `datavault`")
+
+        if shutil.which("datavault"):
+            _check("DataVault CLI", "ok", "CLI on PATH")
+        else:
+            _check("DataVault CLI", "error", "Missing `datavault` CLI on PATH")
+
+        try:
+            resp = requests.get(f"{rest_url}/health", timeout=5)
+            resp.raise_for_status()
+            payload = resp.json()
+            if payload.get("chain_id") == "oasyce-testnet-1":
+                _check("Public chain health", "ok", f"{rest_url}/health reachable")
+            else:
+                _check("Public chain health", "error", "Unexpected chain_id from public endpoint")
+        except Exception as exc:
+            _check("Public chain health", "error", f"Unreachable: {exc}")
+
+        try:
+            resp = requests.get(f"{rest_url}/oasyce/onboarding/v1/params", timeout=5)
+            resp.raise_for_status()
+            payload = resp.json()
+            params = payload.get("params", {})
+            if {"airdrop_amount", "pow_difficulty"} <= set(params):
+                _check("Onboarding params", "ok", "Public onboarding params reachable")
+            else:
+                _check("Onboarding params", "error", "Public onboarding params incomplete")
+        except Exception as exc:
+            _check("Onboarding params", "error", f"Unreachable: {exc}")
+
+        if use_json:
+            overall = "error" if errors > 0 else ("warning" if warnings > 0 else "ok")
+            print(
+                json.dumps(
+                    {
+                        "scope": "public_beta",
+                        "rest_url": rest_url,
+                        "status": overall,
+                        "errors": errors,
+                        "warnings": warnings,
+                        "checks": checks,
+                    },
+                    indent=2,
+                )
+            )
+            return
+
+        print("\u2550" * 43)
+        if errors > 0:
+            print(f"\u274c {errors} blocking issue(s) before public beta use.")
+        elif warnings > 0:
+            print(f"\u26a0\ufe0f  {warnings} warning(s). Review above before rollout.")
+        else:
+            print("\u2705 Public beta gate passed.")
+        print()
+        return
+
     home = Path.home()
     oasyce_dir = home / ".oasyce"
     keys_dir = oasyce_dir / "keys"
@@ -4555,6 +4676,17 @@ def main():
     serve_parser.set_defaults(func=cmd_serve)
 
     doctor_parser = subparsers.add_parser("doctor", help="Security and readiness check")
+    doctor_parser.add_argument(
+        "--public-beta",
+        action="store_true",
+        help="Run the public beta release gate",
+    )
+    doctor_parser.add_argument(
+        "--rest-url",
+        default=None,
+        help="Public beta chain REST URL (default: official testnet)",
+    )
+    doctor_parser.add_argument("--json", action="store_true", help="Output as JSON")
     doctor_parser.set_defaults(func=cmd_doctor)
 
     bootstrap_parser = subparsers.add_parser(

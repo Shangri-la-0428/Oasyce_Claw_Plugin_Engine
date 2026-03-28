@@ -23,6 +23,7 @@ from oasyce.config import (
     get_sandbox_economics,
 )
 from oasyce.cli import to_units
+import oasyce.services.faucet as faucet_module
 from oasyce.services.faucet import Faucet
 from oasyce.services.sandbox import SandboxOnboardingService
 
@@ -63,7 +64,7 @@ class TestFaucetClaim:
         faucet = Faucet(tmp_dir)
         base = time.time()
 
-        with patch("oasyce.services.faucet.time") as mock_time:
+        with patch.object(faucet_module, "time") as mock_time:
             mock_time.time.return_value = base
             faucet.claim("addr-a")
 
@@ -128,7 +129,7 @@ class TestFaucetClaim:
         faucet = Faucet(tmp_dir)
         base = time.time()
 
-        with patch("oasyce.services.faucet.time") as mock_time:
+        with patch.object(faucet_module, "time") as mock_time:
             for i in range(Faucet.MAX_CLAIMS_PER_ADDRESS):
                 mock_time.time.return_value = base + i * (Faucet.COOLDOWN + 1)
                 result = faucet.claim("addr-a")

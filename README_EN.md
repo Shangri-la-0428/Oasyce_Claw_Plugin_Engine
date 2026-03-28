@@ -121,12 +121,13 @@ Open `http://localhost:8420/explore` to see all data assets and AI capabilities 
 
 ## Testnet (Public Beta vs Local Sandbox)
 
-For real public testnet onboarding, follow the chain-side guide on [chain.oasyce](https://chain.oasyce.com). `oas sandbox *` is the local sandbox simulation; `oas testnet *` remains only as a compatibility alias.
+The **single product-facing public beta guide** lives at [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md). For real public testnet onboarding, follow the chain-side guide on [chain.oasyce](https://chain.oasyce.com). `oas sandbox *` is the local sandbox simulation; `oas testnet *` remains only as a compatibility alias.
 
 ```bash
 oas --json sandbox status   # Inspect the local sandbox state
 oas --json sandbox onboard  # Local simulation: faucet + sample asset + stake
 oas sandbox reset --force   # Reset local sandbox data
+oas doctor --public-beta --json   # public beta release gate
 ```
 
 ---

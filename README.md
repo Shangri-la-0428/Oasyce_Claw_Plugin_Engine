@@ -121,12 +121,13 @@ oas register myfile.csv --owner alice --tags medical,imaging
 
 ## Testnet（公开测试与本地沙盒）
 
-真实公开测试网接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。`oas sandbox *` 是本地沙盒模拟；`oas testnet *` 仅保留为兼容别名。
+公开测试的**唯一产品入口文档**在 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)。真实链上接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。`oas sandbox *` 是本地沙盒模拟；`oas testnet *` 仅保留为兼容别名。
 
 ```bash
 oas --json sandbox status   # 查看本地沙盒状态
 oas --json sandbox onboard  # 本地模拟：faucet + 示例资产 + 质押
 oas sandbox reset --force   # 重置本地沙盒
+oas doctor --public-beta --json   # 公测发布 gate
 ```
 
 ---

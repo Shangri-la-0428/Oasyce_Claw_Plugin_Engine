@@ -32,7 +32,10 @@ oas --json sandbox status
 ```bash
 export OASYCE_NETWORK_MODE=testnet
 export OASYCE_STRICT_CHAIN=1
+oas doctor --public-beta --json
 ```
+
+只有当 `oas doctor --public-beta --json` 返回 `status: ok`，才说明这台机器已经满足公开测试的最小发布门槛：网络模式正确、不会回退到本地账本、钱包已就绪、DataVault 可用、公共链端点可达。
 
 ---
 

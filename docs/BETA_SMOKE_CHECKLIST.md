@@ -10,6 +10,8 @@ Run this checklist before any push intended for beta users.
 - [ ] `pytest -q /Users/wutongcheng/Desktop/Net/oasyce-net/tests`
 - [ ] Confirm result is zero failures
 - [ ] Confirm any skipped tests are expected Go chain gates, not missing dependencies
+- [ ] `oas doctor --public-beta --json`
+- [ ] Confirm doctor returns `status = ok`
 
 ## 2. Agent Core Flow
 

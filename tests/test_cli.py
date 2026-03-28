@@ -1445,6 +1445,76 @@ class TestTestnetCli:
         assert parsed["network"] == "sandbox"
 
 
+class TestDoctor:
+    @patch("requests.get")
+    @patch("shutil.which", return_value="/usr/local/bin/datavault")
+    @patch("importlib.import_module")
+    @patch("oasyce.update_manager.read_managed_install_state")
+    @patch("oasyce.identity.Wallet.exists", return_value=True)
+    def test_public_beta_doctor_json_success(
+        self,
+        mock_wallet_exists,
+        mock_managed_state,
+        mock_import_module,
+        mock_which,
+        mock_requests_get,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("OASYCE_NETWORK_MODE", "testnet")
+        mock_managed_state.return_value = {
+            "auto_update": True,
+            "installed_via_bootstrap": True,
+        }
+
+        health = MagicMock()
+        health.json.return_value = {"status": "ok", "chain_id": "oasyce-testnet-1"}
+        health.raise_for_status.return_value = None
+        params = MagicMock()
+        params.json.return_value = {
+            "params": {"airdrop_amount": {"amount": "1"}, "pow_difficulty": 16}
+        }
+        params.raise_for_status.return_value = None
+        mock_requests_get.side_effect = [health, params]
+
+        code, out, err = run_cli("doctor", "--public-beta", "--json")
+        assert code == 0
+        parsed = json.loads(out)
+        assert parsed["scope"] == "public_beta"
+        assert parsed["status"] == "ok"
+        assert parsed["errors"] == 0
+        names = {item["name"] for item in parsed["checks"]}
+        assert "Network mode" in names
+        assert "Strict chain mode" in names
+        assert "Public chain health" in names
+
+    @patch("requests.get")
+    @patch("shutil.which", return_value=None)
+    @patch("importlib.import_module", side_effect=ImportError("missing datavault"))
+    @patch("oasyce.update_manager.read_managed_install_state", return_value={"auto_update": False})
+    @patch("oasyce.identity.Wallet.exists", return_value=False)
+    def test_public_beta_doctor_json_failure(
+        self,
+        mock_wallet_exists,
+        mock_managed_state,
+        mock_import_module,
+        mock_which,
+        mock_requests_get,
+        monkeypatch,
+    ):
+        monkeypatch.delenv("OASYCE_NETWORK_MODE", raising=False)
+        mock_requests_get.side_effect = RuntimeError("offline")
+
+        code, out, err = run_cli("doctor", "--public-beta", "--json")
+        assert code == 0
+        parsed = json.loads(out)
+        assert parsed["scope"] == "public_beta"
+        assert parsed["status"] == "error"
+        assert parsed["errors"] >= 1
+        details = {item["name"]: item["detail"] for item in parsed["checks"]}
+        assert "Set OASYCE_NETWORK_MODE=testnet" in details["Network mode"]
+        assert "Run `oas bootstrap`" in details["Managed install"]
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 15. Feedback command
 # ═══════════════════════════════════════════════════════════════════════════
