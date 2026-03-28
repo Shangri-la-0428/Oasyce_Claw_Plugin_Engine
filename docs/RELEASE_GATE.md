@@ -29,9 +29,15 @@ Only push when all are true:
 
 For `oasyce-net`:
 
-- `pytest -q /Users/wutongcheng/Desktop/Net/oasyce-net/tests`
-- `oas doctor --public-beta --json`
-- run `docs/BETA_SMOKE_CHECKLIST.md`
+- default entrypoint: `python3 scripts/release_check.py`
+- the script enforces:
+  - `python3 scripts/sync_docs.py`
+  - `pytest -q /Users/wutongcheng/Desktop/Net/oasyce-net/tests`
+  - `python3 -m build`
+- beta-specific checks remain mandatory:
+  - `oas doctor --public-beta --json`
+  - `oas smoke public-beta --json`
+- only use `docs/BETA_SMOKE_CHECKLIST.md` as a debug appendix when the smoke command fails
 
 For `DataVault` when touched:
 

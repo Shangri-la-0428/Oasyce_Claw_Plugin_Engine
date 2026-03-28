@@ -45,57 +45,30 @@ oas bootstrap              # self-update + wallet + DataVault readiness
 oas doctor                 # optional diagnostics
 ```
 
-## What Is Oasyce?
+## Canonical Onboarding
 
-An on-chain economic system for autonomous agent commerce — **property rights** (data as financial assets with bonding curve pricing), **service contracts** (capabilities as on-chain agreements with escrow + challenge window), **transaction clearing** (90/5/2/3 fee split), and **dispute resolution** (on-chain jury voting).
+Keep onboarding truth narrow:
 
-Stripe / x402 solve "how to pay." Oasyce solves "why the payment is justified" — property, contracts, and arbitration for the agent economy.
+- Product-facing public beta: [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)
+- Chain-side onboarding and infra context: [chain.oasyce](https://chain.oasyce.com)
+- This surface: concise AI command reference only
 
-Three components, one install:
-
-| Component | What It Does | Command |
-|-----------|-------------|---------|
-| **oasyce** (this package) | Python client + Dashboard | `oas` |
-| **odv** (DataVault) | Local data scanning, classification, PII detection | `datavault` |
-| **oasyce-chain** | L1 Cosmos SDK appchain (Go) | `oasyced` |
-
----
-
-## Quick Start Pipeline
-
-The standard workflow for a new user:
+Public beta release gate:
 
 ```bash
-# 1. Prepare managed install
-oas bootstrap
-
-# 2. Scan local data for registerable assets
-datavault scan ~/Documents
-datavault privacy              # check for PII
-datavault report ~/Documents   # review results
-
-# 3. Register only safe assets to the network
-datavault register ~/Documents --confirm --json
-
-# 4. Check pricing and trade
-oas quote ASSET_ID          # bonding curve spot price
-oas buy ASSET_ID --buyer bob --amount 10.0
-oas shares bob --json
-
-# 5. Optional human review surface
-oas start                   # http://localhost:8420
+export OASYCE_NETWORK_MODE=testnet
+export OASYCE_STRICT_CHAIN=1
+oas doctor --public-beta --json
+oas smoke public-beta --json
 ```
 
-## Running Modes
+Local simulation remains separate:
 
-| Mode | Env Var | Backend | Use Case |
-|------|---------|---------|----------|
-| **Standalone** (default) | — | Local SQLite | Development, testing, single-node |
-| **Chain-linked** | `OASYCE_STRICT_CHAIN=1` | oasyce-chain L1 | Production, multi-node network |
-
-In standalone mode, all features work locally without a running chain. Chain-linked mode requires `oasyced start` and routes all state through the L1 appchain.
-
----
+```bash
+oas --json sandbox status
+oas --json sandbox onboard
+oas sandbox reset --force
+```
 
 ## Data Assets
 
@@ -260,9 +233,9 @@ oas sandbox faucet                                   # local simulated OAS
 oas --json sandbox status                            # show local simulation status
 oas sandbox reset [--force]                          # reset all local simulation data
 oas sandbox faucet-serve [--port 8421] [--data-dir DIR]  # start local faucet simulation HTTP server
+oas smoke public-beta --json                         # executable public beta release smoke
 
-# `oas testnet *` remains as a deprecated compatibility alias
-# real public beta onboarding still follows chain-side docs on chain.oasyce
+# real public beta onboarding follows chain-side docs on chain.oasyce
 ```
 
 ## Fingerprint & Watermark

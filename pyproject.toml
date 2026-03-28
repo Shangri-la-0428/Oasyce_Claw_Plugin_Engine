@@ -51,6 +51,9 @@ Issues = "https://github.com/Shangri-la-0428/oasyce-net/issues"
 where = ["."]
 include = ["oasyce*"]
 
+[tool.setuptools.package-data]
+oasyce = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"

@@ -16,6 +16,7 @@ Usage:
 """
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -25,6 +26,8 @@ PYPROJECT = ROOT / "pyproject.toml"
 AGENTS_MD = ROOT / "AGENTS.md"
 DEFAULT_SKILL_PATH = ROOT / "SKILL.md"
 CLAWHUB_SKILL_PATH = ROOT.parent / "OpenClaw" / "workspace" / "skills" / "oasyce" / "SKILL.md"
+DOC_CONTRACT_PATH = ROOT / "oasyce" / "doc_contract.json"
+README_PATHS = {"zh": ROOT / "README.md", "en": ROOT / "README_EN.md"}
 
 SKILL_FRONTMATTER = """---
 name: oasyce
@@ -63,9 +66,8 @@ def read_version() -> str:
     return match.group(1)
 
 
-def read_agents_body() -> str:
-    """Read AGENTS.md, strip the header comment block."""
-    text = AGENTS_MD.read_text()
+def extract_agents_body(text: str) -> str:
+    """Strip the AGENTS title/intro and return the reusable body."""
     # Remove the first line (# title) and the blockquote about AI tools
     lines = text.split("\n")
     body_lines = []
@@ -78,13 +80,63 @@ def read_agents_body() -> str:
                 body_lines.append(line)
         else:
             body_lines.append(line)
-    return "\n".join(body_lines)
+    body = "\n".join(body_lines)
+    return re.sub(r"<!-- (BEGIN|END) GENERATED:[A-Z_]+ -->\n?", "", body)
 
 
-def generate_skill(version: str) -> str:
+def read_doc_contract() -> dict:
+    return json.loads(DOC_CONTRACT_PATH.read_text())
+
+
+def render_public_beta_readme_block(lang: str) -> str:
+    contract = read_doc_contract()["public_beta"]
+    commands = "\n".join(contract["readme_commands"][lang])
+    return (
+        f'{contract["readme_title"][lang]}\n\n'
+        f'{contract["readme_intro"][lang]}\n\n'
+        "```bash\n"
+        f"{commands}\n"
+        "```"
+    )
+
+
+def render_ai_onboarding_block(lang: str) -> str:
+    contract = read_doc_contract()["public_beta"]
+    intro = contract["ai_onboarding_intro"][lang]
+    sources = "\n".join(contract["ai_onboarding_sources"][lang])
+    gate_title = contract["ai_onboarding_gate_title"][lang]
+    gate_commands = "\n".join(contract["ai_onboarding_gate_commands"][lang])
+    sandbox_title = contract["ai_onboarding_sandbox_title"][lang]
+    sandbox_commands = "\n".join(contract["ai_onboarding_sandbox_commands"][lang])
+    return (
+        f"{intro}\n\n"
+        f"{sources}\n\n"
+        f"{gate_title}\n\n"
+        "```bash\n"
+        f"{gate_commands}\n"
+        "```\n\n"
+        f"{sandbox_title}\n\n"
+        "```bash\n"
+        f"{sandbox_commands}\n"
+        "```"
+    )
+
+
+def replace_generated_block(text: str, block_name: str, content: str) -> str:
+    begin = f"<!-- BEGIN GENERATED:{block_name} -->"
+    end = f"<!-- END GENERATED:{block_name} -->"
+    pattern = re.compile(rf"{re.escape(begin)}.*?{re.escape(end)}", re.DOTALL)
+    replacement = f"{begin}\n{content}\n{end}"
+    if not pattern.search(text):
+        print(f"ERROR: Cannot find generated block {block_name}", file=sys.stderr)
+        sys.exit(1)
+    return pattern.sub(replacement, text, count=1)
+
+
+def generate_skill(version: str, agents_text: str) -> str:
     """Generate SKILL.md content from AGENTS.md + frontmatter."""
     frontmatter = SKILL_FRONTMATTER.format(version=version)
-    body = read_agents_body()
+    body = extract_agents_body(agents_text)
 
     # Add title after frontmatter
     content = frontmatter + "\n# Oasyce Protocol Skill\n\n"
@@ -179,8 +231,24 @@ def main():
     version_errors = check_version_consistency()
     errors.extend(version_errors)
 
-    # 3. Generate and compare/write SKILL.md to all targets
-    generated_skill = generate_skill(version)
+    # 3. Generate and compare/write AGENTS.md generated blocks
+    current_agents = AGENTS_MD.read_text()
+    generated_agents = replace_generated_block(
+        current_agents,
+        "AI_ONBOARDING",
+        render_ai_onboarding_block("en"),
+    )
+    if current_agents != generated_agents:
+        if args.write:
+            AGENTS_MD.write_text(generated_agents)
+            print(f"UPDATED: {AGENTS_MD}")
+        else:
+            errors.append(
+                f"STALE: {AGENTS_MD} AI onboarding block differs from generated content. Run with --write to update."
+            )
+
+    # 4. Generate and compare/write SKILL.md to all targets
+    generated_skill = generate_skill(version, generated_agents)
     skill_targets = [args.skill_path]
     if CLAWHUB_SKILL_PATH.parent.exists():
         skill_targets.append(CLAWHUB_SKILL_PATH)
@@ -204,7 +272,22 @@ def main():
             else:
                 errors.append(f"MISSING: {target} does not exist. Run with --write to create.")
 
-    # 4. Report
+    # 5. Generate and compare/write README public beta blocks
+    for lang, path in README_PATHS.items():
+        generated = replace_generated_block(
+            path.read_text(), "PUBLIC_BETA", render_public_beta_readme_block(lang)
+        )
+        current = path.read_text()
+        if current != generated:
+            if args.write:
+                path.write_text(generated)
+                print(f"UPDATED: {path}")
+            else:
+                errors.append(
+                    f"STALE: {path} public beta block differs from generated content. Run with --write to update."
+                )
+
+    # 6. Report
     if errors:
         print(f"\n{'='*60}")
         print(f"  Doc Sync Check: {len(errors)} issue(s) found")

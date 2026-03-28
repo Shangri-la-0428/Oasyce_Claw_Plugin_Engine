@@ -1,0 +1,106 @@
+{
+  "managed_install": {
+    "bootstrap_command": "oas bootstrap",
+    "doctor_command": "oas doctor"
+  },
+  "public_beta": {
+    "guide_path": "docs/public-testnet-guide.md",
+    "chain_url": "https://chain.oasyce.com",
+    "ai_onboarding_intro": {
+      "zh": "只保留一份 onboarding 真相源：",
+      "en": "Keep onboarding truth narrow:"
+    },
+    "ai_onboarding_sources": {
+      "zh": [
+        "- 面向产品的公开测试: [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)",
+        "- 链侧接入和基础设施: [chain.oasyce](https://chain.oasyce.com)",
+        "- 当前入口: 只保留 AI 需要的简洁命令参考"
+      ],
+      "en": [
+        "- Product-facing public beta: [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)",
+        "- Chain-side onboarding and infra context: [chain.oasyce](https://chain.oasyce.com)",
+        "- This surface: concise AI command reference only"
+      ]
+    },
+    "ai_onboarding_gate_title": {
+      "zh": "公开测试发布 gate:",
+      "en": "Public beta release gate:"
+    },
+    "ai_onboarding_gate_commands": {
+      "zh": [
+        "export OASYCE_NETWORK_MODE=testnet",
+        "export OASYCE_STRICT_CHAIN=1",
+        "oas doctor --public-beta --json",
+        "oas smoke public-beta --json"
+      ],
+      "en": [
+        "export OASYCE_NETWORK_MODE=testnet",
+        "export OASYCE_STRICT_CHAIN=1",
+        "oas doctor --public-beta --json",
+        "oas smoke public-beta --json"
+      ]
+    },
+    "ai_onboarding_sandbox_title": {
+      "zh": "本地沙盒保持独立:",
+      "en": "Local simulation remains separate:"
+    },
+    "ai_onboarding_sandbox_commands": {
+      "zh": [
+        "oas --json sandbox status",
+        "oas --json sandbox onboard",
+        "oas sandbox reset --force"
+      ],
+      "en": [
+        "oas --json sandbox status",
+        "oas --json sandbox onboard",
+        "oas sandbox reset --force"
+      ]
+    },
+    "readme_title": {
+      "zh": "## Testnet（公开测试与本地沙盒）",
+      "en": "## Testnet (Public Beta vs Local Sandbox)"
+    },
+    "readme_intro": {
+      "zh": "公开测试的**唯一产品入口文档**在 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)。真实链上接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。`oas sandbox *` 只负责本地沙盒模拟，不代表真实公网测试网接入。",
+      "en": "The **single product-facing public beta guide** lives at [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md). For real public testnet onboarding, follow the chain-side guide on [chain.oasyce](https://chain.oasyce.com). `oas sandbox *` is only the local sandbox simulation and is not real public testnet onboarding."
+    },
+    "readme_commands": {
+      "zh": [
+        "oas --json sandbox status   # 查看本地沙盒状态",
+        "oas --json sandbox onboard  # 本地模拟：faucet + 示例资产 + 质押",
+        "oas sandbox reset --force   # 重置本地沙盒",
+        "oas doctor --public-beta --json   # 公测发布 gate"
+      ],
+      "en": [
+        "oas --json sandbox status   # Inspect the local sandbox state",
+        "oas --json sandbox onboard  # Local simulation: faucet + sample asset + stake",
+        "oas sandbox reset --force   # Reset local sandbox data",
+        "oas doctor --public-beta --json   # public beta release gate"
+      ]
+    },
+    "beta_onboarding_title": {
+      "zh": "公测引导:",
+      "en": "Beta Onboarding:"
+    },
+    "beta_onboarding_lines": {
+      "zh": [
+        "  - 这次公测是 AI-first。长期用户是 agent，dashboard 只是临时的人机协作界面。",
+        "  - 真正开始使用前，先跑 `oas bootstrap`，让 agent 自动升级 Oasyce + DataVault、确保钱包已就绪，并把这台机器切成 managed install。",
+        "  - 真实公开测试网身份接入目前仍以链侧文档为准；`oas sandbox *` 只是本地沙盒模拟命令。",
+        "  - 第一条安全主路径: 注册一个资产 -> 请求报价 -> 用 Idempotency-Key 买一次 -> 校验持仓。",
+        "  - 成功的定义: 返回 trace_id，状态可被机器判定，并且能从持仓或交易记录验证结果。",
+        "  - 如果 buy 超时，不要盲目再次发起第二笔金融动作。复用同一个 Idempotency-Key，或先查看 support 数据。",
+        "  - 在邀请新的 beta 用户前，先跑 `oas smoke public-beta --json`，把 doctor + 核心交易链路一起走通。"
+      ],
+      "en": [
+        "  - This beta is AI-first. The long-term user is an agent; the dashboard is a temporary collaboration surface.",
+        "  - Before real work, run `oas bootstrap` so the agent upgrades Oasyce + DataVault, ensures a wallet exists, and turns this machine into a managed install.",
+        "  - Real public testnet identity onboarding still follows the chain docs; `oas sandbox *` commands are local simulation commands for sandbox testing.",
+        "  - First safe path: register one asset -> quote it -> buy it once with an Idempotency-Key -> verify holdings.",
+        "  - Success means: the action returns a trace_id, the status is machine-readable, and the result can be verified from holdings or transactions.",
+        "  - If buy times out, do not submit a second financial action blindly. Reuse the same Idempotency-Key or inspect support data first.",
+        "  - Before inviting a new beta user, run `oas smoke public-beta --json` so the doctor gate and core financial flow pass together."
+      ]
+    }
+  }
+}
