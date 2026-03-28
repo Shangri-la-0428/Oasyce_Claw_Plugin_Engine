@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Testnet faucet HTTP server.
+Local sandbox faucet HTTP server.
 
-Serves a simple JSON API for claiming testnet OAS tokens.
+Serves a simple JSON API for claiming local sandbox OAS tokens.
 Rate-limited: one claim per address per 24 hours.
 
 Usage:
-    python3 scripts/run_faucet.py [--port 8421] [--data-dir ~/.oasyce-testnet]
+    python3 scripts/run_faucet.py [--port 8421] [--data-dir ~/.oasyce-sandbox]
 
 Endpoints:
     POST /claim   {"address": "0xabc..."}  → claim tokens
@@ -34,7 +34,7 @@ class FaucetHandler(BaseHTTPRequestHandler):
     """HTTP handler for faucet requests."""
 
     faucet: Faucet = None  # set by server setup
-    chain_id: str = "oasyce-testnet-1"
+    chain_id: str = "oasyce-sandbox-1"
     total_claims: int = 0
 
     def _send_json(self, data: Dict[str, Any], status: int = 200) -> None:
@@ -108,18 +108,18 @@ class FaucetHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Oasyce Testnet Faucet Server")
+    parser = argparse.ArgumentParser(description="Oasyce Sandbox Faucet Server")
     parser.add_argument("--port", type=int, default=8421, help="Listen port (default: 8421)")
     parser.add_argument("--host", default="0.0.0.0", help="Listen host (default: 0.0.0.0)")
     parser.add_argument("--data-dir", default=None, help="Data directory for faucet state")
-    parser.add_argument("--chain-id", default="oasyce-testnet-1", help="Chain ID")
+    parser.add_argument("--chain-id", default="oasyce-sandbox-1", help="Chain ID")
     args = parser.parse_args()
 
     data_dir = args.data_dir
     if data_dir is None:
-        from oasyce.config import NetworkMode, get_data_dir
+        from oasyce.config import get_sandbox_data_dir
 
-        data_dir = get_data_dir(NetworkMode.TESTNET)
+        data_dir = get_sandbox_data_dir()
 
     Path(data_dir).mkdir(parents=True, exist_ok=True)
 
@@ -128,7 +128,7 @@ def main():
 
     server = HTTPServer((args.host, args.port), FaucetHandler)
     print(f"╔══════════════════════════════════════════════╗")
-    print(f"║        Oasyce Testnet Faucet                 ║")
+    print(f"║        Oasyce Sandbox Faucet                 ║")
     print(f"╠══════════════════════════════════════════════╣")
     print(f"║  Endpoint:  http://{args.host}:{args.port}/claim")
     print(f"║  Status:    http://{args.host}:{args.port}/status")

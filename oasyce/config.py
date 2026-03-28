@@ -68,6 +68,11 @@ TESTNET_NETWORK_CONFIG = NetworkConfig(
     public_host=None,
 )
 
+SANDBOX_NETWORK_CONFIG = NetworkConfig(
+    listen_port=9528,
+    public_host=None,
+)
+
 
 # ── Testnet 经济参数（加速体验）────────────────────────────────────
 # All monetary values in integer units (1 OAS = 10^8 units)
@@ -79,6 +84,8 @@ TESTNET_ECONOMICS = {
     "agent_stake": 1 * _OAS,  # 极低门槛
     "halving_interval": 10000,  # blocks, not money
 }
+
+SANDBOX_ECONOMICS = dict(TESTNET_ECONOMICS)
 
 MAINNET_ECONOMICS = {
     "block_reward": 4 * _OAS,
@@ -188,16 +195,28 @@ def _testnet_data_dir() -> str:
     return os.path.join(os.path.expanduser("~"), ".oasyce-testnet")
 
 
+def _sandbox_data_dir() -> str:
+    return os.path.join(os.path.expanduser("~"), ".oasyce-sandbox")
+
+
 def get_data_dir(mode: NetworkMode = NetworkMode.MAINNET) -> str:
     if mode == NetworkMode.TESTNET:
         return _testnet_data_dir()
     return _default_data_dir()
 
 
+def get_sandbox_data_dir() -> str:
+    return _sandbox_data_dir()
+
+
 def get_economics(mode: NetworkMode = NetworkMode.MAINNET) -> dict:
     if mode == NetworkMode.TESTNET:
         return dict(TESTNET_ECONOMICS)
     return dict(MAINNET_ECONOMICS)
+
+
+def get_sandbox_economics() -> dict:
+    return dict(SANDBOX_ECONOMICS)
 
 
 # ── Security configuration ──────────────────────────────────────────
@@ -210,7 +229,7 @@ MAINNET_SECURITY = {
 TESTNET_SECURITY = {
     "require_signatures": False,
     "verify_identity": False,
-    "allow_local_fallback": True,
+    "allow_local_fallback": False,
 }
 
 LOCAL_SECURITY = {

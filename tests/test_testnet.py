@@ -12,15 +12,19 @@ import pytest
 
 from oasyce.config import (
     MAINNET_ECONOMICS,
+    SANDBOX_ECONOMICS,
+    SANDBOX_NETWORK_CONFIG,
     TESTNET_ECONOMICS,
     TESTNET_NETWORK_CONFIG,
     NetworkMode,
     get_data_dir,
     get_economics,
+    get_sandbox_data_dir,
+    get_sandbox_economics,
 )
 from oasyce.cli import to_units
 from oasyce.services.faucet import Faucet
-from oasyce.services.testnet import OnboardingService
+from oasyce.services.sandbox import SandboxOnboardingService
 
 
 @pytest.fixture()
@@ -166,7 +170,7 @@ class TestFaucetClaim:
 class TestOnboarding:
     def test_onboarding_flow(self, tmp_dir):
         """Full onboarding: faucet + sample asset + stake."""
-        onboarding = OnboardingService(tmp_dir)
+        onboarding = SandboxOnboardingService(tmp_dir)
         result = onboarding.onboard("addr-new")
 
         # Faucet should succeed
@@ -181,10 +185,11 @@ class TestOnboarding:
         assert len(result["summary"]) >= 3
         assert "LOCAL SIMULATION" in result["summary"][0]
         assert result["mode"] == "LOCAL_SIMULATION"
+        assert result["network"] == "sandbox"
 
     def test_onboarding_faucet_cooldown(self, tmp_dir):
         """Second onboarding skips faucet but still registers asset."""
-        onboarding = OnboardingService(tmp_dir)
+        onboarding = SandboxOnboardingService(tmp_dir)
         onboarding.onboard("addr-a")
 
         result = onboarding.onboard("addr-a")
@@ -237,3 +242,10 @@ class TestTestnetConfig:
         test_econ = get_economics(NetworkMode.TESTNET)
         assert main_econ["min_stake"] == to_units(10000)
         assert test_econ["min_stake"] == to_units(100)
+
+    def test_sandbox_config(self):
+        """Sandbox config is isolated from public testnet state."""
+        assert SANDBOX_NETWORK_CONFIG.listen_port == 9528
+        assert SANDBOX_ECONOMICS["min_stake"] == to_units(100)
+        assert "oasyce-sandbox" in get_sandbox_data_dir()
+        assert get_sandbox_economics()["min_stake"] == to_units(100)

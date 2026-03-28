@@ -18,11 +18,11 @@ oas bootstrap
 # 或: https://github.com/Shangri-la-0428/oasyce-chain/blob/main/docs/PUBLIC_BETA_CN.md
 ```
 
-> 注意：`oas testnet onboard` / `oas testnet faucet` 当前只是 **LOCAL_SIMULATION**，不会在公网链上创建身份，也不会领取真实公开测试币。
+> 注意：`oas sandbox *` 当前只是 **LOCAL_SIMULATION**。`oas testnet *` 只是兼容别名；两者都不会在公网链上创建身份，也不会领取真实公开测试币。
 
 ```bash
 # 查看本地沙盒状态
-oas --json testnet status
+oas --json sandbox status
 ```
 
 完成真实链上接入后，再回到这里执行 `oas` / `datavault` 工作流。
@@ -246,7 +246,7 @@ oas node become-validator --stake 100
 ## 遇到问题？
 
 ```bash
-oas testnet status            # 查看测试网状态
+oas sandbox status            # 查看本地沙盒状态
 oas doctor                    # 自动诊断
 oas feedback "描述问题" --type bug   # 提交反馈
 ```

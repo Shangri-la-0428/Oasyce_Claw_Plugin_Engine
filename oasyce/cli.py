@@ -1905,20 +1905,19 @@ def cmd_asset_validate(args):
 
 
 def cmd_testnet_start(args):
-    """Start a testnet node."""
+    """Start a local sandbox node."""
     import asyncio
     from oasyce.config import (
-        NetworkMode,
-        get_data_dir,
+        SANDBOX_NETWORK_CONFIG,
+        get_sandbox_data_dir,
         load_or_create_node_identity,
-        TESTNET_NETWORK_CONFIG,
     )
     from oasyce.network.node import OasyceNode
     from oasyce.storage.ledger import Ledger
 
-    data_dir = get_data_dir(NetworkMode.TESTNET)
-    port = args.port or TESTNET_NETWORK_CONFIG.listen_port
-    host = TESTNET_NETWORK_CONFIG.listen_host
+    data_dir = get_sandbox_data_dir()
+    port = args.port or SANDBOX_NETWORK_CONFIG.listen_port
+    host = SANDBOX_NETWORK_CONFIG.listen_host
     db_path = os.path.join(data_dir, "chain.db")
     ledger = Ledger(db_path)
 
@@ -1936,13 +1935,13 @@ def cmd_testnet_start(args):
     async def _run():
         await node.start(bootstrap=True)
         print(
-            f"[TESTNET · LOCAL SIMULATION] Oasyce node {node_id_short} listening on {host}:{port}"
+            f"[SANDBOX · LOCAL SIMULATION] Oasyce node {node_id_short} listening on {host}:{port}"
         )
         if node.peers:
             print(f"  Connected peers: {len(node.peers)}")
         else:
             print("  ⚠️  No peers connected — running as isolated local node.")
-        print("  Note: Testnet runs locally for testing. No real tokens or network.")
+        print("  Note: Sandbox runs locally for testing. No real tokens or public network.")
         print("Press Ctrl+C to stop.")
         try:
             while True:
@@ -1951,7 +1950,7 @@ def cmd_testnet_start(args):
             pass
         finally:
             await node.stop()
-            print("\nTestnet node stopped.")
+            print("\nSandbox node stopped.")
 
     try:
         asyncio.run(_run())
@@ -1960,11 +1959,11 @@ def cmd_testnet_start(args):
 
 
 def cmd_testnet_faucet(args):
-    """Claim OAS from the local testnet faucet simulation."""
-    from oasyce.config import NetworkMode, get_data_dir, load_or_create_node_identity
+    """Claim OAS from the local sandbox faucet simulation."""
+    from oasyce.config import get_sandbox_data_dir, load_or_create_node_identity
     from oasyce.services.faucet import Faucet
 
-    data_dir = get_data_dir(NetworkMode.TESTNET)
+    data_dir = get_sandbox_data_dir()
     _priv, node_id = load_or_create_node_identity(data_dir)
     node_id_short = node_id[:16]
 
@@ -1973,30 +1972,30 @@ def cmd_testnet_faucet(args):
 
     if args.json:
         result["mode"] = "LOCAL_SIMULATION"
+        result["network"] = "sandbox"
         print(json.dumps(result, indent=2))
     elif result["success"]:
-        print(f"[TESTNET] Claimed {result['amount']:.0f} OAS")
+        print(f"[SANDBOX] Claimed {result['amount']:.0f} OAS")
         print(f"  Balance: {result['balance']:.0f} OAS")
         print(f"  Next claim available in 24h")
-        print(f"  Note: Testnet faucet only. Max 3 claims per address.")
+        print(f"  Note: Sandbox faucet only. Max 3 claims per address.")
     else:
         print(f"Faucet: {result['error']}")
         print(f"  Balance: {result['balance']:.0f} OAS")
 
 
 def cmd_testnet_status(args):
-    """Show local testnet simulation status."""
+    """Show local sandbox status."""
     from oasyce.config import (
-        NetworkMode,
-        get_data_dir,
-        get_economics,
+        SANDBOX_NETWORK_CONFIG,
+        get_sandbox_data_dir,
+        get_sandbox_economics,
         load_or_create_node_identity,
-        TESTNET_NETWORK_CONFIG,
     )
     from oasyce.services.faucet import Faucet
 
-    data_dir = get_data_dir(NetworkMode.TESTNET)
-    economics = get_economics(NetworkMode.TESTNET)
+    data_dir = get_sandbox_data_dir()
+    economics = get_sandbox_economics()
 
     # Node identity
     _priv, node_id = load_or_create_node_identity(data_dir)
@@ -2028,9 +2027,9 @@ def cmd_testnet_status(args):
 
     info = {
         "mode": "LOCAL_SIMULATION",
-        "network": "testnet",
+        "network": "sandbox",
         "node_id": node_id_short,
-        "port": TESTNET_NETWORK_CONFIG.listen_port,
+        "port": SANDBOX_NETWORK_CONFIG.listen_port,
         "data_dir": data_dir,
         "chain_height": height,
         "known_peers": peers_count,
@@ -2041,9 +2040,9 @@ def cmd_testnet_status(args):
     if args.json:
         print(json.dumps(info, indent=2))
     else:
-        print(f"── Testnet Status [LOCAL SIMULATION] ──")
+        print(f"── Sandbox Status [LOCAL SIMULATION] ──")
         print(f"  Node ID:      {node_id_short}")
-        print(f"  Port:         {TESTNET_NETWORK_CONFIG.listen_port}")
+        print(f"  Port:         {SANDBOX_NETWORK_CONFIG.listen_port}")
         print(f"  Data dir:     {data_dir}")
         print(f"  Chain height: {height}")
         print(f"  Known peers:  {peers_count}")
@@ -2053,31 +2052,31 @@ def cmd_testnet_status(args):
 
 
 def cmd_testnet_onboard(args):
-    """Run the local one-click testnet onboarding simulation."""
-    from oasyce.config import NetworkMode, get_data_dir, load_or_create_node_identity
-    from oasyce.services.testnet import OnboardingService
+    """Run the local one-click sandbox onboarding simulation."""
+    from oasyce.config import get_sandbox_data_dir, load_or_create_node_identity
+    from oasyce.services.sandbox import SandboxOnboardingService
 
-    data_dir = get_data_dir(NetworkMode.TESTNET)
+    data_dir = get_sandbox_data_dir()
     _priv, node_id = load_or_create_node_identity(data_dir)
     node_id_short = node_id[:16]
 
-    onboarding = OnboardingService(data_dir)
+    onboarding = SandboxOnboardingService(data_dir)
     result = onboarding.onboard(node_id_short)
 
     if args.json:
         print(json.dumps(result, indent=2))
     else:
-        print(f"── Testnet Onboarding [LOCAL SIMULATION] ──")
+        print(f"── Sandbox Onboarding [LOCAL SIMULATION] ──")
         for step in result["summary"]:
             print(f"  {step}")
 
 
 def cmd_testnet_reset(args):
-    """Reset testnet data."""
+    """Reset local sandbox data."""
     import shutil
-    from oasyce.config import NetworkMode, get_data_dir
+    from oasyce.config import get_sandbox_data_dir
 
-    data_dir = get_data_dir(NetworkMode.TESTNET)
+    data_dir = get_sandbox_data_dir()
     data_path = Path(data_dir)
 
     use_json = getattr(args, "json", False)
@@ -2085,14 +2084,14 @@ def cmd_testnet_reset(args):
         if use_json:
             print(json.dumps({"ok": True, "message": "Nothing to reset"}))
         else:
-            print("Testnet data directory does not exist \u2014 nothing to reset.")
+            print("Sandbox data directory does not exist \u2014 nothing to reset.")
         return
 
     if not args.force:
         if use_json:
             print(json.dumps({"ok": False, "error": "Use --force to confirm"}))
         else:
-            print(f"This will delete all testnet data in {data_dir}")
+            print(f"This will delete all sandbox data in {data_dir}")
             print("Use --force to confirm.")
         return
 
@@ -2100,11 +2099,11 @@ def cmd_testnet_reset(args):
     if use_json:
         print(json.dumps({"ok": True, "removed": str(data_dir)}))
     else:
-        print(f"Testnet data reset. Removed {data_dir}")
+        print(f"Sandbox data reset. Removed {data_dir}")
 
 
 def cmd_testnet_faucet_serve(args):
-    """Start the faucet HTTP server."""
+    """Start the local sandbox faucet HTTP server."""
     from scripts.run_faucet import main as faucet_main
 
     # Delegate to the faucet server script
@@ -2114,6 +2113,59 @@ def cmd_testnet_faucet_serve(args):
     if getattr(args, "data_dir", None):
         sys.argv.extend(["--data-dir", args.data_dir])
     faucet_main()
+
+
+cmd_sandbox_start = cmd_testnet_start
+cmd_sandbox_faucet = cmd_testnet_faucet
+cmd_sandbox_status = cmd_testnet_status
+cmd_sandbox_onboard = cmd_testnet_onboard
+cmd_sandbox_reset = cmd_testnet_reset
+cmd_sandbox_faucet_serve = cmd_testnet_faucet_serve
+
+
+def _register_sandbox_subcommands(parent_parser, *, deprecated_alias: bool = False) -> None:
+    sub = parent_parser.add_subparsers(dest="sandbox_command", help="Sandbox sub-commands")
+    alias_note = " (deprecated alias)" if deprecated_alias else ""
+
+    start_parser = sub.add_parser(
+        "start",
+        help=f"Start a local sandbox simulation node{alias_note}",
+    )
+    start_parser.add_argument("--port", type=int, default=None, help="Listen port (default 9528)")
+    start_parser.set_defaults(func=cmd_sandbox_start)
+
+    faucet_parser = sub.add_parser(
+        "faucet",
+        help=f"Claim local simulated OAS{alias_note}",
+    )
+    faucet_parser.set_defaults(func=cmd_sandbox_faucet)
+
+    status_parser = sub.add_parser(
+        "status",
+        help=f"Show local sandbox status{alias_note}",
+    )
+    status_parser.set_defaults(func=cmd_sandbox_status)
+
+    onboard_parser = sub.add_parser(
+        "onboard",
+        help=f"Local simulation: faucet + sample asset + stake{alias_note}",
+    )
+    onboard_parser.set_defaults(func=cmd_sandbox_onboard)
+
+    reset_parser = sub.add_parser(
+        "reset",
+        help=f"Reset local sandbox data{alias_note}",
+    )
+    reset_parser.add_argument("--force", action="store_true", help="Confirm reset")
+    reset_parser.set_defaults(func=cmd_sandbox_reset)
+
+    faucet_serve_parser = sub.add_parser(
+        "faucet-serve",
+        help=f"Start the local sandbox faucet HTTP server{alias_note}",
+    )
+    faucet_serve_parser.add_argument("--port", type=int, default=8421, help="Listen port")
+    faucet_serve_parser.add_argument("--data-dir", default=None, help="Data directory")
+    faucet_serve_parser.set_defaults(func=cmd_sandbox_faucet_serve)
 
 
 def _get_delivery_protocol():
@@ -4208,52 +4260,20 @@ def main():
     )
     trust_parser.set_defaults(func=cmd_trust)
 
-    # ── testnet ──────────────────────────────────────────────────────
+    # ── sandbox / legacy testnet alias ───────────────────────────────
+    sandbox_parser = subparsers.add_parser(
+        "sandbox",
+        help="Local sandbox simulation management",
+        description="Local sandbox simulation commands",
+    )
+    _register_sandbox_subcommands(sandbox_parser)
+
     testnet_parser = subparsers.add_parser(
         "testnet",
-        help="Local testnet simulation management",
-        description="Local testnet simulation commands",
+        help="Deprecated alias for local sandbox commands",
+        description="Deprecated alias for local sandbox simulation commands",
     )
-    testnet_sub = testnet_parser.add_subparsers(dest="testnet_command", help="Testnet sub-commands")
-
-    testnet_start_parser = testnet_sub.add_parser(
-        "start",
-        help="Start a local testnet simulation node",
-    )
-    testnet_start_parser.add_argument(
-        "--port", type=int, default=None, help="Listen port (default 9528)"
-    )
-    testnet_start_parser.set_defaults(func=cmd_testnet_start)
-
-    testnet_faucet_parser = testnet_sub.add_parser(
-        "faucet", help="Claim local simulated OAS (local sandbox only)"
-    )
-    testnet_faucet_parser.set_defaults(func=cmd_testnet_faucet)
-
-    testnet_status_parser = testnet_sub.add_parser(
-        "status",
-        help="Show local testnet simulation status",
-    )
-    testnet_status_parser.set_defaults(func=cmd_testnet_status)
-
-    testnet_onboard_parser = testnet_sub.add_parser(
-        "onboard", help="Local simulation: faucet + sample asset + stake"
-    )
-    testnet_onboard_parser.set_defaults(func=cmd_testnet_onboard)
-
-    testnet_reset_parser = testnet_sub.add_parser(
-        "reset",
-        help="Reset all local testnet simulation data",
-    )
-    testnet_reset_parser.add_argument("--force", action="store_true", help="Confirm reset")
-    testnet_reset_parser.set_defaults(func=cmd_testnet_reset)
-
-    testnet_faucet_serve_parser = testnet_sub.add_parser(
-        "faucet-serve", help="Start the local faucet simulation HTTP server"
-    )
-    testnet_faucet_serve_parser.add_argument("--port", type=int, default=8421, help="Listen port")
-    testnet_faucet_serve_parser.add_argument("--data-dir", default=None, help="Data directory")
-    testnet_faucet_serve_parser.set_defaults(func=cmd_testnet_faucet_serve)
+    _register_sandbox_subcommands(testnet_parser, deprecated_alias=True)
 
     # ── info ───────────────────────────────────────────────────────
     info_parser = subparsers.add_parser(
@@ -4607,7 +4627,11 @@ def main():
         leak_parser.print_help()
         sys.exit(0)
 
-    if args.command == "testnet" and getattr(args, "testnet_command", None) is None:
+    if args.command == "sandbox" and getattr(args, "sandbox_command", None) is None:
+        sandbox_parser.print_help()
+        sys.exit(0)
+
+    if args.command == "testnet" and getattr(args, "sandbox_command", None) is None:
         testnet_parser.print_help()
         sys.exit(0)
 

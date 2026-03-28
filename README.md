@@ -121,12 +121,12 @@ oas register myfile.csv --owner alice --tags medical,imaging
 
 ## Testnet（公开测试与本地沙盒）
 
-真实公开测试网接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。`oas testnet *` 目前是本地沙盒模拟，不会在公网链上完成自注册或领到真实测试币。
+真实公开测试网接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。`oas sandbox *` 是本地沙盒模拟；`oas testnet *` 仅保留为兼容别名。
 
 ```bash
-oas --json testnet status   # 查看本地沙盒状态
-oas --json testnet onboard  # 本地模拟：faucet + 示例资产 + 质押
-oas testnet reset --force   # 重置本地沙盒
+oas --json sandbox status   # 查看本地沙盒状态
+oas --json sandbox onboard  # 本地模拟：faucet + 示例资产 + 质押
+oas sandbox reset --force   # 重置本地沙盒
 ```
 
 ---
@@ -240,8 +240,8 @@ oas access deliver <asset_id>                   # L3: 完整交付
 ### 其他
 
 ```
-oas --json testnet status   # 本地 testnet 沙盒状态
-oas --json testnet onboard  # 本地模拟：faucet + 示例资产 + stake
+oas --json sandbox status   # 本地沙盒状态
+oas --json sandbox onboard  # 本地模拟：faucet + 示例资产 + stake
 oas bootstrap          # AI-first 自更新 + 钱包 + DataVault 就绪
 oas start --no-browser # 启动 Dashboard（不自动开浏览器）
 oas explorer           # 区块浏览器（端口 8421）

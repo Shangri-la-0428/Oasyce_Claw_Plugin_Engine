@@ -221,13 +221,14 @@ oas node become-arbitrator [--tags expertise1,expertise2] \
   [--description "..."] [--api-key KEY] [--api-provider claude|openai|ollama|local|custom]
 oas node api-key <KEY> [--provider claude] [--endpoint URL]
 
-oas testnet start [--port 9528]                      # start local testnet simulation node
-oas --json testnet onboard                           # local simulation: faucet + sample asset + stake
-oas testnet faucet                                   # local simulated OAS
-oas --json testnet status                            # show local simulation status
-oas testnet reset [--force]                          # reset all local simulation data
-oas testnet faucet-serve [--port 8421] [--data-dir DIR]  # start local faucet simulation HTTP server
+oas sandbox start [--port 9528]                      # start local sandbox simulation node
+oas --json sandbox onboard                           # local simulation: faucet + sample asset + stake
+oas sandbox faucet                                   # local simulated OAS
+oas --json sandbox status                            # show local simulation status
+oas sandbox reset [--force]                          # reset all local simulation data
+oas sandbox faucet-serve [--port 8421] [--data-dir DIR]  # start local faucet simulation HTTP server
 
+# `oas testnet *` remains as a deprecated compatibility alias
 # real public beta onboarding still follows chain-side docs on chain.oasyce
 ```
 

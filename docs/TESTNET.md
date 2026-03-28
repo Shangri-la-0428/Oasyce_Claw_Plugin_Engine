@@ -6,20 +6,20 @@ For real public beta onboarding, use the chain-side guide on [chain.oasyce](http
 
 ## What `oas testnet` actually is
 
-`oas testnet *` is a local simulation environment for demos, UX testing, and agent smoke tests.
+`oas sandbox *` is the canonical local simulation environment for demos, UX testing, and agent smoke tests. `oas testnet *` remains only as a deprecated compatibility alias.
 
 - No real public-chain identity is created
 - No real public beta tokens are minted
 - Sample assets are synthetic
-- State lives under `~/.oasyce-testnet`
+- State lives under `~/.oasyce-sandbox`
 
 ## Quick Start
 
 ```bash
 pip install oasyce
 oas bootstrap
-oas --json testnet status
-oas --json testnet onboard
+oas --json sandbox status
+oas --json sandbox onboard
 ```
 
 Expected `onboard` result shape:
@@ -32,12 +32,12 @@ Expected `onboard` result shape:
 ## Local Sandbox Commands
 
 ```bash
-oas testnet start [--port 9528]          # start local simulation node
-oas --json testnet status                # local simulation status
-oas --json testnet onboard               # faucet + sample asset + stake (simulation only)
-oas testnet faucet                       # local simulated faucet drip
-oas testnet reset --force                # clear ~/.oasyce-testnet state
-oas testnet faucet-serve [--port 8421]   # local faucet simulation HTTP server
+oas sandbox start [--port 9528]          # start local simulation node
+oas --json sandbox status                # local simulation status
+oas --json sandbox onboard               # faucet + sample asset + stake (simulation only)
+oas sandbox faucet                       # local simulated faucet drip
+oas sandbox reset --force                # clear ~/.oasyce-sandbox state
+oas sandbox faucet-serve [--port 8421]   # local faucet simulation HTTP server
 ```
 
 ## Public Beta Boundary
@@ -48,4 +48,4 @@ If you are onboarding a real public beta user:
 2. Use the chain-side public beta guide for PoW self-registration and faucet access.
 3. Return to `oas` / `datavault` for asset registration, quoting, buying, and agent workflows.
 
-Do not tell users that `oas testnet onboard` or `oas testnet faucet` joins the public network. That is currently false.
+Do not tell users that `oas sandbox onboard` or `oas sandbox faucet` joins the public network. That is currently false.

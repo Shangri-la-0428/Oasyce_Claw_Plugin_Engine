@@ -19,11 +19,11 @@ class TestSecurityConfig:
         assert sec["verify_identity"] is True
         assert sec["allow_local_fallback"] is False
 
-    def test_testnet_relaxed(self):
+    def test_testnet_fails_closed(self):
         sec = get_security(NetworkMode.TESTNET)
         assert sec["require_signatures"] is False
         assert sec["verify_identity"] is False
-        assert sec["allow_local_fallback"] is True
+        assert sec["allow_local_fallback"] is False
 
     def test_local_relaxed(self):
         sec = get_security(NetworkMode.LOCAL)
@@ -70,6 +70,14 @@ class TestFacadeSecurityIntegration:
         facade = OasyceServiceFacade()
         assert facade._verify_identity is False
         assert facade._allow_local_fallback is True
+
+    def test_testnet_facade_is_strict_by_default(self, monkeypatch):
+        monkeypatch.setenv("OASYCE_NETWORK_MODE", "testnet")
+        monkeypatch.delenv("OASYCE_STRICT_CHAIN", raising=False)
+        from oasyce.services.facade import OasyceServiceFacade
+
+        facade = OasyceServiceFacade()
+        assert facade._allow_local_fallback is False
 
     def test_explicit_override_honored(self, monkeypatch):
         """Explicit verify_identity=True overrides even local mode."""

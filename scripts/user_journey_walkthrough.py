@@ -126,7 +126,7 @@ test_sec = get_security(NetworkMode.TESTNET)
 check("MAINNET require_signatures=True", main_sec["require_signatures"] is True)
 check("MAINNET allow_local_fallback=False", main_sec["allow_local_fallback"] is False)
 check("TESTNET require_signatures=False", test_sec["require_signatures"] is False)
-check("TESTNET allow_local_fallback=True", test_sec["allow_local_fallback"] is True)
+check("TESTNET allow_local_fallback=False", test_sec["allow_local_fallback"] is False)
 
 
 # ===========================================================================

@@ -1409,6 +1409,7 @@ class TestSubcommandGroupHelp:
             "reputation",
             "contribution",
             "leakage",
+            "sandbox",
             "testnet",
             "keys",
             "cache",
@@ -1425,7 +1426,7 @@ class TestTestnetCli:
     def test_testnet_group_help_marks_local_simulation(self):
         code, out, err = run_cli("testnet")
         assert code == 0
-        assert "Local testnet simulation" in out
+        assert "local sandbox" in out.lower()
 
     def test_testnet_status_json_marks_local_simulation(self, monkeypatch, tmp_path):
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -1433,7 +1434,15 @@ class TestTestnetCli:
         assert code == 0
         parsed = json.loads(out)
         assert parsed["mode"] == "LOCAL_SIMULATION"
-        assert parsed["network"] == "testnet"
+        assert parsed["network"] == "sandbox"
+
+    def test_sandbox_status_json_marks_local_simulation(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        code, out, err = run_cli("--json", "sandbox", "status")
+        assert code == 0
+        parsed = json.loads(out)
+        assert parsed["mode"] == "LOCAL_SIMULATION"
+        assert parsed["network"] == "sandbox"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

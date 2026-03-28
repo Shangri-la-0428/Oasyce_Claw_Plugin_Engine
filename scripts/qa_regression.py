@@ -117,7 +117,7 @@ def test_security_modes():
     check("QA-201", "MAINNET require_signatures=True", main_sec["require_signatures"] is True)
     check("QA-202", "MAINNET allow_local_fallback=False", main_sec["allow_local_fallback"] is False)
     check("QA-203", "TESTNET require_signatures=False", test_sec["require_signatures"] is False)
-    check("QA-204", "TESTNET allow_local_fallback=True", test_sec["allow_local_fallback"] is True)
+    check("QA-204", "TESTNET allow_local_fallback=False", test_sec["allow_local_fallback"] is False)
 
     try:
         local_sec = get_security(NetworkMode.LOCAL)

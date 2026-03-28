@@ -2219,9 +2219,9 @@ class _Handler(BaseHTTPRequestHandler):
             balance_oas = 0.0
             try:
                 from oasyce.services.faucet import Faucet
-                from oasyce.config import get_data_dir, NetworkMode
+                from oasyce.config import get_sandbox_data_dir
 
-                data_dir = _config.data_dir if _config else get_data_dir(NetworkMode.TESTNET)
+                data_dir = _config.data_dir if _config else get_sandbox_data_dir()
                 faucet = Faucet(data_dir)
                 balance_oas = faucet.balance(address)
             except Exception:
@@ -2552,9 +2552,9 @@ class _Handler(BaseHTTPRequestHandler):
                 )
             try:
                 from oasyce.services.faucet import Faucet
-                from oasyce.config import get_data_dir, NetworkMode
+                from oasyce.config import get_sandbox_data_dir
 
-                data_dir = _config.data_dir if _config else get_data_dir(NetworkMode.TESTNET)
+                data_dir = _config.data_dir if _config else get_sandbox_data_dir()
 
                 # Gate: must complete PoW registration first
                 from pathlib import Path as _FcPath
@@ -2612,9 +2612,9 @@ class _Handler(BaseHTTPRequestHandler):
 
             try:
                 from oasyce.services.faucet import Faucet as _OnbFaucet
-                from oasyce.config import get_data_dir, NetworkMode
+                from oasyce.config import get_sandbox_data_dir
 
-                data_dir = _config.data_dir if _config else get_data_dir(NetworkMode.TESTNET)
+                data_dir = _config.data_dir if _config else get_sandbox_data_dir()
                 faucet = _OnbFaucet(data_dir)
 
                 # Check if already registered (has any balance from onboarding)
@@ -3420,9 +3420,9 @@ class _Handler(BaseHTTPRequestHandler):
                                 bond_oas = lv.get("bond_oas", 0.0)
                                 break
                         if bond_oas > 0:
-                            from oasyce.config import get_data_dir, NetworkMode
+                            from oasyce.config import get_sandbox_data_dir
 
-                            _bd = _config.data_dir if _config else get_data_dir(NetworkMode.TESTNET)
+                            _bd = _config.data_dir if _config else get_sandbox_data_dir()
                             _faucet = Faucet(_bd)
                             bal = _faucet.balance(buyer)
                             if bal < bond_oas:
