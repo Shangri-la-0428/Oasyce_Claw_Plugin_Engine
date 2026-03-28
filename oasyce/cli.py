@@ -1960,7 +1960,7 @@ def cmd_testnet_start(args):
 
 
 def cmd_testnet_faucet(args):
-    """Claim OAS from testnet faucet (testnet-only, requires PoW registration)."""
+    """Claim OAS from the local testnet faucet simulation."""
     from oasyce.config import NetworkMode, get_data_dir, load_or_create_node_identity
     from oasyce.services.faucet import Faucet
 
@@ -1985,7 +1985,7 @@ def cmd_testnet_faucet(args):
 
 
 def cmd_testnet_status(args):
-    """Show testnet status."""
+    """Show local testnet simulation status."""
     from oasyce.config import (
         NetworkMode,
         get_data_dir,
@@ -2027,7 +2027,8 @@ def cmd_testnet_status(args):
             pass
 
     info = {
-        "mode": "testnet",
+        "mode": "LOCAL_SIMULATION",
+        "network": "testnet",
         "node_id": node_id_short,
         "port": TESTNET_NETWORK_CONFIG.listen_port,
         "data_dir": data_dir,
@@ -2052,7 +2053,7 @@ def cmd_testnet_status(args):
 
 
 def cmd_testnet_onboard(args):
-    """One-click testnet onboarding."""
+    """Run the local one-click testnet onboarding simulation."""
     from oasyce.config import NetworkMode, get_data_dir, load_or_create_node_identity
     from oasyce.services.testnet import OnboardingService
 
@@ -4208,34 +4209,47 @@ def main():
     trust_parser.set_defaults(func=cmd_trust)
 
     # ── testnet ──────────────────────────────────────────────────────
-    testnet_parser = subparsers.add_parser("testnet", help="Testnet management")
+    testnet_parser = subparsers.add_parser(
+        "testnet",
+        help="Local testnet simulation management",
+        description="Local testnet simulation commands",
+    )
     testnet_sub = testnet_parser.add_subparsers(dest="testnet_command", help="Testnet sub-commands")
 
-    testnet_start_parser = testnet_sub.add_parser("start", help="Start a testnet node")
+    testnet_start_parser = testnet_sub.add_parser(
+        "start",
+        help="Start a local testnet simulation node",
+    )
     testnet_start_parser.add_argument(
         "--port", type=int, default=None, help="Listen port (default 9528)"
     )
     testnet_start_parser.set_defaults(func=cmd_testnet_start)
 
     testnet_faucet_parser = testnet_sub.add_parser(
-        "faucet", help="Claim OAS (testnet-only, requires registration)"
+        "faucet", help="Claim local simulated OAS (local sandbox only)"
     )
     testnet_faucet_parser.set_defaults(func=cmd_testnet_faucet)
 
-    testnet_status_parser = testnet_sub.add_parser("status", help="Show testnet status")
+    testnet_status_parser = testnet_sub.add_parser(
+        "status",
+        help="Show local testnet simulation status",
+    )
     testnet_status_parser.set_defaults(func=cmd_testnet_status)
 
     testnet_onboard_parser = testnet_sub.add_parser(
-        "onboard", help="One-click onboarding (faucet + register + stake)"
+        "onboard", help="Local simulation: faucet + sample asset + stake"
     )
     testnet_onboard_parser.set_defaults(func=cmd_testnet_onboard)
 
-    testnet_reset_parser = testnet_sub.add_parser("reset", help="Reset all testnet data")
+    testnet_reset_parser = testnet_sub.add_parser(
+        "reset",
+        help="Reset all local testnet simulation data",
+    )
     testnet_reset_parser.add_argument("--force", action="store_true", help="Confirm reset")
     testnet_reset_parser.set_defaults(func=cmd_testnet_reset)
 
     testnet_faucet_serve_parser = testnet_sub.add_parser(
-        "faucet-serve", help="Start faucet HTTP server"
+        "faucet-serve", help="Start the local faucet simulation HTTP server"
     )
     testnet_faucet_serve_parser.add_argument("--port", type=int, default=8421, help="Listen port")
     testnet_faucet_serve_parser.add_argument("--data-dir", default=None, help="Data directory")

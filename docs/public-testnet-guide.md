@@ -1,6 +1,6 @@
 # Oasyce 公开测试网 — 快速上手
 
-> 三步加入，无需运行链节点。
+> 真实公开测试分成两部分：链上身份接入走 `oasyce-chain`，AI/数据工作流走 `oas + DataVault`。
 
 ---
 
@@ -13,18 +13,25 @@ pip install oasyce
 # 2. AI-first 初始化（自更新 + 钱包 + DataVault）
 oas bootstrap
 
-# 3. 注册身份（PoW 自注册，约 2-5 分钟）
-oas testnet onboard
-
-# 4. 领取测试币
-oas testnet faucet
+# 3. 完成真实链上接入（当前由链 CLI 负责）
+# 详见: https://chain.oasyce.com
+# 或: https://github.com/Shangri-la-0428/oasyce-chain/blob/main/docs/PUBLIC_BETA_CN.md
 ```
 
-完成。你现在有 20 OAS 测试币和一个 Ed25519 身份。
+> 注意：`oas testnet onboard` / `oas testnet faucet` 当前只是 **LOCAL_SIMULATION**，不会在公网链上创建身份，也不会领取真实公开测试币。
 
 ```bash
-# 查看状态
-oas testnet status
+# 查看本地沙盒状态
+oas --json testnet status
+```
+
+完成真实链上接入后，再回到这里执行 `oas` / `datavault` 工作流。
+
+在真实公开测试里，先把 `oas` / `DataVault` 切到**测试网 + 严格链模式**，避免悄悄回落到本地账本：
+
+```bash
+export OASYCE_NETWORK_MODE=testnet
+export OASYCE_STRICT_CHAIN=1
 ```
 
 ---
@@ -194,7 +201,7 @@ oas start    # 浏览器打开 http://localhost:8420
 ```bash
 oas --help                    # 查看全部命令
 oas <command> --help          # 查看某个命令用法
-oas <command> --json          # 所有命令支持 JSON 输出（方便 AI agent 解析）
+oas --json <command> ...      # 机器可解析输出；`--json` 放在命令前面最稳
 ```
 
 核心命令：

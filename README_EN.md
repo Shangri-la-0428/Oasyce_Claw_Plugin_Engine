@@ -119,13 +119,14 @@ Open `http://localhost:8420/explore` to see all data assets and AI capabilities 
 
 ---
 
-## Testnet
+## Testnet (Public Beta vs Local Sandbox)
 
-Don't want to use real OAS? Join the testnet:
+For real public testnet onboarding, follow the chain-side guide on [chain.oasyce](https://chain.oasyce.com). `oas testnet *` currently operates as a local sandbox simulation and does not create a public-chain identity or claim real public beta tokens.
 
 ```bash
-oas testnet onboard    # Join the testnet
-oas testnet faucet     # Get free test tokens
+oas --json testnet status   # Inspect the local sandbox state
+oas --json testnet onboard  # Local simulation: faucet + sample asset + stake
+oas testnet reset --force   # Reset local sandbox data
 ```
 
 ---
@@ -240,8 +241,8 @@ oas access deliver <asset_id>                   # L3: full data delivery
 ### Other
 
 ```
-oas testnet onboard    # Join the testnet
-oas testnet faucet     # Get test tokens
+oas --json testnet status   # Local testnet sandbox status
+oas --json testnet onboard  # Local simulation: faucet + sample asset + stake
 oas bootstrap          # AI-first self-update + wallet + DataVault readiness
 oas update             # Upgrade Oasyce + DataVault
 oas start --no-browser # Start Dashboard without auto-open

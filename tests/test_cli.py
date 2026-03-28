@@ -1421,6 +1421,21 @@ class TestSubcommandGroupHelp:
         assert code == 0
 
 
+class TestTestnetCli:
+    def test_testnet_group_help_marks_local_simulation(self):
+        code, out, err = run_cli("testnet")
+        assert code == 0
+        assert "Local testnet simulation" in out
+
+    def test_testnet_status_json_marks_local_simulation(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        code, out, err = run_cli("--json", "testnet", "status")
+        assert code == 0
+        parsed = json.loads(out)
+        assert parsed["mode"] == "LOCAL_SIMULATION"
+        assert parsed["network"] == "testnet"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 15. Feedback command
 # ═══════════════════════════════════════════════════════════════════════════

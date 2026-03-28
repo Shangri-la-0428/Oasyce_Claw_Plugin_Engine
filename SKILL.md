@@ -254,12 +254,14 @@ oas node become-arbitrator [--tags expertise1,expertise2] \
   [--description "..."] [--api-key KEY] [--api-provider claude|openai|ollama|local|custom]
 oas node api-key <KEY> [--provider claude] [--endpoint URL]
 
-oas testnet start [--port 9528]                      # start testnet node
-oas testnet onboard                                  # one-click: faucet + register + stake
-oas testnet faucet                                   # testnet-only supplemental OAS
-oas testnet status                                   # show testnet status
-oas testnet reset [--force]                          # reset all testnet data
-oas testnet faucet-serve [--port 8421] [--data-dir DIR]  # start faucet HTTP server
+oas testnet start [--port 9528]                      # start local testnet simulation node
+oas --json testnet onboard                           # local simulation: faucet + sample asset + stake
+oas testnet faucet                                   # local simulated OAS
+oas --json testnet status                            # show local simulation status
+oas testnet reset [--force]                          # reset all local simulation data
+oas testnet faucet-serve [--port 8421] [--data-dir DIR]  # start local faucet simulation HTTP server
+
+# real public beta onboarding still follows chain-side docs on chain.oasyce
 ```
 
 ## Fingerprint & Watermark
