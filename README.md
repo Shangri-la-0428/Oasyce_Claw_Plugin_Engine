@@ -122,7 +122,7 @@ oas register myfile.csv --owner alice --tags medical,imaging
 <!-- BEGIN GENERATED:PUBLIC_BETA -->
 ## Testnet（公开测试与本地沙盒）
 
-公开测试的**唯一产品入口文档**在 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)。真实链上接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。身份模型现在收敛为 **owner account + trusted device**：主设备先 `oas bootstrap`，第二台设备优先 `oas device join`。`oas sandbox *` 只负责本地沙盒模拟，不代表真实公网测试网接入。
+公开测试的**唯一产品入口文档**在 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)。真实链上接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。部署边界见 [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md)：VPS 跑链和公共基础设施，`oasyce-net` 默认仍是用户侧客户端。身份模型现在收敛为 **owner account + trusted device**：主设备先 `oas bootstrap`，第二台设备优先 `oas device join`。`oas sandbox *` 只负责本地沙盒模拟，不代表真实公网测试网接入。
 
 ```bash
 oas --json sandbox status   # 查看本地沙盒状态

@@ -18,6 +18,7 @@ oas doctor                 # optional diagnostics
 Keep onboarding truth narrow, with owner account + trusted device:
 
 - Product-facing public beta: [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)
+- Deployment boundary: [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md)
 - Chain-side onboarding and infra context: [chain.oasyce](https://chain.oasyce.com)
 - This surface: concise AI command reference only, not a second parallel onboarding guide
 

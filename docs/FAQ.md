@@ -93,9 +93,34 @@ Oasyce 协议不绑定特定钱包实现。任何支持 Ed25519/Secp256k1 签名
 
 ---
 
+### Q4: 既然有 VPS，为什么不把 `oasyce-net` 也部署到服务器上？
+
+因为在 Oasyce 当前架构里，**VPS 是网络节点，不是中心化应用后台。**
+
+最稳的边界是：
+
+- VPS：跑链、REST/RPC、faucet、provider、seed/Thronglets、官网
+- 用户设备：运行 `oas` CLI、Dashboard、DataVault、本地 AI runtime
+
+也就是说，当前的正常发布路径是：
+
+1. 链和公共基础设施在线
+2. PyPI 包更新
+3. 用户设备自己执行 `oas bootstrap`
+
+而不是：
+
+1. 所有人都去连一台中心化 `oasyce-net` 后台
+
+只有当你们明确要做托管 Dashboard、统一 API gateway、官方 operator console 或托管 agent 时，才需要额外在 VPS 上新增一条 `oasyce-net` 部署链路。
+
+完整说明见 [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md)。
+
+---
+
 ## 三、搜索与交易
 
-### Q4: 买方怎么搜索和购买？是人在操作还是 Agent？
+### Q5: 买方怎么搜索和购买？是人在操作还是 Agent？
 
 **主体：人或 Agent，协议不区分。** 实际操作中，数据买卖更多是 Agent 自动执行（程序化发现 + 购买），人通过 Dashboard 监督和配置规则。
 
@@ -118,7 +143,7 @@ Oasyce 协议不绑定特定钱包实现。任何支持 Ed25519/Secp256k1 签名
 
 ---
 
-### Q5: 卖方（数据/能力提供者）怎么被匹配到？
+### Q6: 卖方（数据/能力提供者）怎么被匹配到？
 
 **卖方不需要主动寻找买方。** 注册后进入全局注册表，买方搜索时被排序发现。
 
@@ -136,7 +161,7 @@ Oasyce 协议不绑定特定钱包实现。任何支持 Ed25519/Secp256k1 签名
 
 ---
 
-### Q6: 交易的到底是什么？数据 vs 能力有什么区别？
+### Q7: 交易的到底是什么？数据 vs 能力有什么区别？
 
 Oasyce 同时交易两种资产：
 
@@ -158,7 +183,7 @@ Oasyce 同时交易两种资产：
 
 ## 四、数据访问模型
 
-### Q7: 我只想访问数据，不想长期持有份额，怎么办？
+### Q8: 我只想访问数据，不想长期持有份额，怎么办？
 
 **这是 Oasyce 的核心设计优势。** 两种模型并存：
 
@@ -186,7 +211,7 @@ Bond = TWAP × LevelMultiplier × RiskFactor × (1 - RepDiscount) × ExposureFac
 
 ---
 
-### Q8: Access Level 分级是怎么工作的？
+### Q9: Access Level 分级是怎么工作的？
 
 | 级别 | 权限 | Bond 倍数 | 锁定期 |
 |------|------|-----------|--------|
@@ -203,7 +228,7 @@ Bond = TWAP × LevelMultiplier × RiskFactor × (1 - RepDiscount) × ExposureFac
 
 ## 五、份额与控制权
 
-### Q9: 持有份额越多，是否应该拥有更多控制权？比如删除资产？
+### Q10: 持有份额越多，是否应该拥有更多控制权？比如删除资产？
 
 **明确回答：不。**
 

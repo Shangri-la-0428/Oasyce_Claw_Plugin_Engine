@@ -122,7 +122,7 @@ Open `http://localhost:8420/explore` to see all data assets and AI capabilities 
 <!-- BEGIN GENERATED:PUBLIC_BETA -->
 ## Testnet (Public Beta vs Local Sandbox)
 
-The **single product-facing public beta guide** lives at [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md). For real public testnet onboarding, follow the chain-side guide on [chain.oasyce](https://chain.oasyce.com). The identity model is now **owner account + trusted device**: primary devices start with `oas bootstrap`, and secondary devices attach with `oas device join`. `oas sandbox *` is only the local sandbox simulation and is not real public testnet onboarding.
+The **single product-facing public beta guide** lives at [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md). For real public testnet onboarding, follow the chain-side guide on [chain.oasyce](https://chain.oasyce.com). See [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md) for the deployment boundary: the VPS runs chain and shared infra, while `oasyce-net` remains a user-side client by default. The identity model is now **owner account + trusted device**: primary devices start with `oas bootstrap`, and secondary devices attach with `oas device join`. `oas sandbox *` is only the local sandbox simulation and is not real public testnet onboarding.
 
 ```bash
 oas --json sandbox status   # Inspect the local sandbox state

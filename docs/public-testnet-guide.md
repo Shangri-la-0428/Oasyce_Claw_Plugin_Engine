@@ -2,6 +2,17 @@
 
 > 公开测试现在只保留一个产品规则：**owner account + trusted device**。主设备先 `oas bootstrap`，第二台设备用 `oas device join` 接入同一账号。
 
+## 部署边界
+
+在 Oasyce 当前架构里：
+
+- VPS 负责跑 `oasyce-chain`、REST/RPC、faucet、provider、seed/Thronglets、官网等**网络基础设施**
+- `oasyce-net` 默认是**用户设备上的客户端 / Dashboard / AI runtime**
+
+所以这份公测 guide 讲的是“用户设备怎么接入网络”，不是“把 `oasyce-net` 部署到 VPS”。
+
+完整说明见 [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md)。
+
 ---
 
 ## 加入测试网
