@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oasyce"
-version = "2.3.2"
+version = "2.3.3"
 description = "Decentralized AI capability marketplace — register, price, trade, settle"
 readme = "README.md"
 requires-python = ">=3.9"
