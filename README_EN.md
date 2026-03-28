@@ -312,7 +312,7 @@ Run `oas start` — browser opens automatically at `http://localhost:8420`. The 
 │  x/capability + x/reputation             │
 │  gRPC :9090 / REST :1317                 │
 ├──────────────────────────────────────────┤
-│           oasyce (Python v2.3.0)         │
+│           oasyce (Python v2.3.1)         │
 │  CLI + Dashboard + API + Skills Bridge   │
 │  Facade -> Settlement -> Ledger          │
 │  1322 tests                              │
@@ -386,7 +386,7 @@ pytest      # 1322 tests passed, 19 skipped
 | Repository | Version | Tests | Status |
 |-----------|---------|-------|--------|
 | **oasyce-chain** (Go L1) | Cosmos SDK v0.50.10 | 30+ | Phase A complete |
-| **oasyce** (this repo) | v2.3.0 | 1322 | AI-first managed install + core flow contract hardened |
+| **oasyce** (this repo) | v2.3.1 | 1322 | AI-first managed install + core flow contract hardened |
 | **DataVault** | v0.2.1 | 48 | Safe-only auto-registration ready |
 
 ### Completed

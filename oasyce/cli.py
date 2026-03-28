@@ -5,6 +5,8 @@ Oasyce Network - CLI
 Command-line interface for data asset registration, search, and pricing.
 """
 
+from __future__ import annotations
+
 import argparse
 import importlib.util
 import json

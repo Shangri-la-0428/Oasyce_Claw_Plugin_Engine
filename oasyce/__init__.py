@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+import re
+
+
+def _version_from_local_pyproject() -> str | None:
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    if not pyproject.exists():
+        return None
+    match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(), re.MULTILINE)
+    if not match:
+        return None
+    return match.group(1)
 
 try:
-    __version__ = version("oasyce")
+    __version__ = _version_from_local_pyproject() or version("oasyce")
 except PackageNotFoundError:
-    __version__ = "2.3.0"
+    __version__ = _version_from_local_pyproject() or "2.3.1"
 
 __all__ = [
     "__version__",

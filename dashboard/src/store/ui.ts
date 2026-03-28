@@ -505,7 +505,7 @@ const dict: Record<string, Record<string, string>> = {
     'net-cat-config': '配置', 'net-cat-chain': '网络与共识', 'net-cat-tools': '工具', 'net-cat-community': '社区',
     'net-consensus-loading': '加载共识数据...',
     // About panel
-    'about-version': 'v2.3.0',
+    'about-version': 'v2.3.1',
     'about-desc': 'AI-first 数据权利与能力合同网络。先 bootstrap，再让 Agent 自动扫描、注册、报价和结算。',
     'about-tab-overview': '概览',
     'about-tab-start': '快速开始',
@@ -991,7 +991,7 @@ const dict: Record<string, Record<string, string>> = {
     'net-cat-config': 'Configuration', 'net-cat-chain': 'Network & Consensus', 'net-cat-tools': 'Tools', 'net-cat-community': 'Community',
     'net-consensus-loading': 'Loading consensus data...',
     // About panel
-    'about-version': 'v2.3.0',
+    'about-version': 'v2.3.1',
     'about-desc': 'AI-first network for data rights and capability contracts. Bootstrap once, then let agents scan, register, quote, and settle.',
     'about-tab-overview': 'Overview',
     'about-tab-start': 'Quick Start',
