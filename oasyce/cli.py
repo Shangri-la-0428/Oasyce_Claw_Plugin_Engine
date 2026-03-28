@@ -8,6 +8,7 @@ Command-line interface for data asset registration, search, and pricing.
 from __future__ import annotations
 
 import argparse
+import importlib
 import importlib.util
 import json
 import os
@@ -43,6 +44,11 @@ def _output_error(args, error_msg, code="ERROR"):
         print(json.dumps({"ok": False, "error": str(error_msg), "code": code}))
     else:
         print(f"\u274c Error: {error_msg}", file=sys.stderr)
+
+
+def _import_optional_module(module_name: str):
+    """Import an optional dependency through a patchable local seam."""
+    return importlib.import_module(module_name)
 
 
 def from_units(units: int) -> float:
@@ -2739,7 +2745,6 @@ def cmd_doctor(args):
     import subprocess
 
     if getattr(args, "public_beta", False):
-        import importlib
         import shutil
 
         import requests
@@ -2799,7 +2804,7 @@ def cmd_doctor(args):
             _check("Managed install", "error", "Run `oas bootstrap` to enable managed updates")
 
         try:
-            importlib.import_module("datavault")
+            _import_optional_module("datavault")
             _check("DataVault module", "ok", "Importable")
         except ImportError:
             _check("DataVault module", "error", "Missing Python module `datavault`")

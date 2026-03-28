@@ -1448,7 +1448,7 @@ class TestTestnetCli:
 class TestDoctor:
     @patch("requests.get")
     @patch("shutil.which", return_value="/usr/local/bin/datavault")
-    @patch("importlib.import_module")
+    @patch("oasyce.cli._import_optional_module")
     @patch("oasyce.update_manager.read_managed_install_state")
     @patch("oasyce.identity.Wallet.exists", return_value=True)
     def test_public_beta_doctor_json_success(
@@ -1489,7 +1489,7 @@ class TestDoctor:
 
     @patch("requests.get")
     @patch("shutil.which", return_value=None)
-    @patch("importlib.import_module", side_effect=ImportError("missing datavault"))
+    @patch("oasyce.cli._import_optional_module", side_effect=ImportError("missing datavault"))
     @patch("oasyce.update_manager.read_managed_install_state", return_value={"auto_update": False})
     @patch("oasyce.identity.Wallet.exists", return_value=False)
     def test_public_beta_doctor_json_failure(
