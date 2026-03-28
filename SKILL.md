@@ -1,6 +1,6 @@
 ---
 name: oasyce
-version: 2.3.1
+version: 2.3.2
 description: >
   Oasyce Protocol — decentralized AI data marketplace. Register data assets,
   list AI capabilities, submit compute tasks (Proof of Useful Work), trade shares
