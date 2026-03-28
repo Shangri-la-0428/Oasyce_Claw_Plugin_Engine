@@ -10,10 +10,13 @@
 # 1. 安装
 pip install oasyce
 
-# 2. 注册身份（PoW 自注册，约 2-5 分钟）
+# 2. AI-first 初始化（自更新 + 钱包 + DataVault）
+oas bootstrap
+
+# 3. 注册身份（PoW 自注册，约 2-5 分钟）
 oas testnet onboard
 
-# 3. 领取测试币
+# 4. 领取测试币
 oas testnet faucet
 ```
 

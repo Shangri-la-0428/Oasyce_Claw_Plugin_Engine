@@ -32,15 +32,17 @@ LINKS = {
 QUICK_START: Dict[str, str] = {
     "en": (
         "1. pip install oasyce\n"
-        "2. oas doctor             # verify setup\n"
-        "3. oas start              # launch node + dashboard\n"
-        "4. Open http://localhost:8420 in your browser"
+        "2. oas bootstrap          # self-update + wallet + DataVault readiness\n"
+        "3. oas doctor             # verify setup\n"
+        "4. oas start              # launch node + dashboard\n"
+        "5. Open http://localhost:8420 in your browser"
     ),
     "zh": (
         "1. pip install oasyce\n"
-        "2. oas doctor             # 验证安装\n"
-        "3. oas start              # 启动节点 + 仪表盘\n"
-        "4. 浏览器打开 http://localhost:8420"
+        "2. oas bootstrap          # 自更新 + 钱包 + DataVault 就绪\n"
+        "3. oas doctor             # 验证安装\n"
+        "4. oas start              # 启动节点 + 仪表盘\n"
+        "5. 浏览器打开 http://localhost:8420"
     ),
 }
 
@@ -111,7 +113,11 @@ ECONOMICS: Dict[str, str] = {
 UPDATE_GUIDE: Dict[str, str] = {
     "en": (
         "Update:\n"
-        "  pip install --upgrade oasyce\n"
+        "  oas update\n"
+        "  # or: python -m pip install --upgrade --upgrade-strategy eager oasyce odv\n"
+        "\n"
+        "AI-first bootstrap:\n"
+        "  oas bootstrap\n"
         "\n"
         "Build from source:\n"
         "  git clone https://github.com/Shangri-la-0428/oasyce-net\n"
@@ -126,7 +132,11 @@ UPDATE_GUIDE: Dict[str, str] = {
     ),
     "zh": (
         "更新:\n"
-        "  pip install --upgrade oasyce\n"
+        "  oas update\n"
+        "  # 或: python -m pip install --upgrade --upgrade-strategy eager oasyce odv\n"
+        "\n"
+        "AI-first 启动:\n"
+        "  oas bootstrap\n"
         "\n"
         "从源码构建:\n"
         "  git clone https://github.com/Shangri-la-0428/oasyce-net\n"
@@ -145,6 +155,7 @@ BETA_ONBOARDING: Dict[str, str] = {
     "en": (
         "Beta Onboarding:\n"
         "  - This beta is AI-first. The long-term user is an agent; the dashboard is a temporary collaboration surface.\n"
+        "  - Before real work, run `oas bootstrap` so the agent upgrades Oasyce + DataVault, ensures a wallet exists, and turns this machine into a managed install.\n"
         "  - First safe path: register one asset -> quote it -> buy it once with an Idempotency-Key -> verify holdings.\n"
         "  - Success means: the action returns a trace_id, the status is machine-readable, and the result can be verified from holdings or transactions.\n"
         "  - If buy times out, do not submit a second financial action blindly. Reuse the same Idempotency-Key or inspect support data first.\n"
@@ -153,6 +164,7 @@ BETA_ONBOARDING: Dict[str, str] = {
     "zh": (
         "公测引导:\n"
         "  - 这次公测是 AI-first。长期用户是 agent，dashboard 只是临时的人机协作界面。\n"
+        "  - 真正开始使用前，先跑 `oas bootstrap`，让 agent 自动升级 Oasyce + DataVault、确保钱包已就绪，并把这台机器切成 managed install。\n"
         "  - 第一条安全主路径: 注册一个资产 -> 请求报价 -> 用 Idempotency-Key 买一次 -> 校验持仓。\n"
         "  - 成功的定义: 返回 trace_id，状态可被机器判定，并且能从持仓或交易记录验证结果。\n"
         "  - 如果 buy 超时，不要盲目再次发起第二笔金融动作。复用同一个 Idempotency-Key，或先查看 support 数据。\n"

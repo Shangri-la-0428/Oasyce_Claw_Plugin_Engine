@@ -6,16 +6,29 @@ Command-line interface for data asset registration, search, and pricing.
 """
 
 import argparse
+import importlib.util
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
 from oasyce.config import Config
-from oasyce.skills.agent_skills import OasyceSkills
+from oasyce import update_manager as _update_manager
+
+OasyceSkills = None
 
 # OAS token unit conversion (1 OAS = 10^8 base units)
 OAS_DECIMALS = 10**8
+
+
+def _get_skills_cls():
+    global OasyceSkills
+    if OasyceSkills is None:
+        from oasyce.skills.agent_skills import OasyceSkills as _OasyceSkills
+
+        OasyceSkills = _OasyceSkills
+    return OasyceSkills
 
 
 def _output_error(args, error_msg, code="ERROR"):
@@ -223,7 +236,7 @@ def cmd_update_service_url(args):
 def cmd_search(args):
     """Search assets by tag."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
 
     try:
         assets = skills.search_data_skill(args.tag)
@@ -1589,7 +1602,7 @@ def cmd_access_quote(args):
 def cmd_access_query(args):
     """L0 query an asset."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
     result = skills.query_data_skill(args.agent, args.asset_id, args.query)
     if args.json:
         print(json.dumps(result, indent=2))
@@ -1605,7 +1618,7 @@ def cmd_access_query(args):
 def cmd_access_sample(args):
     """L1 sample an asset."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
     result = skills.sample_data_skill(args.agent, args.asset_id, args.size)
     if args.json:
         print(json.dumps(result, indent=2))
@@ -1621,7 +1634,7 @@ def cmd_access_sample(args):
 def cmd_access_compute(args):
     """L2 compute on an asset."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
     result = skills.compute_data_skill(args.agent, args.asset_id, args.code)
     if args.json:
         print(json.dumps(result, indent=2))
@@ -1637,7 +1650,7 @@ def cmd_access_compute(args):
 def cmd_access_deliver(args):
     """L3 deliver an asset."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
     result = skills.deliver_data_skill(args.agent, args.asset_id)
     if args.json:
         print(json.dumps(result, indent=2))
@@ -1653,7 +1666,7 @@ def cmd_access_deliver(args):
 def cmd_access_bond(args):
     """Calculate bond for an access level."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
     try:
         result = skills.calculate_bond_skill(args.agent, args.asset_id, args.level)
         if args.json:
@@ -1670,7 +1683,7 @@ def cmd_access_bond(args):
 def cmd_reputation_check(args):
     """Check agent reputation."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
     result = skills.check_reputation_skill(args.agent_id)
     if args.json:
         print(json.dumps(result, indent=2))
@@ -1683,7 +1696,7 @@ def cmd_reputation_check(args):
 def cmd_reputation_update(args):
     """Update agent reputation."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
     rep = skills.access_provider.reputation
     score = rep.update(
         args.agent_id,
@@ -1756,7 +1769,7 @@ def cmd_contribution_score(args):
         cert = engine.generate_proof(args.file, args.creator, source_type=args.source_type)
 
         # Gather existing assets for comparison
-        skills = OasyceSkills(config)
+        skills = _get_skills_cls()(config)
         existing = skills._get_existing_asset_vectors()
 
         score = engine.calculate_contribution_score(cert, existing)
@@ -1775,7 +1788,7 @@ def cmd_contribution_score(args):
 def cmd_leakage_check(args):
     """Check leakage budget for an agent-asset pair."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
     result = skills.check_leakage_budget_skill(args.agent_id, args.asset_id)
     if args.json:
         print(json.dumps(result, indent=2))
@@ -1791,7 +1804,7 @@ def cmd_leakage_check(args):
 def cmd_leakage_reset(args):
     """Reset leakage budget for an agent-asset pair."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
     result = skills.access_provider.leakage.reset_budget(args.agent_id, args.asset_id)
     if args.json:
         print(json.dumps(result, indent=2))
@@ -1805,7 +1818,7 @@ def cmd_leakage_reset(args):
 def cmd_asset_info(args):
     """Display full OAS-DAS 5-layer information for an asset."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
 
     try:
         result = skills.get_asset_standard_skill(args.asset_id)
@@ -1870,7 +1883,7 @@ def cmd_asset_info(args):
 def cmd_asset_validate(args):
     """Validate asset against OAS-DAS standard."""
     config = Config.from_env()
-    skills = OasyceSkills(config)
+    skills = _get_skills_cls()(config)
 
     try:
         result = skills.validate_asset_standard_skill(args.asset_id)
@@ -3406,105 +3419,129 @@ def cmd_task_cancel(args):
         print(f"Task cancelled: {args.task_id}")
 
 
-def _fetch_latest_pypi_version():
-    """Fetch the latest version of oasyce from PyPI. Returns None on failure."""
-    import urllib.request
+def _fetch_latest_pypi_version(package_name: str = "oasyce"):
+    """Fetch the latest version of a package from PyPI. Returns None on failure."""
+    return _update_manager.fetch_latest_pypi_version(package_name)
 
-    try:
-        req = urllib.request.Request(
-            "https://pypi.org/pypi/oasyce/json",
-            headers={"Accept": "application/json", "User-Agent": "oasyce-cli"},
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode())
-            return data.get("info", {}).get("version")
-    except Exception:
-        return None
+
+def _installed_package_version(package_name: str):
+    """Return installed package version or None if unavailable."""
+    return _update_manager.installed_package_version(package_name)
 
 
 def _parse_version_tuple(v):
     """Parse a version string like '2.0.0' into a comparable tuple of ints."""
-    parts = []
-    for p in v.split("."):
-        try:
-            parts.append(int(p))
-        except ValueError:
-            parts.append(p)
-    return tuple(parts)
+    return _update_manager.parse_version_tuple(v)
+
+
+def _check_package_updates(package_names=("oasyce", "odv")):
+    """Return current/latest/up-to-date info for each managed package."""
+    return _update_manager.check_package_updates(package_names)
+
+
+def _update_command_for_agents() -> str:
+    return _update_manager.update_command_for_agents()
+
+
+def _upgrade_managed_packages():
+    """Upgrade oasyce and bundled dependencies eagerly."""
+    return _update_manager.upgrade_managed_packages()
+
+
+def _primary_package_payload(packages):
+    primary = next((pkg for pkg in packages if pkg["name"] == "oasyce"), {})
+    return {
+        "current": primary.get("current"),
+        "latest": primary.get("latest"),
+    }
+
+
+def _maybe_auto_update(command_name: str | None) -> None:
+    _update_manager.maybe_auto_update_for_cli(
+        module_name="oasyce.cli",
+        argv=sys.argv[1:],
+        command_name=command_name,
+    )
 
 
 def cmd_update(args):
-    """Check for updates and optionally upgrade oasyce."""
-    import subprocess
-
-    from oasyce import __version__ as current
+    """Check for updates and optionally upgrade oasyce + DataVault."""
 
     use_json = getattr(args, "json", False)
     check_only = getattr(args, "check", False)
+    packages = _check_package_updates()
 
-    latest = _fetch_latest_pypi_version()
-
-    if latest is None:
+    if any(pkg["latest"] is None for pkg in packages):
+        failed = ", ".join(pkg["name"] for pkg in packages if pkg["latest"] is None)
         if use_json:
-            print(json.dumps({"error": "Failed to check PyPI for latest version"}))
+            print(json.dumps({"error": f"Failed to check PyPI for: {failed}"}))
         else:
-            print("  Error: Could not reach PyPI to check for updates.")
+            print(f"  Error: Could not reach PyPI to check updates for: {failed}.")
         sys.exit(1)
 
-    current_tuple = _parse_version_tuple(current)
-    latest_tuple = _parse_version_tuple(latest)
+    all_up_to_date = all(pkg["installed"] and pkg["up_to_date"] for pkg in packages)
+    primary = _primary_package_payload(packages)
 
-    if latest_tuple <= current_tuple:
+    if all_up_to_date:
         if use_json:
-            print(json.dumps({"current": current, "latest": latest, "up_to_date": True}))
+            print(json.dumps({**primary, "packages": packages, "up_to_date": True}))
         else:
-            print(f"  Already up to date (v{current}).")
+            print("  Already up to date:")
+            for pkg in packages:
+                print(f"    {pkg['name']}: v{pkg['current']}")
         return
 
-    # Newer version available
     if check_only:
         if use_json:
             print(
                 json.dumps(
                     {
-                        "current": current,
-                        "latest": latest,
+                        **primary,
+                        "packages": packages,
                         "up_to_date": False,
-                        "upgrade_command": "pip install --upgrade oasyce",
+                        "upgrade_command": _update_command_for_agents(),
                     }
                 )
             )
         else:
-            print(f"  Update available: {current} -> {latest}")
-            print("  Run 'oas update' to upgrade.")
+            print("  Updates available:")
+            for pkg in packages:
+                if pkg["installed"] and not pkg["up_to_date"]:
+                    print(f"    {pkg['name']}: {pkg['current']} -> {pkg['latest']}")
+            print("  Run 'oas update' to upgrade Oasyce + DataVault.")
         return
 
-    # Perform upgrade
     if not use_json:
-        print(f"  Upgrading oasyce: {current} -> {latest} ...")
+        print("  Upgrading managed packages:")
+        for pkg in packages:
+            if pkg["installed"] and not pkg["up_to_date"]:
+                print(f"    {pkg['name']}: {pkg['current']} -> {pkg['latest']}")
 
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--upgrade", "oasyce"],
-        capture_output=True,
-        text=True,
-    )
+    result = _upgrade_managed_packages()
 
     if result.returncode == 0:
+        refreshed = _check_package_updates()
+        refreshed_primary = _primary_package_payload(refreshed)
         if use_json:
             print(
                 json.dumps(
-                    {"current": current, "latest": latest, "upgraded": True, "up_to_date": True}
+                    {
+                        **refreshed_primary,
+                        "packages": refreshed,
+                        "upgraded": True,
+                        "up_to_date": True,
+                    }
                 )
             )
         else:
-            print(f"  Successfully upgraded to v{latest}.")
+            print("  Successfully upgraded Oasyce + DataVault.")
     else:
         if use_json:
             print(
                 json.dumps(
                     {
-                        "current": current,
-                        "latest": latest,
+                        **primary,
+                        "packages": packages,
                         "upgraded": False,
                         "error": result.stderr,
                     }
@@ -3513,6 +3550,77 @@ def cmd_update(args):
         else:
             print(f"  Upgrade failed: {result.stderr.strip()}")
         sys.exit(1)
+
+
+def cmd_bootstrap(args):
+    """AI-first bootstrap: self-update, ensure wallet, verify DataVault entrypoints."""
+    from oasyce.identity import Wallet
+
+    use_json = getattr(args, "json", False)
+    skip_update = getattr(args, "no_update", False)
+    packages = _check_package_updates()
+
+    if not skip_update and any(pkg["latest"] is None for pkg in packages):
+        failed = ", ".join(pkg["name"] for pkg in packages if pkg["latest"] is None)
+        if use_json:
+            print(json.dumps({"ok": False, "error": f"Failed to check PyPI for: {failed}"}))
+        else:
+            print(f"  Error: Could not reach PyPI to check updates for: {failed}.")
+        sys.exit(1)
+
+    updated = False
+    if not skip_update and any((not pkg["installed"]) or (not pkg["up_to_date"]) for pkg in packages):
+        result = _upgrade_managed_packages()
+        if result.returncode != 0:
+            if use_json:
+                print(json.dumps({"ok": False, "error": result.stderr or "upgrade failed"}))
+            else:
+                print(f"  Bootstrap upgrade failed: {result.stderr.strip()}")
+            sys.exit(1)
+        updated = True
+        packages = _check_package_updates()
+
+    wallet_address = Wallet.get_address()
+    wallet_created = False
+    if not wallet_address:
+        wallet_address = Wallet.create().address
+        wallet_created = True
+
+    datavault_module = importlib.util.find_spec("datavault") is not None
+    datavault_cli = shutil.which("datavault") is not None
+    ready = bool(wallet_address and datavault_module and datavault_cli)
+    managed_state = _update_manager.enable_managed_install(auto_update=True)
+
+    payload = {
+        "ok": True,
+        "action": "bootstrap",
+        "updated": updated,
+        "packages": packages,
+        "wallet_address": wallet_address,
+        "wallet_created": wallet_created,
+        "datavault_module": datavault_module,
+        "datavault_cli": datavault_cli,
+        "ready": ready,
+        "auto_update_enabled": managed_state.get("auto_update", False),
+    }
+
+    if use_json:
+        print(json.dumps(payload, indent=2))
+        return
+
+    print("  Oasyce bootstrap complete.")
+    if updated:
+        print("    Packages updated: yes")
+    else:
+        print("    Packages updated: no")
+    print(f"    Wallet address:    {wallet_address}")
+    print(f"    Wallet created:    {'yes' if wallet_created else 'no'}")
+    print(f"    DataVault module:  {'yes' if datavault_module else 'no'}")
+    print(f"    DataVault CLI:     {'yes' if datavault_cli else 'no'}")
+    print(f"    Auto-update:       {'yes' if managed_state.get('auto_update') else 'no'}")
+    print(f"    Ready:             {'yes' if ready else 'no'}")
+    if not ready:
+        print("    Action: run `pip install --upgrade --upgrade-strategy eager oasyce odv`")
 
 
 def _maybe_check_for_update():
@@ -3547,7 +3655,7 @@ def _maybe_check_for_update():
             except Exception:
                 pass
 
-        latest = _fetch_latest_pypi_version()
+        latest = _fetch_latest_pypi_version("oasyce")
 
         # Cache the result
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -4413,14 +4521,29 @@ def main():
     doctor_parser = subparsers.add_parser("doctor", help="Security and readiness check")
     doctor_parser.set_defaults(func=cmd_doctor)
 
+    bootstrap_parser = subparsers.add_parser(
+        "bootstrap",
+        help="AI-first bootstrap (self-update + wallet + DataVault readiness)",
+    )
+    bootstrap_parser.add_argument(
+        "--no-update",
+        action="store_true",
+        help="Skip package self-update before readiness checks",
+    )
+    bootstrap_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    bootstrap_parser.set_defaults(func=cmd_bootstrap)
+
     # Update command
     update_parser = subparsers.add_parser("update", help="Check for updates and upgrade oasyce")
     update_parser.add_argument(
         "--check", action="store_true", help="Only check for updates, do not upgrade"
     )
+    update_parser.add_argument("--json", action="store_true", help="Output as JSON")
     update_parser.set_defaults(func=cmd_update)
 
     args = parser.parse_args()
+
+    _maybe_auto_update(args.command)
 
     # Background version check (once per day, silent on errors)
     _maybe_check_for_update()
@@ -4433,6 +4556,7 @@ def main():
             print("  Welcome to Oasyce! Looks like this is your first time.")
             print()
             print("  Quick start:")
+            print("    oas bootstrap — self-update and prepare wallet/DataVault")
             print("    oas doctor    — check your setup")
             print("    oas demo      — run a full demo (register → quote → buy)")
             print("    oas start     — launch Dashboard at http://localhost:8420")

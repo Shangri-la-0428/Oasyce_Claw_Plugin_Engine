@@ -74,7 +74,7 @@ def run_cli(*argv: str):
 @pytest.fixture(autouse=True)
 def _suppress_update_check():
     """Prevent the background update check from running during tests."""
-    with patch("oasyce.cli._maybe_check_for_update"):
+    with patch("oasyce.cli._maybe_check_for_update"), patch("oasyce.cli._maybe_auto_update"):
         yield
 
 
@@ -100,6 +100,123 @@ class TestTopLevel:
         """An unrecognised subcommand should produce a non-zero exit."""
         code, out, err = run_cli("nonexistent_command_xyz")
         assert code != 0
+
+
+class TestBootstrapUpdate:
+    def test_update_check_reports_oasyce_and_odv(self):
+        with patch(
+            "oasyce.cli._check_package_updates",
+            return_value=[
+                {
+                    "name": "oasyce",
+                    "current": "2.3.0",
+                    "latest": "2.4.0",
+                    "installed": True,
+                    "up_to_date": False,
+                },
+                {
+                    "name": "odv",
+                    "current": "0.2.0",
+                    "latest": "0.3.0",
+                    "installed": True,
+                    "up_to_date": False,
+                },
+            ],
+        ):
+            code, out, err = run_cli("update", "--check", "--json")
+
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["current"] == "2.3.0"
+        assert payload["latest"] == "2.4.0"
+        assert payload["up_to_date"] is False
+        assert payload["packages"][1]["name"] == "odv"
+        assert "odv" in payload["upgrade_command"]
+
+    def test_update_uses_eager_upgrade_strategy(self):
+        completed = types.SimpleNamespace(returncode=0, stderr="")
+        with patch(
+            "oasyce.cli._check_package_updates",
+            side_effect=[
+                [
+                    {
+                        "name": "oasyce",
+                        "current": "2.3.0",
+                        "latest": "2.4.0",
+                        "installed": True,
+                        "up_to_date": False,
+                    },
+                    {
+                        "name": "odv",
+                        "current": "0.2.0",
+                        "latest": "0.3.0",
+                        "installed": True,
+                        "up_to_date": False,
+                    },
+                ],
+                [
+                    {
+                        "name": "oasyce",
+                        "current": "2.4.0",
+                        "latest": "2.4.0",
+                        "installed": True,
+                        "up_to_date": True,
+                    },
+                    {
+                        "name": "odv",
+                        "current": "0.3.0",
+                        "latest": "0.3.0",
+                        "installed": True,
+                        "up_to_date": True,
+                    },
+                ],
+            ],
+        ), patch("oasyce.cli._upgrade_managed_packages", return_value=completed) as mock_upgrade:
+            code, out, err = run_cli("update", "--json")
+
+        assert code == 0
+        assert mock_upgrade.called
+        payload = json.loads(out)
+        assert payload["upgraded"] is True
+        assert payload["packages"][1]["current"] == "0.3.0"
+
+    @patch("oasyce.identity.Wallet")
+    def test_bootstrap_json_auto_creates_wallet_and_checks_datavault(self, mock_wallet_cls):
+        mock_wallet_cls.get_address.return_value = None
+        mock_wallet_cls.create.return_value = types.SimpleNamespace(address="wallet-new")
+
+        with patch(
+            "oasyce.cli._check_package_updates",
+            return_value=[
+                {
+                    "name": "oasyce",
+                    "current": "2.3.0",
+                    "latest": "2.3.0",
+                    "installed": True,
+                    "up_to_date": True,
+                },
+                {
+                    "name": "odv",
+                    "current": "0.2.0",
+                    "latest": "0.2.0",
+                    "installed": True,
+                    "up_to_date": True,
+                },
+            ],
+        ), patch("oasyce.cli.importlib.util.find_spec", return_value=object()), patch(
+            "oasyce.cli.shutil.which", return_value="/usr/local/bin/datavault"
+        ):
+            code, out, err = run_cli("bootstrap", "--json")
+
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["ok"] is True
+        assert payload["wallet_created"] is True
+        assert payload["wallet_address"] == "wallet-new"
+        assert payload["datavault_module"] is True
+        assert payload["datavault_cli"] is True
+        assert payload["ready"] is True
+        assert payload["auto_update_enabled"] is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════

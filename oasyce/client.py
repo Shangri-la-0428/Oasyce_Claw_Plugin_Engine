@@ -25,6 +25,7 @@ import json
 import urllib.request
 import urllib.error
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 
 class OasyceAPIError(Exception):
@@ -76,7 +77,7 @@ class Oasyce:
             request_headers.update(headers)
         req = urllib.request.Request(url, data=data, headers=request_headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with self._open_request(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8")
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as e:
@@ -87,6 +88,17 @@ class Oasyce:
                 err_body = raw
             msg = err_body.get("error", raw) if isinstance(err_body, dict) else raw
             raise OasyceAPIError(msg, status=e.code, body=err_body) from None
+
+    def _open_request(self, req: urllib.request.Request, timeout: int = 30):
+        if self._should_bypass_proxy(req.full_url):
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            return opener.open(req, timeout=timeout)
+        return urllib.request.urlopen(req, timeout=timeout)
+
+    @staticmethod
+    def _should_bypass_proxy(url: str) -> bool:
+        host = (urlparse(url).hostname or "").lower()
+        return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
     @staticmethod
     def _trace_headers(trace_id: Optional[str]) -> Dict[str, str]:

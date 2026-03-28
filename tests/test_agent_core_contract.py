@@ -4,6 +4,7 @@ import json
 from io import BytesIO
 from types import SimpleNamespace
 import time
+import urllib.request
 
 from oasyce.client import Oasyce
 from oasyce.gui import app as gui_app
@@ -200,6 +201,74 @@ def test_client_portfolio_machine_mode_uses_agent_format(monkeypatch):
     assert seen["method"] == "GET"
     assert seen["path"] == "/api/portfolio?buyer=agent-1&format=agent"
     assert seen["headers"]["X-Trace-Id"] == "trace-portfolio"
+
+
+def test_client_bypasses_proxy_for_localhost(monkeypatch):
+    client = Oasyce("http://localhost:8080", token="test-token")
+    seen = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    def fake_build_opener(handler):
+        seen["proxy_handler"] = getattr(handler, "proxies", None)
+        return SimpleNamespace(open=lambda req, timeout=30: _Resp())
+
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9999")
+    monkeypatch.setattr(urllib.request, "build_opener", fake_build_opener)
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("localhost requests should bypass system proxy")
+        ),
+    )
+
+    body = client._request("GET", "/api/status")
+
+    assert body == {}
+    assert seen["proxy_handler"] == {}
+
+
+def test_client_keeps_default_urlopen_for_remote_hosts(monkeypatch):
+    client = Oasyce("http://example.com", token="test-token")
+    seen = {"urlopen": 0}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    monkeypatch.setattr(
+        urllib.request,
+        "build_opener",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("remote hosts should keep default proxy behavior")
+        ),
+    )
+
+    def fake_urlopen(req, timeout=30):
+        seen["urlopen"] += 1
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    body = client._request("GET", "/api/status")
+
+    assert body == {}
+    assert seen["urlopen"] == 1
 
 
 def test_quote_agent_format_returns_normalized_contract(monkeypatch):

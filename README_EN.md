@@ -23,6 +23,7 @@ Stripe / x402 solve "how to pay." Oasyce solves "**why the payment is justified.
 
 ```bash
 pip install oasyce
+oas bootstrap         # Self-update + wallet + DataVault readiness
 oas doctor            # Health check
 oas start             # Dashboard at localhost:8420
 ```
@@ -55,6 +56,7 @@ Oasyce is an **economic protocol**, not a platform. It handles: property rights 
 
 ```bash
 pip install oasyce
+oas bootstrap
 oas demo
 ```
 
@@ -75,10 +77,11 @@ pip install oasyce
 ### 2. Health check
 
 ```bash
+oas bootstrap
 oas doctor
 ```
 
-Checks your keys, ports, dependencies, and network connectivity. If something is wrong, it tells you how to fix it.
+`oas bootstrap` upgrades `oasyce + odv` eagerly, ensures a wallet exists, verifies DataVault is available, and enables managed auto-update for future `oas` and `datavault` runs. Then `oas doctor` checks keys, ports, dependencies, and network connectivity.
 
 ### 3. Start Dashboard
 
@@ -128,8 +131,9 @@ oas testnet faucet     # Get free test tokens
 oas start              # Start Dashboard (recommended)
 oas serve              # Start API server (programmatic access)
 oas demo               # Run the full demo pipeline
+oas bootstrap          # AI-first self-update + wallet + DataVault readiness
 oas doctor             # Health check
-oas update             # Auto-update to latest version
+oas update             # Upgrade Oasyce + DataVault to latest compatible versions
 oas info               # Project info, links, architecture, economics
 oas info --section economics    # Token economics details
 oas info --section architecture # Technical architecture
@@ -233,7 +237,8 @@ oas access deliver <asset_id>                   # L3: full data delivery
 ```
 oas testnet onboard    # Join the testnet
 oas testnet faucet     # Get test tokens
-oas update             # Auto-update to latest version
+oas bootstrap          # AI-first self-update + wallet + DataVault readiness
+oas update             # Upgrade Oasyce + DataVault
 oas start --no-browser # Start Dashboard without auto-open
 oas explorer           # Block explorer (port 8421)
 oas keys generate      # Generate Ed25519 keypair
@@ -309,7 +314,7 @@ Run `oas start` — browser opens automatically at `http://localhost:8420`. The 
 ├──────────────────────────────────────────┤
 │           DataVault (AI Skill)           │
 │  scan -> classify -> privacy -> report   │
-│  pip install odv[oasyce]                 │
+│  pip install oasyce + oas bootstrap      │
 └──────────────────────────────────────────┘
 ```
 

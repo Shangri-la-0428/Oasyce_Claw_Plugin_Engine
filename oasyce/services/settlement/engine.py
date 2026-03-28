@@ -20,9 +20,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from oasyce.chain_client import ChainClientError, OasyceClient
-
-
 class TradeStatus(str, Enum):
     PENDING = "pending"
     SETTLED = "settled"
@@ -148,10 +145,13 @@ class SettlementEngine:
     """
 
     def __init__(self, config: Optional[SettlementConfig] = None):
+        from oasyce.chain_client import ChainClientError, OasyceClient
+
         self._config = config or SettlementConfig()
         allow_local_fallback = self._config.allow_local_fallback
         if allow_local_fallback is None:
             allow_local_fallback = not self._config.chain_required
+        self._chain_error_type = ChainClientError
         self._chain = OasyceClient(
             rest_url=self._config.rest_url,
             allow_local_fallback=allow_local_fallback,
@@ -302,7 +302,7 @@ class SettlementEngine:
                     amount_uoas=int(amount_oas * 1e8),
                     asset_id=asset_id,
                 )
-            except (ChainClientError, Exception) as e:
+            except (self._chain_error_type, Exception) as e:
                 if self._config.chain_required:
                     # Roll back to saved state
                     pool.reserve_balance = old_reserve
@@ -447,7 +447,7 @@ class SettlementEngine:
                     amount_uoas=int(sq.payout_oas * 1e8),
                     asset_id=asset_id,
                 )
-            except (ChainClientError, Exception) as e:
+            except (self._chain_error_type, Exception) as e:
                 if self._config.chain_required:
                     # Roll back to saved state
                     pool.reserve_balance = old_reserve

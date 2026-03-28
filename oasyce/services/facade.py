@@ -28,7 +28,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from oasyce.chain_client import OasyceClient
 from oasyce.services.beta_support import get_beta_support_store
 from oasyce.services.settlement.engine import AssetStatus, QuoteResult, SettlementConfig
 
@@ -144,6 +143,8 @@ class OasyceServiceFacade:
         if self._chain_client is None:
             with self._init_lock:
                 if self._chain_client is None:  # double-check
+                    from oasyce.chain_client import OasyceClient
+
                     rest_url = getattr(self._config, "rest_url", "http://localhost:1317")
                     self._chain_client = OasyceClient(
                         rest_url=rest_url,
