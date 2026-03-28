@@ -38,10 +38,16 @@ oas testnet status
 ```bash
 datavault scan ~/Documents        # 扫描目录
 datavault privacy                  # 检查 PII（个人信息）
-datavault report                   # 查看扫描结果
+datavault report ~/Documents       # 查看扫描结果
 ```
 
-注册到网络：
+将目录里 `safe` 风险级别的文件注册到网络：
+
+```bash
+datavault register ~/Documents --confirm --json
+```
+
+如果你要手动注册单个文件，再使用 `oas register`：
 
 ```bash
 oas register data.csv --owner me --tags research,nlp
