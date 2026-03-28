@@ -199,7 +199,7 @@ def demo_agent_skills_integration():
 
 
 if __name__ == "__main__":
-    print("\n" + "🦎 Oasyce Claw Plugin Engine - 新特性演示")
+    print("\n" + "🦎 Oasyce Client - 新特性演示")
     print("=" * 60)
 
     demo_privacy_filter()

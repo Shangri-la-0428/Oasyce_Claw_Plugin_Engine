@@ -24,7 +24,7 @@ Stripe / x402 solve "how to pay." Oasyce solves "**why the payment is justified.
 ```bash
 pip install oasyce
 oas bootstrap         # Self-update + wallet + DataVault readiness
-oas doctor            # Health check
+oas demo              # Run the core flow
 oas start             # Dashboard at localhost:8420
 ```
 
@@ -74,14 +74,19 @@ pip install oasyce
 
 > Requires Python 3.9+
 
-### 2. Health check
+### 2. Bootstrap the managed install
 
 ```bash
 oas bootstrap
-oas doctor
 ```
 
-`oas bootstrap` upgrades `oasyce + odv` eagerly, ensures a wallet exists, verifies DataVault is available, and enables managed auto-update for future `oas` and `datavault` runs. Then `oas doctor` checks keys, ports, dependencies, and network connectivity.
+`oas bootstrap` upgrades `oasyce + odv` eagerly, ensures a wallet exists, verifies DataVault is available, and enables managed auto-update for future `oas` and `datavault` runs.
+
+If you need diagnostics, run:
+
+```bash
+oas doctor
+```
 
 ### 3. Start Dashboard
 
@@ -310,7 +315,7 @@ Run `oas start` — browser opens automatically at `http://localhost:8420`. The 
 │           oasyce (Python v2.3.0)         │
 │  CLI + Dashboard + API + Skills Bridge   │
 │  Facade -> Settlement -> Ledger          │
-│  1083 tests                              │
+│  1322 tests                              │
 ├──────────────────────────────────────────┤
 │           DataVault (AI Skill)           │
 │  scan -> classify -> privacy -> report   │
@@ -369,7 +374,7 @@ All types are validated by the Schema Registry, each with independent schema ver
 ### Tests
 
 ```bash
-pytest      # 1083 tests, 19 skipped
+pytest      # 1322 tests passed, 19 skipped
 ```
 
 </details>
@@ -381,8 +386,8 @@ pytest      # 1083 tests, 19 skipped
 | Repository | Version | Tests | Status |
 |-----------|---------|-------|--------|
 | **oasyce-chain** (Go L1) | Cosmos SDK v0.50.10 | 30+ | Phase A complete |
-| **oasyce** (this repo) | v2.3.0 | 1083 | Feature complete, architecture enforced |
-| **DataVault** | v0.2.0 | 44 | AI Skill mode ready |
+| **oasyce** (this repo) | v2.3.0 | 1322 | AI-first managed install + core flow contract hardened |
+| **DataVault** | v0.2.1 | 48 | Safe-only auto-registration ready |
 
 ### Completed
 

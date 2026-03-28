@@ -25,7 +25,7 @@ EXPOSE 8420 9527
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s \
-    CMD oasyce doctor --json || exit 1
+    CMD oas doctor --json || exit 1
 
 ENTRYPOINT ["oasyce"]
 CMD ["serve"]

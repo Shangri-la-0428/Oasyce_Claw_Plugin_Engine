@@ -93,7 +93,8 @@ def generate_skill(version: str) -> str:
     content += "## Prerequisites\n\n"
     content += "```bash\n"
     content += "pip install oasyce              # everything included (DataVault bundled)\n"
-    content += "oas doctor                      # verify everything is ready\n"
+    content += "oas bootstrap                   # self-update + wallet + DataVault readiness\n"
+    content += "oas doctor                      # optional diagnostics\n"
     content += "```\n\n"
     content += "---\n\n"
     content += body.lstrip("\n")

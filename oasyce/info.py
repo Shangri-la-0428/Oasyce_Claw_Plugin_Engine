@@ -33,16 +33,16 @@ QUICK_START: Dict[str, str] = {
     "en": (
         "1. pip install oasyce\n"
         "2. oas bootstrap          # self-update + wallet + DataVault readiness\n"
-        "3. oas doctor             # verify setup\n"
+        "3. oas demo               # run register -> quote -> buy once\n"
         "4. oas start              # launch node + dashboard\n"
-        "5. Open http://localhost:8420 in your browser"
+        "5. Optional: oas doctor   # diagnostics"
     ),
     "zh": (
         "1. pip install oasyce\n"
         "2. oas bootstrap          # 自更新 + 钱包 + DataVault 就绪\n"
-        "3. oas doctor             # 验证安装\n"
+        "3. oas demo               # 先跑一遍注册 -> 报价 -> 购买\n"
         "4. oas start              # 启动节点 + 仪表盘\n"
-        "5. 浏览器打开 http://localhost:8420"
+        "5. 可选: oas doctor       # 诊断环境"
     ),
 }
 

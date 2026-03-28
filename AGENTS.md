@@ -7,8 +7,9 @@ You have access to the `oas` CLI — a unified client for the Oasyce agent econo
 ## Install
 
 ```bash
-pip install oasyce        # includes DataVault (odv) automatically
-oas doctor             # verify installation
+pip install oasyce         # includes DataVault (odv)
+oas bootstrap              # self-update + wallet + DataVault readiness
+oas doctor                 # optional diagnostics
 ```
 
 ## What Is Oasyce?
@@ -32,20 +33,23 @@ Three components, one install:
 The standard workflow for a new user:
 
 ```bash
-# 1. Scan local data for registerable assets
+# 1. Prepare managed install
+oas bootstrap
+
+# 2. Scan local data for registerable assets
 datavault scan ~/Documents
 datavault privacy              # check for PII
-datavault report               # review results
+datavault report ~/Documents   # review results
 
-# 2. Register safe assets to the network
-oas register data.csv --owner alice --tags research,nlp
+# 3. Register only safe assets to the network
+datavault register ~/Documents --confirm --json
 
-# 3. Check pricing and trade
+# 4. Check pricing and trade
 oas quote ASSET_ID          # bonding curve spot price
 oas buy ASSET_ID --buyer bob --amount 10.0
-oas sell ASSET_ID --tokens 5 --seller bob
+oas shares bob --json
 
-# 4. Start Dashboard
+# 5. Optional human review surface
 oas start                   # http://localhost:8420
 ```
 
@@ -67,7 +71,10 @@ oas register <file> --owner <name> --tags <tag1,tag2>
   --rights-type original|co_creation|licensed|collection
   --co-creators '[{"address":"A","share":60},...]'
   --price-model auto|fixed|floor --price <OAS>
+  --service-url <url>                              # data access endpoint
   --free                                           # attribution only
+
+oas update-service-url <asset_id> <url> --owner <name>  # update data endpoint
 
 oas search <keyword>
 oas quote <asset_id> [--amount 10.0]
@@ -162,8 +169,8 @@ oas access bond <asset_id> --agent <name> --level L0|L1|L2|L3 # calculate bond r
 datavault scan <path>            # scan directory, SHA-256 hashes
 datavault classify               # auto-detect file types
 datavault privacy                # regex PII detection
-datavault report [--format json] # generate report
-datavault register --confirm     # register safe assets to Oasyce
+datavault report <path> [--format json] # generate report
+datavault register <path> --confirm --json  # register only safe assets to Oasyce
 datavault inventory              # list tracked assets
 datavault status                 # inventory stats
 ```
@@ -172,8 +179,8 @@ datavault status                 # inventory stats
 
 | Level | Meaning | Action |
 |-------|---------|--------|
-| safe | No PII | Can register |
-| low | IP addresses only | Can register |
+| safe | No PII | Can auto-register |
+| low | IP addresses only | Review first |
 | medium | Email addresses | Needs confirmation |
 | high | Phone, ID numbers | **Blocked** |
 | critical | Credit cards, API keys | **Blocked** |
@@ -322,7 +329,7 @@ oas update [--check]         # check for updates and upgrade (--check = dry run)
 ┌─────────────────────────────────────────────────────┐
 │                   User / AI Agent                    │
 ├──────────┬──────────────────┬────────────────────────┤
-│ DataVault│   Plugin Engine  │        CLI / GUI       │
+│ DataVault│  Oasyce Client   │        CLI / GUI       │
 │ (scan/   │  (Facade API)   │     (oasyced tx/query) │
 │  classify│                  │                        │
 │  privacy)│                  │                        │
@@ -359,7 +366,7 @@ All methods return `ServiceResult(success: bool, data: dict, error: str | None)`
 ## Links
 
 - [oasyce-chain](https://github.com/Shangri-la-0428/oasyce-chain) — L1 appchain (Go)
-- [Plugin Engine](https://github.com/Shangri-la-0428/oasyce-net) — Python client
+- [Oasyce Client](https://github.com/Shangri-la-0428/oasyce-net) — Python client
 - [DataVault](https://github.com/Shangri-la-0428/DataVault) — Data scanning skill
 - Discord: https://discord.gg/tfrCn54yZW
 

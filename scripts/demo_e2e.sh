@@ -7,12 +7,18 @@ set -e
 echo "=== Oasyce Protocol E2E Demo ==="
 echo ""
 
+if command -v oas >/dev/null 2>&1; then
+    OAS_CMD=(oas)
+else
+    OAS_CMD=(python -m oasyce.cli)
+fi
+
 # Create a test file
 echo "Hello Oasyce" > /tmp/oasyce_demo.txt
 
 # 1. Register
 echo "📝 Step 1: Register data asset..."
-REGISTER_JSON=$(python -m oasyce_plugin.cli register /tmp/oasyce_demo.txt \
+REGISTER_JSON=$("${OAS_CMD[@]}" register /tmp/oasyce_demo.txt \
     --owner alice --tags demo,test --use-core --json)
 echo "$REGISTER_JSON"
 
@@ -35,17 +41,17 @@ echo "   → core_asset_id: $CORE_ASSET_ID"
 # 2. Quote
 echo ""
 echo "📈 Step 2: Get price quote..."
-python -m oasyce_plugin.cli quote "$CORE_ASSET_ID" --use-core
+"${OAS_CMD[@]}" quote "$CORE_ASSET_ID" --json
 
 # 3. Buy
 echo ""
 echo "🛒 Step 3: Buy asset (10 OAS)..."
-python -m oasyce_plugin.cli buy "$CORE_ASSET_ID" --buyer bob --amount 10.0
+"${OAS_CMD[@]}" buy "$CORE_ASSET_ID" --buyer bob --amount 10.0 --json
 
 # 4. Check shares
 echo ""
 echo "📊 Step 4: Check shares for bob..."
-python -m oasyce_plugin.cli shares bob
+"${OAS_CMD[@]}" shares bob --json
 
 echo ""
 echo "✅ Demo complete!"

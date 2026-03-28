@@ -230,9 +230,9 @@ def apply_rate_bps(amount: int, rate_bps: int) -> int:
 ---
 
 Source files:
-- `oasyce_plugin/consensus/core/types.py` -- Operation, OperationType, unit constants, slash rates
-- `oasyce_plugin/consensus/core/transition.py` -- `apply_operation()` state transitions
-- `oasyce_plugin/consensus/core/validation.py` -- Pure validation functions
-- `oasyce_plugin/consensus/execution/engine.py` -- Epoch/slot scheduling, block hashing
-- `oasyce_plugin/consensus/execution/producer.py` -- Mempool and block producer
-- `oasyce_plugin/consensus/governance/` -- Proposal lifecycle, voting, parameter registry
+- `oasyce/core/` -- Shared formulas and protocol parameters
+- `oasyce/services/staking/` -- Validator and delegation flows
+- `oasyce/services/reputation/` -- Reputation scoring and weighting
+- `oasyce/services/settlement/` -- Escrow, pricing, and payout logic
+- `oasyce/bridge/` -- Chain-facing client adapters
+- `oasyce/gui/app.py` -- Dashboard and HTTP transport layer

@@ -24,7 +24,7 @@ The Oasyce testnet (`oasyce-testnet-1`) is a public test environment for validat
 
 ```bash
 pip install oasyce
-oas doctor
+oas bootstrap
 ```
 
 ### 2. One-Click Onboarding
@@ -39,7 +39,6 @@ This performs PoW registration (20 OAS debt airdrop), claims supplemental testne
 
 ```bash
 oas testnet status
-oasyce chain info
 ```
 
 ## Validator Guide

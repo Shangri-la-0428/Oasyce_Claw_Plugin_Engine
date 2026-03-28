@@ -23,8 +23,8 @@ oas testnet faucet
 完成。你现在有 20 OAS 测试币和一个 Ed25519 身份。
 
 ```bash
-# 验证一切正常
-oas doctor
+# 查看状态
+oas testnet status
 ```
 
 ---
@@ -207,7 +207,7 @@ oas <command> --json          # 所有命令支持 JSON 输出（方便 AI agent
 | `oas dispute` | 发起争议 |
 | `oas reputation check` | 查看信誉 |
 | `oas fingerprint embed/extract/trace` | 数据指纹溯源 |
-| `oas doctor` | 健康检查 |
+| `oas bootstrap` | 自更新 + 钱包 + DataVault 就绪 |
 | `oas start` | Dashboard |
 | `oas feedback` | 反馈 bug/建议 |
 
@@ -233,6 +233,7 @@ oas node become-validator --stake 100
 ## 遇到问题？
 
 ```bash
+oas testnet status            # 查看测试网状态
 oas doctor                    # 自动诊断
 oas feedback "描述问题" --type bug   # 提交反馈
 ```

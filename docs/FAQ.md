@@ -65,7 +65,7 @@ Oasyce 协议不绑定特定钱包实现。任何支持 Ed25519/Secp256k1 签名
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  用户端（Plugin Engine / Dashboard / CLI）        │
+│  用户端（Oasyce Client / Dashboard / CLI）        │
 │  → Wallet: Ed25519 密钥对，本地加密存储           │
 │  → public_key = 链上地址 = 网络身份               │
 ├─────────────────────────────────────────────────┤
@@ -278,7 +278,7 @@ Oasyce 的核心设计原则是 **Shares = 经济权，不等于控制权**。
 | 层 | 策略 | 说明 |
 |----|------|------|
 | **链上**（oasyce-chain） | Asset = immutable，新版本 = 新 asset_id + `parent_asset_id` | content hash 锁定，不可篡改 |
-| **本地**（Plugin Engine） | 同一 asset_id 可 re-register，自动建立版本链 | 开发迭代便利，版本历史保留在本地 SQLite |
+| **本地**（Oasyce Client） | 同一 asset_id 可 re-register，自动建立版本链 | 开发迭代便利，版本历史保留在本地 SQLite |
 
 **链上版本模型：**
 
@@ -292,7 +292,7 @@ Asset V2 (hash_def) → 新资产，parent_asset_id 指向 V1
 - 任何地址均可 fork（不要求同一 owner）
 - CLI：`oasyced query datarights children <asset_id>` 查看版本树
 
-**本地版本模型（Plugin Engine standalone 模式）：**
+**本地版本模型（Oasyce Client standalone 模式）：**
 - `/api/re-register` 允许对同一 asset_id 提交新内容
 - 旧版本保留在本地 `versions` 表中（SHA-256 hash + timestamp）
 - 适用于开发和测试场景，上链前的快速迭代

@@ -213,11 +213,10 @@ Configuration includes scan paths, execution interval, auto-register/trade toggl
 ---
 
 Source files:
-- `oasyce_plugin/consensus/` -- Consensus engine (PoS, rewards, slashing, governance)
-- `oasyce_plugin/schema_registry/` -- Asset type validation
-- `oasyce_plugin/services/pricing/` -- Bonding curve pricing
-- `oasyce_plugin/services/discovery/` -- Recall-Rank discovery
-- `oasyce_plugin/services/capability_delivery/` -- Endpoint registry, escrow, gateway, settlement
-- `oasyce_plugin/engines/` -- Scan/classify/metadata/PoPc pipeline
-- `oasyce_plugin/cli.py` -- CLI commands
-- `oasyce_plugin/gui/app.py` -- Dashboard SPA
+- `oasyce/schema_registry/` -- Asset type validation
+- `oasyce/services/pricing/` -- Bonding curve pricing
+- `oasyce/services/discovery/` -- Recall-Rank discovery
+- `oasyce/services/capability_delivery/` -- Endpoint registry, escrow, gateway, settlement
+- `oasyce/engines/` -- Scan/classify/metadata/PoPc pipeline
+- `oasyce/cli.py` -- CLI commands
+- `oasyce/gui/app.py` -- Dashboard SPA

@@ -12,6 +12,7 @@ cd dashboard && npm run dev    # http://localhost:5173
 npm run build                  # 输出到 dist/
 
 # 通过协议启动（推荐）
+oas bootstrap               # 准备钱包、DataVault 和自动更新
 oas start                   # http://localhost:8420（自动开浏览器）
 oas start --no-browser      # 不自动开浏览器
 ```
@@ -58,7 +59,7 @@ dashboard/
 | 构建 | Vite 8 | 秒级 HMR，<100ms build |
 | 样式 | 纯 CSS 变量 | 零依赖，主题切换靠 `data-theme` 属性 |
 | 类型 | TypeScript strict | 编译期捕获错误 |
-| 后端 | Python stdlib HTTPServer | 零依赖，嵌入 `oasyce_plugin/gui/app.py` |
+| 后端 | Python stdlib HTTPServer | 零依赖，嵌入 `oasyce/gui/app.py` |
 
 ## 页面功能
 
@@ -125,7 +126,7 @@ return <h1>{_['mydata']}</h1>;  // signal tracking 自动触发重渲染
 
 ## 后端 API
 
-所有 API 由 `oasyce_plugin/gui/app.py` 提供，前缀 `/api/`。
+所有 API 由 `oasyce/gui/app.py` 提供，前缀 `/api/`。
 
 | 端点 | 方法 | 用途 |
 |---|---|---|

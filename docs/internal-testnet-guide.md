@@ -32,8 +32,8 @@ make build
 git clone https://github.com/Shangri-la-0428/oasyce-net.git
 cd oasyce-net
 pip install -e .
-# 确认安装成功
-oas doctor
+# 初始化本地钱包、DataVault 和自动更新
+oas bootstrap
 ```
 
 ---
@@ -228,6 +228,7 @@ oas task list
 oas task bid TASK_ID --price 30 --seconds 1800
 
 # 诊断
+oas testnet status
 oas doctor
 oas info --section economics
 ```
@@ -706,7 +707,7 @@ macOS / Linux：
 export OASYCE_CHAIN_RPC="http://localhost:26657"
 export OASYCE_CHAIN_API="http://localhost:1317"
 export OASYCE_STRICT_CHAIN=1
-oas doctor
+oas bootstrap
 oas start    # 浏览器打开 http://localhost:8420
 ```
 
@@ -715,7 +716,7 @@ Windows PowerShell：
 $env:OASYCE_CHAIN_RPC = "http://localhost:26657"
 $env:OASYCE_CHAIN_API = "http://localhost:1317"
 $env:OASYCE_STRICT_CHAIN = "1"
-oas doctor
+oas bootstrap
 oas start    # 浏览器打开 http://localhost:8420
 ```
 
