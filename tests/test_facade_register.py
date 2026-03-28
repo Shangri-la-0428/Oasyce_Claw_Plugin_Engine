@@ -67,6 +67,53 @@ def test_register_enforces_allowed_path_policy(monkeypatch, tmp_path):
     assert result.error == "file path not allowed"
 
 
+def test_register_allows_symlinked_home_when_realpath_is_under_home(monkeypatch, tmp_path):
+    facade = OasyceServiceFacade(allow_local_fallback=True)
+    real_home = tmp_path / "real-home"
+    real_home.mkdir()
+    symlink_home = tmp_path / "symlink-home"
+    symlink_home.symlink_to(real_home, target_is_directory=True)
+    file_path = symlink_home / "inside-home.txt"
+    file_path.write_text("data", encoding="utf-8")
+
+    original_expanduser = os.path.expanduser
+    monkeypatch.setattr(
+        os.path,
+        "expanduser",
+        lambda path: str(symlink_home) if path == "~" else original_expanduser(path),
+    )
+    monkeypatch.setattr(
+        facade,
+        "_get_skills",
+        lambda: SimpleNamespace(
+            scan_data_skill=lambda fp: {"file_hash": "hash-symlink-1"},
+            classify_data_skill=lambda file_info: {"risk_level": "public"},
+            generate_metadata_skill=lambda file_info, tags, owner=None, classification=None, rights_type="original", co_creators=None: {
+                "asset_id": "ASSET_SYMLINK_META",
+                "owner": owner,
+                "tags": tags,
+            },
+            create_certificate_skill=lambda metadata: {**metadata, "asset_id": "ASSET_SYMLINK_1"},
+            register_data_asset_skill=lambda signed, file_path=None, storage_backend=None: {
+                "status": "success",
+                "asset_id": signed["asset_id"],
+            },
+        ),
+    )
+
+    result = facade.register(
+        file_path=str(file_path),
+        owner="owner-1",
+        tags=["beta"],
+        rights_type="original",
+        price_model="auto",
+        enforce_allowed_paths=True,
+    )
+
+    assert result.success is True
+    assert result.data["asset_id"] == "ASSET_SYMLINK_1"
+
+
 def test_register_bundle_sets_bundle_metadata_and_response(monkeypatch, tmp_path):
     facade = OasyceServiceFacade(allow_local_fallback=True)
     zip_path = tmp_path / "bundle.zip"

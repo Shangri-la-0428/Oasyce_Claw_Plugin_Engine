@@ -3124,6 +3124,11 @@ class _Handler(BaseHTTPRequestHandler):
                 buy_runtime = _get_buy_runtime()
                 lookup = buy_runtime.lookup_idempotency(idempotency_key, request_fingerprint)
                 if lookup.kind == "conflict":
+                    conflict_data = {
+                        "asset_id": aid,
+                        "buyer": buyer,
+                        "amount_oas": round(amount, 6),
+                    }
                     return _beta_core_json_response(
                         self,
                         trace_id,
@@ -3133,6 +3138,21 @@ class _Handler(BaseHTTPRequestHandler):
                         },
                         409,
                         ok=False,
+                        event="buy.failed",
+                        level="warning",
+                        asset_id=aid,
+                        buyer=buyer,
+                    ) if not agent_mode else _beta_agent_json_response(
+                        self,
+                        trace_id,
+                        "buy",
+                        conflict_data,
+                        409,
+                        ok=False,
+                        error="idempotency key payload mismatch",
+                        state="failed",
+                        retryable=False,
+                        extras={"idempotency_key": idempotency_key},
                         event="buy.failed",
                         level="warning",
                         asset_id=aid,
@@ -3186,6 +3206,11 @@ class _Handler(BaseHTTPRequestHandler):
                 # Anti-wash-trading: cooldown per buyer+asset
                 remaining = buy_runtime.cooldown_remaining(buyer, aid)
                 if remaining > 0:
+                    cooldown_data = {
+                        "asset_id": aid,
+                        "buyer": buyer,
+                        "amount_oas": round(amount, 6),
+                    }
                     return _beta_core_json_response(
                         self,
                         trace_id,
@@ -3196,18 +3221,51 @@ class _Handler(BaseHTTPRequestHandler):
                         level="warning",
                         asset_id=aid,
                         buyer=buyer,
+                    ) if not agent_mode else _beta_agent_json_response(
+                        self,
+                        trace_id,
+                        "buy",
+                        cooldown_data,
+                        429,
+                        ok=False,
+                        error=f"cooldown: wait {remaining}s",
+                        state="retryable",
+                        retryable=True,
+                        event="buy.failed",
+                        level="warning",
+                        asset_id=aid,
+                        buyer=buyer,
                     )
                 availability = _get_asset_availability_probe().inspect(aid)
                 if not availability.available:
                     payload = {"error": availability.error}
                     if availability.message:
                         payload["message"] = availability.message
+                    availability_data = {
+                        "asset_id": aid,
+                        "buyer": buyer,
+                        "amount_oas": round(amount, 6),
+                    }
+                    if availability.message:
+                        availability_data["message"] = availability.message
                     return _beta_core_json_response(
                         self,
                         trace_id,
                         payload,
                         availability.http_status,
                         ok=False,
+                        event="buy.failed",
+                        level="warning",
+                        asset_id=aid,
+                        buyer=buyer,
+                    ) if not agent_mode else _beta_agent_json_response(
+                        self,
+                        trace_id,
+                        "buy",
+                        availability_data,
+                        availability.http_status,
+                        ok=False,
+                        error=availability.error,
                         event="buy.failed",
                         level="warning",
                         asset_id=aid,

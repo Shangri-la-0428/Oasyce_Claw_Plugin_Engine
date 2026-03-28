@@ -43,6 +43,16 @@ class TestPrivacyFilter:
         assert result.ok
         assert result.data["is_sensitive"] is True
 
+        result = PrivacyFilter.is_sensitive_file("/private/var/db/shadow")
+        assert result.ok
+        assert result.data["is_sensitive"] is True
+
+    def test_private_tmp_path_is_not_blocked(self):
+        """macOS 临时目录不应因 /private 路径被误判为敏感。"""
+        result = PrivacyFilter.is_sensitive_file("/private/tmp/oasyce-upload.txt")
+        assert result.ok
+        assert result.data["is_sensitive"] is False
+
     def test_non_sensitive_file(self):
         """测试非敏感文件"""
         result = PrivacyFilter.is_sensitive_file("/photos/vacation.jpg")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from io import BytesIO
 from types import SimpleNamespace
+import time
 
 from oasyce.client import Oasyce
 from oasyce.gui import app as gui_app
@@ -454,3 +455,142 @@ def test_buy_rejects_payload_mismatch_for_same_idempotency_key(monkeypatch):
     assert body["state"] == "failed"
     assert body["retryable"] is False
     assert "payload" in body["error"]
+
+
+def test_buy_agent_rejects_payload_mismatch_with_machine_contract(monkeypatch):
+    handler1 = _DummyHandler(
+        headers={
+            "X-Trace-Id": "trace-buy-agent-idem-conflict",
+            "Idempotency-Key": "buy-agent-once-456",
+        }
+    )
+    handler2 = _DummyHandler(
+        headers={
+            "X-Trace-Id": "trace-buy-agent-idem-conflict",
+            "Idempotency-Key": "buy-agent-once-456",
+        }
+    )
+
+    monkeypatch.setattr(gui_app, "_ledger", SimpleNamespace(get_asset_metadata=lambda aid: None))
+    monkeypatch.setattr(
+        gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None)
+    )
+    monkeypatch.setattr(gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None))
+    monkeypatch.setattr(gui_app, "_buy_cooldowns", {})
+    monkeypatch.setattr(gui_app, "_buy_idempotency_cache", {})
+    monkeypatch.setattr(
+        gui_app,
+        "_get_facade",
+        lambda: SimpleNamespace(
+            buy=lambda aid, buyer, amount, trace_id=None: ServiceResult(
+                success=True,
+                data={
+                    "settled": True,
+                    "receipt_id": "rcpt-agent-idem-2",
+                    "quote": {"equity_minted": 2.0, "spot_price_after": 1.5},
+                },
+                trace_id=trace_id,
+            )
+        ),
+    )
+
+    gui_app._Handler._handle_trading(  # type: ignore[arg-type]
+        handler1,
+        "/api/buy",
+        {"asset_id": "ASSET_1", "buyer": "agent-1", "amount": 10, "format": "agent"},
+        "application/json",
+    )
+    gui_app._Handler._handle_trading(  # type: ignore[arg-type]
+        handler2,
+        "/api/buy",
+        {"asset_id": "ASSET_1", "buyer": "agent-1", "amount": 20, "format": "agent"},
+        "application/json",
+    )
+
+    body = _read_json(handler2)
+    assert handler2.status == 409
+    assert body["action"] == "buy"
+    assert body["ok"] is False
+    assert body["state"] == "failed"
+    assert body["retryable"] is False
+    assert body["trace_id"] == "trace-buy-agent-idem-conflict"
+    assert body["data"]["asset_id"] == "ASSET_1"
+    assert body["data"]["buyer"] == "agent-1"
+    assert body["data"]["amount_oas"] == 20.0
+    assert body["error"] == "idempotency key payload mismatch"
+    assert body["idempotency_key"] == "buy-agent-once-456"
+
+
+def test_buy_agent_cooldown_returns_retryable_machine_contract(monkeypatch):
+    handler = _DummyHandler(headers={"X-Trace-Id": "trace-buy-agent-cooldown"})
+
+    monkeypatch.setattr(gui_app, "_ledger", SimpleNamespace(get_asset_metadata=lambda aid: None))
+    monkeypatch.setattr(
+        gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None)
+    )
+    monkeypatch.setattr(gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None))
+    monkeypatch.setattr(gui_app, "_buy_cooldowns", {("agent-1", "ASSET_1"): time.time()})
+    monkeypatch.setattr(gui_app, "_buy_idempotency_cache", {})
+
+    gui_app._Handler._handle_trading(  # type: ignore[arg-type]
+        handler,
+        "/api/buy",
+        {"asset_id": "ASSET_1", "buyer": "agent-1", "amount": 10, "format": "agent"},
+        "application/json",
+    )
+
+    body = _read_json(handler)
+    assert handler.status == 429
+    assert body["action"] == "buy"
+    assert body["ok"] is False
+    assert body["state"] == "retryable"
+    assert body["retryable"] is True
+    assert body["trace_id"] == "trace-buy-agent-cooldown"
+    assert body["data"]["asset_id"] == "ASSET_1"
+    assert body["data"]["buyer"] == "agent-1"
+    assert body["data"]["amount_oas"] == 10.0
+    assert body["error"].startswith("cooldown: wait ")
+
+
+def test_buy_agent_unavailable_asset_returns_machine_contract(monkeypatch):
+    handler = _DummyHandler(headers={"X-Trace-Id": "trace-buy-agent-unavailable"})
+
+    monkeypatch.setattr(gui_app, "_ledger", SimpleNamespace(get_asset_metadata=lambda aid: None))
+    monkeypatch.setattr(
+        gui_app, "_get_notification_service", lambda: SimpleNamespace(notify=lambda *a, **k: None)
+    )
+    monkeypatch.setattr(gui_app, "_get_settlement", lambda: SimpleNamespace(get_pool=lambda aid: None))
+    monkeypatch.setattr(gui_app, "_buy_cooldowns", {})
+    monkeypatch.setattr(gui_app, "_buy_idempotency_cache", {})
+    monkeypatch.setattr(
+        gui_app,
+        "_get_asset_availability_probe",
+        lambda: SimpleNamespace(
+            inspect=lambda aid: SimpleNamespace(
+                available=False,
+                http_status=409,
+                error="UNAVAILABLE",
+                message="Asset file is missing or modified",
+            )
+        ),
+    )
+
+    gui_app._Handler._handle_trading(  # type: ignore[arg-type]
+        handler,
+        "/api/buy",
+        {"asset_id": "ASSET_1", "buyer": "agent-1", "amount": 10, "format": "agent"},
+        "application/json",
+    )
+
+    body = _read_json(handler)
+    assert handler.status == 409
+    assert body["action"] == "buy"
+    assert body["ok"] is False
+    assert body["state"] == "failed"
+    assert body["retryable"] is False
+    assert body["trace_id"] == "trace-buy-agent-unavailable"
+    assert body["data"]["asset_id"] == "ASSET_1"
+    assert body["data"]["buyer"] == "agent-1"
+    assert body["data"]["amount_oas"] == 10.0
+    assert body["data"]["message"] == "Asset file is missing or modified"
+    assert body["error"] == "UNAVAILABLE"

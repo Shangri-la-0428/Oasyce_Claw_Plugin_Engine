@@ -49,12 +49,20 @@ class PrivacyFilter:
     # 默认敏感路径前缀
     DEFAULT_SENSITIVE_PATHS = [
         "/etc/",
-        "/private/",
+        "/private/etc/",
+        "/private/var/db/",
+        "/private/var/root/",
+        "/private/var/keychains/",
         ".ssh/",
         ".gnupg/",
         "keychain/",
         "credentials/",
     ]
+
+    @staticmethod
+    def _normalize_path(file_path: str) -> str:
+        normalized = os.path.realpath(file_path or "").replace("\\", "/")
+        return normalized.rstrip("/") + "/"
 
     @classmethod
     def is_sensitive_file(
@@ -66,10 +74,23 @@ class PrivacyFilter:
         """检查文件是否敏感，返回是否阻止及原因"""
         patterns = custom_patterns or cls.DEFAULT_SENSITIVE_PATTERNS
         paths = custom_paths or cls.DEFAULT_SENSITIVE_PATHS
+        normalized_path = cls._normalize_path(file_path)
 
         # 检查路径前缀
         for prefix in paths:
-            if prefix in file_path:
+            normalized_prefix = prefix.replace("\\", "/")
+            if normalized_prefix.startswith("/"):
+                check_prefix = normalized_prefix.rstrip("/") + "/"
+                if normalized_path.startswith(check_prefix):
+                    return ok(
+                        {
+                            "is_sensitive": True,
+                            "reason": f"Path matches sensitive prefix: {prefix}",
+                            "sensitivity_type": "PATH_PREFIX",
+                            "matched_pattern": prefix,
+                        }
+                    )
+            elif f"/{normalized_prefix.strip('/')}/" in normalized_path:
                 return ok(
                     {
                         "is_sensitive": True,

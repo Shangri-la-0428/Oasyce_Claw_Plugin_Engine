@@ -302,7 +302,7 @@ class OasyceServiceFacade:
             raise ValueError("file_path required")
         resolved = os.path.realpath(file_path)
         if enforce_allowed_paths:
-            home_dir = os.path.expanduser("~")
+            home_dir = os.path.realpath(os.path.expanduser("~"))
             if not resolved.startswith(home_dir):
                 raise PermissionError("file path not allowed")
         if not os.path.isfile(resolved):
