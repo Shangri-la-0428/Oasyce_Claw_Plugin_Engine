@@ -523,7 +523,9 @@ class TestAccount:
                 "signer_matches_account": False,
             },
         ):
-            code, out, err = run_cli("account", "adopt", "--address", "oasyce1shared", "--readonly", "--json")
+            code, out, err = run_cli(
+                "account", "adopt", "--address", "oasyce1shared", "--readonly", "--json"
+            )
 
         assert code == 0
         payload = json.loads(out)
@@ -557,7 +559,9 @@ class TestDevice:
                 "write_ready": False,
             },
         ):
-            code, out, err = run_cli("device", "join", "--account", "oasyce1shared", "--readonly", "--json")
+            code, out, err = run_cli(
+                "device", "join", "--account", "oasyce1shared", "--readonly", "--json"
+            )
 
         assert code == 0
         payload = json.loads(out)

@@ -3762,9 +3762,7 @@ def cmd_account_status(args):
     print(f"    Address:           {status['account_address'] or '(none)'}")
     print(f"    Mode:              {status['account_mode']}")
     print(f"    Device ID:         {status.get('device_id') or '(none)'}")
-    print(
-        f"    Device auth:       {status.get('device_authorization_status') or '(unconfigured)'}"
-    )
+    print(f"    Device auth:       {status.get('device_authorization_status') or '(unconfigured)'}")
     print(f"    Can sign:          {'yes' if status['can_sign'] else 'no'}")
     print(f"    Signer name:       {status['signer_name'] or '(none)'}")
     print(f"    Signer address:    {status['signer_address'] or '(none)'}")
@@ -3894,9 +3892,7 @@ def cmd_device_revoke(args):
 
     print("  Device authorization revoked.")
     print(f"    Device ID:        {payload.get('device_id') or '(none)'}")
-    print(
-        f"    Device auth:      {payload.get('device_authorization_status') or '(unconfigured)'}"
-    )
+    print(f"    Device auth:      {payload.get('device_authorization_status') or '(unconfigured)'}")
 
 
 def _maybe_check_for_update():
@@ -4655,9 +4651,7 @@ def main():
     keys_show_parser.add_argument("--json", action="store_true")
     keys_show_parser.set_defaults(func=cmd_keys_show)
 
-    account_parser = subparsers.add_parser(
-        "account", help="Canonical economic account management"
-    )
+    account_parser = subparsers.add_parser("account", help="Canonical economic account management")
     account_sub = account_parser.add_subparsers(dest="account_command", help="Account sub-commands")
 
     account_status_parser = account_sub.add_parser(

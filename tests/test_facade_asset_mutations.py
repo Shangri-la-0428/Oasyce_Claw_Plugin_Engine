@@ -185,7 +185,9 @@ def test_get_portfolio_uses_chain_profile_in_strict_mode(monkeypatch, tmp_path):
             "DATA_ZERO": {"supply": 0.0, "reserve": 0.0, "spot_price": 1.0},
         }[asset_id],
     )
-    monkeypatch.setattr(facade, "_get_reputation", lambda: SimpleNamespace(get_reputation=lambda _: 500))
+    monkeypatch.setattr(
+        facade, "_get_reputation", lambda: SimpleNamespace(get_reputation=lambda _: 500)
+    )
 
     result = facade.get_portfolio("oasyce1buyer")
 

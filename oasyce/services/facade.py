@@ -1543,7 +1543,9 @@ class OasyceServiceFacade:
                             ),
                         }
                     )
-                return ServiceResult(success=True, data={"agent_id": agent_id, "holdings": holdings})
+                return ServiceResult(
+                    success=True, data={"agent_id": agent_id, "holdings": holdings}
+                )
 
             se = self._get_settlement()
             holdings = []

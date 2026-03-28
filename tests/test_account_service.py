@@ -52,9 +52,7 @@ def test_run_bootstrap_returns_structured_upgrade_failure():
                 "up_to_date": False,
             }
         ],
-        upgrade_managed_packages=lambda: types.SimpleNamespace(
-            returncode=1, stderr="network down"
-        ),
+        upgrade_managed_packages=lambda: types.SimpleNamespace(returncode=1, stderr="network down"),
         module_spec_finder=lambda name: object(),
         which=lambda name: "/usr/local/bin/datavault",
     )

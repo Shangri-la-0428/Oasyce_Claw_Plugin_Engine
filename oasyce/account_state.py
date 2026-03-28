@@ -417,7 +417,9 @@ def revoke_device_authorization(
     write_device_authorization(
         path=authorization_path,
         device_id=current_device_id or str(existing.get("device_id") or "").strip(),
-        account_address=str(account.get("account_address") or existing.get("account_address") or "").strip(),
+        account_address=str(
+            account.get("account_address") or existing.get("account_address") or ""
+        ).strip(),
         authorization_status="revoked",
         authorization_expires_at=float(existing.get("authorization_expires_at") or 0.0),
     )

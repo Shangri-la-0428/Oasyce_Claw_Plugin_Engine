@@ -347,7 +347,9 @@ class TestCliAccountCommandsStayThin:
 
     def test_cmd_bootstrap_does_not_inline_account_or_signer_orchestration(self):
         cli = ROOT / "cli.py"
-        block = self._function_block(cli, "def cmd_bootstrap(args):", "def cmd_account_status(args):")
+        block = self._function_block(
+            cli, "def cmd_bootstrap(args):", "def cmd_account_status(args):"
+        )
 
         forbidden = [
             "from oasyce.account_state",
@@ -368,7 +370,9 @@ class TestCliAccountCommandsStayThin:
 
     def test_cmd_account_status_and_verify_do_not_read_state_directly(self):
         cli = ROOT / "cli.py"
-        block = self._function_block(cli, "def cmd_account_status(args):", "def cmd_account_adopt(args):")
+        block = self._function_block(
+            cli, "def cmd_account_status(args):", "def cmd_account_adopt(args):"
+        )
 
         forbidden = [
             "from oasyce.account_state",
@@ -383,7 +387,9 @@ class TestCliAccountCommandsStayThin:
 
     def test_cmd_device_join_stays_thin(self):
         cli = ROOT / "cli.py"
-        block = self._function_block(cli, "def cmd_device_join(args):", "def _maybe_check_for_update():")
+        block = self._function_block(
+            cli, "def cmd_device_join(args):", "def _maybe_check_for_update():"
+        )
 
         forbidden = [
             "from oasyce.account_state",
@@ -396,6 +402,5 @@ class TestCliAccountCommandsStayThin:
         violations = [token for token in forbidden if token in block]
         if violations:
             pytest.fail(
-                "cmd_device_join should delegate to account_service:\n  "
-                + "\n  ".join(violations)
+                "cmd_device_join should delegate to account_service:\n  " + "\n  ".join(violations)
             )

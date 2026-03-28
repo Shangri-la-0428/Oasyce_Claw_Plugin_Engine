@@ -152,7 +152,10 @@ UPDATE_GUIDE: Dict[str, str] = {
     ),
 }
 
-BETA_ONBOARDING: Dict[str, str] = {"en": render_beta_onboarding("en"), "zh": render_beta_onboarding("zh")}
+BETA_ONBOARDING: Dict[str, str] = {
+    "en": render_beta_onboarding("en"),
+    "zh": render_beta_onboarding("zh"),
+}
 
 
 def get_info(lang: str = "en") -> Dict[str, Any]:

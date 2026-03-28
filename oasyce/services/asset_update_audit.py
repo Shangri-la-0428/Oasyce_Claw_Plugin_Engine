@@ -41,7 +41,9 @@ def audit_local_asset_update(asset_id: str, ledger: Optional[Ledger] = None) -> 
 
         warnings = []
         if not file_path:
-            warnings.append("metadata has no file_path; local re-register cannot safely track source")
+            warnings.append(
+                "metadata has no file_path; local re-register cannot safely track source"
+            )
         elif not file_exists:
             warnings.append("file_path no longer exists on disk")
         if is_test_like:

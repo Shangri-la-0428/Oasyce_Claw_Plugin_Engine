@@ -32,7 +32,11 @@ def test_build_account_status_uses_stored_account_state(tmp_path: Path):
             "chain_signer_address": "oasyce1same",
             "auto_update": True,
         },
-        signer_inspector=lambda **_: {"name": "oasyce-agent", "address": "oasyce1same", "ready": True},
+        signer_inspector=lambda **_: {
+            "name": "oasyce-agent",
+            "address": "oasyce1same",
+            "ready": True,
+        },
     )
 
     assert status["configured"] is True
@@ -40,15 +44,22 @@ def test_build_account_status_uses_stored_account_state(tmp_path: Path):
     assert status["account_mode"] == "managed_local"
     assert status["wallet_matches_account"] is False
     assert status["signer_matches_account"] is True
-    assert resolve_canonical_account_address(
-        path=path,
-        wallet_get_address=lambda: "wallet-local",
-        managed_state_reader=lambda: {
-            "chain_signer_name": "oasyce-agent",
-            "chain_signer_address": "oasyce1same",
-        },
-        signer_inspector=lambda **_: {"name": "oasyce-agent", "address": "oasyce1same", "ready": True},
-    ) == "oasyce1same"
+    assert (
+        resolve_canonical_account_address(
+            path=path,
+            wallet_get_address=lambda: "wallet-local",
+            managed_state_reader=lambda: {
+                "chain_signer_name": "oasyce-agent",
+                "chain_signer_address": "oasyce1same",
+            },
+            signer_inspector=lambda **_: {
+                "name": "oasyce-agent",
+                "address": "oasyce1same",
+                "ready": True,
+            },
+        )
+        == "oasyce1same"
+    )
 
 
 def test_read_account_state_ignores_legacy_derived_fields(tmp_path: Path):

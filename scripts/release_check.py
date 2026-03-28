@@ -15,7 +15,9 @@ PACKAGE_NAME = "oasyce"
 
 
 def project_version() -> str:
-    match = re.search(r'^version\s*=\s*"([^"]+)"', PYPROJECT.read_text(encoding="utf-8"), re.MULTILINE)
+    match = re.search(
+        r'^version\s*=\s*"([^"]+)"', PYPROJECT.read_text(encoding="utf-8"), re.MULTILINE
+    )
     if not match:
         raise RuntimeError("could not read version from pyproject.toml")
     return match.group(1)
@@ -34,9 +36,7 @@ def ensure_expected_artifacts(outdir: Path, package_name: str, version: str) -> 
     present = {path.name: path for path in outdir.iterdir() if path.is_file()}
     missing = sorted(expected - set(present))
     if missing:
-        raise RuntimeError(
-            "missing release artifacts: " + ", ".join(missing)
-        )
+        raise RuntimeError("missing release artifacts: " + ", ".join(missing))
     return [present[name] for name in sorted(expected)]
 
 
