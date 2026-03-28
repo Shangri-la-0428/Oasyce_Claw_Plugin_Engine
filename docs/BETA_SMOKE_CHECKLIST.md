@@ -12,6 +12,7 @@ Run this checklist before any push intended for beta users.
 - [ ] Confirm any skipped tests are expected Go chain gates, not missing dependencies
 - [ ] `oas doctor --public-beta --json`
 - [ ] Confirm doctor returns `status = ok`
+- [ ] If `.github/workflows/*` changed, run the release workflow gate in `docs/RELEASE_GATE.md`
 
 ## 2. Agent Core Flow
 
@@ -50,3 +51,4 @@ Only push when all are true:
 - [ ] Retry and idempotency behavior are green
 - [ ] No new direct GUI write path was introduced
 - [ ] The change is small enough that rollback scope is obvious
+- [ ] Remote CI is green before any beta announcement

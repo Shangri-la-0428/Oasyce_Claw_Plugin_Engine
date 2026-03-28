@@ -186,6 +186,7 @@ Before the session:
 
 - run `pytest -q /Users/wutongcheng/Desktop/Net/oasyce-net/tests`
 - run the beta smoke checklist in `docs/BETA_SMOKE_CHECKLIST.md`
+- if CI or workflow files changed, run `docs/RELEASE_GATE.md`
 - make sure `oas support beta --json` returns usable data
 
 During the session:
