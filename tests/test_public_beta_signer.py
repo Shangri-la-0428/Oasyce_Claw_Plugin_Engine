@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+import requests
+
 from oasyce.services import public_beta_signer
 from oasyce.services.public_beta_signer import (
     PublicBetaSignerError,
@@ -84,3 +87,34 @@ def test_ensure_public_beta_signer_creates_and_claims(monkeypatch, tmp_path):
     assert result["ready"] is True
     assert persisted["chain_signer_name"] == "oasyce-agent"
     assert persisted["chain_signer_address"] == "oasyce1created"
+
+
+def test_ensure_public_beta_signer_wraps_faucet_http_errors(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    def fake_runner(args, **kwargs):
+        assert args[:3] == ["keys", "show", "oasyce-agent"]
+        return {"raw_output": "oasyce1created"}
+
+    def fake_http_get_json(url, timeout=5):
+        if url.endswith("/cosmos/auth/v1beta1/accounts/oasyce1created"):
+            raise RuntimeError("account not found")
+        if url.endswith("/cosmos/bank/v1beta1/balances/oasyce1created/by_denom?denom=uoas"):
+            return {"balance": {"amount": "0"}}
+        raise AssertionError(f"unexpected url: {url}")
+
+    def fake_faucet(url, params=None, timeout=5):
+        response = SimpleNamespace(status_code=429)
+        raise requests.HTTPError("429 Client Error", response=response)
+
+    monkeypatch.setattr(public_beta_signer.requests, "get", fake_faucet)
+
+    with pytest.raises(PublicBetaSignerError, match="Public beta faucet request failed"):
+        ensure_public_beta_signer(
+            signer_name="oasyce-agent",
+            rest_url="http://chain.example.test",
+            faucet_url="http://faucet.example.test",
+            run_oasyced=fake_runner,
+            http_get_json=fake_http_get_json,
+            wait_seconds=1,
+        )

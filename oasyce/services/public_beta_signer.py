@@ -186,11 +186,14 @@ def ensure_public_beta_signer(
         )
 
     if inspect["address"] and (not inspect["account_exists"] or inspect["balance_uoas"] <= 0):
-        requests.get(
-            f"{target_faucet_url}/faucet",
-            params={"address": inspect["address"]},
-            timeout=5,
-        ).raise_for_status()
+        try:
+            requests.get(
+                f"{target_faucet_url}/faucet",
+                params={"address": inspect["address"]},
+                timeout=5,
+            ).raise_for_status()
+        except requests.RequestException as exc:
+            raise PublicBetaSignerError(f"Public beta faucet request failed: {exc}") from exc
         claimed_faucet = True
 
         deadline = time.time() + wait_seconds
