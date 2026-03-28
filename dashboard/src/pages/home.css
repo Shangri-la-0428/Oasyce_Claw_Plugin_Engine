@@ -129,6 +129,72 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Account entry panel ── */
+.home-account-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-l);
+}
+
+.home-account-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-s);
+}
+
+.home-account-card {
+  display: grid;
+  gap: var(--space-m);
+  padding: var(--space-l);
+  border: 1px solid var(--border);
+  background: var(--surface-0);
+  box-shadow: var(--shell-shadow-soft);
+}
+
+.home-account-copy {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.home-account-feedback {
+  display: grid;
+  gap: var(--space-m);
+}
+
+.home-account-feedback-block {
+  display: grid;
+  gap: var(--space-s);
+  padding: var(--space-m);
+  border: 1px solid var(--border);
+  background: var(--surface-0);
+}
+
+.home-account-feedback-block.is-error {
+  border-color: color-mix(in srgb, var(--red) 45%, var(--border));
+  background: color-mix(in srgb, var(--red) 8%, var(--surface-0));
+}
+
+.home-account-feedback-block.is-warning {
+  border-color: color-mix(in srgb, var(--yellow) 45%, var(--border));
+  background: color-mix(in srgb, var(--yellow) 8%, var(--surface-0));
+}
+
+.home-account-list {
+  display: grid;
+  gap: var(--space-xs);
+  padding-left: var(--space-l);
+  color: var(--fg-1);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.home-readonly-note {
+  display: grid;
+  gap: var(--space-m);
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--border);
+}
+
 /* ── Veteran stat cards ── */
 .home-stats {
   display: grid;
@@ -186,13 +252,16 @@
   .home-page > * + * { margin-top: var(--space-2xl); }
   .home-trades,
   .home-accordion,
-  .home-vet-actions { padding-left: var(--space-m); padding-right: var(--space-m); }
+  .home-vet-actions,
+  .home-readonly-note { padding-left: var(--space-m); padding-right: var(--space-m); }
 }
 
 @media (max-width: 600px) {
   .home-section-title { font-size: var(--text-3xl); }
   .home-page > * + * { margin-top: var(--space-xl); }
   .home-stat-value { font-size: var(--text-3xl); }
+  .home-account-card { padding: var(--space-m); }
+  .home-account-modes { flex-direction: column; }
 }
 
 @media (max-width: 375px) {

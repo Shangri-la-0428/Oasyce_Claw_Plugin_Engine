@@ -122,12 +122,14 @@ oas register myfile.csv --owner alice --tags medical,imaging
 <!-- BEGIN GENERATED:PUBLIC_BETA -->
 ## Testnet（公开测试与本地沙盒）
 
-公开测试的**唯一产品入口文档**在 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)。真实链上接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。`oas sandbox *` 只负责本地沙盒模拟，不代表真实公网测试网接入。
+公开测试的**唯一产品入口文档**在 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)。真实链上接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。身份模型现在收敛为 **owner account + trusted device**：主设备先 `oas bootstrap`，第二台设备优先 `oas device join`。`oas sandbox *` 只负责本地沙盒模拟，不代表真实公网测试网接入。
 
 ```bash
 oas --json sandbox status   # 查看本地沙盒状态
 oas --json sandbox onboard  # 本地模拟：faucet + 示例资产 + 质押
 oas sandbox reset --force   # 重置本地沙盒
+oas device join --account <ACCOUNT_ADDRESS> --readonly   # 第二台设备接入同一账号
+oas device revoke   # 撤销这台机器的 trusted-device 授权
 oas doctor --public-beta --json   # 公测发布 gate
 ```
 <!-- END GENERATED:PUBLIC_BETA -->
@@ -140,10 +142,6 @@ oas doctor --public-beta --json   # 公测发布 gate
 oas start              # 启动 Dashboard（推荐）
 oas demo               # 跑一遍完整演示
 oas bootstrap          # AI-first 自更新 + 钱包 + DataVault 就绪
-oas device join        # 第二台设备一条命令接入已有账号
-oas account status     # 查看这台机器绑定的 canonical account
-oas account verify     # 验证这台机器的账号绑定是否一致
-oas account adopt      # 显式附着到已有账号（多设备场景）
 oas doctor             # 健康检查
 oas update             # 升级 Oasyce + DataVault
 oas info               # 项目信息、链接、架构、经济模型
@@ -165,7 +163,7 @@ oas sell <asset_id> --amount <n>  # 卖回份额
   --max-slippage 0.05               # 滑点保护（默认 5%）
 ```
 
-多设备如果要使用**同一个经济账号**，第二台机器优先使用 `oas device join`。完整流程见 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md) 里的“多设备使用同一账号”章节。
+多设备如果要使用**同一个经济账号**，以及 Dashboard 首次手动接入已有账号，统一看 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)。README 不再复制那套 onboarding 细节。
 
 ### 争议
 

@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from pathlib import Path
 
 from oasyce.config import Config
@@ -3740,6 +3741,13 @@ def cmd_bootstrap(args):
         print("    Action: run `pip install --upgrade --upgrade-strategy eager oasyce odv`")
 
 
+def _authorization_expiry_from_args(args) -> Optional[float]:
+    hours = float(getattr(args, "expires_hours", 0) or 0)
+    if hours <= 0:
+        return None
+    return time.time() + (hours * 3600.0)
+
+
 def cmd_account_status(args):
     """Show canonical economic account status for this device."""
     from oasyce.services.account_service import get_account_status_payload
@@ -3753,12 +3761,19 @@ def cmd_account_status(args):
     print(f"    Configured:        {'yes' if status['configured'] else 'no'}")
     print(f"    Address:           {status['account_address'] or '(none)'}")
     print(f"    Mode:              {status['account_mode']}")
+    print(f"    Device ID:         {status.get('device_id') or '(none)'}")
+    print(
+        f"    Device auth:       {status.get('device_authorization_status') or '(unconfigured)'}"
+    )
     print(f"    Can sign:          {'yes' if status['can_sign'] else 'no'}")
     print(f"    Signer name:       {status['signer_name'] or '(none)'}")
     print(f"    Signer address:    {status['signer_address'] or '(none)'}")
     print(f"    Wallet address:    {status['wallet_address'] or '(none)'}")
     print(f"    Wallet matches:    {'yes' if status['wallet_matches_account'] else 'no'}")
     print(f"    Signer matches:    {'yes' if status['signer_matches_account'] else 'no'}")
+    expires_at = float(status.get("device_authorization_expires_at") or 0.0)
+    if expires_at > 0:
+        print(f"    Device auth until: {datetime.datetime.fromtimestamp(expires_at).isoformat()}")
 
 
 def cmd_account_verify(args):
@@ -3801,6 +3816,7 @@ def cmd_account_adopt(args):
             account_address=args.address,
             signer_name=args.signer_name,
             readonly=args.readonly,
+            authorization_expires_at=_authorization_expiry_from_args(args),
         )
     except AccountStateError as exc:
         if args.json:
@@ -3816,6 +3832,8 @@ def cmd_account_adopt(args):
     print("  Account adopted.")
     print(f"    Address:        {status['account_address']}")
     print(f"    Mode:           {status['account_mode']}")
+    print(f"    Device ID:      {status.get('device_id') or '(none)'}")
+    print(f"    Device auth:    {status.get('device_authorization_status')}")
     print(f"    Can sign:       {'yes' if status['can_sign'] else 'no'}")
     if status.get("signer_name"):
         print(f"    Signer name:    {status['signer_name']}")
@@ -3831,6 +3849,7 @@ def cmd_device_join(args):
         account_address=args.account,
         signer_name=args.signer_name,
         readonly=args.readonly,
+        authorization_expires_at=_authorization_expiry_from_args(args),
         no_update=getattr(args, "no_update", False),
         check_package_updates=_check_package_updates,
         upgrade_managed_packages=_upgrade_managed_packages,
@@ -3856,6 +3875,28 @@ def cmd_device_join(args):
     print(f"    Role:             {'read-only' if payload.get('readonly') else 'signing'}")
     print(f"    Environment:      {'ready' if payload.get('environment_ready') else 'not ready'}")
     print(f"    Write-ready:      {'yes' if payload.get('write_ready') else 'no'}")
+    status = (payload.get("verify") or {}).get("status") or {}
+    if status:
+        print(f"    Device ID:        {status.get('device_id') or '(none)'}")
+        print(
+            f"    Device auth:      {status.get('device_authorization_status') or '(unconfigured)'}"
+        )
+
+
+def cmd_device_revoke(args):
+    """Revoke this device's current trusted-device authorization."""
+    from oasyce.services.account_service import revoke_device_payload
+
+    payload = revoke_device_payload()
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return
+
+    print("  Device authorization revoked.")
+    print(f"    Device ID:        {payload.get('device_id') or '(none)'}")
+    print(
+        f"    Device auth:      {payload.get('device_authorization_status') or '(unconfigured)'}"
+    )
 
 
 def _maybe_check_for_update():
@@ -4656,6 +4697,12 @@ def main():
         action="store_true",
         help="Attach as read-only even if no local signer is available",
     )
+    account_adopt_parser.add_argument(
+        "--expires-hours",
+        type=float,
+        default=0,
+        help="Optional trusted-device authorization lifetime in hours",
+    )
     account_adopt_parser.add_argument("--json", action="store_true", help="Output as JSON")
     account_adopt_parser.set_defaults(func=cmd_account_adopt)
 
@@ -4686,8 +4733,21 @@ def main():
         action="store_true",
         help="Skip package self-update before readiness checks",
     )
+    device_join_parser.add_argument(
+        "--expires-hours",
+        type=float,
+        default=0,
+        help="Optional trusted-device authorization lifetime in hours",
+    )
     device_join_parser.add_argument("--json", action="store_true", help="Output as JSON")
     device_join_parser.set_defaults(func=cmd_device_join)
+
+    device_revoke_parser = device_sub.add_parser(
+        "revoke",
+        help="Revoke this device's trusted-device authorization",
+    )
+    device_revoke_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    device_revoke_parser.set_defaults(func=cmd_device_revoke)
 
     # ── status (offline mode) ─────────────────────────────────────
     status_parser = subparsers.add_parser("status", help="Show network connectivity status")

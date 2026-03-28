@@ -4,9 +4,10 @@
  * All strings via i18n — no inline copy object.
  */
 import { useEffect, useState, useRef } from 'preact/hooks';
-import { get, post } from '../api/client';
+import { get } from '../api/client';
 import { assets, loadAssets } from '../store/assets';
 import {
+  account,
   balance,
   identity,
   i18n,
@@ -17,6 +18,7 @@ import {
   showToast,
   walletAddress as getWalletAddress,
 } from '../store/ui';
+import AccountJoinPanel from '../components/account-join-panel';
 import RegisterForm from '../components/register-form';
 import { mask, fmtPrice, maskIdShort, fmtDate } from '../utils';
 import type { Page } from '../hooks/use-route';
@@ -30,13 +32,6 @@ interface LaunchResult {
   capability?: boolean;
 }
 
-interface CreateWalletResult {
-  ok?: boolean;
-  address?: string;
-  created?: boolean;
-  error?: string;
-}
-
 interface OwnerEarningsData {
   total_earned: number;
   transactions: { asset_id: string; buyer: string; amount: number; timestamp: number }[];
@@ -45,7 +40,6 @@ interface OwnerEarningsData {
 export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
   const _ = i18n.value;
 
-  const [creatingWallet, setCreatingWallet] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [done, setDone] = useState<LaunchResult | null>(null);
   const [ownerEarnings, setOwnerEarnings] = useState<OwnerEarningsData | null>(null);
@@ -58,12 +52,17 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
     loadAssets();
   }, []);
 
+  const accountStatus = account.value;
   const walletExists = !!identity.value?.exists;
   const walletAddr = identity.value?.address || '';
+  const accountConfigured = !!accountStatus?.configured;
+  const accountAddr = accountStatus?.account_address || walletAddr;
+  const canSign = !!accountStatus?.can_sign;
   const currentBalance = balance.value ?? 0;
   const hasStarterFunds = currentBalance > 0;
   const assetCount = assets.value.length;
-  const isVeteran = walletExists && hasStarterFunds && assetCount > 0;
+  const isReadonlyAttached = accountConfigured && !canSign && accountStatus?.account_mode === 'attached_readonly';
+  const isVeteran = accountConfigured && canSign && hasStarterFunds && assetCount > 0;
 
   // Load earnings for veteran view
   useEffect(() => {
@@ -79,26 +78,10 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
     });
   }, [isVeteran]);
 
-  const currentStep = !walletExists ? 1 : !hasStarterFunds ? 2 : 3;
-  const onboardingDone = walletExists && hasStarterFunds && (assetCount > 0 || !!done);
+  const currentStep = !accountConfigured ? 1 : !canSign ? 1 : !hasStarterFunds ? 2 : 3;
+  const onboardingDone = accountConfigured && canSign && hasStarterFunds && (assetCount > 0 || !!done);
 
   // ── Actions ──
-
-  async function handleCreateWallet() {
-    if (creatingWallet) return;
-    setCreatingWallet(true);
-    const res = await post<CreateWalletResult>('/identity/create');
-    setCreatingWallet(false);
-
-    if (res.success && res.data?.ok) {
-      await loadIdentity();
-      await loadBalance();
-      await loadAssets();
-      showToast(_['wallet-created'], 'success');
-      return;
-    }
-    showToast(res.error || res.data?.error || _['error-generic'], 'error');
-  }
 
   async function handleSelfRegister() {
     if (claiming || powProgress.value.mining) return;
@@ -124,6 +107,55 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
     requestAnimationFrame(() => successRef.current?.focus());
   }
 
+  function handleAccountReady() {
+    loadAssets();
+  }
+
+  if (isReadonlyAttached && !done) {
+    return (
+      <main class="page home-page">
+        <div class="home-hero">
+          <h1 class="display">
+            <span class="home-title-light">{_['readonly-device-title']}</span><br />
+            {_['join-existing']}
+          </h1>
+          <p class="home-sub">{_['readonly-device-body']}</p>
+        </div>
+
+        <div class="home-stats">
+          <div class="home-stat">
+            <span class="home-stat-label">{_['account']}</span>
+            <span class="home-stat-value mono">{mask(accountAddr, 8, 6)}</span>
+          </div>
+          <div class="home-stat">
+            <span class="home-stat-label">{_['mode']}</span>
+            <span class="home-stat-value mono">{_['account-mode-readonly']}</span>
+          </div>
+          <div class="home-stat secondary">
+            <span class="home-stat-label">{_['balance-label']}</span>
+            <span class="home-stat-value mono">{currentBalance.toFixed(1)} OAS</span>
+          </div>
+          <div class="home-stat secondary">
+            <span class="home-stat-label">{_['wallet']}</span>
+            <span class="home-stat-value mono">{walletExists ? mask(walletAddr, 8, 6) : '—'}</span>
+          </div>
+        </div>
+
+        <div class="home-readonly-note">
+          <p class="body-text">{_['readonly-device-upgrade']}</p>
+          <div class="row gap-8 wrap mt-16">
+            <button class="btn btn-primary" onClick={() => go('explore')}>
+              {_['readonly-device-cta-market']}
+            </button>
+            <button class="btn btn-ghost" onClick={() => go('network')}>
+              {_['readonly-device-cta-network']}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   // ── Veteran view ──
   if (isVeteran && !done) {
     return (
@@ -140,8 +172,8 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
             <span class="home-stat-value mono">{fmtPrice(ownerEarnings?.total_earned)} OAS</span>
           </div>
           <div class="home-stat secondary">
-            <span class="home-stat-label">{_['wallet']}</span>
-            <span class="home-stat-value mono">{mask(walletAddr, 8, 6)}</span>
+            <span class="home-stat-label">{_['account']}</span>
+            <span class="home-stat-value mono">{mask(accountAddr, 8, 6)}</span>
           </div>
           <div class="home-stat secondary">
             <span class="home-stat-label">{_['mydata']}</span>
@@ -245,17 +277,15 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
             <div class="accordion-title">
               <strong>{_['onboard-step1']}</strong>
               <span class="accordion-hint">{_['onboard-step1-hint']}</span>
-              {walletExists && (
-                <span class="accordion-summary mono">{mask(walletAddr, 8, 6)}</span>
+              {accountConfigured && (
+                <span class="accordion-summary mono">{mask(accountAddr, 8, 6)}</span>
               )}
             </div>
           </div>
           {currentStep === 1 && (
             <div class="accordion-body">
               <p class="body-text mb-16">{_['gate-create-body']}</p>
-              <button class="btn btn-primary" onClick={handleCreateWallet} disabled={creatingWallet}>
-                {creatingWallet ? '…' : _['create-wallet']}
-              </button>
+              <AccountJoinPanel onReady={handleAccountReady} />
             </div>
           )}
         </div>

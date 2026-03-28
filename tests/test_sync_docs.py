@@ -37,6 +37,6 @@ def test_render_public_beta_readme_block_contains_release_gate():
 
 def test_render_ai_onboarding_block_contains_smoke_and_sandbox():
     block = sync_docs.render_ai_onboarding_block("en")
-    assert "Keep onboarding truth narrow:" in block
+    assert "Keep onboarding truth narrow, with owner account + trusted device:" in block
     assert "oas smoke public-beta --json" in block
     assert "oas --json sandbox onboard" in block

@@ -228,13 +228,59 @@ describe('UI Store', () => {
   });
 
   // ────────────────────────────────────────────────────────────
-  // 6. walletAddress
+  // 6. loadAccountStatus
+  // ────────────────────────────────────────────────────────────
+  describe('loadAccountStatus', () => {
+    it('sets canonical account state on success', async () => {
+      const ui = await freshUI();
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          configured: true,
+          account_address: 'oasyce1acct',
+          account_mode: 'attached_readonly',
+          can_sign: false,
+          signer_name: '',
+          signer_address: '',
+          wallet_address: '',
+          wallet_present: false,
+          wallet_matches_account: false,
+          signer_matches_account: false,
+        }),
+      );
+
+      await ui.loadAccountStatus();
+      expect(ui.account.value?.account_address).toBe('oasyce1acct');
+      expect(ui.account.value?.account_mode).toBe('attached_readonly');
+      expect(ui.account.value?.can_sign).toBe(false);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────
+  // 7. walletAddress
   // ────────────────────────────────────────────────────────────
   describe('walletAddress', () => {
     it('returns address when identity exists', async () => {
       const ui = await freshUI();
       ui.identity.value = { address: 'oasyce1xyz', exists: true };
       expect(ui.walletAddress()).toBe('oasyce1xyz');
+    });
+
+    it('prefers canonical account address when configured', async () => {
+      const ui = await freshUI();
+      ui.identity.value = { address: 'oasyce1wallet', exists: true };
+      ui.account.value = {
+        configured: true,
+        account_address: 'oasyce1acct',
+        account_mode: 'attached_readonly',
+        can_sign: false,
+        signer_name: '',
+        signer_address: '',
+        wallet_address: 'oasyce1wallet',
+        wallet_present: true,
+        wallet_matches_account: false,
+        signer_matches_account: false,
+      };
+      expect(ui.walletAddress()).toBe('oasyce1acct');
     });
 
     it('returns anonymous when identity is null', async () => {
@@ -250,7 +296,7 @@ describe('UI Store', () => {
   });
 
   // ────────────────────────────────────────────────────────────
-  // 7. loadBalance
+  // 8. loadBalance
   // ────────────────────────────────────────────────────────────
   describe('loadBalance', () => {
     it('sets balance on success', async () => {
@@ -260,6 +306,27 @@ describe('UI Store', () => {
 
       await ui.loadBalance();
       expect(ui.balance.value).toBe(42.5);
+    });
+
+    it('uses canonical account address when configured', async () => {
+      const ui = await freshUI();
+      ui.identity.value = { address: 'oasyce1wallet', exists: true };
+      ui.account.value = {
+        configured: true,
+        account_address: 'oasyce1acct',
+        account_mode: 'attached_readonly',
+        can_sign: false,
+        signer_name: '',
+        signer_address: '',
+        wallet_address: 'oasyce1wallet',
+        wallet_present: true,
+        wallet_matches_account: false,
+        signer_matches_account: false,
+      };
+      mockFetch.mockResolvedValueOnce(okJson({ balance_oas: 12 }));
+
+      await ui.loadBalance();
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/balance?address=oasyce1acct');
     });
 
     it('sets balance to 0 when anonymous', async () => {
@@ -284,7 +351,7 @@ describe('UI Store', () => {
   });
 
   // ────────────────────────────────────────────────────────────
-  // 8. selfRegister
+  // 9. selfRegister
   // ────────────────────────────────────────────────────────────
   describe('selfRegister', () => {
     it('returns error when anonymous', async () => {

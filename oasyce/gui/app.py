@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import importlib.util
 import json
 import logging
 import mimetypes
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import struct
 import threading
@@ -614,6 +616,13 @@ def _get_asset_availability_probe() -> AssetAvailabilityProbe:
 def _log_beta_trace(level: str, event: str, trace_id: Optional[str], **fields: Any) -> None:
     if not trace_id:
         return
+    if "device_id" not in fields:
+        try:
+            from oasyce.account_state import resolve_current_device_id
+
+            fields["device_id"] = resolve_current_device_id(create=True)
+        except Exception:
+            fields["device_id"] = ""
     get_beta_support_store().record(event, trace_id, level, fields)
     detail = " ".join(
         f"{key}={value!r}" for key, value in sorted(fields.items()) if value is not None
@@ -1993,6 +2002,23 @@ class _Handler(BaseHTTPRequestHandler):
                 return _json_response(self, {"exists": True, "address": wallet_address})
             return _json_response(self, {"exists": False})
 
+        if path == "/api/account/status":
+            from oasyce.services.account_service import get_account_status_payload
+
+            return _json_response(self, get_account_status_payload())
+
+        if path == "/api/account/verify":
+            from oasyce.services.account_service import verify_account_payload
+
+            require_signing = qs.get("require_signing", ["0"])[0].lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            )
+            payload = verify_account_payload(require_signing=require_signing)
+            return _json_response(self, payload, 200 if payload.get("ok") else 400)
+
         # ── Node role ─────────────────────────────────────────────
         if path == "/api/node/role":
             from oasyce.config import load_node_role, load_or_create_node_identity
@@ -2525,6 +2551,38 @@ class _Handler(BaseHTTPRequestHandler):
 
     # ── POST handler: Identity routes ────────────────────────────
     def _handle_identity(self, path, body, content_type):
+        if path == "/api/account/bootstrap":
+            from oasyce import update_manager as _update_manager
+            from oasyce.services.account_service import run_bootstrap
+
+            payload = run_bootstrap(
+                no_update=True,
+                account_address=body.get("account_address"),
+                signer_name=body.get("signer_name"),
+                readonly=bool(body.get("readonly", False)),
+                check_package_updates=_update_manager.check_package_updates,
+                upgrade_managed_packages=_update_manager.upgrade_managed_packages,
+                module_spec_finder=importlib.util.find_spec,
+                which=shutil.which,
+            )
+            return _json_response(self, payload, 200 if payload.get("ok") else 400)
+
+        if path == "/api/device/join":
+            from oasyce import update_manager as _update_manager
+            from oasyce.services.account_service import join_device_payload
+
+            payload = join_device_payload(
+                account_address=str(body.get("account_address") or "").strip(),
+                signer_name=body.get("signer_name"),
+                readonly=bool(body.get("readonly", False)),
+                no_update=True,
+                check_package_updates=_update_manager.check_package_updates,
+                upgrade_managed_packages=_update_manager.upgrade_managed_packages,
+                module_spec_finder=importlib.util.find_spec,
+                which=shutil.which,
+            )
+            return _json_response(self, payload, 200 if payload.get("ok") else 400)
+
         if path == "/api/identity/create":
             from oasyce.identity import Wallet
 

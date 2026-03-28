@@ -32,7 +32,7 @@ def test_beta_onboarding_comes_from_contract():
 
 def test_ai_integration_onboarding_block_comes_from_contract():
     block = render_ai_integration_onboarding_block("en")
-    assert "Keep onboarding truth narrow:" in block
+    assert "Keep onboarding truth narrow, with owner account + trusted device:" in block
     assert "oas doctor --public-beta --json" in block
     assert "oas --json sandbox status" in block
 

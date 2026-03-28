@@ -82,6 +82,50 @@ def test_verify_account_payload_reports_signing_issue():
     assert "cannot sign" in payload["issues"][0]
 
 
+def test_verify_account_payload_reports_revoked_device_authorization():
+    payload = verify_account_payload(
+        require_signing=True,
+        status_reader=lambda: {
+            "configured": True,
+            "account_address": "oasyce1shared",
+            "account_mode": "attached_signing",
+            "can_sign": False,
+            "signer_name": "oasyce-agent",
+            "signer_matches_account": True,
+            "wallet_present": True,
+            "wallet_matches_account": True,
+            "device_authorization_status": "revoked",
+            "authorization_matches_account": True,
+            "device_matches_authorization": True,
+        },
+    )
+
+    assert payload["ok"] is False
+    assert any("revoked" in issue for issue in payload["issues"])
+
+
+def test_verify_account_payload_reports_copied_device_authorization():
+    payload = verify_account_payload(
+        require_signing=True,
+        status_reader=lambda: {
+            "configured": True,
+            "account_address": "oasyce1shared",
+            "account_mode": "attached_signing",
+            "can_sign": False,
+            "signer_name": "oasyce-agent",
+            "signer_matches_account": True,
+            "wallet_present": True,
+            "wallet_matches_account": True,
+            "device_authorization_status": "active",
+            "authorization_matches_account": True,
+            "device_matches_authorization": False,
+        },
+    )
+
+    assert payload["ok"] is False
+    assert any("different device" in issue for issue in payload["issues"])
+
+
 def test_run_bootstrap_reuses_existing_account_without_creating_wallet(monkeypatch):
     monkeypatch.setenv("OASYCE_NETWORK_MODE", "testnet")
 

@@ -47,17 +47,18 @@ oas doctor                 # optional diagnostics
 
 ## Canonical Onboarding
 
-Keep onboarding truth narrow:
+Keep onboarding truth narrow, with owner account + trusted device:
 
 - Product-facing public beta: [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)
 - Chain-side onboarding and infra context: [chain.oasyce](https://chain.oasyce.com)
-- This surface: concise AI command reference only
+- This surface: concise AI command reference only, not a second parallel onboarding guide
 
 Public beta release gate:
 
 ```bash
 export OASYCE_NETWORK_MODE=testnet
 export OASYCE_STRICT_CHAIN=1
+oas account status --json
 oas doctor --public-beta --json
 oas smoke public-beta --json
 ```

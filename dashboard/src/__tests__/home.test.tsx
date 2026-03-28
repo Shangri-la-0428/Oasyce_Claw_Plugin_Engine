@@ -18,7 +18,7 @@ const mockRegisterForm = vi.hoisted(() => vi.fn(() => null));
 vi.mock('../components/register-form', () => ({ default: mockRegisterForm }));
 
 // ── Imports (after mocks) ──────────────────────────────────
-import { identity, balance, i18n, lang, powProgress } from '../store/ui';
+import { account, identity, balance, i18n, lang, powProgress } from '../store/ui';
 import { assets } from '../store/assets';
 import Home from '../pages/home';
 
@@ -53,6 +53,7 @@ describe('Home', () => {
 
     // Reset signals
     identity.value = null;
+    account.value = null;
     balance.value = null;
     assets.value = [];
     powProgress.value = { mining: false, attempts: 0, found: false };
@@ -82,6 +83,7 @@ describe('Home', () => {
       await mount();
       expect(container.querySelector('.home-accordion')).not.toBeNull();
       expect(container.querySelector('.home-stats')).toBeNull();
+      expect(container.querySelector('.home-account-panel')).not.toBeNull();
 
       const step1 = container.querySelector('[data-step="1"]');
       expect(step1?.classList.contains('is-active')).toBe(true);
@@ -90,6 +92,18 @@ describe('Home', () => {
 
     it('shows step 2 active when wallet exists but no funds', async () => {
       identity.value = { address: 'oasyce1testaddr123456', exists: true };
+      account.value = {
+        configured: true,
+        account_address: 'oasyce1testaddr123456',
+        account_mode: 'managed_local',
+        can_sign: true,
+        signer_name: 'local',
+        signer_address: 'oasyce1testaddr123456',
+        wallet_address: 'oasyce1testaddr123456',
+        wallet_present: true,
+        wallet_matches_account: true,
+        signer_matches_account: true,
+      };
       balance.value = 0;
       await mount();
 
@@ -102,6 +116,18 @@ describe('Home', () => {
 
     it('shows step 3 active when wallet + funds but no assets', async () => {
       identity.value = { address: 'oasyce1testaddr123456', exists: true };
+      account.value = {
+        configured: true,
+        account_address: 'oasyce1testaddr123456',
+        account_mode: 'managed_local',
+        can_sign: true,
+        signer_name: 'local',
+        signer_address: 'oasyce1testaddr123456',
+        wallet_address: 'oasyce1testaddr123456',
+        wallet_present: true,
+        wallet_matches_account: true,
+        signer_matches_account: true,
+      };
       balance.value = 100;
       await mount();
 
@@ -111,6 +137,18 @@ describe('Home', () => {
 
     it('renders veteran dashboard when all steps complete', async () => {
       identity.value = { address: 'oasyce1testaddr123456', exists: true };
+      account.value = {
+        configured: true,
+        account_address: 'oasyce1testaddr123456',
+        account_mode: 'managed_local',
+        can_sign: true,
+        signer_name: 'local',
+        signer_address: 'oasyce1testaddr123456',
+        wallet_address: 'oasyce1testaddr123456',
+        wallet_present: true,
+        wallet_matches_account: true,
+        signer_matches_account: true,
+      };
       balance.value = 100;
       assets.value = [{ asset_id: 'ASSET1' }];
       await mount();
@@ -143,6 +181,18 @@ describe('Home', () => {
 
     it('completed steps show summary inline', async () => {
       identity.value = { address: 'oasyce1testaddr123456', exists: true };
+      account.value = {
+        configured: true,
+        account_address: 'oasyce1testaddr123456',
+        account_mode: 'managed_local',
+        can_sign: true,
+        signer_name: 'local',
+        signer_address: 'oasyce1testaddr123456',
+        wallet_address: 'oasyce1testaddr123456',
+        wallet_present: true,
+        wallet_matches_account: true,
+        signer_matches_account: true,
+      };
       balance.value = 0;
       await mount();
 
@@ -157,12 +207,25 @@ describe('Home', () => {
   // 3. Step Actions
   // ════════════════════════════════════════════════════════
   describe('step actions', () => {
-    it('step 1 create account calls POST /identity/create', async () => {
+    it('step 1 prepare device calls POST /account/bootstrap', async () => {
       mockFetch.mockImplementation((url: string, opts?: any) => {
         if (url?.includes('/api/auth/token'))
           return Promise.resolve({ ok: false, status: 404, text: async () => '', json: async () => ({}) });
-        if (url?.includes('/identity/create') && opts?.method === 'POST')
-          return Promise.resolve(okJson({ ok: true, address: 'oasyce1new', created: true }));
+        if (url?.includes('/account/bootstrap') && opts?.method === 'POST')
+          return Promise.resolve(okJson({ ok: true }));
+        if (url?.includes('/account/status'))
+          return Promise.resolve(okJson({
+            configured: true,
+            account_address: 'oasyce1new',
+            account_mode: 'managed_local',
+            can_sign: true,
+            signer_name: 'local',
+            signer_address: 'oasyce1new',
+            wallet_address: 'oasyce1new',
+            wallet_present: true,
+            wallet_matches_account: true,
+            signer_matches_account: true,
+          }));
         if (url?.includes('/identity/wallet'))
           return Promise.resolve(okJson({ address: 'oasyce1new', exists: true }));
         if (url?.includes('/balance'))
@@ -172,20 +235,77 @@ describe('Home', () => {
 
       await mount();
       const activeStep = container.querySelector('.accordion-step.is-active');
-      const btn = activeStep?.querySelector('.btn-primary') as HTMLButtonElement;
+      const btn = activeStep?.querySelector('.home-account-card .btn-primary') as HTMLButtonElement;
       expect(btn).not.toBeNull();
 
       await act(async () => { btn.click(); });
       await settle();
 
       const postCalls = mockFetch.mock.calls.filter(
-        (c: any[]) => c[0]?.includes('/identity/create'),
+        (c: any[]) => c[0]?.includes('/account/bootstrap'),
       );
       expect(postCalls.length).toBeGreaterThan(0);
     });
 
+    it('step 1 join existing read-only calls POST /device/join', async () => {
+      mockFetch.mockImplementation((url: string, opts?: any) => {
+        if (url?.includes('/device/join') && opts?.method === 'POST')
+          return Promise.resolve(okJson({ ok: true }));
+        if (url?.includes('/account/status'))
+          return Promise.resolve(okJson({
+            configured: true,
+            account_address: 'oasyce1joined',
+            account_mode: 'attached_readonly',
+            can_sign: false,
+            signer_name: '',
+            signer_address: '',
+            wallet_address: '',
+            wallet_present: false,
+            wallet_matches_account: false,
+            signer_matches_account: false,
+          }));
+        if (url?.includes('/balance'))
+          return Promise.resolve(okJson({ balance_oas: 5 }));
+        return Promise.resolve({ ok: false, status: 404, text: async () => '', json: async () => ({}) });
+      });
+
+      await mount();
+      const readonlyTab = Array.from(container.querySelectorAll('.home-account-modes .btn'))
+        .find(btn => btn.textContent?.includes('只读'));
+      expect(readonlyTab).not.toBeNull();
+      await act(async () => { (readonlyTab as HTMLButtonElement).click(); });
+
+      const input = container.querySelector('#join-account-address') as HTMLInputElement;
+      await act(async () => {
+        input.value = 'oasyce1joined';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const submit = Array.from(container.querySelectorAll('.home-account-card .btn-primary'))
+        .find(btn => btn.textContent?.includes('接入'));
+      expect(submit).not.toBeNull();
+      await act(async () => { (submit as HTMLButtonElement).click(); });
+      await settle();
+
+      const joinCalls = mockFetch.mock.calls.filter(
+        (c: any[]) => c[0]?.includes('/device/join'),
+      );
+      expect(joinCalls.length).toBeGreaterThan(0);
+    });
+
     it('step 2 claim calls selfRegister endpoint', async () => {
       identity.value = { address: 'oasyce1testaddr123456', exists: true };
+      account.value = {
+        configured: true,
+        account_address: 'oasyce1testaddr123456',
+        account_mode: 'managed_local',
+        can_sign: true,
+        signer_name: 'local',
+        signer_address: 'oasyce1testaddr123456',
+        wallet_address: 'oasyce1testaddr123456',
+        wallet_present: true,
+        wallet_matches_account: true,
+        signer_matches_account: true,
+      };
       balance.value = 0;
 
       mockFetch.mockImplementation((url: string) => {
@@ -210,6 +330,18 @@ describe('Home', () => {
 
     it('step 3 renders RegisterForm with compact=true, no mode switch', async () => {
       identity.value = { address: 'oasyce1testaddr123456', exists: true };
+      account.value = {
+        configured: true,
+        account_address: 'oasyce1testaddr123456',
+        account_mode: 'managed_local',
+        can_sign: true,
+        signer_name: 'local',
+        signer_address: 'oasyce1testaddr123456',
+        wallet_address: 'oasyce1testaddr123456',
+        wallet_present: true,
+        wallet_matches_account: true,
+        signer_matches_account: true,
+      };
       balance.value = 100;
       await mount();
 
@@ -229,6 +361,21 @@ describe('Home', () => {
   describe('veteran view', () => {
     beforeEach(() => {
       identity.value = { address: 'oasyce1testaddr123456', exists: true };
+      account.value = {
+        configured: true,
+        account_address: 'oasyce1testaddr123456',
+        account_mode: 'managed_local',
+        device_id: 'device-A',
+        device_authorization_status: 'active',
+        device_authorization_expires_at: 0,
+        can_sign: true,
+        signer_name: 'local',
+        signer_address: 'oasyce1testaddr123456',
+        wallet_address: 'oasyce1testaddr123456',
+        wallet_present: true,
+        wallet_matches_account: true,
+        signer_matches_account: true,
+      };
       balance.value = 250;
       assets.value = [{ asset_id: 'ASSET1' }, { asset_id: 'ASSET2' }];
     });
@@ -319,6 +466,21 @@ describe('Home', () => {
   describe('success state', () => {
     beforeEach(() => {
       identity.value = { address: 'oasyce1testaddr123456', exists: true };
+      account.value = {
+        configured: true,
+        account_address: 'oasyce1testaddr123456',
+        account_mode: 'managed_local',
+        device_id: 'device-A',
+        device_authorization_status: 'active',
+        device_authorization_expires_at: 0,
+        can_sign: true,
+        signer_name: 'local',
+        signer_address: 'oasyce1testaddr123456',
+        wallet_address: 'oasyce1testaddr123456',
+        wallet_present: true,
+        wallet_matches_account: true,
+        signer_matches_account: true,
+      };
       balance.value = 100;
     });
 

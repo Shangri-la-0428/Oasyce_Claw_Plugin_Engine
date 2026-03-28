@@ -122,12 +122,14 @@ Open `http://localhost:8420/explore` to see all data assets and AI capabilities 
 <!-- BEGIN GENERATED:PUBLIC_BETA -->
 ## Testnet (Public Beta vs Local Sandbox)
 
-The **single product-facing public beta guide** lives at [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md). For real public testnet onboarding, follow the chain-side guide on [chain.oasyce](https://chain.oasyce.com). `oas sandbox *` is only the local sandbox simulation and is not real public testnet onboarding.
+The **single product-facing public beta guide** lives at [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md). For real public testnet onboarding, follow the chain-side guide on [chain.oasyce](https://chain.oasyce.com). The identity model is now **owner account + trusted device**: primary devices start with `oas bootstrap`, and secondary devices attach with `oas device join`. `oas sandbox *` is only the local sandbox simulation and is not real public testnet onboarding.
 
 ```bash
 oas --json sandbox status   # Inspect the local sandbox state
 oas --json sandbox onboard  # Local simulation: faucet + sample asset + stake
 oas sandbox reset --force   # Reset local sandbox data
+oas device join --account <ACCOUNT_ADDRESS> --readonly   # attach a second device to the same account
+oas device revoke   # revoke this machine's trusted-device authorization
 oas doctor --public-beta --json   # public beta release gate
 ```
 <!-- END GENERATED:PUBLIC_BETA -->
@@ -161,6 +163,8 @@ oas buy <asset_id>     # Buy shares
 oas sell <asset_id> --amount <n>  # Sell shares back to the curve
   --max-slippage 0.05               # Slippage protection (default 5%)
 ```
+
+For multi-device onboarding under the **same economic account**, and for the Dashboard first-run attach flow, use [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md). The README intentionally does not duplicate that onboarding sequence.
 
 ### Disputes
 

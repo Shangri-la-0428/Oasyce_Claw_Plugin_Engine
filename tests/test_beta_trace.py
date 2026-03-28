@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from oasyce.gui import app as gui_app
+from oasyce.services.beta_support import BetaSupportStore
 from oasyce.services.facade import OasyceServiceFacade, ServiceResult
 
 
@@ -263,6 +264,21 @@ def test_register_missing_wallet_marks_failed_state(monkeypatch):
     assert body["state"] == "failed"
     assert body["retryable"] is False
     assert body["trace_id"] == trace_id
+
+
+def test_log_beta_trace_records_device_id(monkeypatch):
+    store = BetaSupportStore(max_events=10)
+    monkeypatch.setattr(gui_app, "get_beta_support_store", lambda: store)
+    monkeypatch.setattr(
+        "oasyce.account_state.resolve_current_device_id",
+        lambda create=False: "device-trace-1",
+    )
+
+    gui_app._log_beta_trace("info", "quote.success", "trace-device-1", asset_id="ASSET_1")
+
+    snapshot = store.snapshot(limit=5)
+    assert snapshot["events"][0]["trace_id"] == "trace-device-1"
+    assert snapshot["events"][0]["fields"]["device_id"] == "device-trace-1"
 
 
 def test_facade_quote_logs_trace_id(caplog, monkeypatch):

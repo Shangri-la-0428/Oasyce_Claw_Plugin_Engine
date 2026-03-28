@@ -1,5 +1,9 @@
 # Account Unification Plan
 
+This document is now a delivery plan under the canonical architecture defined in:
+
+- `/Users/wutongcheng/Desktop/Net/oasyce-net/docs/IDENTITY_WALLET_ARCHITECTURE.md`
+
 ## Goal
 
 Make Oasyce treat one user's economic identity as a single canonical account across:
@@ -13,6 +17,17 @@ Target outcome:
 - second device does not silently create a different economic account
 - AI agents can act under the same account intentionally
 - node identity, local wallet, and chain signer are no longer conflated
+
+This plan follows the minimal shipping rule from:
+
+- `/Users/wutongcheng/Desktop/Net/oasyce-net/docs/IDENTITY_WALLET_ARCHITECTURE.md`
+
+Meaning:
+
+- account + signer coherence is the hard gate
+- device is the V1 authorization boundary
+- agent begins as explicit audit metadata, not as a heavyweight subsystem
+- session / trace stay mandatory for audit
 
 ## Current Problems
 
@@ -39,10 +54,11 @@ This causes drift:
 ## Design Principles
 
 1. Canonical economic account = chain account address
-2. Node identity is not economic identity
-3. Read-only attach and write-capable attach must be explicit
-4. No silent fallback to a fresh account on a second device
-5. All economic defaults must resolve through one account resolver
+2. Trusted device identity is the V1 authorization boundary
+3. Agent identity starts as an audit label, not a signing principal
+4. Read-only attach and write-capable attach must be explicit
+5. No silent fallback to a fresh account on a second device
+6. All economic defaults must resolve through one account resolver
 
 ## Target Model
 
@@ -77,9 +93,21 @@ This file should store only explicit attach intent:
 Wallet address, signer address, and match/coherence fields must be derived live.
 That avoids creating a second stale state snapshot that drifts from local signer or wallet state.
 
-## Release Strategy
+For V1, add one trusted-device model on top:
 
-### Phase 1: Canonical account resolver
+- `device_id`
+- `authorization_status`
+  - `readonly`
+  - `active`
+  - `expired`
+  - `revoked`
+- `authorization_expires_at`
+
+For V1, `agent_id` remains an audit field, not an authorization principal.
+
+## Execution Sequence
+
+### Phase 1: Canonical owner account
 
 Add one shared resolver used by:
 
@@ -99,9 +127,23 @@ Acceptance:
 
 - register / buy / sell / stake no longer infer account identity from ad hoc local rules
 
-### Phase 2: Attach or create account flow
+### Phase 2: Trusted device identity
 
-Add explicit account lifecycle commands:
+Add a minimal trusted-device authorization model:
+
+- one owner can bind multiple devices
+- one device can be `readonly` or `active`
+- device authorization can expire
+- device authorization can be revoked
+
+Acceptance:
+
+- one owner may safely use multiple devices at once
+- readonly and signing devices are explicit and auditable
+
+### Phase 3: Attach or create account flow
+
+Add explicit account / device lifecycle commands:
 
 - `oas account status`
 - `oas account adopt`
@@ -117,7 +159,7 @@ Acceptance:
 
 - second device does not silently create a new economic identity during bootstrap
 
-### Phase 3: Bootstrap refactor
+### Phase 4: Bootstrap refactor
 
 Refactor `oas bootstrap`:
 
@@ -132,11 +174,11 @@ Acceptance:
 
 - bootstrap cannot end in "wallet address A, signer B" drift
 
-### Phase 4: Multi-device safety gates
+### Phase 5: Multi-device safety gates
 
 Extend doctor/smoke:
 
-- detect wallet/signer/account mismatch
+- detect device/account/signer mismatch
 - detect readonly device trying to perform write operations
 - fail if business actor and signer actor are inconsistent
 
@@ -145,13 +187,68 @@ Acceptance:
 - `oas doctor --public-beta --json` reports account coherence
 - `oas smoke public-beta --json` uses canonical account resolution only
 
-### Phase 5: Signing model hardening
+### Phase 6: Off-chain first behavior
+
+Treat high-frequency behavior as off-chain first:
+
+- signals, traces, and local coordination stay off-chain
+- only low-frequency settlements, anchors, or final writes go on-chain
+
+Acceptance:
+
+- identity design does not force every runtime event into a chain transaction
+
+### Phase 7: Agent and session audit labels
+
+Add:
+
+- `agent_id`
+- `session_id`
+- `trace_id`
+
+as stable audit labels across writes and important reads.
+
+Acceptance:
+
+- Oasyce can answer who acted, on which device, in which run
+- without turning agents into first-class signing principals yet
+
+### Phase 8: CLI adaptation
+
+Make CLI reflect the V1 model by default:
+
+- owner account first
+- trusted device attach / verify second
+- agent and session metadata attached automatically where relevant
+
+Acceptance:
+
+- multi-device same-owner flow is simple from CLI
+
+### Phase 9: Dashboard adaptation
+
+Make Dashboard reflect the same model:
+
+- current owner account is visible
+- current device mode is visible
+- readonly vs active signing state is explicit
+- agent label can be shown later without becoming the authorization boundary
+
+Acceptance:
+
+- a user can understand "who owns this", "can this device sign", and "what mode am I in" without opening the CLI docs
+
+### Phase 10: Future hardening
+
+Later, if needed:
 
 Support safer same-account multi-device patterns:
 
-- local `oasyced` signer attach
+- device subkeys
 - future `NativeSigner` attach
 - future external signer / hardware wallet
+- future agent-level delegation
+- future permission layering
 
 Important rule:
 
@@ -161,16 +258,29 @@ Acceptance:
 
 - "same account on multiple devices" is an explicit supported workflow, not an accident
 
-## Immediate TODO
+## Concrete TODO
 
-1. Create `account_state.py` and define canonical account profile schema
-2. Replace economic identity defaults in CLI and GUI with one shared account resolver
-3. Add `oas account status`
-4. Add `oas account adopt --address ... [--signer-name ...] [--readonly]`
-5. Make `bootstrap` account-aware and fail-closed on mismatches
-6. Extend `doctor --public-beta` to check account coherence
-7. Extend smoke to use canonical account only
-8. Update docs so multi-device usage has one canonical guide
+### V1 foundation
+
+1. Keep canonical owner account resolution as the only economic default
+2. Introduce a minimal trusted-device authorization state
+3. Define expiry and revocation semantics for trusted devices
+4. Ensure multi-device online coexistence is explicit and tested
+5. Emit `device_id` in trace / audit envelopes
+6. Keep `session_id` / `trace_id` mandatory for operationally important writes
+7. Preserve off-chain-first behavior for high-frequency signals
+
+### V1 workflow adaptation
+
+8. Make CLI treat device attach / verify as the default same-owner flow
+9. Make Dashboard expose owner account, device mode, and signing capability clearly
+
+### V2 follow-ups
+
+10. Introduce explicit `agent_id` everywhere important as an audit label
+11. Separate device identity from agent identity in downstream SDK envelopes
+12. Add session key / subkey / delegation key only if V1 proves insufficient
+13. Add permission layering only after same-owner multi-device flows are stable
 
 ## Non-Goals
 
@@ -179,6 +289,10 @@ These are not part of the first rollout:
 - cross-device secret sync service
 - cloud-hosted wallet custody
 - background account replication between machines
+- agent key infrastructure
+- delegation token protocol
+- standalone device registry
+- full agent-level permissioning
 
 Those can come later. First we need one coherent local account model.
 

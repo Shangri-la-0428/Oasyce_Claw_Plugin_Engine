@@ -25,6 +25,24 @@ export const toasts = signal<{ id: string; message: string; type: string }[]>([]
 /** Wallet identity state */
 export const identity = signal<{ address: string; exists: boolean } | null>(null);
 
+/** Canonical account state */
+export interface AccountStatus {
+  configured: boolean;
+  account_address: string;
+  account_mode: string;
+  device_id: string;
+  device_authorization_status: string;
+  device_authorization_expires_at: number;
+  can_sign: boolean;
+  signer_name: string;
+  signer_address: string;
+  wallet_address: string;
+  wallet_present: boolean;
+  wallet_matches_account: boolean;
+  signer_matches_account: boolean;
+}
+export const account = signal<AccountStatus | null>(null);
+
 /** OAS balance */
 export const balance = signal<number | null>(null);
 
@@ -116,14 +134,121 @@ export async function loadIdentity(): Promise<void> {
   }
 }
 
-/** Get the current wallet address, falling back to 'anonymous' */
-export function walletAddress(): string {
+/** Load canonical economic account status from backend */
+export async function loadAccountStatus(): Promise<void> {
+  try {
+    const res = await fetch('/api/account/status');
+    if (res.ok) {
+      const data = await res.json();
+      account.value = {
+        configured: !!data.configured,
+        account_address: data.account_address || '',
+        account_mode: data.account_mode || 'unconfigured',
+        device_id: data.device_id || '',
+        device_authorization_status: data.device_authorization_status || 'unconfigured',
+        device_authorization_expires_at: Number(data.device_authorization_expires_at || 0),
+        can_sign: !!data.can_sign,
+        signer_name: data.signer_name || '',
+        signer_address: data.signer_address || '',
+        wallet_address: data.wallet_address || '',
+        wallet_present: !!data.wallet_present,
+        wallet_matches_account: !!data.wallet_matches_account,
+        signer_matches_account: !!data.signer_matches_account,
+      };
+    }
+  } catch {
+    // Backend not available — leave account state as null
+  }
+}
+
+/** Get the local wallet address only, falling back to 'anonymous' */
+export function localWalletAddress(): string {
   return identity.value?.exists ? identity.value.address : 'anonymous';
+}
+
+/** Get the current economic account address, falling back to wallet or 'anonymous'. */
+export function currentAccountAddress(): string {
+  if (account.value?.configured && account.value.account_address) {
+    return account.value.account_address;
+  }
+  return localWalletAddress();
+}
+
+/** Backward-compatible alias for the current actor address used across the dashboard. */
+export function walletAddress(): string {
+  return currentAccountAddress();
+}
+
+/** Whether the current canonical account can sign write actions on this device. */
+export function currentAccountCanSign(): boolean {
+  return !!account.value?.can_sign;
+}
+
+export async function prepareLocalAccount(): Promise<ApiActionResult> {
+  const res = await fetch('/api/account/bootstrap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  const data = await readJsonSafe(res);
+  if (!res.ok || !data?.ok) {
+    return {
+      ok: false,
+      error: data?.error || 'error-generic',
+      issues: data?.verify?.issues || [],
+      warnings: data?.verify?.warnings || [],
+    };
+  }
+  await refreshAccountContext();
+  return { ok: true, data };
+}
+
+export async function joinExistingAccount(params: {
+  accountAddress: string;
+  signerName?: string;
+  readonly: boolean;
+}): Promise<ApiActionResult> {
+  const res = await fetch('/api/device/join', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      account_address: params.accountAddress,
+      signer_name: params.signerName,
+      readonly: params.readonly,
+    }),
+  });
+  const data = await readJsonSafe(res);
+  if (!res.ok || !data?.ok) {
+    return {
+      ok: false,
+      error: data?.error || 'error-generic',
+      issues: data?.verify?.issues || [],
+      warnings: data?.verify?.warnings || [],
+      data,
+    };
+  }
+  await refreshAccountContext();
+  return { ok: true, data };
+}
+
+interface ApiActionResult {
+  ok: boolean;
+  error?: string;
+  issues?: string[];
+  warnings?: string[];
+  data?: any;
+}
+
+export async function refreshAccountContext(): Promise<void> {
+  await loadIdentity();
+  await loadAccountStatus();
+  await loadBalance();
+  await loadNotifications();
 }
 
 /** Load OAS balance from backend */
 export async function loadBalance(): Promise<void> {
-  const addr = walletAddress();
+  const addr = currentAccountAddress();
   if (addr === 'anonymous') { balance.value = 0; return; }
   try {
     const res = await fetch(`/api/balance?address=${encodeURIComponent(addr)}`);
@@ -143,7 +268,7 @@ export const powProgress = signal<{ mining: boolean; attempts: number; found: bo
 
 /** Self-register via PoW — computes nonce client-side, then submits to backend */
 export async function selfRegister(): Promise<{ ok: boolean; amount?: number; error?: string }> {
-  const addr = walletAddress();
+  const addr = localWalletAddress();
   if (addr === 'anonymous') return { ok: false, error: 'no wallet' };
 
   powProgress.value = { mining: true, attempts: 0, found: false };
@@ -208,10 +333,7 @@ export function initUI() {
     });
 
   // Load wallet identity then balance + notifications in background
-  loadIdentity().then(() => {
-    loadBalance();
-    loadNotifications();
-  }).catch(() => {});
+  refreshAccountContext().catch(() => {});
 }
 
 /** Cycle: system → dark → light → system */
@@ -549,13 +671,15 @@ const dict: Record<string, Record<string, string>> = {
     'theme-system': '跟随系统主题',
     'lang-system': '跟随系统语言',
     'recent-trades': '最近交易',
-    'wallet-needed': '创建账户以注册和交易',
-    'wallet': '账户',
+    'wallet-needed': '先准备或接入账号，才能注册和交易',
+    'wallet': '本地钱包',
+    'account': '账号',
+    'mode': '模式',
     'create-wallet': '创建账户',
     'skip-to-content': '跳至内容',
     'wallet-created': '账户已创建',
-    'onboard-step1': '创建账户',
-    'onboard-step1-hint': '一键生成，不需要密码或邮箱',
+    'onboard-step1': '准备设备',
+    'onboard-step1-hint': '创建本机账号，或接入已有账号',
     'onboard-step2': '领取新手奖励',
     'onboard-step2-hint': '完成一个小任务，获得免费积分',
     'onboard-step2-btn': '领取积分',
@@ -564,9 +688,30 @@ const dict: Record<string, Record<string, string>> = {
     'onboard-step3': '上传你的第一个文件',
     'onboard-step3-hint': '拖入文件即可，高级选项以后再说',
     'onboard-welcome': '三步开始',
-    'onboard-welcome-hint': '不到一分钟，你的数据就能开始产生收益。',
-    'gate-create-body': '生成一个唯一 ID 作为你在网络中的身份。',
+    'onboard-welcome-hint': '先准备这台设备的账号，再进入市场和注册流程。',
+    'gate-create-body': '先把这台设备接入正确的经济账号。你可以新建本机账号，也可以绑定一个已有账号。',
     'gate-funds-body': '完成一个小计算任务，获取你的第一笔积分。',
+    'account-entry-title': '账号接入方式',
+    'prepare-device': '准备本机账号',
+    'prepare-device-hint': '为这台设备创建可签名的公测身份，并连接默认环境。',
+    'join-existing': '接入已有账号',
+    'join-existing-readonly': '只读接入',
+    'join-existing-signing': '带 signer 接入',
+    'join-account-address': '账号地址',
+    'join-account-address-hint': '输入已有账号地址，例如 oasyce1...',
+    'join-signer-name': 'Signer 名称',
+    'join-signer-name-hint': '输入这台机器本地已有的 signer 名称',
+    'join-readonly-hint': '适合浏览市场、查看持仓和 AI 协作，不会直接发起链上交易。',
+    'join-signing-hint': '只有这台机器本地已经存在同一个 signer，才能用此模式手动交易。',
+    'device-prepare-success': '这台设备的账号已就绪',
+    'device-join-success': '设备已接入该账号',
+    'readonly-device-title': '已接入同一账号',
+    'readonly-device-body': '这台设备已经连接到同一个经济账号，但当前是只读模式。',
+    'readonly-device-upgrade': '如果要在这台设备上手动注册、买卖或质押，请用同一个 signer 重新接入。',
+    'readonly-device-cta-market': '浏览市场',
+    'readonly-device-cta-network': '查看网络',
+    'account-mode-readonly': '只读',
+    'account-mode-signing': '可签名',
     'success-outcome': '已上线',
     'success-outcome-body': '你的文件现在可以被发现和购买了。收益会自动到账。',
     'success-cta-market': '去市场看看',
@@ -1035,13 +1180,15 @@ const dict: Record<string, Record<string, string>> = {
     'theme-system': 'Follow system theme',
     'lang-system': 'Follow system language',
     'recent-trades': 'Recent trades',
-    'wallet-needed': 'Create an account to register and trade',
-    'wallet': 'Account',
+    'wallet-needed': 'Prepare or join an account before registering or trading',
+    'wallet': 'Local wallet',
+    'account': 'Account',
+    'mode': 'Mode',
     'create-wallet': 'Create account',
     'skip-to-content': 'Skip to content',
     'wallet-created': 'Account created',
-    'onboard-step1': 'Create account',
-    'onboard-step1-hint': 'One click, no password or email needed',
+    'onboard-step1': 'Prepare device',
+    'onboard-step1-hint': 'Create a local account or join an existing one',
     'onboard-step2': 'Claim starter bonus',
     'onboard-step2-hint': 'Complete a quick task to get free credits',
     'onboard-step2-btn': 'Claim credits',
@@ -1050,9 +1197,30 @@ const dict: Record<string, Record<string, string>> = {
     'onboard-step3': 'Upload your first file',
     'onboard-step3-hint': 'Just drop a file — advanced options come later',
     'onboard-welcome': 'Get started',
-    'onboard-welcome-hint': 'Under a minute — then your data starts earning.',
-    'gate-create-body': 'Generates a unique ID as your identity on the network.',
+    'onboard-welcome-hint': 'Prepare this device first, then continue into market and registration flows.',
+    'gate-create-body': 'Attach this device to the right economic account first. You can create a local signing account or join an existing account.',
     'gate-funds-body': 'Solve a quick computation task to earn your first credits.',
+    'account-entry-title': 'Account entry',
+    'prepare-device': 'Prepare this device',
+    'prepare-device-hint': 'Create a write-capable public beta identity on this device and connect the default environment.',
+    'join-existing': 'Join existing account',
+    'join-existing-readonly': 'Join read-only',
+    'join-existing-signing': 'Join with signer',
+    'join-account-address': 'Account address',
+    'join-account-address-hint': 'Enter an existing account address, e.g. oasyce1...',
+    'join-signer-name': 'Signer name',
+    'join-signer-name-hint': 'Enter a signer name that already exists on this device',
+    'join-readonly-hint': 'Best for browsing, holdings, quoting, and AI collaboration. No direct on-chain writes.',
+    'join-signing-hint': 'Use this only if the same signer already exists on this device.',
+    'device-prepare-success': 'This device account is ready',
+    'device-join-success': 'Device joined to this account',
+    'readonly-device-title': 'Shared account connected',
+    'readonly-device-body': 'This device is attached to the same economic account, but currently in read-only mode.',
+    'readonly-device-upgrade': 'To register, buy, sell, or stake manually on this device, re-join it with the same signer.',
+    'readonly-device-cta-market': 'Browse market',
+    'readonly-device-cta-network': 'Open network',
+    'account-mode-readonly': 'Read-only',
+    'account-mode-signing': 'Signing',
     'success-outcome': 'Live',
     'success-outcome-body': 'Your file is now discoverable and purchasable. Earnings arrive in your account automatically.',
     'success-cta-market': 'Visit market',

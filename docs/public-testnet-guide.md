@@ -1,6 +1,6 @@
 # Oasyce 公开测试网 — 快速上手
 
-> 真实公开测试分成两部分：链上身份接入走 `oasyce-chain`，AI/数据工作流走 `oas + DataVault`。
+> 公开测试现在只保留一个产品规则：**owner account + trusted device**。主设备先 `oas bootstrap`，第二台设备用 `oas device join` 接入同一账号。
 
 ---
 
@@ -8,10 +8,13 @@
 
 ```bash
 # 1. 安装
-pip install oasyce
+python3 -m pip install --upgrade --upgrade-strategy eager oasyce odv
 
-# 2. AI-first 初始化（自更新 + 钱包 + DataVault）
+# 2. 主设备初始化（自更新 + 钱包 + DataVault）
 oas bootstrap
+
+# 2.1 看看这台机器当前绑定的账号
+oas account status --json
 
 # 3. 完成真实链上接入（当前由链 CLI 负责）
 # 详见: https://chain.oasyce.com
@@ -35,7 +38,7 @@ export OASYCE_STRICT_CHAIN=1
 oas doctor --public-beta --json
 ```
 
-只有当 `oas doctor --public-beta --json` 返回 `status: ok`，才说明这台机器已经满足公开测试的最小发布门槛：网络模式正确、不会回退到本地账本、钱包已就绪、DataVault 可用、公共链端点可达。
+只有当 `oas doctor --public-beta --json` 返回 `status: ok`，才说明这台机器已经满足公开测试的最小发布门槛：网络模式正确、不会回退到本地账本、trusted-device 状态可用、DataVault 可用、公共链端点可达。
 
 如果你是在做发版或邀请新一批 beta 用户，继续执行：
 
@@ -49,7 +52,7 @@ oas smoke public-beta --json
 
 ## 多设备使用同一账号
 
-如果你希望另一台电脑上的 `Codex`、`Claude Code` 或其他 AI 继续代表**同一个经济账号**行动，不要在第二台设备上直接裸跑默认 `oas bootstrap`。先区分两种设备角色：
+如果你希望另一台电脑上的 `Codex`、`Claude Code` 或其他 AI 继续代表**同一个经济账号**行动，不要在第二台设备上直接裸跑默认 `oas bootstrap`。现在只需要区分两种设备角色：主设备，和接入已有账号的设备。
 
 ### 主设备（负责签名）
 
@@ -58,13 +61,13 @@ export OASYCE_NETWORK_MODE=testnet
 export OASYCE_STRICT_CHAIN=1
 oas bootstrap
 oas account status --json
-oas account verify --require-signing --json
+oas doctor --public-beta --json
 ```
 
 记下这两个值：
 
 - `account_address`
-- `signer_name`
+- `signer_name`（如果你准备让第二台设备也代签）
 
 ### 第二台设备，只读接入同一账号
 
@@ -74,7 +77,7 @@ export OASYCE_STRICT_CHAIN=1
 oas device join --account <ACCOUNT_ADDRESS> --readonly
 ```
 
-这台机器会附着到同一个 canonical account，但不会尝试代表它签名。
+这台机器会附着到同一个 owner account，但不会尝试代表它签名。适合人工浏览、搜索、报价、查看持仓、让 AI 做读操作。
 
 ### 第二台设备，也要代表同一账号签名
 
@@ -87,17 +90,36 @@ oas device join --account <ACCOUNT_ADDRESS> --signer-name <SIGNER_NAME>
 oas doctor --public-beta --json
 ```
 
-只有当 `doctor` 通过，才说明这台机器真的能以同一个 canonical account 做链上经济动作。
+只有当 `doctor` 通过，才说明这台机器真的能以同一个 owner account 做链上经济动作。
+
+### 撤销一台设备
+
+```bash
+oas device revoke
+```
+
+如果一台设备不再可信，或者你不再想让它继续代表当前账号行动，直接在那台机器上撤销 trusted-device 授权。
 
 ### 当前边界
 
-- `oas device join`：第二台设备的最简单接入入口
-- `oas account status`：查看这台机器当前绑定的 canonical account
-- `oas account verify`：检查这台机器是否真的能以该账号工作
-- `oas account adopt`：显式附着到已有账号
-- `oas bootstrap`：只做环境准备，并尊重已有的 canonical account
-- `device join` 内部仍然是 `account adopt + bootstrap + verify`
-- 如果第二台机器没有显式 `account adopt`，而是直接创建新的本地 signer，那么它就会形成**新的经济账号**
+- `oas bootstrap`：主设备入口，准备环境并尊重已有账号绑定
+- `oas device join`：第二台设备最简单的入口
+- `oas account status`：查看这台机器当前绑定的 owner account 和 trusted-device 状态
+- `oas account verify`：更底层的诊断命令，通常只在排障时使用
+- 如果一台机器直接生成新的本地 signer 而不是走 `device join`，它就会形成**新的经济账号**
+
+## Dashboard 手动路径
+
+```bash
+oas start
+```
+
+打开 Dashboard 首页后，现在只有两条手动入口：
+
+- `Prepare this device`：把这台机器准备成主设备
+- `Join existing account`：把这台机器接到已有账号
+
+也就是说，Dashboard 现在是手动操作面，但它已经遵循同一套 `owner account + trusted device` 规则，不再要求用户去理解多套并行身份模型。
 
 ---
 

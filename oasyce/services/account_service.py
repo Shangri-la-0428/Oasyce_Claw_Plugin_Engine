@@ -30,6 +30,15 @@ def verify_account_payload(
         issues.append("No canonical account is configured on this device.")
     if status.get("configured") and not status.get("account_address"):
         issues.append("Canonical account configuration is missing an account address.")
+    auth_status = str(status.get("device_authorization_status") or "").strip()
+    if auth_status == "revoked":
+        issues.append("This device authorization has been revoked.")
+    elif auth_status == "expired":
+        issues.append("This device authorization has expired.")
+    if status.get("configured") and not status.get("authorization_matches_account", True):
+        issues.append("Trusted device authorization belongs to a different canonical account.")
+    if status.get("configured") and not status.get("device_matches_authorization", True):
+        issues.append("Trusted device authorization belongs to a different device.")
     if require_signing and not status.get("can_sign"):
         issues.append("This device cannot sign as the canonical account.")
     if status.get("signer_name") and not status.get("signer_matches_account"):
@@ -53,6 +62,7 @@ def adopt_account_payload(
     account_address: Optional[str] = None,
     signer_name: Optional[str] = None,
     readonly: bool = False,
+    authorization_expires_at: Optional[float] = None,
     adopter: Optional[Callable[..., Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     if adopter is None:
@@ -63,7 +73,20 @@ def adopt_account_payload(
         account_address=account_address,
         signer_name=signer_name,
         readonly=readonly,
+        authorization_expires_at=authorization_expires_at,
     )
+    return {"ok": True, **status}
+
+
+def revoke_device_payload(
+    *,
+    revoker: Optional[Callable[..., Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    if revoker is None:
+        from oasyce.account_state import revoke_device_authorization
+
+        revoker = revoke_device_authorization
+    status = revoker()
     return {"ok": True, **status}
 
 
@@ -72,6 +95,7 @@ def join_device_payload(
     account_address: str,
     signer_name: Optional[str] = None,
     readonly: bool = False,
+    authorization_expires_at: Optional[float] = None,
     no_update: bool = False,
     check_package_updates: Callable[[], list[dict[str, Any]]],
     upgrade_managed_packages: Callable[[], Any],
@@ -88,6 +112,7 @@ def join_device_payload(
         account_address=account_address,
         signer_name=signer_name,
         readonly=readonly,
+        authorization_expires_at=authorization_expires_at,
         adopter=adopter,
     )
 

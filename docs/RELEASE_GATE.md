@@ -79,6 +79,7 @@ Keep these structural rules:
 - local sandbox and public testnet must stay separate
 - public beta must fail closed, never silently fall back to local state
 - docs must point to one canonical onboarding flow
+- identity must stay `owner account + trusted device`; secondary devices must not drift back to ad hoc wallet flows
 - main-branch docker CI should optimize for fast signal; release tags can do heavier multi-arch work
 - style-only lint expansions must never be introduced as release blockers without an explicit cleanup project
 

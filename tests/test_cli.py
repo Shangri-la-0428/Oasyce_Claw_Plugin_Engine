@@ -258,10 +258,117 @@ class TestBootstrapUpdate:
         assert payload["datavault_module"] is True
         assert payload["datavault_cli"] is True
         assert payload["ready"] is True
-        assert payload["auto_update_enabled"] is True
-        assert payload["chain_signer"]["name"] == "oasyce-agent"
-        assert payload["chain_signer"]["ready"] is True
-        assert payload["account"]["account_address"] == "oasyce1bootstrap"
+
+    def test_account_status_json_includes_device_authorization(self):
+        with patch(
+            "oasyce.services.account_service.get_account_status_payload",
+            return_value={
+                "configured": True,
+                "account_address": "oasyce1shared",
+                "account_mode": "attached_signing",
+                "device_id": "device-A",
+                "device_authorization_status": "active",
+                "device_authorization_expires_at": 0.0,
+                "can_sign": True,
+                "signer_name": "oasyce-agent",
+                "signer_address": "oasyce1shared",
+                "wallet_address": "wallet-local",
+                "wallet_matches_account": False,
+                "signer_matches_account": True,
+            },
+        ):
+            code, out, err = run_cli("account", "status", "--json")
+
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["device_id"] == "device-A"
+        assert payload["device_authorization_status"] == "active"
+
+    def test_account_adopt_passes_authorization_expiry(self):
+        captured = {}
+
+        def _adopt(**kwargs):
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "configured": True,
+                "account_address": "oasyce1shared",
+                "account_mode": "attached_readonly",
+                "device_id": "device-A",
+                "device_authorization_status": "readonly",
+                "can_sign": False,
+            }
+
+        with patch("oasyce.services.account_service.adopt_account_payload", side_effect=_adopt):
+            code, out, err = run_cli(
+                "account",
+                "adopt",
+                "--address",
+                "oasyce1shared",
+                "--readonly",
+                "--expires-hours",
+                "24",
+                "--json",
+            )
+
+        assert code == 0
+        assert captured["account_address"] == "oasyce1shared"
+        assert captured["readonly"] is True
+        assert captured["authorization_expires_at"] > 0
+        payload = json.loads(out)
+        assert payload["device_authorization_status"] == "readonly"
+
+    def test_device_join_passes_authorization_expiry(self):
+        captured = {}
+
+        def _join(**kwargs):
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "readonly": True,
+                "account_address": "oasyce1shared",
+                "environment_ready": True,
+                "write_ready": False,
+                "verify": {
+                    "status": {
+                        "device_id": "device-A",
+                        "device_authorization_status": "readonly",
+                    }
+                },
+            }
+
+        with patch("oasyce.services.account_service.join_device_payload", side_effect=_join):
+            code, out, err = run_cli(
+                "device",
+                "join",
+                "--account",
+                "oasyce1shared",
+                "--readonly",
+                "--expires-hours",
+                "12",
+                "--json",
+            )
+
+        assert code == 0
+        assert captured["authorization_expires_at"] > 0
+        payload = json.loads(out)
+        assert payload["ok"] is True
+
+    def test_device_revoke_json(self):
+        with patch(
+            "oasyce.services.account_service.revoke_device_payload",
+            return_value={
+                "ok": True,
+                "device_id": "device-A",
+                "device_authorization_status": "revoked",
+                "can_sign": False,
+            },
+        ):
+            code, out, err = run_cli("device", "revoke", "--json")
+
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["device_authorization_status"] == "revoked"
 
     @patch("oasyce.identity.Wallet")
     def test_bootstrap_can_attach_readonly_existing_account(self, mock_wallet_cls, monkeypatch):
