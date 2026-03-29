@@ -45,9 +45,7 @@ def _validate_device_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
     if schema_version is None and version is None:
         raise RuntimeError("Bundle is missing schema_version.")
     if schema_version is not None and str(schema_version) != _DEVICE_BUNDLE_VERSION:
-        raise RuntimeError(
-            f"Unsupported bundle schema_version: {schema_version!r}."
-        )
+        raise RuntimeError(f"Unsupported bundle schema_version: {schema_version!r}.")
     if version is not None and str(version) != _DEVICE_BUNDLE_VERSION:
         raise RuntimeError(f"Unsupported bundle version: {version!r}.")
     return bundle

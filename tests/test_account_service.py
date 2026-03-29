@@ -439,7 +439,8 @@ def test_join_device_payload_forces_no_update_on_bootstrap():
             "account_mode": "attached_readonly",
             "can_sign": False,
         },
-        bootstrap_runner=lambda **kwargs: captured.update(kwargs) or {
+        bootstrap_runner=lambda **kwargs: captured.update(kwargs)
+        or {
             "ok": True,
             "datavault_module": True,
             "datavault_cli": True,
