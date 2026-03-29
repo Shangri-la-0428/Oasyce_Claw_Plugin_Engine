@@ -22,6 +22,16 @@ def _validate_device_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("Bundle payload must be a JSON object.")
     if bundle.get("kind") != _DEVICE_BUNDLE_KIND:
         raise RuntimeError("Bundle is not an Oasyce trusted-device bundle.")
+    schema_version = bundle.get("schema_version")
+    version = bundle.get("version")
+    if schema_version is None and version is None:
+        raise RuntimeError("Bundle is missing schema_version.")
+    if schema_version is not None and schema_version != _DEVICE_BUNDLE_VERSION:
+        raise RuntimeError(
+            f"Unsupported bundle schema_version: {schema_version!r}."
+        )
+    if version is not None and version != _DEVICE_BUNDLE_VERSION:
+        raise RuntimeError(f"Unsupported bundle version: {version!r}.")
     return bundle
 
 
@@ -94,6 +104,7 @@ def _build_device_bundle(
 
     return {
         "kind": _DEVICE_BUNDLE_KIND,
+        "schema_version": _DEVICE_BUNDLE_VERSION,
         "version": _DEVICE_BUNDLE_VERSION,
         "created_at": float(clock()),
         "account_address": account_address,

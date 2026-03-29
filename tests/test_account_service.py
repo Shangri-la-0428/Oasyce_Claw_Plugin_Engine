@@ -252,6 +252,7 @@ def test_export_device_bundle_payload_signing_bundle(tmp_path: Path):
 
     assert payload["ok"] is True
     bundle = json.loads((tmp_path / "device.json").read_text())
+    assert bundle["schema_version"] == 1
     assert bundle["bundle_mode"] == "signing"
     assert bundle["account_address"] == "oasyce1shared"
     assert base64.b64decode(bundle["signer_info_b64"]) == b"signer-secret"
@@ -285,6 +286,7 @@ def test_join_device_from_bundle_data_payload_imports_signer(tmp_path: Path):
     payload = join_device_from_bundle_data_payload(
         bundle={
             "kind": "oasyce_trusted_device_bundle",
+            "schema_version": 1,
             "version": 1,
             "account_address": "oasyce1shared",
             "bundle_mode": "signing",
@@ -297,6 +299,45 @@ def test_join_device_from_bundle_data_payload_imports_signer(tmp_path: Path):
     assert payload["ok"] is True
     assert payload["readonly"] is False
     assert (keyring_dir / "oasyce-agent.info").read_bytes() == b"signer-secret"
+
+
+def test_join_device_from_bundle_data_payload_accepts_legacy_version_only(tmp_path: Path):
+    keyring_dir = tmp_path / "keyring-test"
+
+    payload = join_device_from_bundle_data_payload(
+        bundle={
+            "kind": "oasyce_trusted_device_bundle",
+            "version": 1,
+            "account_address": "oasyce1shared",
+            "bundle_mode": "readonly",
+            "signer_name": "",
+            "signer_info_b64": "",
+        },
+        keyring_dir=keyring_dir,
+    )
+
+    assert payload["ok"] is True
+    assert payload["readonly"] is True
+
+
+def test_join_device_from_bundle_data_payload_rejects_missing_schema_and_version(tmp_path: Path):
+    keyring_dir = tmp_path / "keyring-test"
+
+    try:
+        join_device_from_bundle_data_payload(
+            bundle={
+                "kind": "oasyce_trusted_device_bundle",
+                "account_address": "oasyce1shared",
+                "bundle_mode": "readonly",
+                "signer_name": "",
+                "signer_info_b64": "",
+            },
+            keyring_dir=keyring_dir,
+        )
+    except RuntimeError as exc:
+        assert "schema_version" in str(exc)
+    else:
+        raise AssertionError("expected missing schema/version bundle to fail")
 
 
 def test_join_device_payload_from_bundle(tmp_path: Path):
