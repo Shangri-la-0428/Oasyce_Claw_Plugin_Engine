@@ -52,6 +52,15 @@
 - 本机创建新账户
 - 手动 `account + signer` 高级路径
 
+### 2.1 连接文件边界
+
+如果用户提供的是 **Oasyce 连接文件**，默认应理解为：
+
+- 这份文件给 `oas device join` 使用
+- 它不是自动通用的第三方 connection schema
+
+如果 AI 当前所在系统是 Thronglets 或其他外部工具，不要先用对方的原生 `connection-inspect / connection-join` 去猜测消费这份文件；优先回到 Oasyce 自己的 join 流程。
+
 ---
 
 ### 3. 用户没有提账户，只说“开始使用 Oasyce”

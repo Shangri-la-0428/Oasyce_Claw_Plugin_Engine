@@ -15,6 +15,7 @@ _DEFAULT_ACCOUNT_STATE: Dict[str, Any] = {
     "version": _SCHEMA_VERSION,
     "account_address": "",
     "account_mode": "",
+    "account_origin": "",
     "signer_type": "",
     "signer_name": "",
     "updated_at": 0.0,
@@ -120,6 +121,7 @@ def read_account_state(path: Optional[Path] = None) -> Dict[str, Any]:
             state[key] = raw[key]
     state["account_address"] = str(state.get("account_address") or "").strip()
     state["account_mode"] = str(state.get("account_mode") or "").strip()
+    state["account_origin"] = str(state.get("account_origin") or "").strip()
     state["signer_type"] = str(state.get("signer_type") or "").strip()
     state["signer_name"] = str(state.get("signer_name") or "").strip()
     return state
@@ -278,6 +280,7 @@ def build_account_status(
         "configured": bool(account_address),
         "account_address": account_address,
         "account_mode": account_mode,
+        "account_origin": str(state.get("account_origin") or "").strip(),
         "signer_type": signer_type,
         "signer_name": resolved_signer_name,
         "signer_address": signer_address,
@@ -385,6 +388,7 @@ def adopt_account(
         path=path,
         account_address=resolved_account,
         account_mode=mode,
+        account_origin="joined_existing",
         signer_type="oasyced_local" if signer_address else "none",
         signer_name=resolved_signer_name,
     )

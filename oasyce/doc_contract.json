@@ -98,6 +98,7 @@
       "zh": [
         "  - 这次公测是 AI-first。长期用户是 agent，dashboard 只是临时的人机协作界面。",
         "  - 真正开始使用前，先跑 `oas bootstrap`，让 agent 自动升级 Oasyce + DataVault、确保钱包已就绪，并把这台机器切成 managed install。",
+        "  - DataVault 是默认的数据入口：目录级数据资产工作流优先走 `datavault scan -> privacy -> report -> register`；`oas register` 留给显式单文件和调试场景。",
         "  - 身份模型现在收敛为 `owner account + trusted device`：设备先决定能不能代表账号写链，`agent/session` 先只做审计标签。",
         "  - 真实公开测试网身份接入目前仍以链侧文档为准；`oas sandbox *` 只是本地沙盒模拟命令。",
         "  - 第二台设备如果要接入同一个经济账号，主设备先运行 `oas device export --output oasyce-device.json` 导出连接文件，然后第二台设备运行 `oas device join --bundle oasyce-device.json`。",
@@ -113,6 +114,7 @@
       "en": [
         "  - This beta is AI-first. The long-term user is an agent; the dashboard is a temporary collaboration surface.",
         "  - Before real work, run `oas bootstrap` so the agent upgrades Oasyce + DataVault, ensures a wallet exists, and turns this machine into a managed install.",
+        "  - DataVault is the default data ingress: directory-scale asset onboarding should go through `datavault scan -> privacy -> report -> register`; keep `oas register` for explicit single-file or debugging flows.",
         "  - The identity model is now `owner account + trusted device`: the device decides whether it may write for the account; `agent/session` remain audit labels for now.",
         "  - Real public testnet identity onboarding still follows the chain docs; `oas sandbox *` commands are local simulation commands for sandbox testing.",
         "  - If a second device should join the same economic account, first run `oas device export --output oasyce-device.json` on the primary device to export a connection file, then run `oas device join --bundle oasyce-device.json` on the second device.",

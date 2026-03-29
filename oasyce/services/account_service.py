@@ -17,10 +17,28 @@ def _default_keyring_dir() -> Path:
     return Path.home() / ".oasyced" / "keyring-test"
 
 
+def _looks_like_thronglets_connection(payload: Dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    thronglets_keys = {
+        "owner_account",
+        "primary_device_identity",
+        "signed_by_device",
+        "ttl_hours",
+        "expires_at",
+    }
+    return len(thronglets_keys.intersection(payload.keys())) >= 2
+
+
 def _validate_device_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(bundle, dict):
         raise RuntimeError("Bundle payload must be a JSON object.")
     if bundle.get("kind") != _DEVICE_BUNDLE_KIND:
+        if _looks_like_thronglets_connection(bundle):
+            raise RuntimeError(
+                "This file is a Thronglets connection file, not an Oasyce device file. "
+                "Use the Thronglets join/import flow instead of `oas device join`."
+            )
         raise RuntimeError("Bundle is not an Oasyce trusted-device bundle.")
     schema_version = bundle.get("schema_version")
     version = bundle.get("version")
@@ -377,7 +395,9 @@ def join_device_payload(
     if bootstrap_runner is None:
         bootstrap_runner = run_bootstrap
     bootstrap = bootstrap_runner(
-        no_update=no_update,
+        # Device join should never mutate package state implicitly.
+        # Bootstrap owns update/install behavior; join only attaches the device.
+        no_update=True,
         check_package_updates=check_package_updates,
         upgrade_managed_packages=upgrade_managed_packages,
         module_spec_finder=module_spec_finder,

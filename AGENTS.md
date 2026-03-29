@@ -143,6 +143,8 @@ oas access bond <asset_id> --agent <name> --level L0|L1|L2|L3 # calculate bond r
 
 ## Local Data Scanning (DataVault)
 
+Default rule: DataVault is the primary ingress for local data. Use it first for directory-scale or safety-sensitive workflows; keep `oas register` for explicit single-file or debugging flows.
+
 ```bash
 datavault scan <path>            # scan directory, SHA-256 hashes
 datavault classify               # auto-detect file types

@@ -64,12 +64,17 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
   const currentBalance = balance.value ?? 0;
   const hasStarterFunds = currentBalance > 0;
   const assetCount = assets.value.length;
-  const isReadonlyAttached = (
+  const isJoinedExistingAccount = (
     accountConfigured
+    && accountStatus?.account_origin === 'joined_existing'
+  );
+  const isReadonlyAttached = (
+    isJoinedExistingAccount
     && !canSign
     && accountStatus?.account_mode === 'attached_readonly'
     && accountStatus?.device_authorization_status === 'readonly'
   );
+  const isSigningAttached = isJoinedExistingAccount && canSign;
   const isVeteran = accountConfigured && canSign && hasStarterFunds && assetCount > 0;
 
   // Load earnings for veteran view
@@ -206,6 +211,53 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
             </button>
             <button class="btn btn-ghost" onClick={() => go('network')}>
               {_['readonly-device-cta-network']}
+            </button>
+          </div>
+        </div>
+        {renderDeviceManagement()}
+        <DeviceSharePanel canSign={canSign} />
+      </main>
+    );
+  }
+
+  if (isSigningAttached && !done) {
+    return (
+      <main class="page home-page">
+        <div class="home-hero">
+          <h1 class="display">
+            <span class="home-title-light">{_['readonly-device-title']}</span><br />
+            {_['join-existing']}
+          </h1>
+          <p class="home-sub">{_['connected-device-body']}</p>
+        </div>
+
+        <div class="home-stats">
+          <div class="home-stat">
+            <span class="home-stat-label">{_['account']}</span>
+            <span class="home-stat-value mono">{mask(accountAddr, 8, 6)}</span>
+          </div>
+          <div class="home-stat">
+            <span class="home-stat-label">{_['mode']}</span>
+            <span class="home-stat-value mono">{_['account-mode-signing']}</span>
+          </div>
+          <div class="home-stat secondary">
+            <span class="home-stat-label">{_['balance-label']}</span>
+            <span class="home-stat-value mono">{currentBalance.toFixed(1)} OAS</span>
+          </div>
+          <div class="home-stat secondary">
+            <span class="home-stat-label">{_['wallet']}</span>
+            <span class="home-stat-value mono">{walletExists ? mask(walletAddr, 8, 6) : '—'}</span>
+          </div>
+        </div>
+
+        <div class="home-readonly-note">
+          <p class="body-text">{_['connected-device-body']}</p>
+          <div class="row gap-8 wrap mt-16">
+            <button class="btn btn-primary" onClick={() => go('mydata')}>
+              {_['connected-device-cta-assets']}
+            </button>
+            <button class="btn btn-ghost" onClick={() => go('explore')}>
+              {_['readonly-device-cta-market']}
             </button>
           </div>
         </div>

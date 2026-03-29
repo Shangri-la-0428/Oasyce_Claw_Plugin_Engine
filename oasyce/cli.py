@@ -2333,9 +2333,11 @@ def cmd_start(args):
     """Start the Oasyce Dashboard (auto-opens browser)."""
     import threading
     import time
+    import sys
     import webbrowser
 
     gui_port = args.port
+    dashboard_url = f"http://localhost:{gui_port}"
 
     print(
         f"""
@@ -2349,14 +2351,22 @@ def cmd_start(args):
 """
     )
 
-    # Auto-open browser unless --no-browser
-    if not getattr(args, "no_browser", False):
+    # Auto-open browser only in interactive terminals unless --no-browser.
+    auto_open_browser = not getattr(args, "no_browser", False) and sys.stdout.isatty()
+    if auto_open_browser:
 
         def _open():
             time.sleep(1.5)
-            webbrowser.open(f"http://localhost:{gui_port}")
+            try:
+                opened = webbrowser.open(dashboard_url)
+                if not opened:
+                    print(f"  Browser did not open automatically. Open {dashboard_url} manually.")
+            except Exception:
+                print(f"  Browser open failed. Open {dashboard_url} manually.")
 
         threading.Thread(target=_open, daemon=True).start()
+    elif not getattr(args, "no_browser", False):
+        print(f"  Browser auto-open skipped. Open {dashboard_url} manually.")
 
     # Start Dashboard
     try:
@@ -3849,7 +3859,7 @@ def cmd_device_join(args):
         readonly=args.readonly,
         bundle_path=getattr(args, "bundle", None),
         authorization_expires_at=_authorization_expiry_from_args(args),
-        no_update=getattr(args, "no_update", False),
+        no_update=True,
         check_package_updates=_check_package_updates,
         upgrade_managed_packages=_upgrade_managed_packages,
         module_spec_finder=importlib.util.find_spec,

@@ -164,6 +164,7 @@ describe('Home', () => {
         configured: true,
         account_address: 'oasyce1readonly',
         account_mode: 'attached_readonly',
+        account_origin: 'joined_existing',
         device_id: 'device-1',
         device_authorization_status: 'readonly',
         device_authorization_expires_at: 0,
@@ -182,6 +183,34 @@ describe('Home', () => {
       expect(container.textContent).toContain('已接入现有账户');
       expect(container.textContent).toContain('改用其他账户');
       expect(container.textContent).toContain('断开这台设备');
+    });
+
+    it('renders existing-account signing device state instead of newcomer onboarding', async () => {
+      identity.value = { address: 'oasyce1shared', exists: true };
+      account.value = {
+        configured: true,
+        account_address: 'oasyce1shared',
+        account_mode: 'managed_local',
+        account_origin: 'joined_existing',
+        device_id: 'device-signing',
+        device_authorization_status: 'active',
+        device_authorization_expires_at: 0,
+        can_sign: true,
+        signer_name: 'shared-signer',
+        signer_address: 'oasyce1shared',
+        wallet_address: 'oasyce1shared',
+        wallet_present: true,
+        wallet_matches_account: true,
+        signer_matches_account: true,
+      };
+      balance.value = 0;
+
+      await mount();
+
+      expect(container.textContent).toContain('已接入现有账户');
+      expect(container.textContent).toContain('这台设备已经连接到同一个经济账号，现在可以继续手动注册、买卖和质押');
+      expect(container.querySelector('.home-accordion')).toBeNull();
+      expect(container.textContent).toContain('改用其他账户');
     });
   });
 

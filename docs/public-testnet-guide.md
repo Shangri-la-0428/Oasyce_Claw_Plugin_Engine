@@ -67,6 +67,8 @@ oas smoke public-beta --json
 
 如果你希望另一台电脑上的 `Codex`、`Claude Code` 或其他 AI 继续代表**同一个经济账号**行动，不要在第二台设备上直接裸跑默认 `oas bootstrap`。现在最简单的路径是：主设备导出连接文件，第二台设备导入它。
 
+> 这里的“连接文件”是 **Oasyce 设备连接文件**。它只保证 `oas device join` 可导入，不保证 Thronglets 或其他系统原生识别。
+
 ### 给 AI 的默认决策
 
 如果用户说：
@@ -116,6 +118,12 @@ export OASYCE_NETWORK_MODE=testnet
 export OASYCE_STRICT_CHAIN=1
 oas device join --bundle oasyce-device.json
 oas doctor --public-beta --json
+```
+
+`oas device join` 现在默认不会尝试更新本机 Python 包；如果设备已经接入成功但当前环境不适合自动打开浏览器，可以改用：
+
+```bash
+oas start --no-browser
 ```
 
 如果这个连接文件来自主设备的可签名设备，这条路径会把第二台机器也接成**可签名设备**。
@@ -199,6 +207,27 @@ oas start
 ## 你能做什么
 
 ### 注册数据资产
+
+默认路径先走 DataVault，而不是直接手写 `oas register`：
+
+```bash
+datavault scan ~/Documents
+datavault privacy
+datavault report ~/Documents --format json
+datavault register ~/Documents --confirm --json
+```
+
+为什么：
+
+- `DataVault` 先在本地完成扫描、隐私检测和报告
+- 只会自动注册 `privacy_risk == safe` 的文件
+- 更适合真实用户和 AI 的目录级工作流
+
+`oas register` 仍然保留，但把它当成：
+
+- 显式单文件注册
+- 调试
+- 需要精确指定 `rights_type / tags / owner` 的场景
 
 扫描本地文件，找到可注册的数据：
 

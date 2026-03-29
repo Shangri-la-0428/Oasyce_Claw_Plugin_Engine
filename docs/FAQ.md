@@ -2,6 +2,7 @@
 
 > 面向投资人、合作方和技术评审的常见问题解答。
 > 最后更新：2026-03-22
+> 本轮多设备 / OpenClaw / 文档边界复盘见 [docs/RETROSPECTIVE_2026_03.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/RETROSPECTIVE_2026_03.md)。
 
 ---
 
@@ -40,7 +41,9 @@ Oasyce 协议不绑定特定钱包实现。任何支持 Ed25519/Secp256k1 签名
 - owner account 负责经济归属：谁持有、谁付费、谁收款
 - trusted device 负责签名：哪台机器现在能代表这个 account 写链
 - agent / session 先只做审计标签，不先做独立钱包主体
-- 多设备：主设备签名；主设备可导出连接文件，第二台设备用 `oas device join --bundle ...` 接入；不可信设备可撤销
+- 多设备：主设备签名；主设备可导出 Oasyce 设备连接文件，第二台设备用 `oas device join --bundle ...` 接入；不可信设备可撤销
+
+> 说明：Oasyce 设备连接文件只保证 Oasyce 自己的 `device join` 流程可消费，不是假定 Thronglets 或其他系统的原生 connection schema。
 
 **多签方案（高价值场景）：**
 - 2/3 多签：一个硬件钱包 + 一个备用设备 + 一个离线备份
@@ -134,6 +137,43 @@ Oasyce 协议不绑定特定钱包实现。任何支持 Ed25519/Secp256k1 签名
 只有当你们明确要做托管 Dashboard、统一 API gateway、官方 operator console 或托管 agent 时，才需要额外在 VPS 上新增一条 `oasyce-net` 部署链路。
 
 完整说明见 [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md)。
+
+### Q4.1: DataVault 到底是什么？为什么感觉存在感不强？
+
+DataVault 不是额外赠送的小工具，它应该被理解成 **Oasyce 默认的数据入口**。
+
+最简单的区分是：
+
+- `DataVault`：目录级、批量、安全优先的数据资产工作流
+- `oas register`：显式单文件注册，偏调试和精确控制
+
+也就是说，用户真正面对本地文件夹时，默认应该先想：
+
+```bash
+datavault scan -> privacy -> report -> register
+```
+
+而不是先想：
+
+```bash
+oas register somefile.csv
+```
+
+DataVault 的价值不在“替你上链”，而在于先把 AI 的行为收成一套确定性 SOP：
+
+- 先扫描
+- 再隐私检查
+- 再报告
+- 最后才在用户确认下注册
+
+这样目录级的工作流才稳定，也不会把含敏感信息的文件误注册到网络。
+
+所以后续文档和产品入口都会按这条规则收敛：
+
+- DataVault = 默认数据入口
+- Oasyce CLI = 经济动作和协议操作入口
+
+DataVault README 见 [DataVault/README.md](/Users/wutongcheng/Desktop/Net/DataVault/README.md)。
 
 ---
 

@@ -106,6 +106,16 @@ docker compose up -d
 
 ### 4. Register your first asset
 
+Default path:
+```bash
+datavault scan ~/Documents
+datavault privacy
+datavault report ~/Documents
+datavault register ~/Documents --confirm --json
+```
+
+`DataVault` is the **default data ingress** for Oasyce: it scans locally, checks privacy, shows a report, and only publishes files marked `safe`. Keep `oas register` for explicit single-file or debugging flows.
+
 Command line:
 ```bash
 oas register myfile.csv --owner alice --tags medical,imaging
@@ -166,6 +176,22 @@ oas sell <asset_id> --amount <n>  # Sell shares back to the curve
 ```
 
 For multi-device onboarding under the **same economic account**, and for the Dashboard first-run attach flow, use [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md). The README intentionally does not duplicate that onboarding sequence.
+
+### DataVault (Default Data Ingress)
+
+If the job is “organize local data, check privacy, and batch-register the safe files,” use `DataVault` first:
+
+```bash
+datavault scan ~/Documents
+datavault privacy
+datavault report ~/Documents --format json
+datavault register ~/Documents --confirm --json
+```
+
+Short rule:
+
+- `DataVault`: the default data-ingress path for directories, batch flows, and safety checks
+- `oas register`: explicit single-file registration for precise control and debugging
 
 ### Disputes
 

@@ -30,6 +30,7 @@ export interface AccountStatus {
   configured: boolean;
   account_address: string;
   account_mode: string;
+  account_origin?: string;
   device_id: string;
   device_authorization_status: string;
   device_authorization_expires_at: number;
@@ -144,6 +145,7 @@ export async function loadAccountStatus(): Promise<void> {
         configured: !!data.configured,
         account_address: data.account_address || '',
         account_mode: data.account_mode || 'unconfigured',
+        account_origin: data.account_origin || '',
         device_id: data.device_id || '',
         device_authorization_status: data.device_authorization_status || 'unconfigured',
         device_authorization_expires_at: Number(data.device_authorization_expires_at || 0),
@@ -804,6 +806,8 @@ const dict: Record<string, Record<string, string>> = {
     'readonly-device-title': '已接入现有账户',
     'readonly-device-body': '这台设备已经连接到同一个经济账号，但当前是只读模式。',
     'readonly-device-upgrade': '如果要在这台设备上手动注册、买卖或质押，重新导入主设备导出的可交易连接文件即可。',
+    'connected-device-body': '这台设备已经连接到同一个经济账号，现在可以继续手动注册、买卖和质押。',
+    'connected-device-cta-assets': '查看资产',
     'readonly-device-cta-market': '浏览市场',
     'readonly-device-cta-network': '查看网络',
     'account-mode-readonly': '只读',
@@ -1346,6 +1350,8 @@ const dict: Record<string, Record<string, string>> = {
     'readonly-device-title': 'Existing account connected',
     'readonly-device-body': 'This device is attached to the same economic account, but currently in read-only mode.',
     'readonly-device-upgrade': 'To register, buy, sell, or stake manually on this device, re-import a signing connection file exported from the primary device.',
+    'connected-device-body': 'This device is already connected to the same economic account and can continue with manual register, buy, sell, and stake actions.',
+    'connected-device-cta-assets': 'View assets',
     'readonly-device-cta-market': 'Browse market',
     'readonly-device-cta-network': 'Open network',
     'account-mode-readonly': 'Read-only',

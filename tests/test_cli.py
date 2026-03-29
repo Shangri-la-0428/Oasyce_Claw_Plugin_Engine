@@ -385,8 +385,27 @@ class TestBootstrapUpdate:
 
         assert code == 0
         assert captured["bundle_path"] == "/tmp/oasyce-device.json"
+        assert captured["no_update"] is True
         payload = json.loads(out)
         assert payload["bundle"]["bundle_mode"] == "signing"
+
+    def test_start_skips_browser_in_non_interactive_environment(self):
+        open_mock = MagicMock()
+
+        class DummyGUI:
+            def __init__(self, port):
+                self.port = port
+
+            def run(self):
+                return None
+
+        with patch("webbrowser.open", open_mock), patch("oasyce.gui.app.OasyceGUI", DummyGUI):
+            code, out, err = run_cli("start", "--port", "8421")
+
+        assert code == 0
+        assert open_mock.called is False
+        assert "Browser auto-open skipped" in out
+        assert "http://localhost:8421" in out
 
     def test_device_export_json(self):
         with patch(

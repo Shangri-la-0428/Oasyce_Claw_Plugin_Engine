@@ -107,6 +107,7 @@ def test_adopt_account_readonly_without_local_signer(tmp_path: Path):
     assert status["wallet_address"] == "wallet-local"
     assert status["device_id"] == "device-A"
     assert status["device_authorization_status"] == "readonly"
+    assert status["account_origin"] == "joined_existing"
 
 
 def test_adopt_account_persists_only_explicit_account_intent(tmp_path: Path):
@@ -127,6 +128,7 @@ def test_adopt_account_persists_only_explicit_account_intent(tmp_path: Path):
 
     assert '"account_address": "oasyce1shared"' in raw
     assert '"account_mode": "attached_readonly"' in raw
+    assert '"account_origin": "joined_existing"' in raw
     assert '"wallet_address"' not in raw
     assert '"wallet_matches_account"' not in raw
     assert '"signer_matches_account"' not in raw
@@ -185,6 +187,7 @@ def test_adopt_account_signing_mode_uses_local_signer(tmp_path: Path):
     assert status["account_mode"] == "managed_local"
     assert status["can_sign"] is True
     assert status["device_authorization_status"] == "active"
+    assert status["account_origin"] == "joined_existing"
 
 
 def test_configure_bootstrap_account_clears_stale_attach_override(tmp_path: Path):
@@ -226,6 +229,7 @@ def test_configure_bootstrap_account_clears_stale_attach_override(tmp_path: Path
     assert status["account_address"] == "oasyce1primary"
     assert status["account_mode"] == "managed_local"
     assert status["can_sign"] is True
+    assert status["account_origin"] == ""
 
 
 def test_build_account_status_marks_expired_device_authorization(tmp_path: Path):

@@ -5,6 +5,8 @@ import json
 import types
 from pathlib import Path
 
+import pytest
+
 from oasyce.services.account_service import (
     adopt_account_payload,
     export_device_bundle_data_payload,
@@ -321,6 +323,24 @@ def test_join_device_from_bundle_data_payload_accepts_legacy_version_only(tmp_pa
     assert payload["readonly"] is True
 
 
+def test_join_device_from_bundle_data_payload_rejects_thronglets_connection_file(tmp_path: Path):
+    keyring_dir = tmp_path / "keyring-test"
+
+    with pytest.raises(RuntimeError) as exc:
+        join_device_from_bundle_data_payload(
+            bundle={
+                "owner_account": "oasyce1shared",
+                "primary_device_identity": {"device_id": "device-A"},
+                "signed_by_device": "sig",
+                "ttl_hours": 24,
+                "expires_at": "2026-03-30T00:00:00Z",
+            },
+            keyring_dir=keyring_dir,
+        )
+
+    assert "Thronglets connection file" in str(exc.value)
+
+
 def test_join_device_from_bundle_data_payload_rejects_missing_schema_and_version(tmp_path: Path):
     keyring_dir = tmp_path / "keyring-test"
 
@@ -400,6 +420,45 @@ def test_join_device_payload_from_bundle(tmp_path: Path):
     assert payload["ok"] is True
     assert payload["readonly"] is False
     assert payload["bundle"]["bundle_mode"] == "signing"
+
+
+def test_join_device_payload_forces_no_update_on_bootstrap():
+    captured = {}
+
+    payload = join_device_payload(
+        account_address="oasyce1shared",
+        readonly=True,
+        no_update=False,
+        check_package_updates=lambda: [],
+        upgrade_managed_packages=lambda: types.SimpleNamespace(returncode=0, stderr=""),
+        module_spec_finder=lambda name: object(),
+        which=lambda name: "/usr/local/bin/datavault",
+        adopter=lambda **_: {
+            "configured": True,
+            "account_address": "oasyce1shared",
+            "account_mode": "attached_readonly",
+            "can_sign": False,
+        },
+        bootstrap_runner=lambda **kwargs: captured.update(kwargs) or {
+            "ok": True,
+            "datavault_module": True,
+            "datavault_cli": True,
+            "account": {"account_address": "oasyce1shared"},
+        },
+        verifier=lambda **_: {
+            "ok": True,
+            "status": {
+                "configured": True,
+                "account_address": "oasyce1shared",
+                "can_sign": False,
+            },
+            "issues": [],
+            "warnings": [],
+        },
+    )
+
+    assert payload["ok"] is True
+    assert captured["no_update"] is True
 
 
 def test_join_device_payload_rejects_bundle_account_mismatch():

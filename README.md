@@ -106,6 +106,16 @@ docker compose up -d
 
 ### 4. 注册你的第一个资产
 
+默认路径：
+```bash
+datavault scan ~/Documents
+datavault privacy
+datavault report ~/Documents
+datavault register ~/Documents --confirm --json
+```
+
+`DataVault` 是 Oasyce 的**默认数据入口**：它先在本地完成扫描、隐私检测和报告，只把 `safe` 文件注册到网络。`oas register` 保留给显式单文件和调试场景。
+
 命令行：
 ```bash
 oas register myfile.csv --owner alice --tags medical,imaging
@@ -165,6 +175,22 @@ oas sell <asset_id> --amount <n>  # 卖回份额
 ```
 
 多设备如果要使用**同一个经济账号**，以及 Dashboard 首次手动接入已有账号，统一看 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)。README 不再复制那套 onboarding 细节。
+
+### DataVault（默认数据入口）
+
+如果你的任务是“整理本地数据、检查隐私、批量注册安全文件”，优先使用 `DataVault`：
+
+```bash
+datavault scan ~/Documents
+datavault privacy
+datavault report ~/Documents --format json
+datavault register ~/Documents --confirm --json
+```
+
+用一句话区分：
+
+- `DataVault`：默认的数据入口，适合目录、批量、安全扫描
+- `oas register`：显式单文件注册，适合精确控制和调试
 
 ### 争议
 
