@@ -252,7 +252,8 @@ def test_export_device_bundle_payload_signing_bundle(tmp_path: Path):
 
     assert payload["ok"] is True
     bundle = json.loads((tmp_path / "device.json").read_text())
-    assert bundle["schema_version"] == 1
+    assert bundle["schema_version"] == "1"
+    assert bundle["version"] == "1"
     assert bundle["bundle_mode"] == "signing"
     assert bundle["account_address"] == "oasyce1shared"
     assert base64.b64decode(bundle["signer_info_b64"]) == b"signer-secret"
@@ -286,8 +287,8 @@ def test_join_device_from_bundle_data_payload_imports_signer(tmp_path: Path):
     payload = join_device_from_bundle_data_payload(
         bundle={
             "kind": "oasyce_trusted_device_bundle",
-            "schema_version": 1,
-            "version": 1,
+            "schema_version": "1",
+            "version": "1",
             "account_address": "oasyce1shared",
             "bundle_mode": "signing",
             "signer_name": "oasyce-agent",

@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Optional
 from oasyce import update_manager as _update_manager
 
 _DEVICE_BUNDLE_KIND = "oasyce_trusted_device_bundle"
-_DEVICE_BUNDLE_VERSION = 1
+_DEVICE_BUNDLE_VERSION = "1"
 
 
 def _default_keyring_dir() -> Path:
@@ -26,11 +26,11 @@ def _validate_device_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
     version = bundle.get("version")
     if schema_version is None and version is None:
         raise RuntimeError("Bundle is missing schema_version.")
-    if schema_version is not None and schema_version != _DEVICE_BUNDLE_VERSION:
+    if schema_version is not None and str(schema_version) != _DEVICE_BUNDLE_VERSION:
         raise RuntimeError(
             f"Unsupported bundle schema_version: {schema_version!r}."
         )
-    if version is not None and version != _DEVICE_BUNDLE_VERSION:
+    if version is not None and str(version) != _DEVICE_BUNDLE_VERSION:
         raise RuntimeError(f"Unsupported bundle version: {version!r}.")
     return bundle
 
