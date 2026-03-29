@@ -73,7 +73,8 @@
         "oas --json sandbox status   # 查看本地沙盒状态",
         "oas --json sandbox onboard  # 本地模拟：faucet + 示例资产 + 质押",
         "oas sandbox reset --force   # 重置本地沙盒",
-        "oas device join --account <ACCOUNT_ADDRESS> --readonly   # 第二台设备接入同一账号",
+        "oas device export --output oasyce-device.json   # 主设备导出 trusted-device bundle",
+        "oas device join --bundle oasyce-device.json   # 第二台设备接入同一账号",
         "oas device revoke   # 撤销这台机器的 trusted-device 授权",
         "oas doctor --public-beta --json   # 公测发布 gate"
       ],
@@ -81,7 +82,8 @@
         "oas --json sandbox status   # Inspect the local sandbox state",
         "oas --json sandbox onboard  # Local simulation: faucet + sample asset + stake",
         "oas sandbox reset --force   # Reset local sandbox data",
-        "oas device join --account <ACCOUNT_ADDRESS> --readonly   # attach a second device to the same account",
+        "oas device export --output oasyce-device.json   # export a trusted-device bundle from the primary device",
+        "oas device join --bundle oasyce-device.json   # attach a second device to the same account",
         "oas device revoke   # revoke this machine's trusted-device authorization",
         "oas doctor --public-beta --json   # public beta release gate"
       ]
@@ -96,7 +98,7 @@
         "  - 真正开始使用前，先跑 `oas bootstrap`，让 agent 自动升级 Oasyce + DataVault、确保钱包已就绪，并把这台机器切成 managed install。",
         "  - 身份模型现在收敛为 `owner account + trusted device`：设备先决定能不能代表账号写链，`agent/session` 先只做审计标签。",
         "  - 真实公开测试网身份接入目前仍以链侧文档为准；`oas sandbox *` 只是本地沙盒模拟命令。",
-        "  - 第二台设备如果要接入同一个经济账号，优先使用 `oas device join`；不要直接裸跑默认 `oas bootstrap`。",
+        "  - 第二台设备如果要接入同一个经济账号，主设备先运行 `oas device export --output oasyce-device.json`，然后第二台设备运行 `oas device join --bundle oasyce-device.json`。",
         "  - 如果一台设备不再可信，直接运行 `oas device revoke` 撤销它的 trusted-device 授权。",
         "  - 第一条安全主路径: 注册一个资产 -> 请求报价 -> 用 Idempotency-Key 买一次 -> 校验持仓。",
         "  - 成功的定义: 返回 trace_id，状态可被机器判定，并且能从持仓或交易记录验证结果。",
@@ -109,7 +111,7 @@
         "  - Before real work, run `oas bootstrap` so the agent upgrades Oasyce + DataVault, ensures a wallet exists, and turns this machine into a managed install.",
         "  - The identity model is now `owner account + trusted device`: the device decides whether it may write for the account; `agent/session` remain audit labels for now.",
         "  - Real public testnet identity onboarding still follows the chain docs; `oas sandbox *` commands are local simulation commands for sandbox testing.",
-        "  - If a second device should join the same economic account, use `oas device join` first; do not start with a naked default `oas bootstrap`.",
+        "  - If a second device should join the same economic account, first run `oas device export --output oasyce-device.json` on the primary device, then run `oas device join --bundle oasyce-device.json` on the second device.",
         "  - If a machine should no longer be trusted, run `oas device revoke` to revoke its trusted-device authorization.",
         "  - First safe path: register one asset -> quote it -> buy it once with an Idempotency-Key -> verify holdings.",
         "  - Success means: the action returns a trace_id, the status is machine-readable, and the result can be verified from holdings or transactions.",

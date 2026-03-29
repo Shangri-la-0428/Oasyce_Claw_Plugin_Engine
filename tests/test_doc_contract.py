@@ -12,6 +12,7 @@ def test_public_beta_readme_block_mentions_single_guide():
     block = render_public_beta_readme_block("en")
     assert "single product-facing public beta guide" in block
     assert "oas doctor --public-beta --json" in block
+    assert "oas device export --output oasyce-device.json" in block
     assert "oas --json sandbox status" in block
     assert "compatibility alias" not in block
 
@@ -27,6 +28,7 @@ def test_beta_onboarding_comes_from_contract():
     onboarding = render_beta_onboarding("en")
     assert onboarding.startswith("Beta Onboarding:")
     assert "Idempotency-Key" in onboarding
+    assert "oas device join --bundle oasyce-device.json" in onboarding
     assert "oas smoke public-beta --json" in onboarding
 
 

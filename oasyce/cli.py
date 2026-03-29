@@ -3847,6 +3847,7 @@ def cmd_device_join(args):
         account_address=args.account,
         signer_name=args.signer_name,
         readonly=args.readonly,
+        bundle_path=getattr(args, "bundle", None),
         authorization_expires_at=_authorization_expiry_from_args(args),
         no_update=getattr(args, "no_update", False),
         check_package_updates=_check_package_updates,
@@ -3871,6 +3872,9 @@ def cmd_device_join(args):
     print("  Device joined.")
     print(f"    Account:          {payload.get('account_address')}")
     print(f"    Role:             {'read-only' if payload.get('readonly') else 'signing'}")
+    bundle = payload.get("bundle") or {}
+    if bundle:
+        print(f"    Bundle mode:      {bundle.get('bundle_mode')}")
     print(f"    Environment:      {'ready' if payload.get('environment_ready') else 'not ready'}")
     print(f"    Write-ready:      {'yes' if payload.get('write_ready') else 'no'}")
     status = (payload.get("verify") or {}).get("status") or {}
@@ -3879,6 +3883,35 @@ def cmd_device_join(args):
         print(
             f"    Device auth:      {status.get('device_authorization_status') or '(unconfigured)'}"
         )
+
+
+def cmd_device_export(args):
+    """Export a trusted-device bundle for a second machine."""
+    from oasyce.services.account_service import export_device_bundle_payload
+
+    payload = export_device_bundle_payload(
+        output_path=args.output,
+        readonly=args.readonly,
+    )
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        if not payload.get("ok"):
+            sys.exit(1)
+        return
+
+    if not payload.get("ok"):
+        print(f"  Device export failed: {payload.get('error')}")
+        sys.exit(1)
+
+    print("  Device bundle exported.")
+    print(f"    Output:           {payload.get('output_path')}")
+    print(f"    Account:          {payload.get('account_address')}")
+    print(f"    Bundle mode:      {payload.get('bundle_mode')}")
+    if payload.get("signer_name"):
+        print(f"    Signer name:      {payload.get('signer_name')}")
+    print(
+        "    Next step:        transfer this file securely, then run `oas device join --bundle <FILE>` on the second machine"
+    )
 
 
 def cmd_device_revoke(args):
@@ -4709,8 +4742,13 @@ def main():
     )
     device_join_parser.add_argument(
         "--account",
-        required=True,
+        default=None,
         help="Canonical account address to join",
+    )
+    device_join_parser.add_argument(
+        "--bundle",
+        default=None,
+        help="Trusted-device bundle exported from another device",
     )
     device_join_parser.add_argument(
         "--signer-name",
@@ -4735,6 +4773,23 @@ def main():
     )
     device_join_parser.add_argument("--json", action="store_true", help="Output as JSON")
     device_join_parser.set_defaults(func=cmd_device_join)
+
+    device_export_parser = device_sub.add_parser(
+        "export",
+        help="Export a trusted-device bundle for another machine",
+    )
+    device_export_parser.add_argument(
+        "--output",
+        required=True,
+        help="Where to write the trusted-device bundle",
+    )
+    device_export_parser.add_argument(
+        "--readonly",
+        action="store_true",
+        help="Export a read-only bundle instead of a signing bundle",
+    )
+    device_export_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    device_export_parser.set_defaults(func=cmd_device_export)
 
     device_revoke_parser = device_sub.add_parser(
         "revoke",

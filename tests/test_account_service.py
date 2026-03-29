@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import base64
+import json
 import types
+from pathlib import Path
 
 from oasyce.services.account_service import (
     adopt_account_payload,
+    export_device_bundle_payload,
     get_account_status_payload,
     join_device_payload,
     run_bootstrap,
@@ -224,3 +228,111 @@ def test_join_device_payload_requires_account():
 
     assert payload["ok"] is False
     assert "Pass --account" in payload["error"]
+
+
+def test_export_device_bundle_payload_signing_bundle(tmp_path: Path):
+    keyring_dir = tmp_path / "keyring-test"
+    keyring_dir.mkdir()
+    (keyring_dir / "oasyce-agent.info").write_bytes(b"signer-secret")
+
+    payload = export_device_bundle_payload(
+        output_path=str(tmp_path / "device.json"),
+        readonly=False,
+        status_reader=lambda: {
+            "configured": True,
+            "account_address": "oasyce1shared",
+            "can_sign": True,
+            "signer_name": "oasyce-agent",
+        },
+        keyring_dir=keyring_dir,
+        clock=lambda: 123.0,
+    )
+
+    assert payload["ok"] is True
+    bundle = json.loads((tmp_path / "device.json").read_text())
+    assert bundle["bundle_mode"] == "signing"
+    assert bundle["account_address"] == "oasyce1shared"
+    assert base64.b64decode(bundle["signer_info_b64"]) == b"signer-secret"
+
+
+def test_join_device_payload_from_bundle(tmp_path: Path):
+    bundle_path = tmp_path / "device.json"
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "kind": "oasyce_trusted_device_bundle",
+                "version": 1,
+                "account_address": "oasyce1shared",
+                "bundle_mode": "signing",
+                "signer_name": "oasyce-agent",
+                "signer_info_b64": base64.b64encode(b"signer-secret").decode("ascii"),
+            }
+        )
+    )
+
+    payload = join_device_payload(
+        account_address="",
+        bundle_path=str(bundle_path),
+        readonly=False,
+        no_update=True,
+        check_package_updates=lambda: [],
+        upgrade_managed_packages=lambda: types.SimpleNamespace(returncode=0, stderr=""),
+        module_spec_finder=lambda name: object(),
+        which=lambda name: "/usr/local/bin/datavault",
+        bundle_joiner=lambda **_: {
+            "ok": True,
+            "account_address": "oasyce1shared",
+            "signer_name": "oasyce-agent",
+            "readonly": False,
+            "bundle_mode": "signing",
+        },
+        adopter=lambda **_: {
+            "configured": True,
+            "account_address": "oasyce1shared",
+            "account_mode": "attached_signing",
+            "can_sign": True,
+            "signer_name": "oasyce-agent",
+        },
+        bootstrap_runner=lambda **_: {
+            "ok": True,
+            "datavault_module": True,
+            "datavault_cli": True,
+            "account": {"account_address": "oasyce1shared"},
+        },
+        verifier=lambda **_: {
+            "ok": True,
+            "status": {
+                "configured": True,
+                "account_address": "oasyce1shared",
+                "can_sign": True,
+            },
+            "issues": [],
+            "warnings": [],
+        },
+    )
+
+    assert payload["ok"] is True
+    assert payload["readonly"] is False
+    assert payload["bundle"]["bundle_mode"] == "signing"
+
+
+def test_join_device_payload_rejects_bundle_account_mismatch():
+    payload = join_device_payload(
+        account_address="oasyce1manual",
+        bundle_path="/tmp/oasyce-device.json",
+        readonly=False,
+        no_update=True,
+        check_package_updates=lambda: [],
+        upgrade_managed_packages=lambda: types.SimpleNamespace(returncode=0, stderr=""),
+        which=lambda name: "/usr/local/bin/datavault",
+        bundle_joiner=lambda **_: {
+            "ok": True,
+            "account_address": "oasyce1bundle",
+            "signer_name": "oasyce-agent",
+            "readonly": False,
+            "bundle_mode": "signing",
+        },
+    )
+
+    assert payload["ok"] is False
+    assert "Bundle account" in payload["error"]

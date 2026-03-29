@@ -1,6 +1,6 @@
 # Oasyce 公开测试网 — 快速上手
 
-> 公开测试现在只保留一个产品规则：**owner account + trusted device**。主设备先 `oas bootstrap`，第二台设备用 `oas device join` 接入同一账号。
+> 公开测试现在只保留一个产品规则：**owner account + trusted device**。主设备先 `oas bootstrap`，需要把同一钱包接到第二台设备时，主设备导出 bundle，第二台设备再一键 `oas device join --bundle ...`。
 
 ## 部署边界
 
@@ -63,7 +63,7 @@ oas smoke public-beta --json
 
 ## 多设备使用同一账号
 
-如果你希望另一台电脑上的 `Codex`、`Claude Code` 或其他 AI 继续代表**同一个经济账号**行动，不要在第二台设备上直接裸跑默认 `oas bootstrap`。现在只需要区分两种设备角色：主设备，和接入已有账号的设备。
+如果你希望另一台电脑上的 `Codex`、`Claude Code` 或其他 AI 继续代表**同一个经济账号**行动，不要在第二台设备上直接裸跑默认 `oas bootstrap`。现在最简单的路径是：主设备导出 trusted-device bundle，第二台设备导入它。
 
 ### 主设备（负责签名）
 
@@ -75,10 +75,35 @@ oas account status --json
 oas doctor --public-beta --json
 ```
 
-记下这两个值：
+主设备如果准备把同一个钱包接到第二台机器，直接导出：
+
+```bash
+oas device export --output oasyce-device.json
+```
+
+记下这两个值，或者直接把刚导出的 bundle 安全传过去：
 
 - `account_address`
 - `signer_name`（如果你准备让第二台设备也代签）
+
+### 第二台设备，最快接入同一账号
+
+最简单的方式就是直接导入 bundle：
+
+```bash
+export OASYCE_NETWORK_MODE=testnet
+export OASYCE_STRICT_CHAIN=1
+oas device join --bundle oasyce-device.json
+oas doctor --public-beta --json
+```
+
+如果 bundle 来自主设备的可签名设备，这条路径会把第二台机器也接成**可签名 trusted device**。
+
+导入成功后，建议立刻删除 bundle 文件：
+
+```bash
+rm -f oasyce-device.json
+```
 
 ### 第二台设备，只读接入同一账号
 
@@ -92,7 +117,7 @@ oas device join --account <ACCOUNT_ADDRESS> --readonly
 
 ### 第二台设备，也要代表同一账号签名
 
-前提：这台机器上已经准备好了**同一个本地 signer**。在此基础上再执行：
+优先用上面的 bundle 流程。只有在你明确已经把同一个 signer 准备到第二台机器上时，才手动指定：
 
 ```bash
 export OASYCE_NETWORK_MODE=testnet
@@ -114,7 +139,8 @@ oas device revoke
 ### 当前边界
 
 - `oas bootstrap`：主设备入口，准备环境并尊重已有账号绑定
-- `oas device join`：第二台设备最简单的入口
+- `oas device export`：主设备导出 trusted-device bundle
+- `oas device join`：第二台设备最简单的入口，优先走 `--bundle`
 - `oas account status`：查看这台机器当前绑定的 owner account 和 trusted-device 状态
 - `oas account verify`：更底层的诊断命令，通常只在排障时使用
 - 如果一台机器直接生成新的本地 signer 而不是走 `device join`，它就会形成**新的经济账号**

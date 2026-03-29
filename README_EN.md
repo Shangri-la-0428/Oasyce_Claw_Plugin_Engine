@@ -128,7 +128,8 @@ The **single product-facing public beta guide** lives at [docs/public-testnet-gu
 oas --json sandbox status   # Inspect the local sandbox state
 oas --json sandbox onboard  # Local simulation: faucet + sample asset + stake
 oas sandbox reset --force   # Reset local sandbox data
-oas device join --account <ACCOUNT_ADDRESS> --readonly   # attach a second device to the same account
+oas device export --output oasyce-device.json   # export a trusted-device bundle from the primary device
+oas device join --bundle oasyce-device.json   # attach a second device to the same account
 oas device revoke   # revoke this machine's trusted-device authorization
 oas doctor --public-beta --json   # public beta release gate
 ```

@@ -128,7 +128,8 @@ oas register myfile.csv --owner alice --tags medical,imaging
 oas --json sandbox status   # 查看本地沙盒状态
 oas --json sandbox onboard  # 本地模拟：faucet + 示例资产 + 质押
 oas sandbox reset --force   # 重置本地沙盒
-oas device join --account <ACCOUNT_ADDRESS> --readonly   # 第二台设备接入同一账号
+oas device export --output oasyce-device.json   # 主设备导出 trusted-device bundle
+oas device join --bundle oasyce-device.json   # 第二台设备接入同一账号
 oas device revoke   # 撤销这台机器的 trusted-device 授权
 oas doctor --public-beta --json   # 公测发布 gate
 ```

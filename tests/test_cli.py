@@ -354,6 +354,64 @@ class TestBootstrapUpdate:
         payload = json.loads(out)
         assert payload["ok"] is True
 
+    def test_device_join_accepts_bundle(self):
+        captured = {}
+
+        def _join(**kwargs):
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "readonly": False,
+                "account_address": "oasyce1shared",
+                "environment_ready": True,
+                "write_ready": True,
+                "bundle": {"bundle_mode": "signing"},
+                "verify": {
+                    "status": {
+                        "device_id": "device-A",
+                        "device_authorization_status": "active",
+                    }
+                },
+            }
+
+        with patch("oasyce.services.account_service.join_device_payload", side_effect=_join):
+            code, out, err = run_cli(
+                "device",
+                "join",
+                "--bundle",
+                "/tmp/oasyce-device.json",
+                "--json",
+            )
+
+        assert code == 0
+        assert captured["bundle_path"] == "/tmp/oasyce-device.json"
+        payload = json.loads(out)
+        assert payload["bundle"]["bundle_mode"] == "signing"
+
+    def test_device_export_json(self):
+        with patch(
+            "oasyce.services.account_service.export_device_bundle_payload",
+            return_value={
+                "ok": True,
+                "output_path": "/tmp/oasyce-device.json",
+                "account_address": "oasyce1shared",
+                "bundle_mode": "signing",
+                "signer_name": "oasyce-agent",
+            },
+        ):
+            code, out, err = run_cli(
+                "device",
+                "export",
+                "--output",
+                "/tmp/oasyce-device.json",
+                "--json",
+            )
+
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["bundle_mode"] == "signing"
+        assert payload["signer_name"] == "oasyce-agent"
+
     def test_device_revoke_json(self):
         with patch(
             "oasyce.services.account_service.revoke_device_payload",

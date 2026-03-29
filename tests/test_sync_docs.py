@@ -32,6 +32,7 @@ def test_render_public_beta_readme_block_contains_release_gate():
     block = sync_docs.render_public_beta_readme_block("en")
     assert "single product-facing public beta guide" in block
     assert "oas doctor --public-beta --json" in block
+    assert "oas device export --output oasyce-device.json" in block
     assert "compatibility alias" not in block
 
 
