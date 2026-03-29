@@ -13,12 +13,14 @@
     "ai_onboarding_sources": {
       "zh": [
         "- 面向产品的公开测试: [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)",
+        "- AI 决策规则: [docs/AI_DECISION_RULES.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/AI_DECISION_RULES.md)",
         "- 部署边界说明: [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md)",
         "- 链侧接入和基础设施: [chain.oasyce](https://chain.oasyce.com)",
         "- 当前入口: 只保留 AI 需要的简洁命令参考，不再展开多套并行流程"
       ],
       "en": [
         "- Product-facing public beta: [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)",
+        "- AI decision rules: [docs/AI_DECISION_RULES.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/AI_DECISION_RULES.md)",
         "- Deployment boundary: [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md)",
         "- Chain-side onboarding and infra context: [chain.oasyce](https://chain.oasyce.com)",
         "- This surface: concise AI command reference only, not a second parallel onboarding guide"
@@ -101,6 +103,7 @@
         "  - 第二台设备如果要接入同一个经济账号，主设备先运行 `oas device export --output oasyce-device.json` 导出连接文件，然后第二台设备运行 `oas device join --bundle oasyce-device.json`。",
         "  - Dashboard 首页现在也优先走这条连接文件路径：先回答“是否创建新账户”，然后按创建或导入继续；手工 `account + signer` 只保留在高级入口里。",
         "  - 如果一台设备不再可信，直接运行 `oas device revoke` 撤销它的设备授权。",
+        "  - AI 遇到“不要创建新账号 / 用我另一台设备上的账户”这类自然语言时，默认必须走已有账户接入路径；如果缺连接文件，再最小追问。",
         "  - 第一条安全主路径: 注册一个资产 -> 请求报价 -> 用 Idempotency-Key 买一次 -> 校验持仓。",
         "  - 成功的定义: 返回 trace_id，状态可被机器判定，并且能从持仓或交易记录验证结果。",
         "  - 如果 buy 超时，不要盲目再次发起第二笔金融动作。复用同一个 Idempotency-Key，或先查看 support 数据。",
@@ -115,6 +118,7 @@
         "  - If a second device should join the same economic account, first run `oas device export --output oasyce-device.json` on the primary device to export a connection file, then run `oas device join --bundle oasyce-device.json` on the second device.",
         "  - The dashboard home now prefers the same connection-file path: answer one question first, then either create a new account or import an existing one; manual `account + signer` entry remains only as an advanced fallback.",
         "  - If a machine should no longer be trusted, run `oas device revoke` to revoke its device authorization.",
+        "  - When an AI reads natural-language intent like 'do not create a new account' or 'use the account from my other device', it must default to the existing-account join path; if the connection file is missing, ask only for that minimal missing input.",
         "  - First safe path: register one asset -> quote it -> buy it once with an Idempotency-Key -> verify holdings.",
         "  - Success means: the action returns a trace_id, the status is machine-readable, and the result can be verified from holdings or transactions.",
         "  - If buy times out, do not submit a second financial action blindly. Reuse the same Idempotency-Key or inspect support data first.",

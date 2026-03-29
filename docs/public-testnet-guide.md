@@ -2,6 +2,8 @@
 
 > 公开测试现在只保留一个产品规则：**owner account + trusted device**。主设备先 `oas bootstrap`，需要把同一钱包接到第二台设备时，主设备导出连接文件，第二台设备再一键 `oas device join --bundle ...`。
 
+如果是 AI 在执行接入，请同时参考 [docs/AI_DECISION_RULES.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/AI_DECISION_RULES.md)：默认保守，优先已有账户，缺连接文件时再最小追问。
+
 ## 部署边界
 
 在 Oasyce 当前架构里：
@@ -64,6 +66,25 @@ oas smoke public-beta --json
 ## 多设备使用同一账号
 
 如果你希望另一台电脑上的 `Codex`、`Claude Code` 或其他 AI 继续代表**同一个经济账号**行动，不要在第二台设备上直接裸跑默认 `oas bootstrap`。现在最简单的路径是：主设备导出连接文件，第二台设备导入它。
+
+### 给 AI 的默认决策
+
+如果用户说：
+
+- “不要创建新账号”
+- “用我另一台设备上的账户”
+- “接入我原来的钱包”
+
+AI 默认应该理解为：
+
+- 走**已有账户接入**
+- 优先导入连接文件
+- 如果缺连接文件，再向用户追问这一项最小必要信息
+
+不要默认改成：
+
+- 本机新建账号
+- 高级手动 `account + signer` 路径
 
 ### 主设备（负责签名）
 
