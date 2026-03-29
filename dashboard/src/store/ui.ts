@@ -231,6 +231,49 @@ export async function joinExistingAccount(params: {
   return { ok: true, data };
 }
 
+export async function exportDeviceBundle(params?: {
+  readonly?: boolean;
+}): Promise<ApiActionResult> {
+  const res = await fetch('/api/device/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      readonly: !!params?.readonly,
+    }),
+  });
+  const data = await readJsonSafe(res);
+  if (!res.ok || !data?.ok) {
+    return {
+      ok: false,
+      error: data?.error || 'error-generic',
+      issues: data?.verify?.issues || [],
+      warnings: data?.verify?.warnings || [],
+      data,
+    };
+  }
+  return { ok: true, data };
+}
+
+export async function joinDeviceBundle(bundle: Record<string, unknown>): Promise<ApiActionResult> {
+  const res = await fetch('/api/device/join', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bundle }),
+  });
+  const data = await readJsonSafe(res);
+  if (!res.ok || !data?.ok) {
+    return {
+      ok: false,
+      error: data?.error || 'error-generic',
+      issues: data?.verify?.issues || [],
+      warnings: data?.verify?.warnings || [],
+      data,
+    };
+  }
+  await refreshAccountContext();
+  return { ok: true, data };
+}
+
 interface ApiActionResult {
   ok: boolean;
   error?: string;
@@ -679,7 +722,7 @@ const dict: Record<string, Record<string, string>> = {
     'skip-to-content': '跳至内容',
     'wallet-created': '账户已创建',
     'onboard-step1': '准备设备',
-    'onboard-step1-hint': '创建本机账号，或接入已有账号',
+    'onboard-step1-hint': '创建本机账号，或导入主设备导出的 trusted-device bundle',
     'onboard-step2': '领取新手奖励',
     'onboard-step2-hint': '完成一个小任务，获得免费积分',
     'onboard-step2-btn': '领取积分',
@@ -689,14 +732,24 @@ const dict: Record<string, Record<string, string>> = {
     'onboard-step3-hint': '拖入文件即可，高级选项以后再说',
     'onboard-welcome': '三步开始',
     'onboard-welcome-hint': '先准备这台设备的账号，再进入市场和注册流程。',
-    'gate-create-body': '先把这台设备接入正确的经济账号。你可以新建本机账号，也可以绑定一个已有账号。',
+    'gate-create-body': '先把这台设备接入正确的经济账号。第一次使用就准备本机；如果你已经有主设备，优先导入它导出的 trusted-device bundle。',
     'gate-funds-body': '完成一个小计算任务，获取你的第一笔积分。',
-    'account-entry-title': '账号接入方式',
+    'account-entry-title': '设备接入方式',
     'prepare-device': '准备本机账号',
     'prepare-device-hint': '为这台设备创建可签名的公测身份，并连接默认环境。',
     'join-existing': '接入已有账号',
+    'join-existing-bundle': '导入设备包',
+    'join-existing-advanced': '高级手动接入',
     'join-existing-readonly': '只读接入',
     'join-existing-signing': '带 signer 接入',
+    'join-bundle-file': '设备包',
+    'join-bundle-file-hint': '选择主设备导出的 oasyce-device.json',
+    'join-bundle-hint': '推荐路径。导入 trusted-device bundle 后，这台设备会自动接入同一账号。',
+    'join-bundle-warning': '设备包包含 trusted-device 凭据。请只通过你信任的渠道传输，并在导入后删除文件。',
+    'join-bundle-invalid': '设备包不是有效的 JSON 文件',
+    'join-bundle-submit': '导入设备包',
+    'join-bundle-selected': '已选择',
+    'join-advanced-hint': '只有在你明确知道账号地址，或这台机器本地已经有同一个 signer 时，才使用高级手动接入。',
     'join-account-address': '账号地址',
     'join-account-address-hint': '输入已有账号地址，例如 oasyce1...',
     'join-signer-name': 'Signer 名称',
@@ -705,9 +758,16 @@ const dict: Record<string, Record<string, string>> = {
     'join-signing-hint': '只有这台机器本地已经存在同一个 signer，才能用此模式手动交易。',
     'device-prepare-success': '这台设备的账号已就绪',
     'device-join-success': '设备已接入该账号',
+    'device-export-title': '共享到另一台设备',
+    'device-export-hint': '主设备可以导出 trusted-device bundle。另一台设备导入后，就会接入同一 owner account。',
+    'device-export-signing': '导出可签名设备包',
+    'device-export-readonly': '导出只读设备包',
+    'device-export-success': '设备包已导出',
+    'device-export-readonly-success': '只读设备包已导出',
+    'device-export-signer-warning': '可签名设备包包含 signer 凭据。请只通过你信任的渠道传输，并在导入后删除文件。',
     'readonly-device-title': '已接入同一账号',
     'readonly-device-body': '这台设备已经连接到同一个经济账号，但当前是只读模式。',
-    'readonly-device-upgrade': '如果要在这台设备上手动注册、买卖或质押，请用同一个 signer 重新接入。',
+    'readonly-device-upgrade': '如果要在这台设备上手动注册、买卖或质押，优先重新导入主设备导出的可签名 bundle。',
     'readonly-device-cta-market': '浏览市场',
     'readonly-device-cta-network': '查看网络',
     'account-mode-readonly': '只读',
@@ -1188,7 +1248,7 @@ const dict: Record<string, Record<string, string>> = {
     'skip-to-content': 'Skip to content',
     'wallet-created': 'Account created',
     'onboard-step1': 'Prepare device',
-    'onboard-step1-hint': 'Create a local account or join an existing one',
+    'onboard-step1-hint': 'Create a local account or import a trusted-device bundle from the primary device',
     'onboard-step2': 'Claim starter bonus',
     'onboard-step2-hint': 'Complete a quick task to get free credits',
     'onboard-step2-btn': 'Claim credits',
@@ -1198,14 +1258,24 @@ const dict: Record<string, Record<string, string>> = {
     'onboard-step3-hint': 'Just drop a file — advanced options come later',
     'onboard-welcome': 'Get started',
     'onboard-welcome-hint': 'Prepare this device first, then continue into market and registration flows.',
-    'gate-create-body': 'Attach this device to the right economic account first. You can create a local signing account or join an existing account.',
+    'gate-create-body': 'Attach this device to the right economic account first. For a new setup, prepare this device. If you already have a primary device, prefer importing its trusted-device bundle.',
     'gate-funds-body': 'Solve a quick computation task to earn your first credits.',
-    'account-entry-title': 'Account entry',
+    'account-entry-title': 'Device entry',
     'prepare-device': 'Prepare this device',
     'prepare-device-hint': 'Create a write-capable public beta identity on this device and connect the default environment.',
     'join-existing': 'Join existing account',
+    'join-existing-bundle': 'Import device bundle',
+    'join-existing-advanced': 'Advanced manual join',
     'join-existing-readonly': 'Join read-only',
     'join-existing-signing': 'Join with signer',
+    'join-bundle-file': 'Device bundle',
+    'join-bundle-file-hint': 'Choose the oasyce-device.json exported from the primary device',
+    'join-bundle-hint': 'Recommended. Import a trusted-device bundle and this device will attach to the same account automatically.',
+    'join-bundle-warning': 'Device bundles contain trusted-device credentials. Transfer them only over channels you trust, then delete the file after import.',
+    'join-bundle-invalid': 'This device bundle is not valid JSON',
+    'join-bundle-submit': 'Import device bundle',
+    'join-bundle-selected': 'Selected',
+    'join-advanced-hint': 'Use advanced manual join only when you already know the account address or this machine already has the same signer.',
     'join-account-address': 'Account address',
     'join-account-address-hint': 'Enter an existing account address, e.g. oasyce1...',
     'join-signer-name': 'Signer name',
@@ -1214,9 +1284,16 @@ const dict: Record<string, Record<string, string>> = {
     'join-signing-hint': 'Use this only if the same signer already exists on this device.',
     'device-prepare-success': 'This device account is ready',
     'device-join-success': 'Device joined to this account',
+    'device-export-title': 'Share with another device',
+    'device-export-hint': 'Primary devices can export a trusted-device bundle. Import it on another device to attach it to the same owner account.',
+    'device-export-signing': 'Export signing bundle',
+    'device-export-readonly': 'Export read-only bundle',
+    'device-export-success': 'Device bundle exported',
+    'device-export-readonly-success': 'Read-only device bundle exported',
+    'device-export-signer-warning': 'Signing bundles include signer credentials. Transfer them only over channels you trust, then delete the file after import.',
     'readonly-device-title': 'Shared account connected',
     'readonly-device-body': 'This device is attached to the same economic account, but currently in read-only mode.',
-    'readonly-device-upgrade': 'To register, buy, sell, or stake manually on this device, re-join it with the same signer.',
+    'readonly-device-upgrade': 'To register, buy, sell, or stake manually on this device, prefer re-importing a signing bundle exported from the primary device.',
     'readonly-device-cta-market': 'Browse market',
     'readonly-device-cta-network': 'Open network',
     'account-mode-readonly': 'Read-only',

@@ -2575,12 +2575,26 @@ class _Handler(BaseHTTPRequestHandler):
                 account_address=str(body.get("account_address") or "").strip(),
                 signer_name=body.get("signer_name"),
                 readonly=bool(body.get("readonly", False)),
+                bundle=body.get("bundle") if isinstance(body.get("bundle"), dict) else None,
                 no_update=True,
                 check_package_updates=_update_manager.check_package_updates,
                 upgrade_managed_packages=_update_manager.upgrade_managed_packages,
                 module_spec_finder=importlib.util.find_spec,
                 which=shutil.which,
             )
+            return _json_response(self, payload, 200 if payload.get("ok") else 400)
+
+        if path == "/api/device/export":
+            from oasyce.services.account_service import export_device_bundle_data_payload
+
+            payload = export_device_bundle_data_payload(
+                readonly=bool(body.get("readonly", False)),
+            )
+            if payload.get("ok"):
+                payload.setdefault(
+                    "filename",
+                    f"oasyce-device-{payload.get('bundle_mode', 'readonly')}.json",
+                )
             return _json_response(self, payload, 200 if payload.get("ok") else 400)
 
         if path == "/api/identity/create":

@@ -247,7 +247,7 @@ describe('Home', () => {
       expect(postCalls.length).toBeGreaterThan(0);
     });
 
-    it('step 1 join existing read-only calls POST /device/join', async () => {
+    it('step 1 import bundle calls POST /device/join', async () => {
       mockFetch.mockImplementation((url: string, opts?: any) => {
         if (url?.includes('/device/join') && opts?.method === 'POST')
           return Promise.resolve(okJson({ ok: true }));
@@ -270,10 +270,71 @@ describe('Home', () => {
       });
 
       await mount();
-      const readonlyTab = Array.from(container.querySelectorAll('.home-account-modes .btn'))
-        .find(btn => btn.textContent?.includes('只读'));
-      expect(readonlyTab).not.toBeNull();
-      await act(async () => { (readonlyTab as HTMLButtonElement).click(); });
+      const bundleTab = Array.from(container.querySelectorAll('.home-account-modes .btn'))
+        .find(btn => btn.textContent?.includes('设备包'));
+      expect(bundleTab).not.toBeNull();
+      await act(async () => { (bundleTab as HTMLButtonElement).click(); });
+
+      const input = container.querySelector('#join-bundle-file') as HTMLInputElement;
+      const file = new File(
+        [JSON.stringify({
+          kind: 'oasyce_trusted_device_bundle',
+          version: 1,
+          account_address: 'oasyce1joined',
+          bundle_mode: 'readonly',
+        })],
+        'oasyce-device.json',
+        { type: 'application/json' },
+      );
+      await act(async () => {
+        Object.defineProperty(input, 'files', {
+          configurable: true,
+          value: [file],
+        });
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      const submit = Array.from(container.querySelectorAll('.home-account-card .btn-primary'))
+        .find(btn => btn.textContent?.includes('导入'));
+      expect(submit).not.toBeNull();
+      await act(async () => { (submit as HTMLButtonElement).click(); });
+      await settle();
+
+      const joinCalls = mockFetch.mock.calls.filter(
+        (c: any[]) => c[0]?.includes('/device/join'),
+      );
+      expect(joinCalls.length).toBeGreaterThan(0);
+      expect(JSON.parse(joinCalls[0][1].body).bundle.account_address).toBe('oasyce1joined');
+    });
+
+    it('advanced manual join still supports readonly attach', async () => {
+      mockFetch.mockImplementation((url: string, opts?: any) => {
+        if (url?.includes('/device/join') && opts?.method === 'POST')
+          return Promise.resolve(okJson({ ok: true }));
+        if (url?.includes('/account/status'))
+          return Promise.resolve(okJson({
+            configured: true,
+            account_address: 'oasyce1joined',
+            account_mode: 'attached_readonly',
+            can_sign: false,
+            signer_name: '',
+            signer_address: '',
+            wallet_address: '',
+            wallet_present: false,
+            wallet_matches_account: false,
+            signer_matches_account: false,
+          }));
+        if (url?.includes('/identity/wallet'))
+          return Promise.resolve(okJson({ address: 'oasyce1joined', exists: true }));
+        if (url?.includes('/balance'))
+          return Promise.resolve(okJson({ balance_oas: 5 }));
+        return Promise.resolve({ ok: false, status: 404, text: async () => '', json: async () => ({}) });
+      });
+
+      await mount();
+      const advancedTab = Array.from(container.querySelectorAll('.home-account-modes .btn'))
+        .find(btn => btn.textContent?.includes('高级'));
+      expect(advancedTab).not.toBeNull();
+      await act(async () => { (advancedTab as HTMLButtonElement).click(); });
 
       const input = container.querySelector('#join-account-address') as HTMLInputElement;
       await act(async () => {
@@ -281,7 +342,7 @@ describe('Home', () => {
         input.dispatchEvent(new Event('input', { bubbles: true }));
       });
       const submit = Array.from(container.querySelectorAll('.home-account-card .btn-primary'))
-        .find(btn => btn.textContent?.includes('接入'));
+        .find(btn => btn.textContent?.includes('已有账号'));
       expect(submit).not.toBeNull();
       await act(async () => { (submit as HTMLButtonElement).click(); });
       await settle();
@@ -415,6 +476,45 @@ describe('Home', () => {
     it('does not render redundant bottom navigation', async () => {
       await mount();
       expect(container.querySelector('.home-navigate')).toBeNull();
+    });
+
+    it('renders device share panel and exports a bundle', async () => {
+      const createObjectURL = vi.fn(() => 'blob:bundle');
+      const revokeObjectURL = vi.fn();
+      const click = vi.fn();
+      mockFetch.mockImplementation((url: string) => {
+        if (url?.includes('/api/device/export')) {
+          return Promise.resolve(okJson({
+            ok: true,
+            filename: 'oasyce-device-signing.json',
+            bundle: { kind: 'oasyce_trusted_device_bundle', version: 1 },
+          }));
+        }
+        if (url?.includes('/api/earnings')) {
+          return Promise.resolve(okJson({ total_earned: 0, transactions: [] }));
+        }
+        return Promise.resolve({ ok: false, status: 404, text: async () => '', json: async () => ({}) });
+      });
+      const originalCreate = URL.createObjectURL;
+      const originalRevoke = URL.revokeObjectURL;
+      const originalClick = HTMLAnchorElement.prototype.click;
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+      HTMLAnchorElement.prototype.click = click;
+
+      await mount();
+      const exportButton = Array.from(container.querySelectorAll('.home-device-share .btn'))
+        .find(btn => btn.textContent?.includes('导出可签名'));
+      expect(exportButton).not.toBeNull();
+      await act(async () => { (exportButton as HTMLButtonElement).click(); });
+      await settle();
+
+      expect(createObjectURL).toHaveBeenCalled();
+      expect(click).toHaveBeenCalled();
+
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+      HTMLAnchorElement.prototype.click = originalClick;
     });
 
     it('register button is visible inline, not in collapsed Section', async () => {

@@ -477,3 +477,80 @@ def test_stake_route_maps_service_unavailable(monkeypatch):
     body = _read_json(handler)
     assert handler.status == 503
     assert body["error"] == "Ledger not available"
+
+
+def test_device_export_route_uses_account_service(monkeypatch):
+    handler = _DummyHandler()
+
+    monkeypatch.setattr(
+        "oasyce.services.account_service.export_device_bundle_data_payload",
+        lambda readonly=False: {
+            "ok": True,
+            "bundle": {
+                "kind": "oasyce_trusted_device_bundle",
+                "version": 1,
+                "bundle_mode": "signing" if not readonly else "readonly",
+            },
+            "bundle_mode": "signing" if not readonly else "readonly",
+            "filename": "oasyce-device-signing.json",
+            "account_address": "oasyce1shared",
+            "signer_name": "oasyce-agent",
+        },
+    )
+
+    gui_app._Handler._handle_identity(  # type: ignore[arg-type]
+        handler,
+        "/api/device/export",
+        {"readonly": False},
+        "application/json",
+    )
+
+    body = _read_json(handler)
+    assert handler.status == 200
+    assert body["ok"] is True
+    assert body["bundle_mode"] == "signing"
+    assert body["filename"] == "oasyce-device-signing.json"
+
+
+def test_device_join_route_accepts_bundle_payload(monkeypatch):
+    handler = _DummyHandler()
+    seen = {}
+
+    def _join_device_payload(**kwargs):
+        seen.update(kwargs)
+        return {
+            "ok": True,
+            "account_address": "oasyce1shared",
+            "readonly": False,
+            "write_ready": True,
+            "verify": {"ok": True, "issues": [], "warnings": []},
+        }
+
+    monkeypatch.setattr(
+        "oasyce.services.account_service.join_device_payload",
+        _join_device_payload,
+    )
+
+    gui_app._Handler._handle_identity(  # type: ignore[arg-type]
+        handler,
+        "/api/device/join",
+        {
+            "bundle": {
+                "kind": "oasyce_trusted_device_bundle",
+                "version": 1,
+                "account_address": "oasyce1shared",
+                "bundle_mode": "readonly",
+            }
+        },
+        "application/json",
+    )
+
+    body = _read_json(handler)
+    assert handler.status == 200
+    assert seen["bundle"] == {
+        "kind": "oasyce_trusted_device_bundle",
+        "version": 1,
+        "account_address": "oasyce1shared",
+        "bundle_mode": "readonly",
+    }
+    assert body["ok"] is True

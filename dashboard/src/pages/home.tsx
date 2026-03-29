@@ -19,6 +19,7 @@ import {
   walletAddress as getWalletAddress,
 } from '../store/ui';
 import AccountJoinPanel from '../components/account-join-panel';
+import DeviceSharePanel from '../components/device-share-panel';
 import RegisterForm from '../components/register-form';
 import { mask, fmtPrice, maskIdShort, fmtDate } from '../utils';
 import type { Page } from '../hooks/use-route';
@@ -152,6 +153,7 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
             </button>
           </div>
         </div>
+        <DeviceSharePanel canSign={canSign} />
       </main>
     );
   }
@@ -219,6 +221,7 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
             {_['vet-register-cta']}
           </button>
         </div>
+        <DeviceSharePanel canSign={canSign} />
       </main>
     );
   }
@@ -342,6 +345,10 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
           )}
         </div>
       </div>
+
+      {accountConfigured && (
+        <DeviceSharePanel canSign={canSign} />
+      )}
     </main>
   );
 }

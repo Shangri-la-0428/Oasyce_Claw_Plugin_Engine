@@ -154,9 +154,14 @@ oas start
 打开 Dashboard 首页后，现在只有两条手动入口：
 
 - `Prepare this device`：把这台机器准备成主设备
-- `Join existing account`：把这台机器接到已有账号
+- `Import device bundle`：主设备先导出 bundle，再在这台机器上一键接入同一账号
 
-也就是说，Dashboard 现在是手动操作面，但它已经遵循同一套 `owner account + trusted device` 规则，不再要求用户去理解多套并行身份模型。
+如果当前这台机器已经是主设备，Dashboard 首页也支持直接导出：
+
+- `Export signing bundle`：把另一台机器接成同一 owner account 的可签名 trusted device
+- `Export read-only bundle`：把另一台机器接成只读协作设备
+
+高级手动接入仍然保留在 Dashboard 里，但已经退到备用路径。日常使用优先走 bundle，不再要求用户手动理解 `account + signer` 的组合关系。
 
 ---
 

@@ -509,7 +509,69 @@ describe('UI Store', () => {
   });
 
   // ────────────────────────────────────────────────────────────
-  // 11. i18n — computed signal
+  // 11. device bundle actions
+  // ────────────────────────────────────────────────────────────
+  describe('device bundle actions', () => {
+    it('exports a device bundle', async () => {
+      const ui = await freshUI();
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          ok: true,
+          bundle: { kind: 'oasyce_trusted_device_bundle', version: 1 },
+          filename: 'oasyce-device-signing.json',
+        }),
+      );
+
+      const result = await ui.exportDeviceBundle({ readonly: false });
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.filename).toBe('oasyce-device-signing.json');
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/device/export',
+        expect.objectContaining({
+          method: 'POST',
+        }),
+      );
+    });
+
+    it('joins a device from a bundle and refreshes account context', async () => {
+      const ui = await freshUI();
+      mockFetch
+        .mockResolvedValueOnce(okJson({ ok: true, account_address: 'oasyce1shared' }))
+        .mockResolvedValueOnce(okJson({ address: 'oasyce1shared', exists: true }))
+        .mockResolvedValueOnce(
+          okJson({
+            configured: true,
+            account_address: 'oasyce1shared',
+            account_mode: 'attached_signing',
+            can_sign: true,
+            signer_name: 'oasyce-agent',
+            signer_address: 'oasyce1shared',
+            wallet_address: 'oasyce1shared',
+            wallet_present: true,
+            wallet_matches_account: true,
+            signer_matches_account: true,
+          }),
+        )
+        .mockResolvedValueOnce(okJson({ balance_oas: 10 }))
+        .mockResolvedValueOnce(okJson({ notifications: [] }))
+        .mockResolvedValueOnce(okJson({ unread_count: 0 }));
+
+      const result = await ui.joinDeviceBundle({
+        kind: 'oasyce_trusted_device_bundle',
+        version: 1,
+        account_address: 'oasyce1shared',
+        bundle_mode: 'signing',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(ui.account.value?.account_address).toBe('oasyce1shared');
+      expect(ui.account.value?.can_sign).toBe(true);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────
+  // 12. i18n — computed signal
   // ────────────────────────────────────────────────────────────
   describe('i18n', () => {
     it('returns zh dictionary when lang set to zh', async () => {

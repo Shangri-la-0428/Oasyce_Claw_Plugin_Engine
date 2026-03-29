@@ -99,11 +99,12 @@
         "  - 身份模型现在收敛为 `owner account + trusted device`：设备先决定能不能代表账号写链，`agent/session` 先只做审计标签。",
         "  - 真实公开测试网身份接入目前仍以链侧文档为准；`oas sandbox *` 只是本地沙盒模拟命令。",
         "  - 第二台设备如果要接入同一个经济账号，主设备先运行 `oas device export --output oasyce-device.json`，然后第二台设备运行 `oas device join --bundle oasyce-device.json`。",
+        "  - Dashboard 首页现在也优先走这条 bundle 路径：主设备可以导出 device bundle，第二台设备可以直接导入它；手工 `account + signer` 只保留在高级入口里。",
         "  - 如果一台设备不再可信，直接运行 `oas device revoke` 撤销它的 trusted-device 授权。",
         "  - 第一条安全主路径: 注册一个资产 -> 请求报价 -> 用 Idempotency-Key 买一次 -> 校验持仓。",
         "  - 成功的定义: 返回 trace_id，状态可被机器判定，并且能从持仓或交易记录验证结果。",
         "  - 如果 buy 超时，不要盲目再次发起第二笔金融动作。复用同一个 Idempotency-Key，或先查看 support 数据。",
-        "  - Dashboard 首屏现在支持两种人工路径：准备这台设备，或接入已有账号。真正的身份入口不再藏在零散命令里。",
+        "  - Dashboard 首屏现在支持两种人工路径：准备这台设备，或导入 device bundle。真正的身份入口不再藏在零散命令里。",
         "  - 在邀请新的 beta 用户前，先跑 `oas smoke public-beta --json`，把 doctor + 核心交易链路一起走通。"
       ],
       "en": [
@@ -112,11 +113,12 @@
         "  - The identity model is now `owner account + trusted device`: the device decides whether it may write for the account; `agent/session` remain audit labels for now.",
         "  - Real public testnet identity onboarding still follows the chain docs; `oas sandbox *` commands are local simulation commands for sandbox testing.",
         "  - If a second device should join the same economic account, first run `oas device export --output oasyce-device.json` on the primary device, then run `oas device join --bundle oasyce-device.json` on the second device.",
+        "  - The dashboard home now prefers the same bundle path: primary devices can export a device bundle, and secondary devices can import it directly; manual `account + signer` entry is kept only as an advanced fallback.",
         "  - If a machine should no longer be trusted, run `oas device revoke` to revoke its trusted-device authorization.",
         "  - First safe path: register one asset -> quote it -> buy it once with an Idempotency-Key -> verify holdings.",
         "  - Success means: the action returns a trace_id, the status is machine-readable, and the result can be verified from holdings or transactions.",
         "  - If buy times out, do not submit a second financial action blindly. Reuse the same Idempotency-Key or inspect support data first.",
-        "  - The dashboard home screen now supports two manual paths: prepare this device, or join an existing account. Identity onboarding is no longer hidden behind scattered commands.",
+        "  - The dashboard home screen now supports two manual paths: prepare this device, or import a device bundle. Identity onboarding is no longer hidden behind scattered commands.",
         "  - Before inviting a new beta user, run `oas smoke public-beta --json` so the doctor gate and core financial flow pass together."
       ]
     }

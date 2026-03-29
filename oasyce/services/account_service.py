@@ -17,6 +17,14 @@ def _default_keyring_dir() -> Path:
     return Path.home() / ".oasyced" / "keyring-test"
 
 
+def _validate_device_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(bundle, dict):
+        raise RuntimeError("Bundle payload must be a JSON object.")
+    if bundle.get("kind") != _DEVICE_BUNDLE_KIND:
+        raise RuntimeError("Bundle is not an Oasyce trusted-device bundle.")
+    return bundle
+
+
 def _read_device_bundle(bundle_path: str) -> Dict[str, Any]:
     target = Path(bundle_path).expanduser()
     try:
@@ -26,9 +34,7 @@ def _read_device_bundle(bundle_path: str) -> Dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"Could not read device bundle: {target}") from exc
 
-    if payload.get("kind") != _DEVICE_BUNDLE_KIND:
-        raise RuntimeError("Bundle is not an Oasyce trusted-device bundle.")
-    return payload
+    return _validate_device_bundle(payload)
 
 
 def _write_signer_info_file(
@@ -57,6 +63,44 @@ def _write_signer_info_file(
         target.write_bytes(signer_bytes)
         target.chmod(0o600)
     return str(target)
+
+
+def _build_device_bundle(
+    *,
+    readonly: bool = False,
+    status_reader: Optional[Callable[[], Dict[str, Any]]] = None,
+    keyring_dir: Optional[Path] = None,
+    clock: Callable[[], float] = time.time,
+) -> Dict[str, Any]:
+    status = get_account_status_payload(status_reader=status_reader)
+    account_address = str(status.get("account_address") or "").strip()
+    if not account_address:
+        raise RuntimeError("No canonical account is configured on this device.")
+
+    bundle_mode = "readonly"
+    signer_name = ""
+    signer_info_b64 = ""
+    if not readonly and status.get("can_sign"):
+        signer_name = str(status.get("signer_name") or "").strip()
+        if not signer_name:
+            raise RuntimeError("This device can sign, but no local signer name is configured.")
+        signer_info_path = (keyring_dir or _default_keyring_dir()) / f"{signer_name}.info"
+        try:
+            signer_bytes = signer_info_path.read_bytes()
+        except OSError as exc:
+            raise RuntimeError(f"Could not read signer info for bundle export: {exc}") from exc
+        signer_info_b64 = base64.b64encode(signer_bytes).decode("ascii")
+        bundle_mode = "signing"
+
+    return {
+        "kind": _DEVICE_BUNDLE_KIND,
+        "version": _DEVICE_BUNDLE_VERSION,
+        "created_at": float(clock()),
+        "account_address": account_address,
+        "bundle_mode": bundle_mode,
+        "signer_name": signer_name,
+        "signer_info_b64": signer_info_b64,
+    }
 
 
 def get_account_status_payload(
@@ -153,42 +197,15 @@ def export_device_bundle_payload(
 ) -> Dict[str, Any]:
     if not str(output_path or "").strip():
         return {"ok": False, "error": "Pass --output to write the trusted-device bundle."}
-
-    status = get_account_status_payload(status_reader=status_reader)
-    account_address = str(status.get("account_address") or "").strip()
-    if not account_address:
-        return {"ok": False, "error": "No canonical account is configured on this device."}
-
-    bundle_mode = "readonly"
-    signer_name = ""
-    signer_info_b64 = ""
-    if not readonly and status.get("can_sign"):
-        signer_name = str(status.get("signer_name") or "").strip()
-        if not signer_name:
-            return {
-                "ok": False,
-                "error": "This device can sign, but no local signer name is configured.",
-            }
-        signer_info_path = (keyring_dir or _default_keyring_dir()) / f"{signer_name}.info"
-        try:
-            signer_bytes = signer_info_path.read_bytes()
-        except OSError as exc:
-            return {
-                "ok": False,
-                "error": f"Could not read signer info for bundle export: {exc}",
-            }
-        signer_info_b64 = base64.b64encode(signer_bytes).decode("ascii")
-        bundle_mode = "signing"
-
-    bundle = {
-        "kind": _DEVICE_BUNDLE_KIND,
-        "version": _DEVICE_BUNDLE_VERSION,
-        "created_at": float(clock()),
-        "account_address": account_address,
-        "bundle_mode": bundle_mode,
-        "signer_name": signer_name,
-        "signer_info_b64": signer_info_b64,
-    }
+    try:
+        bundle = _build_device_bundle(
+            readonly=readonly,
+            status_reader=status_reader,
+            keyring_dir=keyring_dir,
+            clock=clock,
+        )
+    except RuntimeError as exc:
+        return {"ok": False, "error": str(exc)}
 
     target = Path(output_path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -197,9 +214,57 @@ def export_device_bundle_payload(
     return {
         "ok": True,
         "output_path": str(target),
-        "account_address": account_address,
-        "bundle_mode": bundle_mode,
+        "account_address": bundle["account_address"],
+        "bundle_mode": bundle["bundle_mode"],
+        "signer_name": bundle["signer_name"],
+    }
+
+
+def export_device_bundle_data_payload(
+    *,
+    readonly: bool = False,
+    status_reader: Optional[Callable[[], Dict[str, Any]]] = None,
+    keyring_dir: Optional[Path] = None,
+    clock: Callable[[], float] = time.time,
+) -> Dict[str, Any]:
+    try:
+        bundle = _build_device_bundle(
+            readonly=readonly,
+            status_reader=status_reader,
+            keyring_dir=keyring_dir,
+            clock=clock,
+        )
+    except RuntimeError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {
+        "ok": True,
+        "bundle": bundle,
+        "account_address": bundle["account_address"],
+        "bundle_mode": bundle["bundle_mode"],
+        "signer_name": bundle["signer_name"],
+    }
+
+
+def join_device_from_bundle_data_payload(
+    *,
+    bundle: Dict[str, Any],
+    keyring_dir: Optional[Path] = None,
+) -> Dict[str, Any]:
+    payload = _validate_device_bundle(bundle)
+    signer_name = str(payload.get("signer_name") or "").strip()
+    bundle_mode = str(payload.get("bundle_mode") or "readonly").strip() or "readonly"
+    if signer_name:
+        _write_signer_info_file(
+            signer_name=signer_name,
+            signer_info_b64=str(payload.get("signer_info_b64") or ""),
+            keyring_dir=keyring_dir,
+        )
+    return {
+        "ok": True,
+        "account_address": str(payload.get("account_address") or "").strip(),
         "signer_name": signer_name,
+        "readonly": bundle_mode != "signing",
+        "bundle_mode": bundle_mode,
     }
 
 
@@ -208,22 +273,9 @@ def join_device_from_bundle_payload(
     bundle_path: str,
     keyring_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    bundle = _read_device_bundle(bundle_path)
-    signer_name = str(bundle.get("signer_name") or "").strip()
-    bundle_mode = str(bundle.get("bundle_mode") or "readonly").strip() or "readonly"
-    if signer_name:
-        _write_signer_info_file(
-            signer_name=signer_name,
-            signer_info_b64=str(bundle.get("signer_info_b64") or ""),
-            keyring_dir=keyring_dir,
-        )
-    return {
-        "ok": True,
-        "account_address": str(bundle.get("account_address") or "").strip(),
-        "signer_name": signer_name,
-        "readonly": bundle_mode != "signing",
-        "bundle_mode": bundle_mode,
-    }
+    return join_device_from_bundle_data_payload(
+        bundle=_read_device_bundle(bundle_path), keyring_dir=keyring_dir
+    )
 
 
 def join_device_payload(
@@ -232,6 +284,7 @@ def join_device_payload(
     signer_name: Optional[str] = None,
     readonly: bool = False,
     bundle_path: Optional[str] = None,
+    bundle: Optional[Dict[str, Any]] = None,
     authorization_expires_at: Optional[float] = None,
     no_update: bool = False,
     check_package_updates: Callable[[], list[dict[str, Any]]],
@@ -242,13 +295,37 @@ def join_device_payload(
     verifier: Optional[Callable[..., Dict[str, Any]]] = None,
     bootstrap_runner: Optional[Callable[..., Dict[str, Any]]] = None,
     bundle_joiner: Optional[Callable[..., Dict[str, Any]]] = None,
+    bundle_data_joiner: Optional[Callable[..., Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     bundle_payload = None
     resolved_account = str(account_address or "").strip()
     resolved_signer_name = str(signer_name or "").strip() or None
     resolved_readonly = bool(readonly)
 
-    if str(bundle_path or "").strip():
+    if bundle is not None:
+        joiner = bundle_data_joiner or join_device_from_bundle_data_payload
+        try:
+            bundle_payload = joiner(bundle=bundle)
+        except RuntimeError as exc:
+            return {"ok": False, "error": str(exc)}
+        if not bundle_payload.get("ok"):
+            return bundle_payload
+        bundle_account = str(bundle_payload.get("account_address") or "").strip()
+        bundle_signer_name = str(bundle_payload.get("signer_name") or "").strip()
+        if resolved_account and bundle_account and resolved_account != bundle_account:
+            return {"ok": False, "error": "Bundle account does not match --account."}
+        if (
+            resolved_signer_name
+            and bundle_signer_name
+            and resolved_signer_name != bundle_signer_name
+        ):
+            return {"ok": False, "error": "Bundle signer does not match --signer-name."}
+        resolved_account = resolved_account or bundle_account
+        if not resolved_signer_name:
+            resolved_signer_name = bundle_signer_name or None
+        if not readonly:
+            resolved_readonly = bool(bundle_payload.get("readonly"))
+    elif str(bundle_path or "").strip():
         joiner = bundle_joiner or join_device_from_bundle_payload
         try:
             bundle_payload = joiner(bundle_path=str(bundle_path).strip())

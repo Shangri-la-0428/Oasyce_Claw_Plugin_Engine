@@ -7,8 +7,10 @@ from pathlib import Path
 
 from oasyce.services.account_service import (
     adopt_account_payload,
+    export_device_bundle_data_payload,
     export_device_bundle_payload,
     get_account_status_payload,
+    join_device_from_bundle_data_payload,
     join_device_payload,
     run_bootstrap,
     verify_account_payload,
@@ -253,6 +255,48 @@ def test_export_device_bundle_payload_signing_bundle(tmp_path: Path):
     assert bundle["bundle_mode"] == "signing"
     assert bundle["account_address"] == "oasyce1shared"
     assert base64.b64decode(bundle["signer_info_b64"]) == b"signer-secret"
+
+
+def test_export_device_bundle_data_payload_returns_bundle_object(tmp_path: Path):
+    keyring_dir = tmp_path / "keyring-test"
+    keyring_dir.mkdir()
+    (keyring_dir / "oasyce-agent.info").write_bytes(b"signer-secret")
+
+    payload = export_device_bundle_data_payload(
+        readonly=False,
+        status_reader=lambda: {
+            "configured": True,
+            "account_address": "oasyce1shared",
+            "can_sign": True,
+            "signer_name": "oasyce-agent",
+        },
+        keyring_dir=keyring_dir,
+        clock=lambda: 123.0,
+    )
+
+    assert payload["ok"] is True
+    assert payload["bundle_mode"] == "signing"
+    assert payload["bundle"]["account_address"] == "oasyce1shared"
+
+
+def test_join_device_from_bundle_data_payload_imports_signer(tmp_path: Path):
+    keyring_dir = tmp_path / "keyring-test"
+
+    payload = join_device_from_bundle_data_payload(
+        bundle={
+            "kind": "oasyce_trusted_device_bundle",
+            "version": 1,
+            "account_address": "oasyce1shared",
+            "bundle_mode": "signing",
+            "signer_name": "oasyce-agent",
+            "signer_info_b64": base64.b64encode(b"signer-secret").decode("ascii"),
+        },
+        keyring_dir=keyring_dir,
+    )
+
+    assert payload["ok"] is True
+    assert payload["readonly"] is False
+    assert (keyring_dir / "oasyce-agent.info").read_bytes() == b"signer-secret"
 
 
 def test_join_device_payload_from_bundle(tmp_path: Path):

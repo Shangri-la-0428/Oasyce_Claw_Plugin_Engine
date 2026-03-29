@@ -156,6 +156,33 @@
   gap: var(--space-xs);
 }
 
+.home-account-file {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-m);
+  border: 1px solid var(--border);
+  background: var(--surface-0);
+  cursor: pointer;
+  transition: border-color 0.18s var(--ease);
+}
+
+.home-account-file:hover {
+  border-color: var(--border-hover);
+}
+
+.home-account-file-name {
+  color: var(--fg-0);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  word-break: break-all;
+}
+
+.home-account-file-name.is-placeholder {
+  color: var(--fg-2);
+  font-family: var(--font-sans);
+}
+
 .home-account-feedback {
   display: grid;
   gap: var(--space-m);
@@ -193,6 +220,18 @@
   gap: var(--space-m);
   padding-top: var(--space-xl);
   border-top: 1px solid var(--border);
+}
+
+.home-device-share {
+  display: grid;
+  gap: var(--space-m);
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--border);
+}
+
+.home-device-share-copy {
+  display: grid;
+  gap: var(--space-xs);
 }
 
 /* ── Veteran stat cards ── */
