@@ -554,3 +554,34 @@ def test_device_join_route_accepts_bundle_payload(monkeypatch):
         "bundle_mode": "readonly",
     }
     assert body["ok"] is True
+
+
+def test_device_revoke_route_uses_account_service(monkeypatch):
+    handler = _DummyHandler()
+    seen = {}
+
+    def _revoke_device_payload():
+        seen["called"] = True
+        return {
+            "ok": True,
+            "account_address": "oasyce1shared",
+            "device_authorization_status": "revoked",
+        }
+
+    monkeypatch.setattr(
+        "oasyce.services.account_service.revoke_device_payload",
+        _revoke_device_payload,
+    )
+
+    gui_app._Handler._handle_identity(  # type: ignore[arg-type]
+        handler,
+        "/api/device/revoke",
+        {},
+        "application/json",
+    )
+
+    body = _read_json(handler)
+    assert seen == {"called": True}
+    assert handler.status == 200
+    assert body["ok"] is True
+    assert body["device_authorization_status"] == "revoked"

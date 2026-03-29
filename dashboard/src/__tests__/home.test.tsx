@@ -84,6 +84,7 @@ describe('Home', () => {
       expect(container.querySelector('.home-accordion')).not.toBeNull();
       expect(container.querySelector('.home-stats')).toBeNull();
       expect(container.querySelector('.home-account-panel')).not.toBeNull();
+      expect(container.textContent).toContain('这台设备要创建新账户吗');
 
       const step1 = container.querySelector('[data-step="1"]');
       expect(step1?.classList.contains('is-active')).toBe(true);
@@ -155,6 +156,32 @@ describe('Home', () => {
 
       expect(container.querySelector('.home-stats')).not.toBeNull();
       expect(container.querySelector('.home-accordion')).toBeNull();
+    });
+
+    it('renders readonly attached state with account management actions', async () => {
+      identity.value = { address: 'oasyce1readonly', exists: true };
+      account.value = {
+        configured: true,
+        account_address: 'oasyce1readonly',
+        account_mode: 'attached_readonly',
+        device_id: 'device-1',
+        device_authorization_status: 'readonly',
+        device_authorization_expires_at: 0,
+        can_sign: false,
+        signer_name: '',
+        signer_address: '',
+        wallet_address: '',
+        wallet_present: false,
+        wallet_matches_account: false,
+        signer_matches_account: false,
+      };
+      balance.value = 5;
+
+      await mount();
+
+      expect(container.textContent).toContain('已接入现有账户');
+      expect(container.textContent).toContain('改用其他账户');
+      expect(container.textContent).toContain('断开这台设备');
     });
   });
 
@@ -234,6 +261,11 @@ describe('Home', () => {
       });
 
       await mount();
+      const createButton = Array.from(container.querySelectorAll('.home-account-choice'))
+        .find(btn => btn.textContent?.includes('创建新账户'));
+      expect(createButton).not.toBeNull();
+      await act(async () => { (createButton as HTMLButtonElement).click(); });
+
       const activeStep = container.querySelector('.accordion-step.is-active');
       const btn = activeStep?.querySelector('.home-account-card .btn-primary') as HTMLButtonElement;
       expect(btn).not.toBeNull();
@@ -270,10 +302,10 @@ describe('Home', () => {
       });
 
       await mount();
-      const bundleTab = Array.from(container.querySelectorAll('.home-account-modes .btn'))
-        .find(btn => btn.textContent?.includes('设备包'));
-      expect(bundleTab).not.toBeNull();
-      await act(async () => { (bundleTab as HTMLButtonElement).click(); });
+      const existingButton = Array.from(container.querySelectorAll('.home-account-choice'))
+        .find(btn => btn.textContent?.includes('使用已有账户'));
+      expect(existingButton).not.toBeNull();
+      await act(async () => { (existingButton as HTMLButtonElement).click(); });
 
       const input = container.querySelector('#join-bundle-file') as HTMLInputElement;
       const file = new File(
@@ -294,7 +326,7 @@ describe('Home', () => {
         input.dispatchEvent(new Event('change', { bubbles: true }));
       });
       const submit = Array.from(container.querySelectorAll('.home-account-card .btn-primary'))
-        .find(btn => btn.textContent?.includes('导入'));
+        .find(btn => btn.textContent?.includes('导入连接文件'));
       expect(submit).not.toBeNull();
       await act(async () => { (submit as HTMLButtonElement).click(); });
       await settle();
@@ -331,10 +363,15 @@ describe('Home', () => {
       });
 
       await mount();
-      const advancedTab = Array.from(container.querySelectorAll('.home-account-modes .btn'))
-        .find(btn => btn.textContent?.includes('高级'));
-      expect(advancedTab).not.toBeNull();
-      await act(async () => { (advancedTab as HTMLButtonElement).click(); });
+      const existingButton = Array.from(container.querySelectorAll('.home-account-choice'))
+        .find(btn => btn.textContent?.includes('使用已有账户'));
+      expect(existingButton).not.toBeNull();
+      await act(async () => { (existingButton as HTMLButtonElement).click(); });
+
+      const advancedButton = Array.from(container.querySelectorAll('.home-account-card .btn'))
+        .find(btn => btn.textContent?.includes('手动接入'));
+      expect(advancedButton).not.toBeNull();
+      await act(async () => { (advancedButton as HTMLButtonElement).click(); });
 
       const input = container.querySelector('#join-account-address') as HTMLInputElement;
       await act(async () => {
@@ -504,7 +541,7 @@ describe('Home', () => {
 
       await mount();
       const exportButton = Array.from(container.querySelectorAll('.home-device-share .btn'))
-        .find(btn => btn.textContent?.includes('导出可签名'));
+        .find(btn => btn.textContent?.includes('导出可交易连接文件'));
       expect(exportButton).not.toBeNull();
       await act(async () => { (exportButton as HTMLButtonElement).click(); });
       await settle();

@@ -14,6 +14,7 @@ import {
   loadBalance,
   loadIdentity,
   powProgress,
+  revokeCurrentDevice,
   selfRegister,
   showToast,
   walletAddress as getWalletAddress,
@@ -45,6 +46,7 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
   const [done, setDone] = useState<LaunchResult | null>(null);
   const [ownerEarnings, setOwnerEarnings] = useState<OwnerEarningsData | null>(null);
   const [earningsLoading, setEarningsLoading] = useState(false);
+  const [deviceAction, setDeviceAction] = useState<'switch' | 'disconnect' | null>(null);
 
   const successRef = useRef<HTMLHeadingElement>(null);
   const earningsFetched = useRef(false);
@@ -62,7 +64,12 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
   const currentBalance = balance.value ?? 0;
   const hasStarterFunds = currentBalance > 0;
   const assetCount = assets.value.length;
-  const isReadonlyAttached = accountConfigured && !canSign && accountStatus?.account_mode === 'attached_readonly';
+  const isReadonlyAttached = (
+    accountConfigured
+    && !canSign
+    && accountStatus?.account_mode === 'attached_readonly'
+    && accountStatus?.device_authorization_status === 'readonly'
+  );
   const isVeteran = accountConfigured && canSign && hasStarterFunds && assetCount > 0;
 
   // Load earnings for veteran view
@@ -109,7 +116,56 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
   }
 
   function handleAccountReady() {
+    setDeviceAction(null);
     loadAssets();
+  }
+
+  async function handleDisconnectDevice() {
+    const result = await revokeCurrentDevice();
+    if (!result.ok) {
+      showToast(result.error || _['error-generic'], 'error');
+      return;
+    }
+    setDeviceAction(null);
+    loadAssets();
+    showToast(_['device-revoke-success'], 'success');
+  }
+
+  function renderDeviceManagement() {
+    return (
+      <section class="home-device-manage" aria-label={_['device-manage-title']}>
+        <div class="home-device-manage-copy">
+          <div class="label">{_['device-manage-title']}</div>
+          <p class="caption fg-muted">{_['device-manage-hint']}</p>
+        </div>
+        {deviceAction === 'switch' ? (
+          <div class="home-device-manage-card">
+            <AccountJoinPanel onReady={handleAccountReady} onCancel={() => setDeviceAction(null)} />
+          </div>
+        ) : deviceAction === 'disconnect' ? (
+          <div class="home-device-manage-card">
+            <p class="caption fg-muted">{_['device-revoke-body']}</p>
+            <div class="row gap-8 wrap">
+              <button type="button" class="btn btn-primary" onClick={handleDisconnectDevice}>
+                {_['device-revoke-confirm']}
+              </button>
+              <button type="button" class="btn btn-ghost" onClick={() => setDeviceAction(null)}>
+                {_['account-entry-cancel']}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div class="row gap-8 wrap">
+            <button type="button" class="btn btn-ghost" onClick={() => setDeviceAction('switch')}>
+              {_['device-switch-account']}
+            </button>
+            <button type="button" class="btn btn-ghost" onClick={() => setDeviceAction('disconnect')}>
+              {_['device-revoke']}
+            </button>
+          </div>
+        )}
+      </section>
+    );
   }
 
   if (isReadonlyAttached && !done) {
@@ -153,6 +209,7 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
             </button>
           </div>
         </div>
+        {renderDeviceManagement()}
         <DeviceSharePanel canSign={canSign} />
       </main>
     );
@@ -221,6 +278,7 @@ export default function Home({ go }: { go: (p: Page, sub?: string) => void }) {
             {_['vet-register-cta']}
           </button>
         </div>
+        {renderDeviceManagement()}
         <DeviceSharePanel canSign={canSign} />
       </main>
     );

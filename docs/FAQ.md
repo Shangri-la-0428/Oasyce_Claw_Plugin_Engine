@@ -40,7 +40,7 @@ Oasyce 协议不绑定特定钱包实现。任何支持 Ed25519/Secp256k1 签名
 - owner account 负责经济归属：谁持有、谁付费、谁收款
 - trusted device 负责签名：哪台机器现在能代表这个 account 写链
 - agent / session 先只做审计标签，不先做独立钱包主体
-- 多设备：主设备签名；主设备可导出 trusted-device bundle，第二台设备用 `oas device join --bundle ...` 接入；不可信设备可撤销
+- 多设备：主设备签名；主设备可导出连接文件，第二台设备用 `oas device join --bundle ...` 接入；不可信设备可撤销
 
 **多签方案（高价值场景）：**
 - 2/3 多签：一个硬件钱包 + 一个备用设备 + 一个离线备份

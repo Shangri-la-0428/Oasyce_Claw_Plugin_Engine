@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useMemo, useState } from 'preact/hooks';
 import {
   i18n,
@@ -7,12 +8,14 @@ import {
   showToast,
 } from '../store/ui';
 
-type Mode = 'prepare' | 'bundle' | 'advanced';
+type Stage = 'question' | 'prepare' | 'existing' | 'advanced';
 type AdvancedMode = 'readonly' | 'signing';
 
-export default function AccountJoinPanel({ onReady }: { onReady?: () => void }) {
+export default function AccountJoinPanel(
+  { onReady, onCancel }: { onReady?: () => void; onCancel?: () => void },
+) {
   const _ = i18n.value;
-  const [mode, setMode] = useState<Mode>('prepare');
+  const [stage, setStage] = useState<Stage>('question');
   const [advancedMode, setAdvancedMode] = useState<AdvancedMode>('readonly');
   const [accountAddress, setAccountAddress] = useState('');
   const [signerName, setSignerName] = useState('');
@@ -27,11 +30,21 @@ export default function AccountJoinPanel({ onReady }: { onReady?: () => void }) 
     return true;
   }, [accountAddress, advancedMode, signerName]);
 
+  function resetFeedback() {
+    setIssues([]);
+    setWarnings([]);
+  }
+
+  function goTo(nextStage: Stage) {
+    if (loading) return;
+    resetFeedback();
+    setStage(nextStage);
+  }
+
   async function handlePrepare() {
     if (loading) return;
     setLoading(true);
-    setIssues([]);
-    setWarnings([]);
+    resetFeedback();
     const result = await prepareLocalAccount();
     setLoading(false);
     if (result.ok) {
@@ -47,8 +60,7 @@ export default function AccountJoinPanel({ onReady }: { onReady?: () => void }) 
   async function handleBundleJoin() {
     if (loading || !bundleFile) return;
     setLoading(true);
-    setIssues([]);
-    setWarnings([]);
+    resetFeedback();
     try {
       const raw = await bundleFile.text();
       const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -72,8 +84,7 @@ export default function AccountJoinPanel({ onReady }: { onReady?: () => void }) 
   async function handleJoin() {
     if (loading || !canSubmitManualJoin) return;
     setLoading(true);
-    setIssues([]);
-    setWarnings([]);
+    resetFeedback();
     const result = await joinExistingAccount({
       accountAddress: accountAddress.trim(),
       signerName: advancedMode === 'signing' ? signerName.trim() : undefined,
@@ -90,51 +101,68 @@ export default function AccountJoinPanel({ onReady }: { onReady?: () => void }) 
     showToast(result.error || _['error-generic'], 'error');
   }
 
+  function renderActions(content: ComponentChildren) {
+    return <div class="row gap-8 wrap">{content}</div>;
+  }
+
   return (
     <div class="home-account-panel">
-      <div class="home-account-modes" role="tablist" aria-label={_['account-entry-title']}>
-        <button
-          type="button"
-          class={`btn ${mode === 'prepare' ? 'btn-primary' : 'btn-ghost'}`}
-          role="tab"
-          aria-selected={mode === 'prepare'}
-          onClick={() => setMode('prepare')}
-        >
-          {_['prepare-device']}
-        </button>
-        <button
-          type="button"
-          class={`btn ${mode === 'bundle' ? 'btn-primary' : 'btn-ghost'}`}
-          role="tab"
-          aria-selected={mode === 'bundle'}
-          onClick={() => setMode('bundle')}
-        >
-          {_['join-existing-bundle']}
-        </button>
-        <button
-          type="button"
-          class={`btn ${mode === 'advanced' ? 'btn-primary' : 'btn-ghost'}`}
-          role="tab"
-          aria-selected={mode === 'advanced'}
-          onClick={() => setMode('advanced')}
-        >
-          {_['join-existing-advanced']}
-        </button>
-      </div>
+      {stage === 'question' && (
+        <div class="home-account-card">
+          <div class="home-account-copy">
+            <strong>{_['account-entry-question']}</strong>
+            <p class="caption fg-muted">{_['account-entry-hint']}</p>
+          </div>
+          <div class="home-account-choice-grid">
+            <button
+              type="button"
+              class="home-account-choice"
+              onClick={() => goTo('prepare')}
+              disabled={loading}
+            >
+              <strong>{_['account-entry-create']}</strong>
+              <span class="caption fg-muted">{_['account-entry-create-hint']}</span>
+            </button>
+            <button
+              type="button"
+              class="home-account-choice"
+              onClick={() => goTo('existing')}
+              disabled={loading}
+            >
+              <strong>{_['account-entry-existing']}</strong>
+              <span class="caption fg-muted">{_['account-entry-existing-hint']}</span>
+            </button>
+          </div>
+          {onCancel && (
+            renderActions(
+              <button type="button" class="btn btn-ghost" onClick={onCancel} disabled={loading}>
+                {_['account-entry-cancel']}
+              </button>,
+            )
+          )}
+        </div>
+      )}
 
-      {mode === 'prepare' && (
+      {stage === 'prepare' && (
         <div class="home-account-card">
           <div class="home-account-copy">
             <strong>{_['prepare-device']}</strong>
             <p class="caption fg-muted">{_['prepare-device-hint']}</p>
           </div>
-          <button type="button" class="btn btn-primary" onClick={handlePrepare} disabled={loading}>
-            {loading ? '…' : _['prepare-device']}
-          </button>
+          {renderActions(
+            <>
+              <button type="button" class="btn btn-primary" onClick={handlePrepare} disabled={loading}>
+                {loading ? '…' : _['prepare-device']}
+              </button>
+              <button type="button" class="btn btn-ghost" onClick={() => goTo('question')} disabled={loading}>
+                {_['account-entry-back']}
+              </button>
+            </>,
+          )}
         </div>
       )}
 
-      {mode === 'bundle' && (
+      {stage === 'existing' && (
         <div class="home-account-card">
           <div class="home-account-copy">
             <strong>{_['join-existing-bundle']}</strong>
@@ -157,18 +185,28 @@ export default function AccountJoinPanel({ onReady }: { onReady?: () => void }) 
             />
           </label>
           <p class="caption fg-muted">{_['join-bundle-warning']}</p>
-          <button
-            type="button"
-            class="btn btn-primary"
-            onClick={handleBundleJoin}
-            disabled={loading || !bundleFile}
-          >
-            {loading ? '…' : _['join-bundle-submit']}
-          </button>
+          {renderActions(
+            <>
+              <button
+                type="button"
+                class="btn btn-primary"
+                onClick={handleBundleJoin}
+                disabled={loading || !bundleFile}
+              >
+                {loading ? '…' : _['join-bundle-submit']}
+              </button>
+              <button type="button" class="btn btn-ghost" onClick={() => goTo('question')} disabled={loading}>
+                {_['account-entry-back']}
+              </button>
+              <button type="button" class="btn btn-ghost" onClick={() => goTo('advanced')} disabled={loading}>
+                {_['account-entry-advanced']}
+              </button>
+            </>,
+          )}
         </div>
       )}
 
-      {mode === 'advanced' && (
+      {stage === 'advanced' && (
         <div class="home-account-card">
           <div class="home-account-copy">
             <strong>{_['join-existing-advanced']}</strong>
@@ -221,14 +259,21 @@ export default function AccountJoinPanel({ onReady }: { onReady?: () => void }) 
           <p class="caption fg-muted">
             {advancedMode === 'readonly' ? _['join-readonly-hint'] : _['join-signing-hint']}
           </p>
-          <button
-            type="button"
-            class="btn btn-primary"
-            onClick={handleJoin}
-            disabled={loading || !canSubmitManualJoin}
-          >
-            {loading ? '…' : _['join-existing']}
-          </button>
+          {renderActions(
+            <>
+              <button
+                type="button"
+                class="btn btn-primary"
+                onClick={handleJoin}
+                disabled={loading || !canSubmitManualJoin}
+              >
+                {loading ? '…' : _['join-existing']}
+              </button>
+              <button type="button" class="btn btn-ghost" onClick={() => goTo('existing')} disabled={loading}>
+                {_['account-entry-back']}
+              </button>
+            </>,
+          )}
         </div>
       )}
 

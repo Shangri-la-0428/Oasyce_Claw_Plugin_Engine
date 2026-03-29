@@ -65,26 +65,26 @@
       "en": "## Testnet (Public Beta vs Local Sandbox)"
     },
     "readme_intro": {
-      "zh": "公开测试的**唯一产品入口文档**在 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)。真实链上接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。部署边界见 [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md)：VPS 跑链和公共基础设施，`oasyce-net` 默认仍是用户侧客户端。身份模型现在收敛为 **owner account + trusted device**：主设备先 `oas bootstrap`，第二台设备优先 `oas device join`。`oas sandbox *` 只负责本地沙盒模拟，不代表真实公网测试网接入。",
-      "en": "The **single product-facing public beta guide** lives at [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md). For real public testnet onboarding, follow the chain-side guide on [chain.oasyce](https://chain.oasyce.com). See [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md) for the deployment boundary: the VPS runs chain and shared infra, while `oasyce-net` remains a user-side client by default. The identity model is now **owner account + trusted device**: primary devices start with `oas bootstrap`, and secondary devices attach with `oas device join`. `oas sandbox *` is only the local sandbox simulation and is not real public testnet onboarding."
+      "zh": "公开测试的**唯一产品入口文档**在 [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md)。真实链上接入请看 [chain.oasyce](https://chain.oasyce.com) 的链侧说明。部署边界见 [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md)：VPS 跑链和公共基础设施，`oasyce-net` 默认仍是用户侧客户端。身份模型现在收敛为 **owner account + trusted device**：主设备先 `oas bootstrap`，第二台设备优先用主设备导出的连接文件执行 `oas device join`。`oas sandbox *` 只负责本地沙盒模拟，不代表真实公网测试网接入。",
+      "en": "The **single product-facing public beta guide** lives at [docs/public-testnet-guide.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/public-testnet-guide.md). For real public testnet onboarding, follow the chain-side guide on [chain.oasyce](https://chain.oasyce.com). See [docs/DEPLOYMENT_BOUNDARY.md](/Users/wutongcheng/Desktop/Net/oasyce-net/docs/DEPLOYMENT_BOUNDARY.md) for the deployment boundary: the VPS runs chain and shared infra, while `oasyce-net` remains a user-side client by default. The identity model is now **owner account + trusted device**: primary devices start with `oas bootstrap`, and secondary devices should use the connection file exported from the primary device with `oas device join`. `oas sandbox *` is only the local sandbox simulation and is not real public testnet onboarding."
     },
     "readme_commands": {
       "zh": [
         "oas --json sandbox status   # 查看本地沙盒状态",
         "oas --json sandbox onboard  # 本地模拟：faucet + 示例资产 + 质押",
         "oas sandbox reset --force   # 重置本地沙盒",
-        "oas device export --output oasyce-device.json   # 主设备导出 trusted-device bundle",
+        "oas device export --output oasyce-device.json   # 主设备导出连接文件",
         "oas device join --bundle oasyce-device.json   # 第二台设备接入同一账号",
-        "oas device revoke   # 撤销这台机器的 trusted-device 授权",
+        "oas device revoke   # 撤销这台机器的设备授权",
         "oas doctor --public-beta --json   # 公测发布 gate"
       ],
       "en": [
         "oas --json sandbox status   # Inspect the local sandbox state",
         "oas --json sandbox onboard  # Local simulation: faucet + sample asset + stake",
         "oas sandbox reset --force   # Reset local sandbox data",
-        "oas device export --output oasyce-device.json   # export a trusted-device bundle from the primary device",
+        "oas device export --output oasyce-device.json   # export a connection file from the primary device",
         "oas device join --bundle oasyce-device.json   # attach a second device to the same account",
-        "oas device revoke   # revoke this machine's trusted-device authorization",
+        "oas device revoke   # revoke this device authorization",
         "oas doctor --public-beta --json   # public beta release gate"
       ]
     },
@@ -98,13 +98,13 @@
         "  - 真正开始使用前，先跑 `oas bootstrap`，让 agent 自动升级 Oasyce + DataVault、确保钱包已就绪，并把这台机器切成 managed install。",
         "  - 身份模型现在收敛为 `owner account + trusted device`：设备先决定能不能代表账号写链，`agent/session` 先只做审计标签。",
         "  - 真实公开测试网身份接入目前仍以链侧文档为准；`oas sandbox *` 只是本地沙盒模拟命令。",
-        "  - 第二台设备如果要接入同一个经济账号，主设备先运行 `oas device export --output oasyce-device.json`，然后第二台设备运行 `oas device join --bundle oasyce-device.json`。",
-        "  - Dashboard 首页现在也优先走这条 bundle 路径：主设备可以导出 device bundle，第二台设备可以直接导入它；手工 `account + signer` 只保留在高级入口里。",
-        "  - 如果一台设备不再可信，直接运行 `oas device revoke` 撤销它的 trusted-device 授权。",
+        "  - 第二台设备如果要接入同一个经济账号，主设备先运行 `oas device export --output oasyce-device.json` 导出连接文件，然后第二台设备运行 `oas device join --bundle oasyce-device.json`。",
+        "  - Dashboard 首页现在也优先走这条连接文件路径：先回答“是否创建新账户”，然后按创建或导入继续；手工 `account + signer` 只保留在高级入口里。",
+        "  - 如果一台设备不再可信，直接运行 `oas device revoke` 撤销它的设备授权。",
         "  - 第一条安全主路径: 注册一个资产 -> 请求报价 -> 用 Idempotency-Key 买一次 -> 校验持仓。",
         "  - 成功的定义: 返回 trace_id，状态可被机器判定，并且能从持仓或交易记录验证结果。",
         "  - 如果 buy 超时，不要盲目再次发起第二笔金融动作。复用同一个 Idempotency-Key，或先查看 support 数据。",
-        "  - Dashboard 首屏现在支持两种人工路径：准备这台设备，或导入 device bundle。真正的身份入口不再藏在零散命令里。",
+        "  - Dashboard 首屏现在只先问一个问题：这台设备是创建新账户，还是使用已有账户。导入连接文件、手动接入、断开设备和切换账户都还能撤回。",
         "  - 在邀请新的 beta 用户前，先跑 `oas smoke public-beta --json`，把 doctor + 核心交易链路一起走通。"
       ],
       "en": [
@@ -112,13 +112,13 @@
         "  - Before real work, run `oas bootstrap` so the agent upgrades Oasyce + DataVault, ensures a wallet exists, and turns this machine into a managed install.",
         "  - The identity model is now `owner account + trusted device`: the device decides whether it may write for the account; `agent/session` remain audit labels for now.",
         "  - Real public testnet identity onboarding still follows the chain docs; `oas sandbox *` commands are local simulation commands for sandbox testing.",
-        "  - If a second device should join the same economic account, first run `oas device export --output oasyce-device.json` on the primary device, then run `oas device join --bundle oasyce-device.json` on the second device.",
-        "  - The dashboard home now prefers the same bundle path: primary devices can export a device bundle, and secondary devices can import it directly; manual `account + signer` entry is kept only as an advanced fallback.",
-        "  - If a machine should no longer be trusted, run `oas device revoke` to revoke its trusted-device authorization.",
+        "  - If a second device should join the same economic account, first run `oas device export --output oasyce-device.json` on the primary device to export a connection file, then run `oas device join --bundle oasyce-device.json` on the second device.",
+        "  - The dashboard home now prefers the same connection-file path: answer one question first, then either create a new account or import an existing one; manual `account + signer` entry remains only as an advanced fallback.",
+        "  - If a machine should no longer be trusted, run `oas device revoke` to revoke its device authorization.",
         "  - First safe path: register one asset -> quote it -> buy it once with an Idempotency-Key -> verify holdings.",
         "  - Success means: the action returns a trace_id, the status is machine-readable, and the result can be verified from holdings or transactions.",
         "  - If buy times out, do not submit a second financial action blindly. Reuse the same Idempotency-Key or inspect support data first.",
-        "  - The dashboard home screen now supports two manual paths: prepare this device, or import a device bundle. Identity onboarding is no longer hidden behind scattered commands.",
+        "  - The dashboard home screen now starts with one question: should this device create a new account or use an existing one? Import, manual join, disconnect, and switching accounts remain reversible.",
         "  - Before inviting a new beta user, run `oas smoke public-beta --json` so the doctor gate and core financial flow pass together."
       ]
     }

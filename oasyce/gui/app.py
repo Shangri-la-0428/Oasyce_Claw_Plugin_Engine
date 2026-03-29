@@ -2584,6 +2584,12 @@ class _Handler(BaseHTTPRequestHandler):
             )
             return _json_response(self, payload, 200 if payload.get("ok") else 400)
 
+        if path == "/api/device/revoke":
+            from oasyce.services.account_service import revoke_device_payload
+
+            payload = revoke_device_payload()
+            return _json_response(self, payload, 200 if payload.get("ok") else 400)
+
         if path == "/api/device/export":
             from oasyce.services.account_service import export_device_bundle_data_payload
 

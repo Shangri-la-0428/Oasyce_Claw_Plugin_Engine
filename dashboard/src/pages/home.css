@@ -136,6 +136,26 @@
   gap: var(--space-l);
 }
 
+.home-account-choice-grid {
+  display: grid;
+  gap: var(--space-s);
+}
+
+.home-account-choice {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-m);
+  border: 1px solid var(--border);
+  background: var(--surface-0);
+  text-align: left;
+  transition: border-color 0.18s var(--ease), transform 0.18s var(--ease);
+}
+
+.home-account-choice:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+}
+
 .home-account-modes {
   display: flex;
   flex-wrap: wrap;
@@ -220,6 +240,23 @@
   gap: var(--space-m);
   padding-top: var(--space-xl);
   border-top: 1px solid var(--border);
+}
+
+.home-device-manage {
+  display: grid;
+  gap: var(--space-m);
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--border);
+}
+
+.home-device-manage-copy {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.home-device-manage-card {
+  display: grid;
+  gap: var(--space-m);
 }
 
 .home-device-share {

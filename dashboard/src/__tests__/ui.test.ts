@@ -568,6 +568,45 @@ describe('UI Store', () => {
       expect(ui.account.value?.account_address).toBe('oasyce1shared');
       expect(ui.account.value?.can_sign).toBe(true);
     });
+
+    it('revokes current device and refreshes account context', async () => {
+      const ui = await freshUI();
+      mockFetch
+        .mockResolvedValueOnce(okJson({ ok: true }))
+        .mockResolvedValueOnce(okJson({ address: 'oasyce1shared', exists: true }))
+        .mockResolvedValueOnce(
+          okJson({
+            configured: true,
+            account_address: 'oasyce1shared',
+            account_mode: 'attached_readonly',
+            device_id: 'device-2',
+            device_authorization_status: 'revoked',
+            device_authorization_expires_at: 0,
+            can_sign: false,
+            signer_name: '',
+            signer_address: '',
+            wallet_address: 'oasyce1shared',
+            wallet_present: true,
+            wallet_matches_account: true,
+            signer_matches_account: false,
+          }),
+        )
+        .mockResolvedValueOnce(okJson({ balance_oas: 10 }))
+        .mockResolvedValueOnce(okJson({ notifications: [] }))
+        .mockResolvedValueOnce(okJson({ unread_count: 0 }));
+
+      const result = await ui.revokeCurrentDevice();
+
+      expect(result.ok).toBe(true);
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/device/revoke',
+        expect.objectContaining({
+          method: 'POST',
+        }),
+      );
+      expect(ui.account.value?.device_authorization_status).toBe('revoked');
+      expect(ui.account.value?.can_sign).toBe(false);
+    });
   });
 
   // ────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # Oasyce 公开测试网 — 快速上手
 
-> 公开测试现在只保留一个产品规则：**owner account + trusted device**。主设备先 `oas bootstrap`，需要把同一钱包接到第二台设备时，主设备导出 bundle，第二台设备再一键 `oas device join --bundle ...`。
+> 公开测试现在只保留一个产品规则：**owner account + trusted device**。主设备先 `oas bootstrap`，需要把同一钱包接到第二台设备时，主设备导出连接文件，第二台设备再一键 `oas device join --bundle ...`。
 
 ## 部署边界
 
@@ -49,7 +49,7 @@ export OASYCE_STRICT_CHAIN=1
 oas doctor --public-beta --json
 ```
 
-只有当 `oas doctor --public-beta --json` 返回 `status: ok`，才说明这台机器已经满足公开测试的最小发布门槛：网络模式正确、不会回退到本地账本、trusted-device 状态可用、DataVault 可用、公共链端点可达。
+只有当 `oas doctor --public-beta --json` 返回 `status: ok`，才说明这台机器已经满足公开测试的最小发布门槛：网络模式正确、不会回退到本地账本、设备授权状态可用、DataVault 可用、公共链端点可达。
 
 如果你是在做发版或邀请新一批 beta 用户，继续执行：
 
@@ -63,7 +63,7 @@ oas smoke public-beta --json
 
 ## 多设备使用同一账号
 
-如果你希望另一台电脑上的 `Codex`、`Claude Code` 或其他 AI 继续代表**同一个经济账号**行动，不要在第二台设备上直接裸跑默认 `oas bootstrap`。现在最简单的路径是：主设备导出 trusted-device bundle，第二台设备导入它。
+如果你希望另一台电脑上的 `Codex`、`Claude Code` 或其他 AI 继续代表**同一个经济账号**行动，不要在第二台设备上直接裸跑默认 `oas bootstrap`。现在最简单的路径是：主设备导出连接文件，第二台设备导入它。
 
 ### 主设备（负责签名）
 
@@ -81,14 +81,14 @@ oas doctor --public-beta --json
 oas device export --output oasyce-device.json
 ```
 
-记下这两个值，或者直接把刚导出的 bundle 安全传过去：
+记下这两个值，或者直接把刚导出的连接文件安全传过去：
 
 - `account_address`
 - `signer_name`（如果你准备让第二台设备也代签）
 
 ### 第二台设备，最快接入同一账号
 
-最简单的方式就是直接导入 bundle：
+最简单的方式就是直接导入连接文件：
 
 ```bash
 export OASYCE_NETWORK_MODE=testnet
@@ -97,9 +97,9 @@ oas device join --bundle oasyce-device.json
 oas doctor --public-beta --json
 ```
 
-如果 bundle 来自主设备的可签名设备，这条路径会把第二台机器也接成**可签名 trusted device**。
+如果这个连接文件来自主设备的可签名设备，这条路径会把第二台机器也接成**可签名设备**。
 
-导入成功后，建议立刻删除 bundle 文件：
+导入成功后，建议立刻删除连接文件：
 
 ```bash
 rm -f oasyce-device.json
@@ -134,14 +134,14 @@ oas doctor --public-beta --json
 oas device revoke
 ```
 
-如果一台设备不再可信，或者你不再想让它继续代表当前账号行动，直接在那台机器上撤销 trusted-device 授权。
+如果一台设备不再可信，或者你不再想让它继续代表当前账号行动，直接在那台机器上撤销设备授权。
 
 ### 当前边界
 
 - `oas bootstrap`：主设备入口，准备环境并尊重已有账号绑定
-- `oas device export`：主设备导出 trusted-device bundle
+- `oas device export`：主设备导出连接文件
 - `oas device join`：第二台设备最简单的入口，优先走 `--bundle`
-- `oas account status`：查看这台机器当前绑定的 owner account 和 trusted-device 状态
+- `oas account status`：查看这台机器当前绑定的 owner account 和设备授权状态
 - `oas account verify`：更底层的诊断命令，通常只在排障时使用
 - 如果一台机器直接生成新的本地 signer 而不是走 `device join`，它就会形成**新的经济账号**
 
@@ -151,17 +151,27 @@ oas device revoke
 oas start
 ```
 
-打开 Dashboard 首页后，现在只有两条手动入口：
+打开 Dashboard 首页后，先只回答一个问题：
 
-- `Prepare this device`：把这台机器准备成主设备
-- `Import device bundle`：主设备先导出 bundle，再在这台机器上一键接入同一账号
+- 这台设备要创建新账户吗？
+
+然后再走对应路径：
+
+- `Create new account`：把这台机器准备成主设备
+- `Use existing account`：主设备先导出连接文件，再在这台机器上一键接入同一账号
 
 如果当前这台机器已经是主设备，Dashboard 首页也支持直接导出：
 
-- `Export signing bundle`：把另一台机器接成同一 owner account 的可签名 trusted device
-- `Export read-only bundle`：把另一台机器接成只读协作设备
+- `Export signing connection file`：把另一台机器接成同一 owner account 的可签名设备
+- `Export read-only connection file`：把另一台机器接成只读协作设备
 
-高级手动接入仍然保留在 Dashboard 里，但已经退到备用路径。日常使用优先走 bundle，不再要求用户手动理解 `account + signer` 的组合关系。
+如果用户点错了，Dashboard 里现在支持：
+
+- 返回上一步
+- 改用其他账户
+- 断开这台设备
+
+高级手动接入仍然保留在 Dashboard 里，但已经退到备用路径。日常使用优先走连接文件，不再要求用户手动理解 `account + signer` 的组合关系。
 
 ---
 
